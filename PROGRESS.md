@@ -86,18 +86,30 @@ layer's contribution is entirely unvalidated. Net-of-costs edge for *this*
 implementation is unproven. The honest prior is skepticism until the IC tracker
 and null benchmark run on live data across enough days to clear the noise.
 
-## Deploy-readiness pass (post-cycle-5, user-requested)
+## Deploy-readiness pass (post-cycle-5, user-requested) — DONE
 
-Fixed the one real Railway blocker: the worker rendered reports to its local disk
-and the api read from *its* disk, but on Railway those are separate ephemeral
-filesystems, so `/report/{date}/html|pdf` would 404 in the two-service topology.
-Now the rendered HTML + PDF are persisted to Postgres (`report_artifacts` table)
-and the api serves from the DB (disk is a local-only fallback). Proven
-end-to-end: ran the funnel, **wiped the report directory entirely**, and the API
-still served HTML (200) and a valid PDF (200, `%PDF`) via the DB. Added
-`DEPLOY.md` (services, env vars, backfill, endpoints). 185 tests, ruff clean.
-The system is push-ready and deploy-ready; the only thing unverifiable here
-remains the live API pass (needs keys + egress).
+Made the system genuinely Railway-ready. Six fixes, each verified:
+
+1. **Reports served from the DB.** Worker and api are separate services with
+   separate ephemeral filesystems, so a disk-only report 404'd on the api. Now
+   the rendered HTML + PDF persist to Postgres (`report_artifacts`); the api
+   serves from the DB. Proven: ran the funnel, **wiped the report dir**, api
+   still served HTML (200) and a valid PDF (200, `%PDF`).
+2. **Startup migration.** `init_db()` (called by both services at boot) now
+   creates the performance indexes too, so the real Postgres is fully migrated
+   on deploy — not a build-phase step where `DATABASE_URL` may be unresolved.
+   Dropped the build-phase DB command from `nixpacks.toml`.
+3. **FastAPI lifespan** instead of the deprecated `@app.on_event`.
+4. **Optional API-key guard** on `POST /run` (the token-spending endpoint) via
+   `API_KEY`; unset = open (dev), set = `X-API-Key` required. Reads stay open.
+5. **Clean prod-only install verified** — a fresh venv from `requirements.txt`
+   alone imports every module and all four entrypoints; weasyprint works.
+6. **API surface tests** (`tests/test_api.py`) — the api had zero coverage.
+
+Added `DEPLOY.md` (topology, env vars, backfill, endpoints, egress hosts).
+**192 tests, ruff clean.** Everything verifiable offline is done. The only
+remaining unknown is the live API pass (real Polygon/FMP/etc. payloads), which
+needs keys + egress and can only happen in the Railway environment.
 
 ## Loop status: STOPPED after cycle 5
 
