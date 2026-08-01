@@ -33,7 +33,8 @@ permits the data hosts.
 
 ## Verified working (offline, this environment)
 
-- **176 tests pass**, ruff clean. `pytest -p no:warnings`.
+- **180 tests pass**, ruff clean. `pytest -p no:warnings`. (weasyprint PDF test
+  runs where the system libs are present, skips otherwise.)
 - **Point-in-time enforcement** (`tests/test_pit.py`, 41 tests): the guardrail
   suite. Sweeps every date in the month before a filing; fails if any can see
   the data. Restatement resolution + SEC-over-vendor tiebreak covered.
@@ -46,9 +47,6 @@ permits the data hosts.
 
 ## Known-incomplete / half-built
 
-- **weasyprint PDF** is not installed (needs cairo/pango). PDF render silently
-  degrades to HTML-only. `nixpacks.toml` installs the libs for deploy; not
-  verified here.
 - **IV rank** returns None until a trailing IV history accumulates (by design).
 - **Resume is not auto-triggered by the scheduler.** `resume_last()` and the
   CLI `--resume` exist and are verified, but the APScheduler `daily_job` still
@@ -84,8 +82,18 @@ assume worthless until measured on live data.
   reports `resume_from=4`, restores Stage 3 in 0.01s with **0 API calls**, and
   the enrichment fn (patched to raise) is never called. 179 tests pass, ruff
   clean. Funnel on the seeded harness: 150→66→66→66→10, $0 tokens.
-- **Next cycle candidates:** (a) cycle-5 checkpoint is coming up — run end to
-  end, read as a user, delete dead code, reconcile this file; (b) weasyprint
-  verification if the libs can be installed; (c) tighten any deterministic-layer
-  edge cases found by re-reading. Do NOT invent work — if nothing real remains,
-  run validation and report the (currently unmeasurable) edge honestly.
+- **Cycle 2 (done):** verified the PDF export path, which had never been run.
+  The system libs (cairo/pango/gobject/gdk-pixbuf) ARE present in this
+  environment; weasyprint installs and `_render_pdf` produces a valid 354 KB
+  PDF (%PDF header + %%EOF, verified by reading the bytes). The code was correct
+  all along — it only "silently skipped" because weasyprint wasn't in the venv.
+  Added a test (`test_pdf_renders_a_valid_document_when_weasyprint_available`)
+  that verifies real PDF structure where the libs exist and skips otherwise, so
+  the path is no longer untested. Note: the venv is not committed, so a fresh
+  container needs `pip install -r requirements-dev.txt` for the test to run
+  (else it skips).
+- **Next cycle candidates:** (a) cycle-5 checkpoint (cycle 5) — run end to end,
+  read as a user, delete dead code, reconcile this file; (b) tighten any
+  deterministic-layer edge cases found by re-reading. Do NOT invent work — if
+  nothing real remains, run validation and report the (currently unmeasurable)
+  edge honestly.
