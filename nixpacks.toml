@@ -22,8 +22,11 @@ cmds = [
   ". /opt/venv/bin/activate && pip install -r requirements.txt",
 ]
 
-[phases.build]
-cmds = [". /opt/venv/bin/activate && python -m src.migrate"]
+# No DB step at build time: DATABASE_URL is a runtime/plugin variable that may
+# not be resolved during the build, so migrating here could hit a throwaway
+# SQLite instead of Postgres. Both services run init_db() (tables + indexes) at
+# startup against the real database, so the schema migrates itself on deploy.
+# For an explicit one-off migration, run `python -m src.migrate` from a shell.
 
 [start]
 cmd = "uvicorn src.api:app --host 0.0.0.0 --port $PORT"

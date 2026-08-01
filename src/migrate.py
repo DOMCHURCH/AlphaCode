@@ -13,7 +13,7 @@ from __future__ import annotations
 import sys
 
 import structlog
-from sqlalchemy import inspect, text
+from sqlalchemy import inspect
 
 from src.config.settings import get_settings
 from src.logging_config import configure_logging
@@ -21,26 +21,6 @@ from src.storage.db import get_engine, init_db
 from src.storage.models import Base
 
 log = structlog.get_logger(__name__)
-
-# Indexes that materially change query plans at 6000 names x 400 days but that
-# SQLAlchemy will not create from the model definitions alone.
-EXTRA_INDEXES = [
-    (
-        "ix_bars_ticker_date_desc",
-        "CREATE INDEX IF NOT EXISTS ix_bars_ticker_date_desc "
-        "ON daily_bars (ticker, date DESC)",
-    ),
-    (
-        "ix_fund_lookup",
-        "CREATE INDEX IF NOT EXISTS ix_fund_lookup "
-        "ON fundamentals (ticker, metric, filing_date)",
-    ),
-    (
-        "ix_scores_date_rank",
-        "CREATE INDEX IF NOT EXISTS ix_scores_date_rank "
-        "ON daily_scores (as_of_date, final_rank)",
-    ),
-]
 
 
 def main() -> int:
@@ -51,16 +31,11 @@ def main() -> int:
     log.info("migrate_start", database=_redact(s.database_url))
 
     before = set(inspect(engine).get_table_names())
+    # init_db creates tables AND the performance indexes; this is the same call
+    # the services make at startup, so the CLI and the deploy path agree.
     init_db(engine)
     after = set(inspect(engine).get_table_names())
     created = sorted(after - before)
-
-    with engine.begin() as conn:
-        for name, ddl in EXTRA_INDEXES:
-            try:
-                conn.execute(text(ddl))
-            except Exception as exc:  # noqa: BLE001 - a missing index is survivable
-                log.warning("index_create_failed", index=name, error=str(exc)[:200])
 
     log.info(
         "migrate_complete",

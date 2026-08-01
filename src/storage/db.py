@@ -6,11 +6,37 @@ from collections.abc import Iterator
 from contextlib import contextmanager
 from functools import lru_cache
 
-from sqlalchemy import Engine, create_engine
+import structlog
+from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config.settings import get_settings
 from src.storage.models import Base
+
+log = structlog.get_logger(__name__)
+
+# Indexes that materially change query plans at 6000 names x 400 days but that
+# SQLAlchemy will not create from the model definitions alone. Applied at
+# startup (see init_db) so they land on the real database rather than depending
+# on a build-phase step where DATABASE_URL may not yet be resolved. Portable:
+# `IF NOT EXISTS` and `DESC` index columns work on both SQLite and Postgres.
+EXTRA_INDEXES: list[tuple[str, str]] = [
+    (
+        "ix_bars_ticker_date_desc",
+        "CREATE INDEX IF NOT EXISTS ix_bars_ticker_date_desc "
+        "ON daily_bars (ticker, date DESC)",
+    ),
+    (
+        "ix_fund_lookup",
+        "CREATE INDEX IF NOT EXISTS ix_fund_lookup "
+        "ON fundamentals (ticker, metric, filing_date)",
+    ),
+    (
+        "ix_scores_date_rank",
+        "CREATE INDEX IF NOT EXISTS ix_scores_date_rank "
+        "ON daily_scores (as_of_date, final_rank)",
+    ),
+]
 
 
 @lru_cache(maxsize=1)
@@ -45,8 +71,20 @@ def session_scope() -> Iterator[Session]:
 
 
 def init_db(engine: Engine | None = None) -> None:
-    """Create all tables. Idempotent. Used by migrations and by tests."""
-    Base.metadata.create_all(engine or get_engine())
+    """Create all tables and performance indexes. Idempotent.
+
+    Called at service startup (api + worker) as well as by `src.migrate` and the
+    tests, so a deploy migrates itself against the real database without relying
+    on a build-time step.
+    """
+    engine = engine or get_engine()
+    Base.metadata.create_all(engine)
+    with engine.begin() as conn:
+        for name, ddl in EXTRA_INDEXES:
+            try:
+                conn.execute(text(ddl))
+            except Exception as exc:  # noqa: BLE001 - a missing index is survivable
+                log.warning("index_create_failed", index=name, error=str(exc)[:200])
 
 
 def reset_engine_cache() -> None:
