@@ -3,154 +3,167 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Alpha Funnel — daily equity screen</title>
+<title>Alpha Funnel — find & analyze US stocks</title>
 <style>
 :root{
-  --bg:#0a0e14;--bg2:#0d1117;--panel:#141a22;--panel2:#1a212b;--line:#222b36;
+  --bg:#0a0e14;--panel:#141a22;--panel2:#1a212b;--line:#222b36;
   --fg:#e6edf3;--muted:#8b949e;--dim:#6e7681;
-  --up:#3fb950;--down:#f85149;--accent:#58a6ff;--accent2:#7c93ff;--warn:#e3b341;
-  --hi:#2ea043;
+  --up:#3fb950;--down:#f85149;--accent:#58a6ff;--warn:#e3b341;--hi:#2ea043;
   --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,"JetBrains Mono",Consolas,monospace;
 }
 *{box-sizing:border-box}
 html{scroll-behavior:smooth}
-body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#12204a33,transparent),var(--bg);
+body{margin:0;background:radial-gradient(1100px 560px at 72% -12%,#12204a30,transparent),var(--bg);
 color:var(--fg);font:15px/1.6 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
 -webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px}
 
-/* nav */
-nav{position:sticky;top:0;z-index:50;background:#0a0e14e6;backdrop-filter:blur(10px);
-border-bottom:1px solid var(--line)}
-.nav{display:flex;align-items:center;gap:22px;height:60px}
+nav{position:sticky;top:0;z-index:50;background:#0a0e14e6;backdrop-filter:blur(10px);border-bottom:1px solid var(--line)}
+.nav{display:flex;align-items:center;gap:22px;height:58px}
 .brand{font-weight:700;letter-spacing:-.02em;font-size:16px;display:flex;align-items:center;gap:9px}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--up);box-shadow:0 0 10px var(--up)}
 .nav a.link{color:var(--muted);font-size:14px}.nav a.link:hover{color:var(--fg);text-decoration:none}
 .nav .spacer{flex:1}
 .regime{font-size:12px;padding:4px 11px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
-.regime.RISK_ON{color:var(--up);border-color:#238636}
-.regime.RISK_OFF{color:var(--down);border-color:#8d2c2c}
+.regime.RISK_ON{color:var(--up);border-color:#238636}.regime.RISK_OFF{color:var(--down);border-color:#8d2c2c}
 .regime.LATE_CYCLE,.regime.RECOVERY{color:var(--warn);border-color:#8a6d1f}
 
-/* hero */
-.hero{padding:64px 0 30px;text-align:center}
-.hero h1{font-size:clamp(30px,5vw,50px);line-height:1.05;letter-spacing:-.03em;margin:0 0 16px;
-background:linear-gradient(180deg,#fff,#9fb4d6);-webkit-background-clip:text;background-clip:text;color:transparent}
-.hero p{color:var(--muted);font-size:18px;max-width:640px;margin:0 auto 26px}
-.pipe{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:26px 0 6px}
-.pipe .s{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--muted)}
-.pipe .s b{color:var(--fg);font-variant-numeric:tabular-nums;font-family:var(--mono)}
-.pipe .arw{color:var(--dim);align-self:center}
-.kpis{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:28px}
-.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.02em;font-family:var(--mono)}
-.kpi span{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+.hero{padding:52px 0 22px;text-align:center}
+.hero h1{font-size:clamp(28px,4.6vw,44px);line-height:1.06;letter-spacing:-.03em;margin:0 0 14px;
+background:linear-gradient(180deg,#fff,#9fb4d6);-webkit-background-clip:text;background-clip:text;color:transparent;text-wrap:balance}
+.hero p{color:var(--muted);font-size:17px;max-width:600px;margin:0 auto 24px}
+.search{display:flex;gap:10px;max-width:520px;margin:0 auto}
+.search input{flex:1;background:var(--panel);border:1px solid var(--line);border-radius:10px;
+color:var(--fg);font-size:16px;padding:13px 16px;font-family:var(--mono);letter-spacing:.04em;outline:none}
+.search input:focus{border-color:var(--accent)}
+.search input::placeholder{color:var(--dim);font-family:inherit;letter-spacing:0}
+.btn{background:var(--accent);color:#07101f;border:none;border-radius:10px;padding:0 20px;font-size:15px;
+font-weight:600;cursor:pointer;font-family:inherit}
+.btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.hint{color:var(--dim);font-size:12.5px;margin-top:10px}
 
-section{padding:38px 0}
-.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:18px;flex-wrap:wrap}
-h2{font-size:22px;letter-spacing:-.02em;margin:0}
+section{padding:30px 0}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap}
+h2{font-size:21px;letter-spacing:-.02em;margin:0}
 .sec-head .sub{color:var(--muted);font-size:13px}
 
-/* pick cards */
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
-.pick{background:linear-gradient(180deg,var(--panel),#111721);border:1px solid var(--line);
-border-radius:14px;padding:18px 18px 16px;cursor:pointer;transition:.15s;position:relative;overflow:hidden}
-.pick:hover{border-color:#2f3b49;transform:translateY(-2px)}
-.pick .rank{position:absolute;top:14px;right:16px;color:var(--dim);font-size:12px;font-weight:600}
-.pick .tk{font-size:22px;font-weight:700;letter-spacing:.02em;font-family:var(--mono)}
-.pick .meta{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0 12px}
+/* analysis */
+.analyze{display:grid;grid-template-columns:1.7fr 1fr;gap:16px}
+@media(max-width:900px){.analyze{grid-template-columns:1fr}}
+.chartcard,.sidecard{background:var(--panel);border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.chartcard{min-height:520px;display:flex;flex-direction:column}
+.chead{display:flex;align-items:center;gap:12px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.chead .sym{font-family:var(--mono);font-size:22px;font-weight:700;letter-spacing:.02em}
+.chead .src{margin-left:auto;color:var(--dim);font-size:11px}
+#tvchart{flex:1;min-height:460px}
+.sidecard{padding:18px}
+.scorebig{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.scorebig .n{font-family:var(--mono);font-size:38px;font-weight:700;letter-spacing:-.03em;line-height:1}
+.scorebig .of{color:var(--dim);font-size:14px}
+.meta{display:flex;gap:7px;flex-wrap:wrap;margin:4px 0 14px}
 .tag{font-size:11px;padding:3px 9px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
 .tag.high{color:var(--up);border-color:#238636}.tag.medium{color:var(--warn);border-color:#8a6d1f}
-.tag.low{color:var(--dim)}
-.score{display:flex;align-items:center;gap:10px;margin-bottom:12px}
-.score .n{font-size:30px;font-weight:700;letter-spacing:-.02em;font-variant-numeric:tabular-nums;font-family:var(--mono)}
-.score .of{color:var(--dim);font-size:13px}
-.bar{height:6px;border-radius:99px;background:var(--panel2);flex:1;overflow:hidden}
-.bar>i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--hi))}
-.thesis{color:#c2cdd9;font-size:14px}
-.pick .more{max-height:0;overflow:hidden;transition:max-height .3s ease;opacity:.0}
-.pick.open .more{max-height:900px;opacity:1;margin-top:14px}
-.sub6{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:12px 0}
+.sub6{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:6px 0 14px}
 .sub6 .c{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 9px}
-.sub6 .c b{font-size:15px;font-variant-numeric:tabular-nums;font-family:var(--mono)}.sub6 .c span{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.sub6 .c b{font-family:var(--mono);font-size:15px}.sub6 .c span{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.thesis{font-size:14px;color:#c8d3df;margin:0 0 12px}
 .case{border-left:3px solid var(--line);padding-left:11px;margin:10px 0;font-size:13.5px}
 .case.bull{border-color:var(--up)}.case.bear{border-color:var(--down)}
 .case.inval{border-color:var(--warn);background:#e3b3410f;padding:9px 11px;border-radius:0 7px 7px 0}
 .case b{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:block;margin-bottom:2px}
-.risks{font-size:13px;color:var(--muted);margin:8px 0 2px}
-.pick .foot{display:flex;gap:14px;margin-top:12px;font-size:12.5px}
+.risks{font-size:13px;color:var(--muted);margin-top:8px}
+.notscreened{color:var(--muted);font-size:14px}
+#tvgauge{margin-top:14px;min-height:360px}
 
-/* empty / loading */
-.empty{background:var(--panel);border:1px dashed var(--line);border-radius:14px;padding:40px;text-align:center;color:var(--muted)}
+/* picks strip */
+.picks{display:grid;grid-template-columns:repeat(auto-fill,minmax(240px,1fr));gap:10px}
+.prow{display:flex;align-items:center;gap:12px;background:var(--panel);border:1px solid var(--line);
+border-radius:11px;padding:12px 14px;cursor:pointer;transition:.13s}
+.prow:hover{border-color:#33414f;transform:translateY(-1px)}
+.prow.active{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.prow .rk{font-family:var(--mono);color:var(--dim);font-size:12px;width:22px}
+.prow .tk{font-family:var(--mono);font-weight:700;font-size:15px}
+.prow .sec{color:var(--dim);font-size:11px}
+.prow .sc{margin-left:auto;font-family:var(--mono);font-weight:700;font-size:17px}
+.prow .cv{width:6px;height:34px;border-radius:4px;background:var(--line)}
+.prow .cv.high{background:var(--up)}.prow .cv.medium{background:var(--warn)}
+
+.empty{background:var(--panel);border:1px dashed var(--line);border-radius:14px;padding:36px;text-align:center;color:var(--muted)}
 .spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--accent);
 border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:7px}
 @keyframes s{to{transform:rotate(360deg)}}
 
-/* how it works */
-.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px}
 .step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
-.step .no{color:var(--accent);font-weight:700;font-size:13px}
-.step h4{margin:6px 0 5px;font-size:15px}
-.step p{margin:0;color:var(--muted);font-size:13px}
+.step .no{color:var(--accent);font-weight:700;font-size:13px;font-family:var(--mono)}
+.step h4{margin:6px 0 5px;font-size:15px}.step p{margin:0;color:var(--muted);font-size:13px}
 
-/* archive */
 table{width:100%;border-collapse:collapse;font-size:14px}
 th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}
 th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
 tbody tr:hover{background:#ffffff05}
-td.num{text-align:right;font-variant-numeric:tabular-nums}
+td.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.tkc{font-family:var(--mono)}
+.kpis{display:flex;gap:24px;justify-content:center;flex-wrap:wrap;margin-top:22px}
+.kpi b{display:block;font-size:20px;font-family:var(--mono);letter-spacing:-.02em}
+.kpi span{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em}
 
-/* operator */
-details.ops{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 18px}
+details.ops{margin-top:12px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 18px}
 details.ops summary{cursor:pointer;padding:14px 0;color:var(--muted);font-size:14px;list-style:none}
 details.ops summary::-webkit-details-marker{display:none}
 details.ops[open] summary{color:var(--fg)}
-.btn{display:inline-block;background:var(--accent);color:#07101f;border:none;border-radius:8px;
-padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
-.btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:not-allowed}
-.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
 .msg{margin:12px 0 16px;font-size:13px;color:var(--muted);min-height:18px}
 .msg.ok{color:var(--up)}.msg.err{color:var(--down)}
 code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:12px}
-footer{border-top:1px solid var(--line);padding:26px 0 60px;color:var(--dim);font-size:12.5px;line-height:1.7;margin-top:20px}
+footer{border-top:1px solid var(--line);padding:24px 0 60px;color:var(--dim);font-size:12.5px;line-height:1.7;margin-top:18px}
 </style>
 </head>
 <body>
 
 <nav><div class="wrap nav">
   <span class="brand"><span class="dot"></span>Alpha&nbsp;Funnel</span>
+  <a class="link" href="#analyze">Analyze</a>
   <a class="link" href="#picks">Today's picks</a>
   <a class="link" href="#how">How it works</a>
   <a class="link" href="#archive">Archive</a>
-  <a class="link" href="/validation">Validation</a>
   <span class="spacer"></span>
   <span id="regime" class="regime">—</span>
 </div></nav>
 
 <header class="hero"><div class="wrap">
-  <h1>The market, narrowed to ten names a day.</h1>
-  <p>A cascading funnel screens ~6,000 US equities every morning — trend, then
-     factors, then catalysts, then a language-model deep dive — to a ranked
-     top-10 with a written thesis and a falsifiable invalidation for each.</p>
-  <div class="pipe">
-    <span class="s">Universe <b>~6000</b></span><span class="arw">→</span>
-    <span class="s">Trend <b>1200</b></span><span class="arw">→</span>
-    <span class="s">Factors <b>400</b></span><span class="arw">→</span>
-    <span class="s">Catalysts <b>100</b></span><span class="arw">→</span>
-    <span class="s">Triage <b>25</b></span><span class="arw">→</span>
-    <span class="s">Deep dive <b>10</b></span>
-  </div>
+  <h1>Find the best stocks. Then analyze any of them.</h1>
+  <p>A funnel screens ~6,000 US equities each morning to a ranked top-10 with a
+     written thesis. Search any ticker to pull up a live chart and the funnel's read.</p>
+  <form class="search" onsubmit="return go()">
+    <input id="q" placeholder="Search a ticker — AAPL, NVDA, XOM…" autocomplete="off" spellcheck="false">
+    <button class="btn" type="submit">Analyze</button>
+  </form>
+  <div class="hint">Live charts by TradingView · click a pick below to analyze it</div>
   <div class="kpis" id="kpis"></div>
 </div></header>
 
 <main class="wrap">
 
-<section id="picks">
-  <div class="sec-head">
-    <h2>Today's top 10</h2>
-    <span class="sub" id="picksMeta"></span>
+<section id="analyze">
+  <div class="sec-head"><h2>Analysis</h2><span class="sub" id="an-sub"></span></div>
+  <div class="analyze">
+    <div class="chartcard">
+      <div class="chead"><span class="sym" id="an-sym">—</span>
+        <span id="an-tags" class="meta" style="margin:0"></span>
+        <span class="src">TradingView</span></div>
+      <div id="tvchart"></div>
+    </div>
+    <div class="sidecard" id="an-side">
+      <div class="notscreened"><span class="spin"></span>Loading…</div>
+    </div>
   </div>
+</section>
+
+<section id="picks">
+  <div class="sec-head"><h2>Today's top 10</h2><span class="sub" id="picksMeta"></span></div>
   <div id="picks-body"><div class="empty"><span class="spin"></span>Loading…</div></div>
 </section>
 
@@ -175,8 +188,8 @@ footer{border-top:1px solid var(--line);padding:26px 0 60px;color:var(--dim);fon
     <p class="sub" style="margin-top:0">Protected by your <code>API_KEY</code> (kept only in this browser).</p>
     <div class="row">
       <button class="btn ghost" onclick="setKey()">Set API key</button>
-      <button class="btn ghost" id="bfBtn" onclick="doPost('/backfill?days=600','Backfilling 600 sessions of price history…')">Backfill history</button>
-      <button class="btn" id="runBtn" onclick="doPost('/run','Running the funnel…')">Run now</button>
+      <button class="btn ghost" onclick="doPost('/backfill?days=600','Backfilling 600 sessions of price history…')">Backfill history</button>
+      <button class="btn" onclick="doPost('/run','Running the funnel…')">Run now</button>
       <span class="sub" id="ops-status"></span>
     </div>
     <div class="msg" id="msg"></div>
@@ -186,94 +199,139 @@ footer{border-top:1px solid var(--line);padding:26px 0 60px;color:var(--dim);fon
 </main>
 
 <footer><div class="wrap">
-  Research and idea-generation only. The scores are the output of a heuristic
-  pipeline plus a language model's interpretation, not a prediction. Every thesis
-  ships with an explicit invalidation condition so it can be checked and thrown
-  out. <b>Nothing here is investment advice.</b><br>
-  <a href="/api">API</a> · <a href="/health">health</a> · <a href="/validation">validation</a>
+  Research and idea-generation only. Charts by TradingView. The scores are the
+  output of a heuristic pipeline plus a language model's interpretation, not a
+  prediction. Every thesis ships with an explicit invalidation condition.
+  <b>Nothing here is investment advice.</b>
+  &nbsp;·&nbsp; <a href="/api">API</a> · <a href="/validation">validation</a> · <a href="/health">health</a>
 </div></footer>
 
 <script>
 const $=id=>document.getElementById(id);
+const esc=s=>(s||"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const fmt=n=>n==null?"—":Number(n).toLocaleString();
-const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
 const RUB={trend:25,fundamental:20,catalyst:20,news:15,macro:10,risk:10};
+const col=s=>s>=75?"var(--up)":s>=60?"var(--warn)":"var(--muted)";
+let PICKS={}, CURRENT=null;
 
+/* ---------- TradingView ---------- */
+let tvReady=false, tvQueue=[];
+(function(){const s=document.createElement("script");s.src="https://s3.tradingview.com/tv.js";
+ s.onload=()=>{tvReady=true;tvQueue.forEach(fn=>fn());tvQueue=[]};document.head.appendChild(s);})();
+function drawChart(symbol){
+  const run=()=>{ $("tvchart").innerHTML="";
+    new TradingView.widget({autosize:true,symbol:symbol,interval:"D",timezone:"Etc/UTC",
+      theme:"dark",style:"1",locale:"en",toolbar_bg:"#141a22",enable_publishing:false,
+      allow_symbol_change:true,hide_side_toolbar:false,container_id:"tvchart",
+      studies:["MASimple@tv-basicstudies"]});
+  };
+  tvReady?run():tvQueue.push(run);
+}
+function drawGauge(el,symbol){
+  el.innerHTML='<div class="tradingview-widget-container"><div class="tradingview-widget-container__widget"></div></div>';
+  const s=document.createElement("script");
+  s.src="https://s3.tradingview.com/external-embedding/embed-widget-technical-analysis.js";
+  s.async=true;
+  s.textContent=JSON.stringify({interval:"1D",width:"100%",height:360,symbol:symbol,
+    showIntervalTabs:true,displayMode:"single",locale:"en",colorTheme:"dark"});
+  el.querySelector(".tradingview-widget-container").appendChild(s);
+}
+
+/* ---------- analyze a symbol ---------- */
+async function analyze(symbol){
+  symbol=(symbol||"").toUpperCase().trim(); if(!symbol)return;
+  CURRENT=symbol;
+  document.querySelectorAll(".prow").forEach(e=>e.classList.toggle("active",e.dataset.t===symbol));
+  $("an-sym").textContent=symbol;
+  $("an-sub").textContent="live chart + the funnel's read";
+  drawChart(symbol);
+  const side=$("an-side"); side.innerHTML='<div class="notscreened"><span class="spin"></span>Loading…</div>';
+  $("an-tags").innerHTML="";
+
+  const p=PICKS[symbol];
+  if(p){ renderPick(side,p); return; }
+  // not in today's top 10 — show any stored history + a technical read
+  let hist=null;
+  try{const r=await fetch("/ticker/"+encodeURIComponent(symbol)+"/history");if(r.ok)hist=await r.json();}catch(e){}
+  const th=hist&&hist.theses&&hist.theses.length?hist.theses[hist.theses.length-1]:null;
+  const sc=hist&&hist.scores&&hist.scores.length?hist.scores[hist.scores.length-1]:null;
+  let html=`<div class="notscreened">${symbol} isn't in today's top-10 screen.`+
+    (sc?` Last scored ${sc.date} (stage ${sc.stage_reached}).`:` No funnel history yet.`)+
+    `</div>`;
+  if(th){ html+=`<div class="case inval" style="margin-top:12px"><b>Last thesis · ${esc(th.date)}</b>${esc(th.thesis||"")}</div>`;
+    if(th.invalidation)html+=`<div class="case bear"><b>Invalidation</b>${esc(th.invalidation)}</div>`; }
+  html+=`<div id="tvgauge"></div>`;
+  side.innerHTML=html;
+  drawGauge($("tvgauge"),symbol);
+}
+
+function renderPick(side,n){
+  const subs=n.subscores||{};
+  const sub6=Object.keys(RUB).map(k=>`<div class="c"><b>${subs[k]??"—"}</b><span>${k} /${RUB[k]}</span></div>`).join("");
+  $("an-tags").innerHTML=`${n.sector?`<span class="tag">${esc(n.sector)}</span>`:""}
+    <span class="tag ${n.conviction||''}">${n.conviction||'—'}</span>`;
+  const cats=(n.catalysts_ahead||[]).map(c=>esc(c.event)+(c.date?` (${c.date})`:"")).filter(Boolean);
+  side.innerHTML=`
+    <div class="scorebig"><div class="n" style="color:${col(n.total_score)}">${n.total_score}</div><div class="of">/100 · funnel score</div></div>
+    <div class="meta"><span class="tag">rank #${n._rank}</span>
+      <span class="tag ${n.conviction||''}">${n.conviction||'—'} conviction</span>
+      ${n.time_horizon_days?`<span class="tag">${n.time_horizon_days}d horizon</span>`:""}</div>
+    <div class="sub6">${sub6}</div>
+    <p class="thesis">${esc(n.thesis||"")}</p>
+    ${n.bull_case?`<div class="case bull"><b>Bull</b>${esc(n.bull_case)}</div>`:""}
+    ${n.bear_case?`<div class="case bear"><b>Bear</b>${esc(n.bear_case)}</div>`:""}
+    ${n.invalidation?`<div class="case inval"><b>Invalidation</b>${esc(n.invalidation)}</div>`:""}
+    ${(n.key_risks||[]).length?`<div class="risks"><b>Key risks:</b> ${esc((n.key_risks||[]).join("; "))}</div>`:""}
+    ${cats.length?`<div class="risks"><b>Catalysts ahead:</b> ${cats.join("; ")}</div>`:""}`;
+}
+
+function go(){const v=$("q").value;if(v){analyze(v);document.getElementById("analyze").scrollIntoView();}return false;}
+
+/* ---------- data ---------- */
 function getKey(){return localStorage.getItem("alpha_api_key")||""}
 function setKey(){const k=prompt("Enter your API_KEY (blank if the server has none):",getKey());
   if(k!==null){localStorage.setItem("alpha_api_key",k);flash("API key saved in this browser.","ok")}}
 function flash(t,c){const m=$("msg");m.textContent=t;m.className="msg "+(c||"")}
-
-async function doPost(path,working){
-  const btn=event.target;btn.disabled=true;flash(working,"");
+async function doPost(path,working){const btn=event.target;btn.disabled=true;flash(working,"");
   try{const r=await fetch(path,{method:"POST",headers:{"X-API-Key":getKey()}});
     if(r.status===401)flash("Unauthorized — set your API key first.","err");
     else{const j=await r.json();flash(j.detail||JSON.stringify(j),j.accepted?"ok":"err")}
-  }catch(e){flash("Request failed: "+e,"err")}
-  finally{btn.disabled=false;setTimeout(loadAll,1500)}
-}
-
-function scoreColor(s){return s>=75?"var(--up)":s>=60?"var(--warn)":"var(--muted)"}
-
-function pickCard(n,i){
-  const subs=n.subscores||{};
-  const sub6=Object.keys(RUB).map(k=>`<div class="c"><b>${subs[k]??"—"}</b><span>${k} /${RUB[k]}</span></div>`).join("");
-  const risks=(n.key_risks||[]).length?`<div class="risks"><b>Key risks:</b> ${esc((n.key_risks||[]).join("; "))}</div>`:"";
-  const cats=(n.catalysts_ahead||[]).map(c=>esc(c.event)+(c.date?` (${c.date})`:"")).filter(Boolean);
-  const catsHtml=cats.length?`<div class="risks"><b>Catalysts ahead:</b> ${cats.join("; ")}</div>`:"";
-  return `<div class="pick" onclick="this.classList.toggle('open')">
-    <div class="rank">#${i+1}</div>
-    <div class="tk">${esc(n.ticker)}</div>
-    <div class="meta">
-      ${n.sector?`<span class="tag">${esc(n.sector)}</span>`:""}
-      <span class="tag ${n.conviction||''}">${n.conviction||'—'} conviction</span>
-      ${n.time_horizon_days?`<span class="tag">${n.time_horizon_days}d</span>`:""}
-    </div>
-    <div class="score">
-      <div class="n" style="color:${scoreColor(n.total_score)}">${n.total_score}</div>
-      <div class="of">/100</div>
-      <div class="bar"><i style="width:${n.total_score}%"></i></div>
-    </div>
-    <div class="thesis">${esc(n.thesis||"")}</div>
-    <div class="more">
-      <div class="sub6">${sub6}</div>
-      ${n.bull_case?`<div class="case bull"><b>Bull</b>${esc(n.bull_case)}</div>`:""}
-      ${n.bear_case?`<div class="case bear"><b>Bear</b>${esc(n.bear_case)}</div>`:""}
-      ${n.invalidation?`<div class="case inval"><b>Invalidation</b>${esc(n.invalidation)}</div>`:""}
-      ${risks}${catsHtml}
-    </div>
-  </div>`;
-}
+  }catch(e){flash("Request failed: "+e,"err")}finally{btn.disabled=false;setTimeout(loadAll,1500)}}
 
 async function loadPicks(){
-  let rep=null;
-  try{const r=await fetch("/report/latest");if(r.ok)rep=await r.json();}catch(e){}
-  const meta=$("picksMeta"),body=$("picks-body");
+  let rep=null; try{const r=await fetch("/report/latest");if(r.ok)rep=await r.json();}catch(e){}
+  const body=$("picks-body"),meta=$("picksMeta");
   if(!rep||!rep.names||!rep.names.length){
-    body.innerHTML=`<div class="empty">
-      No report yet. Load price history, then run the funnel — the operator
-      controls are under <a href="#archive">Archive</a>.</div>`;
-    meta.textContent="";return;
+    body.innerHTML=`<div class="empty">No screen yet — search any ticker above to analyze it, or load history &amp; run the funnel (Operator controls under Archive).</div>`;
+    meta.textContent=""; if(!CURRENT)analyze("SPY"); return;
   }
-  meta.innerHTML=`<b>${rep.as_of}</b> · regime ${rep.regime||"—"} · $${(rep.cost_usd||0).toFixed(3)} ·
-    <a href="/report/${rep.as_of}/html">full report with charts →</a>`;
-  body.innerHTML=`<div class="grid">${rep.names.map(pickCard).join("")}</div>`;
   const rg=$("regime");rg.textContent=rep.regime||"—";rg.className="regime "+(rep.regime||"");
+  meta.innerHTML=`<b style="font-family:var(--mono)">${rep.as_of}</b> · regime ${rep.regime||"—"} ·
+    <a href="/report/${rep.as_of}/html">full report with charts →</a>`;
+  PICKS={}; rep.names.forEach((n,i)=>{n._rank=i+1;PICKS[n.ticker]=n;});
+  body.innerHTML=`<div class="picks">`+rep.names.map((n,i)=>`
+    <div class="prow" data-t="${esc(n.ticker)}" onclick="analyze('${esc(n.ticker)}')">
+      <span class="rk">#${i+1}</span>
+      <div><div class="tk">${esc(n.ticker)}</div><div class="sec">${esc(n.sector||'')}</div></div>
+      <span class="sc" style="color:${col(n.total_score)}">${n.total_score}</span>
+      <span class="cv ${n.conviction||''}"></span>
+    </div>`).join("")+`</div>`;
+  if(!CURRENT)analyze(rep.names[0].ticker);   // auto-load the top name
 }
 
-async function loadStatusAndArchive(){
+async function loadStatusArchive(){
   try{const s=await(await fetch("/status")).json();
     $("kpis").innerHTML=`
       <div class="kpi"><b>${fmt(s.price_bars)}</b><span>price bars</span></div>
       <div class="kpi"><b>${fmt(s.distinct_tickers_with_bars)}</b><span>tickers</span></div>
       <div class="kpi"><b>${fmt(s.runs)}</b><span>runs</span></div>
       <div class="kpi"><b>${s.latest_bar_date||"—"}</b><span>latest data</span></div>`;
-    $("ops-status").textContent = s.backfill_running?"backfill running…":(s.run_in_progress?"run in progress…":
+    $("ops-status").textContent=s.backfill_running?"backfill running…":(s.run_in_progress?"run in progress…":
       (s.ready_for_first_run?"ready to run":"needs backfill"));
   }catch(e){}
   try{const reps=await(await fetch("/reports?limit=60")).json();
     $("archive-body").innerHTML=reps.length?reps.map(r=>`<tr>
-      <td><a href="/report/${r.as_of}/html">${r.as_of}</a></td>
+      <td class="tkc"><a href="/report/${r.as_of}/html">${r.as_of}</a></td>
       <td>${r.regime||'—'}</td>
       <td>${r.funnel&&r.funnel['Stage 5 final']!=null?r.funnel['Stage 5 final']:'—'}</td>
       <td class="num">$${(r.cost_usd||0).toFixed(3)}</td>
@@ -282,9 +340,9 @@ async function loadStatusAndArchive(){
   }catch(e){}
 }
 
-function loadAll(){loadPicks();loadStatusAndArchive();}
+function loadAll(){loadPicks();loadStatusArchive();}
 loadAll();
-setInterval(loadStatusAndArchive,15000);
+setInterval(loadStatusArchive,15000);
 </script>
 </body>
 </html>
