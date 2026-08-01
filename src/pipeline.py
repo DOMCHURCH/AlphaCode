@@ -1,0 +1,634 @@
+"""The orchestrator.
+
+Runs the cascade, checkpoints after every stage, enforces the data-quality
+gates, and tracks cost. If Stage 4 fails, `resume_from` replays from the Stage 3
+checkpoint instead of re-running the whole funnel.
+
+Every stage logs entry count, exit count, duration and API calls made.
+"""
+
+from __future__ import annotations
+
+import datetime as dt
+import time
+import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass, field
+from typing import Any
+
+import numpy as np
+import pandas as pd
+import structlog
+
+from src.catalysts import stage3 as s3
+from src.catalysts.macro import load_macro_state
+from src.config.settings import get_settings
+from src.factors import composite, trend
+from src.ingest.rate_limiter import get_rate_limiter
+from src.llm import deep_dive, triage
+from src.llm.client import ModelNotAvailable, verify_configured_models
+from src.llm.cost import CostTracker
+from src.llm.packets import build_deep_packet, build_triage_packet
+from src.llm.schemas import DeepDive
+from src.logging_config import configure_logging
+from src.report.builder import build_report
+from src.storage import repository
+from src.storage.db import session_scope
+from src.storage.pit import assert_no_lookahead, get_next_earnings, get_universe
+from src.universe.builder import build_universe
+
+log = structlog.get_logger(__name__)
+
+
+class DataQualityError(RuntimeError):
+    """A gate tripped. We abort and alert rather than ship a bad report."""
+
+
+@dataclass
+class StageTiming:
+    stage: int
+    name: str
+    entry: int
+    exit: int
+    duration_s: float
+    api_calls: int = 0
+
+
+@dataclass
+class PipelineResult:
+    run_id: str
+    as_of: dt.date
+    regime: str
+    funnel_counts: dict[str, int]
+    dives: list[DeepDive]
+    report_paths: dict[str, str] = field(default_factory=dict)
+    cost: dict[str, Any] = field(default_factory=dict)
+    timings: list[StageTiming] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+    status: str = "ok"
+
+
+@contextmanager
+def _stage(name: str, number: int, entry: int, timings: list) -> Iterator[dict]:
+    t0 = time.perf_counter()
+    box: dict[str, Any] = {"exit": 0, "api_calls": 0}
+    log.info("stage_start", stage=number, name=name, entry=entry)
+    try:
+        yield box
+    finally:
+        dur = time.perf_counter() - t0
+        timings.append(
+            StageTiming(number, name, entry, box["exit"], dur, box["api_calls"])
+        )
+        log.info(
+            "stage_end", stage=number, name=name, entry=entry,
+            exit=box["exit"], duration_s=round(dur, 2), api_calls=box["api_calls"],
+        )
+
+
+def _check_drop(name: str, entry: int, exit_: int, warnings: list[str]) -> None:
+    """Abort if a stage drops more than 95% of its input.
+
+    Stage 1 legitimately cuts ~80%, Stage 2 ~65%. A 95%+ drop means a data
+    problem, not a market signal.
+    """
+    if entry == 0:
+        return
+    dropped = 1 - exit_ / entry
+    if dropped > 0.95:
+        raise DataQualityError(
+            f"Stage {name} dropped {dropped:.1%} of its input "
+            f"({entry} -> {exit_}). Aborting rather than shipping a bad report."
+        )
+    if dropped > 0.90:
+        warnings.append(
+            f"Stage {name} dropped {dropped:.1%} of input ({entry} -> {exit_})."
+        )
+
+
+async def run_pipeline(
+    as_of: dt.date | None = None,
+    *,
+    run_id: str | None = None,
+    resume_from: int = 0,
+    skip_llm: bool = False,
+    persist_universe: bool = True,
+) -> PipelineResult:
+    configure_logging()
+    s = get_settings()
+    as_of = as_of or _last_trading_day()
+    run_id = run_id or f"{as_of.isoformat()}-{uuid.uuid4().hex[:8]}"
+
+    structlog.contextvars.bind_contextvars(run_id=run_id, as_of=str(as_of))
+    limiter = get_rate_limiter()
+    limiter.reset_counts()
+
+    timings: list[StageTiming] = []
+    warnings: list[str] = []
+    cost = CostTracker()
+    funnel: dict[str, int] = {}
+    stage_sectors: dict[str, dict[str, int]] = {}
+    funnel_rejects: dict[str, dict[str, int]] = {}
+    t_start = time.perf_counter()
+
+    with session_scope() as session:
+        repository.start_run(session, run_id, as_of)
+
+    try:
+        # ---------------- model verification, before anything expensive -----
+        model_info: dict[str, Any] = {}
+        if not skip_llm:
+            try:
+                verified = await verify_configured_models()
+                model_info = verified
+            except ModelNotAvailable:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                warnings.append(f"Model verification skipped: {exc}")
+                log.warning("model_verification_skipped", error=str(exc)[:200])
+
+        with session_scope() as session:
+            # ---------------- Stage 0: universe --------------------------
+            with _stage("universe", 0, 0, timings) as box:
+                if resume_from > 0:
+                    universe = get_universe(session, as_of)
+                else:
+                    universe, diag = await build_universe(
+                        as_of, session, persist_bars=persist_universe
+                    )
+                    funnel_rejects["Stage 0 universe"] = diag.get("rejects", {})
+                box["exit"] = len(universe)
+                funnel["Stage 0 universe"] = len(universe)
+                stage_sectors["Stage 0"] = _sector_counts(universe)
+
+            if len(universe) < s.min_universe_size:
+                raise DataQualityError(
+                    f"Universe is {len(universe)} names, below the {s.min_universe_size} "
+                    f"floor. Aborting -- this is a data problem, not a market."
+                )
+
+            tickers = universe["ticker"].tolist()
+            sectors = universe.set_index("ticker")["sector"]
+
+            # ---------------- Stage 1: trend gate ------------------------
+            with _stage("trend_gate", 1, len(tickers), timings) as box:
+                panels = trend.load_panels(session, tickers, as_of)
+                tr = trend.run_trend_gate(
+                    panels["close"], panels["high"], panels["low"], panels["volume"],
+                    sectors=sectors,
+                )
+                box["exit"] = len(tr.survivors)
+                funnel["Stage 1 trend"] = len(tr.survivors)
+                funnel_rejects["Stage 1 trend"] = tr.reject_counts
+                stage_sectors["Stage 1"] = _sector_counts_from_index(
+                    tr.survivors.index, sectors
+                )
+                repository.save_checkpoint(
+                    session, run_id, as_of, 1, entry_count=len(tickers),
+                    exit_count=len(tr.survivors), duration_s=timings[-1].duration_s
+                    if timings else 0.0, api_calls=0,
+                    payload={"survivors": list(tr.survivors.index), "regime": tr.regime},
+                    rejected=tr.reject_counts,
+                )
+            _check_drop("1 trend", len(tickers), len(tr.survivors), warnings)
+            if tr.regime == "RISK_OFF":
+                warnings.append(
+                    "REGIME: RISK_OFF — fewer than 300 names passed the strict "
+                    "trend gate; the RS threshold was relaxed to 50."
+                )
+
+            # ---------------- Stage 2: multi-factor composite ------------
+            with _stage("factor_composite", 2, len(tr.survivors), timings) as box:
+                assert_no_lookahead(session, as_of)
+                comp = composite.run_stage2(
+                    session, tr.survivors, universe, as_of, take=s.stage2_take
+                )
+                box["exit"] = len(comp.selected)
+                funnel["Stage 2 factors"] = len(comp.selected)
+                stage_sectors["Stage 2"] = _sector_counts_from_index(
+                    pd.Index(comp.selected), sectors
+                )
+                repository.save_checkpoint(
+                    session, run_id, as_of, 2, entry_count=len(tr.survivors),
+                    exit_count=len(comp.selected),
+                    duration_s=timings[-1].duration_s if timings else 0.0,
+                    api_calls=0, payload={"selected": comp.selected},
+                )
+            _check_drop("2 factors", len(tr.survivors), len(comp.selected), warnings)
+
+            # ---------------- macro regime -------------------------------
+            macro = await load_macro_state(session, as_of)
+
+            # ---------------- Stage 3: catalysts -------------------------
+            # This is the expensive stage (~1600 API calls), so it is the one
+            # worth resuming. Stages 1-2 make no API calls and take seconds, so
+            # they are always recomputed rather than restored.
+            factor_scores = comp.scores.loc[comp.selected]
+            with _stage("catalysts", 3, len(comp.selected), timings) as box:
+                st3 = None
+                if resume_from > 3:
+                    st3 = s3.restore_from_checkpoint(
+                        repository.load_checkpoint(session, run_id, 3)
+                    )
+                    if st3 is None:
+                        log.warning(
+                            "stage3_checkpoint_missing_rerunning", run_id=run_id
+                        )
+                    else:
+                        log.info(
+                            "stage3_restored_from_checkpoint",
+                            names=len(st3.selected),
+                        )
+                if st3 is None:
+                    st3 = await s3.run_stage3(
+                        session, factor_scores, tr.survivors, universe, as_of, macro,
+                        take=s.stage3_take,
+                    )
+                box["exit"] = len(st3.selected)
+                box["api_calls"] = st3.api_calls
+                funnel["Stage 3 catalysts"] = len(st3.selected)
+                funnel_rejects["Stage 3 catalysts"] = _reason_counts(st3.rejected)
+                stage_sectors["Stage 3"] = _sector_counts_from_index(
+                    st3.selected.index, sectors
+                )
+                repository.save_checkpoint(
+                    session, run_id, as_of, 3, entry_count=len(comp.selected),
+                    exit_count=len(st3.selected),
+                    duration_s=timings[-1].duration_s if timings else 0.0,
+                    api_calls=st3.api_calls,
+                    payload=s3.checkpoint_payload(st3),
+                    rejected=st3.rejected,
+                )
+            _check_drop("3 catalysts", len(comp.selected), len(st3.selected), warnings)
+
+            # ---------------- Stage 4: LLM triage ------------------------
+            dives: list[DeepDive] = []
+            triage_df = pd.DataFrame()
+            deterministic_top: list[dict[str, Any]] = []
+            if skip_llm:
+                warnings.append(
+                    "LLM stages skipped — the ranking below is the deterministic "
+                    "Stages 0-3 output, with no thesis and no model scoring."
+                )
+                selected_25 = list(st3.selected.head(s.stage4_take).index)
+                deterministic_top = _deterministic_ranking(
+                    st3.selected, sectors, s.stage5_take
+                )
+                funnel["Stage 5 final"] = len(deterministic_top)
+            else:
+                with _stage("llm_triage", 4, len(st3.selected), timings) as box:
+                    packets = [
+                        build_triage_packet(
+                            t, st3.selected.loc[t], tr.survivors.loc[t],
+                            comp.raw.loc[t], st3.detail.get(t, {}), macro,
+                        )
+                        for t in st3.selected.index
+                    ]
+                    tri = await triage.run_triage(
+                        packets, st3.selected, take=s.stage4_take,
+                        model_info=model_info.get(s.llm_triage_model),
+                    )
+                    cost.record("triage", tri.usage)
+                    triage_df = tri.verdicts
+                    selected_25 = tri.selected
+                    box["exit"] = len(selected_25)
+                    box["api_calls"] = tri.llm_calls
+                    funnel["Stage 4 triage"] = len(selected_25)
+                    stage_sectors["Stage 4"] = _sector_counts_from_index(
+                        pd.Index(selected_25), sectors
+                    )
+                    repository.save_checkpoint(
+                        session, run_id, as_of, 4, entry_count=len(st3.selected),
+                        exit_count=len(selected_25),
+                        duration_s=timings[-1].duration_s if timings else 0.0,
+                        api_calls=tri.llm_calls, payload={"selected": selected_25},
+                    )
+
+                # ---------------- Stage 5: LLM deep dive -----------------
+                with _stage("llm_deep_dive", 5, len(selected_25), timings) as box:
+                    quarterlies = _load_quarterlies(session, selected_25, as_of)
+                    next_earn = get_next_earnings(session, selected_25, as_of)
+                    deep_packets = [
+                        build_deep_packet(
+                            t, st3.selected.loc[t], tr.survivors.loc[t],
+                            comp.raw.loc[t], st3.detail.get(t, {}), macro,
+                            fundamentals=quarterlies.get(t),
+                            sector_percentiles=_sector_percentiles(comp.scores, t),
+                            next_earnings=next_earn.get(t),
+                        )
+                        for t in selected_25
+                        if t in st3.selected.index
+                    ]
+                    take = min(s.stage5_take, macro.final_count(s.stage5_take))
+                    dd = await deep_dive.run_deep_dive(
+                        deep_packets,
+                        sectors=sectors.to_dict(),
+                        take=take,
+                        model_info=model_info.get(s.llm_deep_model),
+                    )
+                    cost.record("deep_dive", dd.usage)
+                    dives = dd.final
+                    box["exit"] = len(dives)
+                    box["api_calls"] = dd.llm_calls
+                    funnel["Stage 5 final"] = len(dives)
+                    stage_sectors["Stage 5"] = _sector_counts_from_index(
+                        pd.Index([d.ticker for d in dives]), sectors
+                    )
+                    if dd.failures:
+                        warnings.append(
+                            f"{len(dd.failures)} deep dives failed validation: "
+                            + ", ".join(list(dd.failures)[:5])
+                        )
+                    repository.save_checkpoint(
+                        session, run_id, as_of, 5, entry_count=len(selected_25),
+                        exit_count=len(dives),
+                        duration_s=timings[-1].duration_s if timings else 0.0,
+                        api_calls=dd.llm_calls,
+                        payload={"final": [d.ticker for d in dives]},
+                    )
+                    if macro.regime == "RISK_OFF":
+                        warnings.append(
+                            f"RISK_OFF regime — final list capped at {take} names."
+                        )
+
+            if not cost.check_budget():
+                warnings.append(
+                    f"Run cost ${cost.total.cost_usd:.2f} exceeded the "
+                    f"${s.max_run_cost_usd:.2f} budget."
+                )
+
+            # ---------------- persist scores and theses ------------------
+            _persist_scores(
+                session, as_of, tr, comp, st3, triage_df, dives, sectors
+            )
+
+            # ---------------- Stage 6: report ---------------------------
+            duration = time.perf_counter() - t_start
+            with _stage("report", 6, len(dives), timings) as box:
+                near = _near_misses(st3, triage_df, sectors, exclude=[d.ticker for d in dives])
+                paths = build_report(
+                    session,
+                    as_of=as_of, run_id=run_id, dives=dives,
+                    scores=st3.selected, trend_features=tr.survivors,
+                    detail=st3.detail, macro=macro,
+                    funnel_counts=funnel, funnel_rejects=funnel_rejects,
+                    stage_sectors=stage_sectors, near_misses=near,
+                    api_calls=limiter.call_counts(), cost=cost.summary(),
+                    duration_s=duration, warnings=warnings,
+                    deterministic_names=deterministic_top,
+                    fundamentals=_load_quarterlies(
+                        session, [d.ticker for d in dives], as_of
+                    ),
+                )
+                box["exit"] = len(dives)
+
+            repository.finish_run(
+                session, run_id, status="ok", regime=macro.regime,
+                funnel_counts=funnel, api_calls=limiter.call_counts(),
+                tokens_in=cost.total.prompt_tokens,
+                tokens_out=cost.total.completion_tokens,
+                cost_usd=cost.total.cost_usd, report_path=paths.get("html"),
+            )
+
+        total = time.perf_counter() - t_start
+        if total > 12 * 60:
+            warnings.append(f"Run took {total/60:.1f} min, over the 12 min target.")
+        log.info(
+            "pipeline_complete", duration_s=round(total, 1), funnel=funnel,
+            cost_usd=round(cost.total.cost_usd, 4), names=len(dives),
+        )
+        return PipelineResult(
+            run_id=run_id, as_of=as_of, regime=macro.regime, funnel_counts=funnel,
+            dives=dives, report_paths=paths, cost=cost.summary(), timings=timings,
+            warnings=warnings,
+        )
+
+    except Exception as exc:
+        log.exception("pipeline_failed", error=str(exc))
+        with session_scope() as session:
+            repository.finish_run(
+                session, run_id, status="failed", funnel_counts=funnel,
+                api_calls=limiter.call_counts(), error=str(exc)[:2000],
+            )
+        raise
+    finally:
+        structlog.contextvars.clear_contextvars()
+
+
+# ---------------------------------------------------------------------------
+# helpers
+# ---------------------------------------------------------------------------
+def _last_trading_day(today: dt.date | None = None) -> dt.date:
+    """Most recent completed session, holiday-aware where the calendar exists."""
+    today = today or dt.date.today()
+    try:
+        import pandas_market_calendars as mcal
+
+        cal = mcal.get_calendar("NYSE")
+        sched = cal.schedule(
+            start_date=today - dt.timedelta(days=14), end_date=today
+        )
+        days = [d.date() for d in sched.index]
+        past = [d for d in days if d < today] or days
+        return past[-1] if past else today - dt.timedelta(days=1)
+    except Exception:  # noqa: BLE001 - fall back to weekday arithmetic
+        d = today - dt.timedelta(days=1)
+        while d.weekday() >= 5:
+            d -= dt.timedelta(days=1)
+        return d
+
+
+def is_trading_day(day: dt.date | None = None) -> bool:
+    day = day or dt.date.today()
+    try:
+        import pandas_market_calendars as mcal
+
+        cal = mcal.get_calendar("NYSE")
+        sched = cal.schedule(start_date=day, end_date=day)
+        return len(sched) > 0
+    except Exception:  # noqa: BLE001
+        return day.weekday() < 5
+
+
+def _sector_counts(universe: pd.DataFrame) -> dict[str, int]:
+    if universe.empty or "sector" not in universe.columns:
+        return {}
+    return universe["sector"].fillna("Unknown").value_counts().to_dict()
+
+
+def _sector_counts_from_index(idx: pd.Index, sectors: pd.Series) -> dict[str, int]:
+    if len(idx) == 0:
+        return {}
+    return sectors.reindex(idx).fillna("Unknown").value_counts().to_dict()
+
+
+def _reason_counts(rejected: dict[str, list[str]]) -> dict[str, int]:
+    counts: dict[str, int] = {}
+    for reasons in rejected.values():
+        for r in reasons:
+            key = r.split(":")[0].split("(")[0].strip()
+            counts[key] = counts.get(key, 0) + 1
+    return counts
+
+
+def _deterministic_ranking(
+    stage3: pd.DataFrame, sectors: pd.Series, take: int
+) -> list[dict[str, Any]]:
+    """The Stages 0-3 top-N, for when the LLM layer is skipped.
+
+    Carries scores and the factor breakdown but deliberately no thesis text --
+    there is no model, so inventing prose here would be dishonest.
+    """
+    rows = []
+    for rank, (ticker, r) in enumerate(stage3.head(take).iterrows(), start=1):
+        rows.append(
+            {
+                "rank": rank,
+                "ticker": ticker,
+                "sector": sectors.get(ticker) or "Unknown",
+                "stage3_score": _num(r.get("stage3_score")),
+                "factor_composite": _num(r.get("factor_composite")),
+                "catalyst_score": _num(r.get("catalyst_score")),
+                "categories": {
+                    c: _num(r.get(c))
+                    for c in ("momentum", "quality", "revisions", "pead", "value")
+                },
+                "data_completeness": _num(r.get("data_completeness")),
+            }
+        )
+    return rows
+
+
+def _sector_percentiles(scores: pd.DataFrame, ticker: str) -> dict[str, float]:
+    from src.factors.crosssection import sector_percentile
+
+    if ticker not in scores.index or "sector" not in scores.columns:
+        return {}
+    out = {}
+    for cat in ("momentum", "quality", "revisions", "pead", "value"):
+        if cat in scores.columns:
+            pct = sector_percentile(scores[cat], scores["sector"])
+            v = pct.get(ticker)
+            if v is not None and np.isfinite(v):
+                out[cat] = float(v)
+    return out
+
+
+def _load_quarterlies(
+    session, tickers: list[str], as_of: dt.date
+) -> dict[str, pd.DataFrame]:
+    from src.factors.fundamentals import load_quarterly_wide
+
+    if not tickers:
+        return {}
+    return load_quarterly_wide(session, tickers, as_of, quarters=8)
+
+
+def _near_misses(
+    st3: s3.Stage3Result,
+    triage_df: pd.DataFrame,
+    sectors: pd.Series,
+    exclude: list[str],
+    n: int = 15,
+) -> list[dict[str, Any]]:
+    """Ranks 11-25: what nearly made it, and why it did not."""
+    rows: list[dict[str, Any]] = []
+    if not triage_df.empty:
+        for t, r in triage_df.iterrows():
+            if t in exclude:
+                continue
+            rows.append(
+                {
+                    "ticker": t,
+                    "sector": sectors.get(t) or "Unknown",
+                    "score": float(r.get("llm_triage_score", 0)),
+                    "why": str(r.get("why", "")),
+                }
+            )
+        rows.sort(key=lambda r: r["score"], reverse=True)
+    else:
+        for t in st3.selected.index:
+            if t in exclude:
+                continue
+            rows.append(
+                {
+                    "ticker": t,
+                    "sector": sectors.get(t) or "Unknown",
+                    "score": float(st3.selected.at[t, "stage3_score"]),
+                    "why": "deterministic stage-3 rank",
+                }
+            )
+    return rows[:n]
+
+
+def _persist_scores(
+    session, as_of: dt.date, tr, comp, st3, triage_df, dives, sectors
+) -> None:
+    """Store every scored name so the IC tracker can measure this run later."""
+    dive_by_ticker = {d.ticker: d for d in dives}
+    final_order = {d.ticker: i + 1 for i, d in enumerate(dives)}
+
+    rows = []
+    for t in comp.scores.index:
+        r = comp.scores.loc[t]
+        stage = 2
+        catalyst = None
+        if t in st3.selected.index:
+            stage = 3
+            catalyst = float(st3.selected.at[t, "catalyst_score"])
+        tri_score = None
+        if not triage_df.empty and t in triage_df.index:
+            stage = 4
+            tri_score = float(triage_df.at[t, "llm_triage_score"])
+        dive = dive_by_ticker.get(t)
+        if dive:
+            stage = 5
+        rows.append(
+            {
+                "as_of_date": as_of,
+                "ticker": t,
+                "sector": sectors.get(t),
+                "stage_reached": stage,
+                "factor_composite": _num(r.get("factor_composite")),
+                "catalyst_score": catalyst,
+                "llm_triage_score": tri_score,
+                "llm_total_score": float(dive.total_score) if dive else None,
+                "final_rank": final_order.get(t),
+                "factor_detail": {
+                    k: _num(r.get(k))
+                    for k in ("momentum", "quality", "revisions", "pead", "value")
+                },
+                "data_completeness": _num(r.get("data_completeness")),
+            }
+        )
+    repository.save_scores(session, rows)
+
+    repository.save_theses(
+        session,
+        [
+            {
+                "as_of_date": as_of,
+                "ticker": d.ticker,
+                "total_score": d.total_score,
+                "subscores": d.subscores.model_dump(),
+                "thesis": d.thesis,
+                "bull_case": d.bull_case,
+                "bear_case": d.bear_case,
+                "invalidation": d.invalidation,
+                "time_horizon_days": d.time_horizon_days,
+                "conviction": d.conviction,
+                "key_risks": d.key_risks,
+                "catalysts_ahead": [c.model_dump() for c in d.catalysts_ahead],
+            }
+            for d in dives
+        ],
+    )
+
+
+def _num(v: Any) -> float | None:
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return None
+    return None if not np.isfinite(f) else f

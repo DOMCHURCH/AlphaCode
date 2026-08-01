@@ -1,0 +1,39 @@
+# --- core numerics ---
+numpy>=1.26,<3
+pandas>=2.2,<3
+scipy>=1.11,<2
+
+# --- data models & config ---
+pydantic>=2.7,<3
+pydantic-settings>=2.2,<3
+python-dotenv>=1.0
+
+# --- storage ---
+SQLAlchemy>=2.0,<3
+psycopg2-binary>=2.9
+alembic>=1.13
+redis>=5.0
+
+# --- HTTP / resilience ---
+httpx>=0.27
+tenacity>=8.2
+
+# --- API & scheduling ---
+fastapi>=0.110
+uvicorn[standard]>=0.29
+APScheduler>=3.10
+pandas-market-calendars>=4.4
+
+# --- reporting ---
+plotly>=5.20,<6
+# Pinned deliberately: kaleido >=1.0 shells out to a system Chrome install,
+# which is not present on a Nixpacks image. 0.2.1 bundles its own renderer.
+kaleido==0.2.1
+Jinja2>=3.1
+weasyprint>=61.0
+
+# --- observability ---
+structlog>=24.1
+
+# --- fallback data source (optional at runtime, wrapped in try/except) ---
+yfinance>=0.2.40
