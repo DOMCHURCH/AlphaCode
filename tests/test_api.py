@@ -168,3 +168,22 @@ def test_api_boots_with_in_process_scheduler(tmp_path, monkeypatch):
     finally:
         get_settings.cache_clear()
         reset_engine_cache()
+
+
+def test_status_reports_counts(client):
+    r = client.get("/status")
+    assert r.status_code == 200
+    body = r.json()
+    for key in ("price_bars", "universe_snapshots", "runs", "ready_for_first_run"):
+        assert key in body
+    assert body["ready_for_first_run"] is False  # empty DB
+
+
+def test_backfill_requires_key_when_set(client, monkeypatch):
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("API_KEY", "bf")
+    get_settings.cache_clear()
+    assert client.post("/backfill?days=1").status_code == 401
+    # Correct key is accepted (the background load itself no-ops without data keys).
+    assert client.post("/backfill?days=1", headers={"X-API-Key": "bf"}).status_code == 200

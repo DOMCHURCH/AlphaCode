@@ -99,6 +99,7 @@ app = FastAPI(
 )
 
 _run_lock = asyncio.Lock()
+_backfill_lock = asyncio.Lock()
 
 
 class HealthResponse(BaseModel):
@@ -375,15 +376,88 @@ async def _run_pipeline_bg(as_of: dt.date | None, skip_llm: bool) -> None:
             log.exception("manual_run_failed", error=str(exc))
 
 
+@app.post("/backfill", response_model=RunResponse, dependencies=[Depends(_require_api_key)])
+async def trigger_backfill(
+    background: BackgroundTasks,
+    days: int = Query(600, ge=1, le=2000),
+    fundamentals: bool = False,
+) -> RunResponse:
+    """Load history so the funnel has something to screen. Curl-triggerable so no
+    shell is needed. Returns immediately; the load runs in the background.
+
+    `days` price sessions of bars (~500 Polygon calls). `fundamentals=true` also
+    pulls SEC XBRL as-reported fundamentals, which is slow (can take hours for the
+    full universe) -- do it after the bars load succeeds, not on the first call.
+    Requires X-API-Key iff API_KEY is set.
+    """
+    if _backfill_lock.locked():
+        return RunResponse(accepted=False, detail="A backfill is already running.")
+    background.add_task(_backfill_bg, days, fundamentals)
+    return RunResponse(
+        accepted=True,
+        detail=(
+            f"Backfill queued: {days} sessions of bars"
+            + (" + SEC fundamentals (slow)" if fundamentals else "")
+            + ". Watch GET /status for progress."
+        ),
+    )
+
+
+async def _backfill_bg(days: int, fundamentals: bool) -> None:
+    from src.backfill import backfill_bars, backfill_fundamentals
+
+    async with _backfill_lock:
+        try:
+            n = await backfill_bars(days)
+            log.info("backfill_bars_done", rows=n)
+            if fundamentals:
+                m = await backfill_fundamentals()
+                log.info("backfill_fundamentals_done", rows=m)
+        except Exception as exc:  # noqa: BLE001 - logged, never crashes the API
+            log.exception("backfill_failed", error=str(exc))
+
+
+@app.get("/status")
+def status() -> dict[str, Any]:
+    """Row counts so you can watch the backfill fill up and confirm readiness."""
+    from sqlalchemy import func
+
+    from src.storage.models import DailyBar, UniverseSnapshot
+
+    out: dict[str, Any] = {"backfill_running": _backfill_lock.locked(),
+                           "run_in_progress": _run_lock.locked()}
+    try:
+        with session_scope() as session:
+            out["price_bars"] = session.execute(
+                select(func.count()).select_from(DailyBar)
+            ).scalar_one()
+            out["distinct_tickers_with_bars"] = session.execute(
+                select(func.count(func.distinct(DailyBar.ticker)))
+            ).scalar_one()
+            latest_bar = session.execute(
+                select(func.max(DailyBar.date))
+            ).scalar_one()
+            out["latest_bar_date"] = latest_bar.isoformat() if latest_bar else None
+            out["universe_snapshots"] = session.execute(
+                select(func.count(func.distinct(UniverseSnapshot.as_of_date)))
+            ).scalar_one()
+            out["runs"] = len(repository.list_runs(session, limit=1000))
+        out["ready_for_first_run"] = (out.get("price_bars") or 0) > 100_000
+    except Exception as exc:  # noqa: BLE001
+        out["error"] = str(exc)[:200]
+    return out
+
+
 @app.get("/")
 def root() -> JSONResponse:
     return JSONResponse(
         {
             "service": "Daily Equity Alpha Funnel",
             "endpoints": [
-                "/health", "/reports", "/report/{date}", "/report/{date}/html",
-                "/report/{date}/pdf", "/ticker/{symbol}/history", "/validation",
-                "POST /run",
+                "/health", "/status", "/reports", "/report/{date}",
+                "/report/{date}/html", "/report/{date}/pdf",
+                "/ticker/{symbol}/history", "/validation",
+                "POST /backfill", "POST /run",
             ],
             "disclaimer": (
                 "Research and idea-generation only. Not investment advice."
