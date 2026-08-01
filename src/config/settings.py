@@ -28,7 +28,10 @@ class Settings(BaseSettings):
     database_url: str = Field(
         default="sqlite:///./alphafunnel.db", alias="DATABASE_URL"
     )
-    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    # Optional. Empty = use the in-process cache/rate-limiter (fine for a single
+    # service). Set it (or a ${{Redis.REDIS_URL}} reference) only if you run
+    # multiple processes that must share rate-limit budgets.
+    redis_url: str = Field(default="", alias="REDIS_URL")
 
     # ---------------- LLM ----------------
     llm_triage_model: str = Field(

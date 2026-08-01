@@ -16,9 +16,11 @@ you want one — the daily cron runs inside the API process.
 
 ## Steps
 
-1. **Project + plugins.** railway.app → New Project → Deploy from GitHub repo →
-   pick this repo/branch. Then **+ New → Database → PostgreSQL**, and again for
-   **Redis**.
+1. **Project + database.** railway.app → New Project → Deploy from GitHub repo →
+   pick this repo/branch. Then **+ New → Database → PostgreSQL**. Redis is
+   **optional** — with a single service the in-process cache/rate-limiter is
+   equivalent, so you can skip it. (Add it only if you later split into multiple
+   processes that must share rate-limit budgets.)
 
 2. **The service is already created from the repo.** It builds via `nixpacks.toml`
    (installs cairo/pango for the PDF) and starts `uvicorn src.api:app`. Config
@@ -28,7 +30,7 @@ you want one — the daily cron runs inside the API process.
    | Variable | Value |
    |---|---|
    | `DATABASE_URL` | Add Reference → `Postgres.DATABASE_URL` |
-   | `REDIS_URL` | Add Reference → `Redis.REDIS_URL` |
+   | `REDIS_URL` | leave unset (optional) — set a `Redis.REDIS_URL` reference only if you added Redis |
    | `ENABLE_SCHEDULER` | `true` &nbsp;← makes this one service run the daily cron |
    | `POLYGON_API_KEY` `FMP_API_KEY` `FINNHUB_API_KEY` `FRED_API_KEY` `OPENROUTER_API_KEY` | your keys |
    | `SEC_USER_AGENT` | `Your Name your@email.com` (SEC 403s without it) |

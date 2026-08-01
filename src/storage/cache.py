@@ -58,18 +58,31 @@ _LOCAL = _LocalCache()
 
 
 def get_redis() -> Any:
-    """Return a live Redis client, or the local fallback if unreachable."""
+    """Return a live Redis client, or the local in-process fallback.
+
+    Redis is optional. Set REDIS_URL empty (or omit the plugin) to run
+    Postgres-only -- with a single service process the in-process cache and
+    rate-limiter are equivalent, so this is a clean, supported mode rather than a
+    degraded one.
+    """
     global _client, _client_checked
     if _client is not None:
         return _client
     if _client_checked:
         return _LOCAL
     _client_checked = True
+
+    url = get_settings().redis_url
+    if not url:
+        # Explicitly disabled -- go straight to the local cache, no connect
+        # attempt, no warning.
+        log.info("redis_disabled_using_local_cache")
+        return _LOCAL
     try:
         import redis  # imported lazily so the package stays optional in tests
 
         client = redis.Redis.from_url(
-            get_settings().redis_url, decode_responses=True, socket_timeout=2.0
+            url, decode_responses=True, socket_timeout=2.0
         )
         client.ping()
         _client = client
