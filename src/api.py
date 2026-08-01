@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
 
@@ -28,6 +30,20 @@ from src.validation.ic import backfill_forward_returns, ic_report
 
 log = structlog.get_logger(__name__)
 
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Migrate the database (tables + indexes) against the real DATABASE_URL when
+    the service boots. Failures are logged, not fatal -- /health reports the DB
+    state, and Railway's healthcheck grace period lets Postgres come up."""
+    configure_logging()
+    try:
+        init_db()
+    except Exception as exc:  # noqa: BLE001 - health endpoint reports it
+        log.error("db_init_failed", error=str(exc))
+    yield
+
+
 app = FastAPI(
     title="Daily Equity Alpha Funnel",
     version="1.0.0",
@@ -36,6 +52,7 @@ app = FastAPI(
         "evaluate. Scores are the output of a heuristic pipeline plus a language "
         "model's interpretation, not a prediction. Nothing here is investment advice."
     ),
+    lifespan=lifespan,
 )
 
 _run_lock = asyncio.Lock()
@@ -76,15 +93,6 @@ class RunResponse(BaseModel):
     accepted: bool
     run_id: str | None = None
     detail: str
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    configure_logging()
-    try:
-        init_db()
-    except Exception as exc:  # noqa: BLE001 - health endpoint reports it
-        log.error("db_init_failed", error=str(exc))
 
 
 @app.get("/health", response_model=HealthResponse)
