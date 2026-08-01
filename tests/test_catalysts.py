@@ -276,3 +276,50 @@ def test_spread_estimate_respects_the_tick_floor():
     assert cheap > 30
     # The same liquidity on a $300 stock is not floored.
     assert estimate_spread_bps(300.0, 305.0, 295.0, 500_000_000) < tick_floor_bps
+
+
+# ---------------------------------------------------------------------------
+# Macro sector tilt in the Stage 3 ranking
+# ---------------------------------------------------------------------------
+def test_regime_tilt_favours_the_right_sector_even_for_negative_scores():
+    """A favoured sector must rank above a suppressed one at equal blended
+    score -- including when that score is negative, which is where a
+    multiplicative tilt silently inverts."""
+    import pandas as pd
+
+    from src.catalysts.macro import MacroState
+    from src.catalysts.stage3 import combine_and_rank
+
+    macro = MacroState(regime="RISK_ON", score=2.0)  # favours Tech, suppresses Utilities
+    for blend in (-0.5, 0.0, 0.5):
+        fs = pd.DataFrame(
+            {"factor_composite": [blend, blend],
+             "sector": ["Technology", "Utilities"]},
+            index=["TECH", "UTIL"],
+        )
+        cs = pd.DataFrame({"catalyst_score": [0.0, 0.0]}, index=["TECH", "UTIL"])
+        out = combine_and_rank(fs, cs, macro, take=2)
+        assert out.index[0] == "TECH", (
+            f"at blend={blend}, suppressed sector out-ranked the favoured one"
+        )
+        assert out.at["TECH", "stage3_score"] > out.at["UTIL", "stage3_score"]
+
+
+def test_regime_tilt_adjusts_but_does_not_dominate():
+    """The tilt nudges; it must not let a favoured-sector laggard leapfrog a
+    genuinely stronger name in a suppressed sector."""
+    import pandas as pd
+
+    from src.catalysts.macro import MacroState
+    from src.catalysts.stage3 import combine_and_rank
+
+    macro = MacroState(regime="RISK_ON", score=2.0)
+    fs = pd.DataFrame(
+        {"factor_composite": [2.0, -1.0],  # strong Utilities vs weak Tech
+         "sector": ["Utilities", "Technology"]},
+        index=["STRONG_UTIL", "WEAK_TECH"],
+    )
+    cs = pd.DataFrame({"catalyst_score": [0.0, 0.0]},
+                      index=["STRONG_UTIL", "WEAK_TECH"])
+    out = combine_and_rank(fs, cs, macro, take=2)
+    assert out.index[0] == "STRONG_UTIL", "the tilt overwhelmed a 3-sigma score gap"

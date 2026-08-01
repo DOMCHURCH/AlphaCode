@@ -33,7 +33,7 @@ permits the data hosts.
 
 ## Verified working (offline, this environment)
 
-- **180 tests pass**, ruff clean. `pytest -p no:warnings`. (weasyprint PDF test
+- **182 tests pass**, ruff clean. `pytest -p no:warnings`. (weasyprint PDF test
   runs where the system libs are present, skips otherwise.)
 - **Point-in-time enforcement** (`tests/test_pit.py`, 41 tests): the guardrail
   suite. Sweeps every date in the month before a filing; fails if any can see
@@ -92,8 +92,17 @@ assume worthless until measured on live data.
   the path is no longer untested. Note: the venv is not committed, so a fresh
   container needs `pip install -r requirements-dev.txt` for the test to run
   (else it skips).
+- **Cycle 3 (done):** found and fixed a real correctness bug in the Stage 3
+  macro tilt. `combine_and_rank` multiplied the blended score by the sector
+  tilt, but the blended score is a z-score that goes negative — so for any name
+  below the survivor-set mean (~half of them) the tilt inverted: in RISK_ON a
+  suppressed-sector name out-ranked an identically-scored favoured-sector name.
+  Verified empirically (Utilities beat Technology at blend=-0.5), then switched
+  to an additive tilt `blended + (tilt-1)*REGIME_TILT_STRENGTH`, which is
+  sign-correct. Two regression tests: favoured sector wins at negative/zero/
+  positive blends, and the tilt nudges without overwhelming a 3-sigma gap.
 - **Next cycle candidates:** (a) cycle-5 checkpoint (cycle 5) — run end to end,
-  read as a user, delete dead code, reconcile this file; (b) tighten any
-  deterministic-layer edge cases found by re-reading. Do NOT invent work — if
-  nothing real remains, run validation and report the (currently unmeasurable)
-  edge honestly.
+  read as a user, delete dead code, reconcile this file; (b) continue reading
+  the deterministic layers for real defects (this cycle found one, so the read
+  is paying off — momentum, quality, PEAD, and the news/insider scorers are the
+  places a silent sign/scale error would hide). Do NOT invent work.

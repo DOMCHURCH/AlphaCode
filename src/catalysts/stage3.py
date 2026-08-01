@@ -28,6 +28,7 @@ from src.catalysts import options as options_scorer
 from src.catalysts import sec_events
 from src.catalysts.macro import MacroState
 from src.catalysts.risk_screen import estimate_spread_bps, screen_name
+from src.config.factor_weights import REGIME_TILT_STRENGTH
 from src.config.settings import get_settings
 from src.ingest import finnhub as fh
 from src.ingest import gdelt as gd
@@ -348,9 +349,13 @@ def combine_and_rank(
         df["factor_composite"] * (1 - catalyst_weight)
         + df["catalyst_z"] * catalyst_weight
     )
-    # The macro layer adjusts sector weight, it does not pick names -- so it
-    # scales the blended score rather than entering it additively.
-    df["stage3_score"] = blended * df["sector_tilt"]
+    # The macro layer adjusts sector weight, it does not pick names. Apply the
+    # tilt ADDITIVELY: (tilt - 1) is positive for a favoured sector and negative
+    # for a suppressed one, so the nudge points the right way regardless of the
+    # sign of `blended`. A multiplicative tilt (blended * tilt) is wrong here --
+    # blended is a z-score and goes negative, and scaling a negative score up by
+    # 1.15 would penalise the very sector the regime favours.
+    df["stage3_score"] = blended + (df["sector_tilt"] - 1.0) * REGIME_TILT_STRENGTH
 
     df = df.sort_values("stage3_score", ascending=False)
     return df.head(take)

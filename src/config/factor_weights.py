@@ -157,8 +157,15 @@ RUBRIC_MAX: dict[str, int] = {
 }
 
 # ---------------------------------------------------------------------------
-# Macro regime -> sector tilt multipliers applied to the composite score.
-# ---------------------------------------------------------------------------
+# Macro regime -> sector tilt. Stored as multipliers around 1.0 (1.15 = favour,
+# 0.85 = suppress) because that reads naturally, but they are applied ADDITIVELY
+# as (tilt - 1) * REGIME_TILT_STRENGTH in stage3. A multiplicative application
+# is sign-wrong: scores are z-scores and go negative, and multiplying a negative
+# score by 1.15 makes it *more* negative, which would penalise a favoured
+# sector. The additive form nudges every name the same direction regardless of
+# sign, which is what "tilt the sector" actually means.
+REGIME_TILT_STRENGTH: float = 1.0  # z-score units per unit of (tilt - 1)
+
 REGIME_SECTOR_TILTS: dict[str, dict[str, float]] = {
     "RISK_ON": {
         "Technology": 1.15,
