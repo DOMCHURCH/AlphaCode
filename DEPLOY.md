@@ -1,26 +1,24 @@
 # Deploying to Railway
 
-The whole thing is **one repo → one service → Postgres + Redis**. No separate
-frontend (the API renders and serves the HTML), and no separate worker unless
-you want one — the daily cron runs inside the API process.
+The whole thing is **one repo → one service → Postgres**. No separate frontend
+(the API renders and serves the HTML), no worker (the daily cron runs inside the
+API process), and no Redis (the cache and rate-limiter run in-process).
 
 ```
 ┌──────────────────────────┐      ┌────────────┐
 │  service (this repo)      │─────▶│  Postgres  │
 │  uvicorn src.api:app      │      └────────────┘
-│  • serves reports + JSON  │      ┌────────────┐
-│  • runs the 06:00 funnel  │─────▶│   Redis    │
-│    (ENABLE_SCHEDULER=true)│      └────────────┘
+│  • serves reports + JSON  │
+│  • runs the 06:00 funnel  │   (cache + rate-limits: in-process)
+│    (ENABLE_SCHEDULER=true)│
 └──────────────────────────┘
 ```
 
 ## Steps
 
 1. **Project + database.** railway.app → New Project → Deploy from GitHub repo →
-   pick this repo/branch. Then **+ New → Database → PostgreSQL**. Redis is
-   **optional** — with a single service the in-process cache/rate-limiter is
-   equivalent, so you can skip it. (Add it only if you later split into multiple
-   processes that must share rate-limit budgets.)
+   pick this repo/branch. Then **+ New → Database → PostgreSQL**. That's the only
+   plugin you need.
 
 2. **The service is already created from the repo.** It builds via `nixpacks.toml`
    (installs cairo/pango for the PDF) and starts `uvicorn src.api:app`. Config
@@ -30,12 +28,13 @@ you want one — the daily cron runs inside the API process.
    | Variable | Value |
    |---|---|
    | `DATABASE_URL` | Add Reference → `Postgres.DATABASE_URL` |
-   | `REDIS_URL` | leave unset (optional) — set a `Redis.REDIS_URL` reference only if you added Redis |
    | `ENABLE_SCHEDULER` | `true` &nbsp;← makes this one service run the daily cron |
    | `POLYGON_API_KEY` `FMP_API_KEY` `FINNHUB_API_KEY` `FRED_API_KEY` `OPENROUTER_API_KEY` | your keys |
    | `SEC_USER_AGENT` | `Your Name your@email.com` (SEC 403s without it) |
    | `API_KEY` | a long random string (protects `POST /run`) |
    | `ENV` | `prod` |
+
+   (No `REDIS_URL` needed — leave it unset.)
 
    `DATABASE_URL` can be a `postgres://` or `postgresql://` URL — the app
    normalizes it and uses the psycopg2 driver.

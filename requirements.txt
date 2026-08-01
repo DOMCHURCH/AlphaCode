@@ -12,7 +12,10 @@ python-dotenv>=1.0
 SQLAlchemy>=2.0,<3
 psycopg2-binary>=2.9
 alembic>=1.13
-redis>=5.0
+# Redis is optional and not installed by default -- the cache and rate-limiter
+# fall back to an in-process implementation, which is equivalent for a single
+# service. To share rate-limit budgets across multiple processes, add `redis`
+# here and set REDIS_URL.
 
 # --- HTTP / resilience ---
 httpx>=0.27

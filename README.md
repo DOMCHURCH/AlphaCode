@@ -83,9 +83,10 @@ Each source has exactly one job. Nothing is duplicated.
 | **FRED** | Macro regime state. Drives sector tilts and risk appetite, never individual names. |
 | **GDELT 2.0** | News volume, tone trajectory, and event themes at scale. |
 
-Rate limiting is one Redis-backed token bucket per source, configured in
-`src/config/rate_limits.py`. There is no `time.sleep()` anywhere in the
-codebase; every request goes through `RateLimiter.acquire()`.
+Rate limiting is one token bucket per source, configured in
+`src/config/rate_limits.py`. It runs in-process by default; set `REDIS_URL` to
+share buckets across processes (optional). There is no `time.sleep()` anywhere
+in the codebase; every request goes through `RateLimiter.acquire()`.
 
 ---
 
@@ -201,16 +202,17 @@ does not auto-update `factor_weights.py` — daily refitting overfits to noise.
 
 ## Railway deployment
 
-Four services:
+One service + one plugin (see `DEPLOY.md` for the click-path):
 
-1. **api** — `railway.toml`, FastAPI, healthcheck on `/health`
-2. **worker** — `railway.worker.toml`, APScheduler at 06:00 America/New_York
-   weekdays, holiday-guarded with `pandas_market_calendars`
-3. **Postgres** plugin
-4. **Redis** plugin
+1. **service** — `railway.toml`, `uvicorn src.api:app`. Serves the reports/JSON
+   and, with `ENABLE_SCHEDULER=true`, runs the 06:00 America/New_York weekday
+   funnel in-process (holiday-guarded with `pandas_market_calendars`).
+2. **Postgres** plugin — the database.
 
-`nixpacks.toml` installs cairo/pango for weasyprint and runs `python -m
-src.migrate` in the build phase, so a deploy migrates itself.
+Redis is optional (in-process cache/rate-limiter by default). To split the cron
+into its own service later, point a second service at `railway.worker.toml`.
+`nixpacks.toml` installs cairo/pango for weasyprint; the schema migrates itself
+at startup.
 
 Operational guarantees built in:
 
