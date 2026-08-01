@@ -288,6 +288,7 @@ async function analyze(symbol) {
   const th = hist && hist.theses && hist.theses.length ? hist.theses[hist.theses.length - 1] : null;
   const sc = hist && hist.scores && hist.scores.length ? hist.scores[hist.scores.length - 1] : null;
   let html =
+    `<a class="detaillink" href="/stock/${encodeURIComponent(symbol)}">Open full detail page — charts &amp; analysis →</a>` +
     `<div class="notscreened">${symbol} isn't in today's top-10 screen.` +
     (sc ? ` Last scored ${sc.date} (stage ${sc.stage_reached}).` : ` No funnel history yet.`) +
     `</div>`;
@@ -313,6 +314,7 @@ function renderPick(side, n) {
     .map((c) => esc(c.event) + (c.date ? ` (${c.date})` : ""))
     .filter(Boolean);
   side.innerHTML = `
+    <a class="detaillink" href="/stock/${encodeURIComponent(n.ticker)}">Open full detail page — charts &amp; analysis →</a>
     <div class="scorebig"><div class="n" style="color:${col(n.total_score)}">${n.total_score}</div><div class="of">/100 · funnel score</div></div>
     <div class="meta"><span class="tag">rank #${n._rank}</span>
       <span class="tag ${n.conviction || ""}">${n.conviction || "—"} conviction</span>
@@ -366,6 +368,7 @@ async function loadPicks(auto) {
       <div><div class="tk">${esc(n.ticker)}</div><div class="sec">${esc(n.sector || "")}</div></div>
       <span class="sc" style="color:${col(n.total_score)}">${n.total_score}</span>
       <span class="cv ${n.conviction || ""}"></span>
+      <a class="prow-detail" href="/stock/${encodeURIComponent(n.ticker)}" onclick="event.stopPropagation()" title="Full detail page">↗</a>
     </div>`
       )
       .join("") +

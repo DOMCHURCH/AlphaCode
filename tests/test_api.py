@@ -127,6 +127,36 @@ def test_report_served_from_db(client, tmp_path):
         assert p.status_code == 404
 
 
+def test_stock_detail_page(client):
+    """A screened name gets a full standalone detail page; an unknown one 404s."""
+    import datetime as dt
+
+    from src.storage.db import session_scope
+    from src.storage.models import DailyBar, DailyScore, Thesis
+
+    with session_scope() as s:
+        for k in range(60):
+            day = AS_OF - dt.timedelta(days=k)
+            px = 100 + (60 - k) * 0.5
+            s.add(DailyBar(ticker="ABC", date=day, open=px, high=px * 1.01,
+                           low=px * 0.99, close=px, volume=1_000_000))
+        s.add(DailyScore(as_of_date=AS_OF, ticker="ABC", sector="Technology",
+                         stage_reached=5, factor_composite=1.2, final_rank=1,
+                         factor_detail={"gross_profitability": 0.5, "piotroski": 7}))
+        s.add(Thesis(as_of_date=AS_OF, ticker="ABC", total_score=88, conviction="high",
+                     subscores={"trend": 22, "fundamental": 18, "catalyst": 16,
+                                "news": 12, "macro": 10, "risk": 10},
+                     thesis="A durable compounding story.", invalidation="close below 90"))
+
+    r = client.get("/stock/ABC")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "ABC" in r.text and "88/100" in r.text
+    assert "Company health" in r.text  # the fundamentals section rendered
+
+    assert client.get("/stock/ZZZZ").status_code == 404
+
+
 def test_unknown_date_is_404(client):
     assert client.get("/report/2019-01-01").status_code == 404
     assert client.get("/report/not-a-date").status_code == 400

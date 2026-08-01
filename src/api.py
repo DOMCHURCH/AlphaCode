@@ -256,6 +256,20 @@ def list_reports(limit: int = Query(30, ge=1, le=200)) -> list[dict[str, Any]]:
         ]
 
 
+@app.get("/stock/{symbol}", response_class=HTMLResponse)
+def stock_detail(symbol: str) -> HTMLResponse:
+    """A full, standalone detail page for one ticker: price chart with event
+    markers, factor radar, 8-quarter fundamentals, peer comparison, and the
+    written thesis. Assembled from stored data, so any screened name opens."""
+    from src.report.detail import build_stock_detail
+
+    with session_scope() as session:
+        html = build_stock_detail(session, symbol)
+    if html is None:
+        raise HTTPException(404, f"No stored data for {symbol.upper()}")
+    return HTMLResponse(html)
+
+
 @app.get("/ticker/{symbol}/history")
 def ticker_history(
     symbol: str, days: int = Query(180, ge=1, le=1500)
