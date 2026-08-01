@@ -24,6 +24,7 @@ from src.config.factor_weights import CATEGORY_FACTORS, CATEGORY_WEIGHTS, RUBRIC
 from src.config.settings import get_settings
 from src.llm.schemas import DeepDive
 from src.report import charts as ch
+from src.storage import repository
 from src.storage.pit import get_bars, get_filings, get_insider_transactions
 
 log = structlog.get_logger(__name__)
@@ -131,9 +132,18 @@ def build_report(
 
     pdf_path = _render_pdf(html, out_dir / f"report_{as_of.isoformat()}.pdf")
 
+    # Persist the rendered bytes to the DB so the api service can serve them
+    # regardless of which filesystem the worker rendered on. The disk copy stays
+    # for local convenience.
+    pdf_bytes = Path(pdf_path).read_bytes() if pdf_path else None
+    repository.save_report_artifact(
+        session, as_of, run_id=run_id, html=html, pdf=pdf_bytes
+    )
+
     log.info(
         "report_written", html=str(html_path), pdf=pdf_path,
         names=len(names), size_kb=round(len(html) / 1024, 1),
+        stored_in_db=True,
     )
     return {"html": str(html_path), "pdf": pdf_path}
 

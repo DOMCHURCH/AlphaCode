@@ -307,3 +307,54 @@ def test_pdf_renders_a_valid_document_when_weasyprint_available(session, tmp_pat
     assert data[:5] == b"%PDF-", "output is not a PDF"
     assert b"%%EOF" in data[-2048:], "PDF is truncated / has no EOF marker"
     assert len(data) > 5000, "PDF is implausibly small"
+
+
+def test_report_is_stored_in_db_and_served_without_disk(session, tmp_path, bars):
+    """The Railway fix: the api must serve the report from the DB even when the
+    rendering filesystem is gone. Render, then read it back from the DB with the
+    disk directory deleted."""
+    import shutil
+
+    from src.storage import repository
+
+    repository.save_bars(
+        session,
+        [{"ticker": "NVDA", **{k: r[k] for k in
+                               ("date", "open", "high", "low", "close", "volume")}}
+         for _, r in bars.iterrows()],
+    )
+    session.flush()
+
+    macro = MacroState(regime="RISK_ON", score=2.0,
+                       series={"VIXCLS": [{"date": AS_OF, "value": 14.0}]})
+    build_report(
+        session, as_of=AS_OF, run_id="db-test", dives=[_dive("NVDA")],
+        scores=pd.DataFrame(
+            {"sector": ["Technology"], "factor_composite": [1.4],
+             "data_completeness": [0.9], "completeness_momentum": [1.0],
+             "completeness_quality": [0.8], "completeness_revisions": [1.0],
+             "completeness_pead": [1.0], "completeness_value": [0.6]},
+            index=["NVDA"]),
+        trend_features=pd.DataFrame(
+            {"high_52w": [204.0], "low_52w": [100.0], "close": [200.0]},
+            index=["NVDA"]),
+        detail={"NVDA": {}}, macro=macro,
+        funnel_counts={"Stage 0 universe": 6000, "Stage 5 final": 1},
+        funnel_rejects={}, stage_sectors={"Stage 0": {"Technology": 6000}},
+        near_misses=[], api_calls={"sec": 400},
+        cost={"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "by_stage": {}},
+        duration_s=100.0, output_dir=str(tmp_path),
+    )
+    session.flush()
+
+    # Simulate the api service: a different filesystem with no report files.
+    shutil.rmtree(tmp_path)
+
+    artifact = repository.get_report_artifact(session, AS_OF)
+    assert artifact is not None, "report was not persisted to the DB"
+    assert artifact.html and "NVDA" in artifact.html
+    assert artifact.html_bytes > 1000
+    # PDF is stored too when weasyprint is available.
+    if artifact.pdf:
+        assert artifact.pdf[:5] == b"%PDF-"
+        assert artifact.pdf_bytes > 5000

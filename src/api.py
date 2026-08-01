@@ -9,7 +9,12 @@ from typing import Any
 
 import structlog
 from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import (
+    FileResponse,
+    HTMLResponse,
+    JSONResponse,
+    Response,
+)
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -138,11 +143,15 @@ def get_report(date: str) -> ReportResponse:
 @app.get("/report/{date}/html", response_class=HTMLResponse)
 def get_report_html(date: str) -> HTMLResponse:
     as_of = _parse_date(date)
+    # Prefer the DB copy: on Railway the worker rendered on a different, ephemeral
+    # filesystem, so the api's local disk almost never has the file.
     with session_scope() as session:
+        artifact = repository.get_report_artifact(session, as_of)
+        if artifact and artifact.html:
+            return HTMLResponse(artifact.html)
         run = repository.get_run(session, as_of)
     path = Path(run.report_path) if run and run.report_path else None
     if path is None or not path.exists():
-        # Fall back to the conventional location in case the DB row is stale.
         path = Path(get_settings().report_dir) / f"report_{as_of.isoformat()}.html"
     if not path.exists():
         raise HTTPException(404, f"No rendered report for {as_of}")
@@ -150,12 +159,21 @@ def get_report_html(date: str) -> HTMLResponse:
 
 
 @app.get("/report/{date}/pdf")
-def get_report_pdf(date: str) -> FileResponse:
+def get_report_pdf(date: str) -> Response:
     as_of = _parse_date(date)
-    path = Path(get_settings().report_dir) / f"report_{as_of.isoformat()}.pdf"
+    filename = f"report_{as_of.isoformat()}.pdf"
+    with session_scope() as session:
+        artifact = repository.get_report_artifact(session, as_of)
+        if artifact and artifact.pdf:
+            return Response(
+                content=bytes(artifact.pdf),
+                media_type="application/pdf",
+                headers={"Content-Disposition": f'inline; filename="{filename}"'},
+            )
+    path = Path(get_settings().report_dir) / filename
     if not path.exists():
         raise HTTPException(404, f"No PDF for {as_of}")
-    return FileResponse(path, media_type="application/pdf", filename=path.name)
+    return FileResponse(path, media_type="application/pdf", filename=filename)
 
 
 @app.get("/reports")

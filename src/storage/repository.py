@@ -22,6 +22,7 @@ from src.storage.models import (
     InsiderTransaction,
     MacroSnapshot,
     NewsAggregate,
+    ReportArtifact,
     RunLog,
     StageResult,
     Thesis,
@@ -131,6 +132,39 @@ def save_theses(session: Session, rows: Sequence[dict[str, Any]]) -> int:
 
 def save_scores(session: Session, rows: Sequence[dict[str, Any]]) -> int:
     return _upsert(session, DailyScore, list(rows), ["as_of_date", "ticker"])
+
+
+def save_report_artifact(
+    session: Session,
+    as_of: dt.date,
+    *,
+    run_id: str | None = None,
+    html: str | None = None,
+    pdf: bytes | None = None,
+) -> None:
+    """Persist the rendered report to the DB so the api service can serve it
+    regardless of which service (or filesystem) rendered it."""
+    _upsert(
+        session,
+        ReportArtifact,
+        [
+            {
+                "as_of_date": as_of,
+                "run_id": run_id,
+                "html": html,
+                "pdf": pdf,
+                "html_bytes": len(html.encode()) if html else 0,
+                "pdf_bytes": len(pdf) if pdf else 0,
+            }
+        ],
+        ["as_of_date"],
+    )
+
+
+def get_report_artifact(session: Session, as_of: dt.date) -> ReportArtifact | None:
+    return session.execute(
+        select(ReportArtifact).where(ReportArtifact.as_of_date == as_of)
+    ).scalar_one_or_none()
 
 
 # ---------------------------------------------------------------------------

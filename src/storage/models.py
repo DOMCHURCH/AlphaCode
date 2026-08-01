@@ -25,6 +25,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
@@ -343,6 +344,30 @@ class RunLog(Base):
     error: Mapped[str | None] = mapped_column(Text)
 
 
+class ReportArtifact(Base):
+    """The rendered report, stored in the DB rather than only on disk.
+
+    On Railway the worker (which renders) and the api (which serves) are
+    separate services with separate, ephemeral filesystems. A file on the
+    worker's disk is unreachable by the api and gone on the next redeploy.
+    Persisting the bytes here makes the report durable and cross-service; the
+    disk copy remains a convenience for local runs.
+    """
+
+    __tablename__ = "report_artifacts"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    as_of_date: Mapped[dt.date] = mapped_column(
+        Date, nullable=False, unique=True, index=True
+    )
+    run_id: Mapped[str | None] = mapped_column(String(64))
+    html: Mapped[str | None] = mapped_column(Text)
+    pdf: Mapped[bytes | None] = mapped_column(LargeBinary)
+    html_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    pdf_bytes: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 ALL_TABLES = [
     UniverseSnapshot,
     DailyBar,
@@ -357,6 +382,7 @@ ALL_TABLES = [
     DailyScore,
     Thesis,
     RunLog,
+    ReportArtifact,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

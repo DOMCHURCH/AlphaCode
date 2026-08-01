@@ -86,6 +86,19 @@ layer's contribution is entirely unvalidated. Net-of-costs edge for *this*
 implementation is unproven. The honest prior is skepticism until the IC tracker
 and null benchmark run on live data across enough days to clear the noise.
 
+## Deploy-readiness pass (post-cycle-5, user-requested)
+
+Fixed the one real Railway blocker: the worker rendered reports to its local disk
+and the api read from *its* disk, but on Railway those are separate ephemeral
+filesystems, so `/report/{date}/html|pdf` would 404 in the two-service topology.
+Now the rendered HTML + PDF are persisted to Postgres (`report_artifacts` table)
+and the api serves from the DB (disk is a local-only fallback). Proven
+end-to-end: ran the funnel, **wiped the report directory entirely**, and the API
+still served HTML (200) and a valid PDF (200, `%PDF`) via the DB. Added
+`DEPLOY.md` (services, env vars, backfill, endpoints). 185 tests, ruff clean.
+The system is push-ready and deploy-ready; the only thing unverifiable here
+remains the live API pass (needs keys + egress).
+
 ## Loop status: STOPPED after cycle 5
 
 The autonomous loop stopped itself here, on purpose. The remaining unknown that
