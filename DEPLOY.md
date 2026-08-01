@@ -29,9 +29,19 @@ API process), and no Redis (the cache and rate-limiter run in-process).
    |---|---|
    | `DATABASE_URL` | Add Reference → `Postgres.DATABASE_URL` |
    | `ENABLE_SCHEDULER` | `true` &nbsp;← makes this one service run the daily cron |
-   | `POLYGON_API_KEY` `FMP_API_KEY` `FINNHUB_API_KEY` `FRED_API_KEY` `OPENROUTER_API_KEY` | your keys |
-   | `SEC_USER_AGENT` | `Your Name your@email.com` (SEC 403s without it) |
+   | `SEC_USER_AGENT` | `Your Name your@email.com` &nbsp;**(required)** — SEC 403s without it |
+   | `OPENROUTER_API_KEY` | your key — only for the Stage 4–5 LLM write-ups |
    | `ENV` | `prod` |
+
+   **The funnel runs on free data by default** — the universe comes from SEC's
+   company list and prices from Yahoo, so **no market-data keys are required**.
+   `SEC_USER_AGENT` is the one must-set variable. `OPENROUTER_API_KEY` is only
+   needed for the LLM thesis stages (without it, run with `skip_llm` and you
+   still get the ranked, deterministic top-10).
+
+   Optional upgrades (set any of these and the funnel uses them automatically):
+   `POLYGON_API_KEY` (faster, whole-market bars + market caps via `FMP_API_KEY`),
+   `FINNHUB_API_KEY`, `FRED_API_KEY` (macro regime tilt).
 
    (No `REDIS_URL` needed — leave it unset. No `API_KEY` needed either — the
    site's one button drives `/backfill` and `/run` with no token.)

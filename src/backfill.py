@@ -21,7 +21,8 @@ import datetime as dt
 
 import structlog
 
-from src.ingest import polygon, sec_edgar
+from src.config.settings import get_settings
+from src.ingest import polygon, sec_edgar, yahoo
 from src.ingest.base import gather_bounded
 from src.logging_config import configure_logging
 from src.storage import repository
@@ -32,8 +33,16 @@ log = structlog.get_logger(__name__)
 
 
 async def backfill_bars(days: int, end: dt.date | None = None) -> int:
-    """One grouped-daily call per session. Holidays return empty and are skipped."""
+    """Load `days` sessions of history. Uses Polygon if a key is set, else the
+    free Yahoo path (no key)."""
     end = end or dt.date.today()
+    if get_settings().polygon_api_key:
+        return await _backfill_bars_polygon(days, end)
+    return await _backfill_bars_free(days, end)
+
+
+async def _backfill_bars_polygon(days: int, end: dt.date) -> int:
+    """One grouped-daily call per session. Holidays return empty and are skipped."""
     total = 0
     day = end
     fetched_sessions = 0
@@ -60,6 +69,38 @@ async def backfill_bars(days: int, end: dt.date | None = None) -> int:
         day -= dt.timedelta(days=1)
 
     log.info("backfill_bars_complete", sessions=fetched_sessions, rows=total)
+    return total
+
+
+async def _backfill_bars_free(days: int, end: dt.date) -> int:
+    """Keyless history load: SEC universe seed, Yahoo bars, batched.
+
+    `days` is trading sessions; Yahoo returns a calendar window, so we ask for
+    ~1.5x calendar days to cover it. Bars are saved chunk-by-chunk so progress
+    (and /status) climbs steadily and a mid-run failure keeps what it loaded.
+    """
+    start = end - dt.timedelta(days=int(days * 1.5) + 10)
+    reference = await sec_edgar.fetch_company_tickers()
+    tickers = [r["ticker"] for r in reference]
+    cap = get_settings().free_universe_max
+    if cap and cap > 0:
+        tickers = tickers[:cap]
+    log.info("backfill_free_start", companies=len(tickers), start=str(start), end=str(end))
+
+    total = 0
+    chunk = 200
+    for i in range(0, len(tickers), chunk):
+        batch = tickers[i : i + chunk]
+        rows = await yahoo.fetch_daily_bars_batch(batch, start, end, chunk=chunk)
+        if rows:
+            with session_scope() as session:
+                repository.save_bars(session, rows)
+            total += len(rows)
+        log.info(
+            "backfill_free_progress", done=min(i + chunk, len(tickers)),
+            total=len(tickers), rows=total,
+        )
+    log.info("backfill_bars_complete", source="yahoo", rows=total)
     return total
 
 

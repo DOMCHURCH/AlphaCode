@@ -10,6 +10,7 @@ Nothing in the funnel gates on it.
 
 from __future__ import annotations
 
+import asyncio
 import datetime as dt
 from typing import Any
 
@@ -34,6 +35,107 @@ def _yfinance() -> Any | None:
         log.info("yfinance_unavailable", error=str(exc))
         _yf = None
     return _yf
+
+
+def _frame_to_rows(df: Any, tickers: list[str]) -> list[dict[str, Any]]:
+    """Turn a yfinance download frame into DailyBar rows.
+
+    yfinance returns a per-ticker column MultiIndex for multiple symbols and a
+    flat frame for one. Pure (no network) so it is unit-testable with a synthetic
+    frame. Rows missing a close are skipped -- Yahoo pads delisted names with NaN.
+    """
+    import math
+
+    import pandas as pd  # local import: pandas is heavy, keep module import cheap
+
+    if df is None or getattr(df, "empty", True):
+        return []
+
+    def _num(v: Any) -> float | None:
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if math.isnan(f) else f
+
+    multi = isinstance(df.columns, pd.MultiIndex)
+    out: list[dict[str, Any]] = []
+    syms = tickers if multi else (tickers[:1] or ["?"])
+    for sym in syms:
+        try:
+            sub = df[sym] if multi else df
+        except KeyError:
+            continue
+        for idx, row in sub.iterrows():
+            d = idx.date() if hasattr(idx, "date") else idx
+            close = _num(row.get("Close"))
+            if close is None:
+                continue
+            out.append(
+                {
+                    "ticker": str(sym).upper(),
+                    "date": d,
+                    "open": _num(row.get("Open")),
+                    "high": _num(row.get("High")),
+                    "low": _num(row.get("Low")),
+                    "close": close,
+                    "volume": _num(row.get("Volume")),
+                    "vwap": None,
+                    "transactions": None,
+                }
+            )
+    return out
+
+
+def _download(yf: Any, tickers: list[str], start: dt.date, end: dt.date) -> Any:
+    """Blocking yfinance batch download. Runs in a worker thread via to_thread."""
+    return yf.download(
+        tickers=tickers,
+        start=start.isoformat(),
+        end=(end + dt.timedelta(days=1)).isoformat(),  # yfinance end is exclusive
+        interval="1d",
+        auto_adjust=True,
+        group_by="ticker",
+        threads=True,
+        progress=False,
+        actions=False,
+    )
+
+
+async def fetch_daily_bars_batch(
+    tickers: list[str],
+    start: dt.date,
+    end: dt.date,
+    *,
+    chunk: int = 200,
+) -> list[dict[str, Any]]:
+    """Free OHLCV history for many tickers via Yahoo, batched.
+
+    The keyless backbone of free-data mode: yfinance fetches a chunk of symbols
+    in one threaded call, so ~10k names cost ~50 calls, not 10k. Degrades to an
+    empty list if yfinance is unavailable or a chunk fails -- one bad chunk never
+    sinks the backfill.
+    """
+    yf = _yfinance()
+    if yf is None:
+        log.error("yahoo_batch_no_yfinance")
+        return []
+    clean = list(dict.fromkeys(t.upper() for t in tickers if t))
+    out: list[dict[str, Any]] = []
+    for i in range(0, len(clean), chunk):
+        batch = clean[i : i + chunk]
+        try:
+            df = await asyncio.to_thread(_download, yf, batch, start, end)
+            rows = _frame_to_rows(df, batch)
+        except Exception as exc:  # noqa: BLE001 - one bad chunk is survivable
+            log.warning("yahoo_batch_chunk_failed", n=len(batch), error=str(exc)[:200])
+            rows = []
+        out.extend(rows)
+        log.info(
+            "yahoo_batch_progress", done=min(i + chunk, len(clean)),
+            total=len(clean), rows=len(out),
+        )
+    return out
 
 
 def fetch_corporate_actions(ticker: str, since: dt.date | None = None) -> list[dict]:

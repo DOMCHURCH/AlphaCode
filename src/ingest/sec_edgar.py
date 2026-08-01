@@ -25,6 +25,7 @@ from src.ingest.base import APIClient, PermanentAPIError
 log = structlog.get_logger(__name__)
 
 SUBMISSIONS_URL = "https://data.sec.gov"
+WWW_URL = "https://www.sec.gov"
 
 # Forms we care about, and how Stage 3 reads them.
 POSITIVE_FORMS = {"SC 13D", "SC 13D/A"}
@@ -70,6 +71,66 @@ def make_client(concurrency: int = 8) -> APIClient:
 
 def pad_cik(cik: str | int) -> str:
     return str(cik).lstrip("0").zfill(10)
+
+
+def parse_company_tickers(payload: Any) -> list[dict[str, Any]]:
+    """SEC's company_tickers.json -> universe rows.
+
+    The file maps an index to {cik_str, ticker, title} for every operating
+    company that files with the SEC -- i.e. common stocks, exactly the universe
+    the funnel wants (no ETFs/funds). Pure, so it is unit-testable offline.
+    """
+    if isinstance(payload, dict):
+        records = list(payload.values())
+    elif isinstance(payload, list):
+        records = payload
+    else:
+        return []
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for r in records:
+        if not isinstance(r, dict):
+            continue
+        ticker = str(r.get("ticker") or "").upper().strip()
+        if not ticker or ticker in seen:
+            continue
+        seen.add(ticker)
+        out.append(
+            {
+                "ticker": ticker,
+                "name": r.get("title"),
+                "cik": str(r.get("cik_str")) if r.get("cik_str") is not None else None,
+                "security_type": "CS",  # SEC filers are operating companies
+                "exchange": None,
+                "active": True,
+            }
+        )
+    return out
+
+
+async def fetch_company_tickers() -> list[dict[str, Any]]:
+    """Every SEC-listed company's ticker + CIK + name. Free, no key.
+
+    The free-data universe seed. Also hands each name its CIK, which the
+    point-in-time fundamentals backfill needs anyway.
+    """
+    ua = get_settings().sec_user_agent
+    if not ua or "@" not in ua:
+        raise PermanentAPIError(
+            "SEC_USER_AGENT must be set to 'Name your@email.com' or SEC returns 403"
+        )
+    client = APIClient(
+        "sec",
+        WWW_URL,
+        headers={"User-Agent": ua, "Accept-Encoding": "gzip, deflate",
+                 "Host": "www.sec.gov"},
+        cache_ttl=12 * 3600,
+    )
+    async with client:
+        data = await client.get_json("/files/company_tickers.json")
+    rows = parse_company_tickers(data)
+    log.info("sec_company_tickers", rows=len(rows))
+    return rows
 
 
 async def fetch_submissions(client: APIClient, cik: str | int) -> dict[str, Any]:

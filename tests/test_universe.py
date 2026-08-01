@@ -80,6 +80,77 @@ def test_universe_applies_all_filters(session):
     assert diag["rejects"]["not_common_stock"] == 1
 
 
+def test_free_mode_universe_relaxes_market_cap(session):
+    """With no screener (free-data mode) there is no market cap, so that filter
+    must relax -- names still qualify on price + dollar volume alone."""
+    bars, ref, _ = _frames(30)
+    uni, diag = build_universe_from_frames(
+        dt.date(2025, 6, 2), session, bars, ref, []  # empty screener
+    )
+    assert len(uni) == 30  # nobody dropped for a missing cap
+    assert diag["rejects"].get("market_cap_below_min", 0) == 0
+    # Price/liquidity gates still bite.
+    bars[0]["close"] = 1.0
+    uni2, diag2 = build_universe_from_frames(
+        dt.date(2025, 6, 3), session, [{**b, "date": dt.date(2025, 6, 3)} for b in bars], ref, []
+    )
+    assert diag2["rejects"]["price_below_min"] == 1
+
+
+def test_parse_company_tickers():
+    from src.ingest.sec_edgar import parse_company_tickers
+
+    payload = {
+        "0": {"cik_str": 320193, "ticker": "AAPL", "title": "Apple Inc."},
+        "1": {"cik_str": 789019, "ticker": "MSFT", "title": "Microsoft Corp"},
+        "2": {"cik_str": 0, "ticker": "", "title": "No Ticker"},  # skipped
+        "3": {"cik_str": 320193, "ticker": "AAPL", "title": "dup"},  # deduped
+    }
+    rows = parse_company_tickers(payload)
+    tickers = [r["ticker"] for r in rows]
+    assert tickers == ["AAPL", "MSFT"]
+    assert rows[0]["cik"] == "320193"
+    assert rows[0]["security_type"] == "CS"
+
+
+def test_yahoo_frame_to_rows_multiindex():
+    import pandas as pd
+
+    from src.ingest.yahoo import _frame_to_rows
+
+    idx = pd.to_datetime(["2025-06-02", "2025-06-03"])
+    cols = pd.MultiIndex.from_product(
+        [["AAPL", "MSFT"], ["Open", "High", "Low", "Close", "Volume"]]
+    )
+    data = [
+        [200, 202, 199, 201, 1_000_000, 400, 404, 398, 402, 2_000_000],
+        [201, 205, 200, 204, 1_100_000, 402, 406, 401, 405, 2_100_000],
+    ]
+    df = pd.DataFrame(data, index=idx, columns=cols)
+    rows = _frame_to_rows(df, ["AAPL", "MSFT"])
+    assert len(rows) == 4
+    aapl = [r for r in rows if r["ticker"] == "AAPL"]
+    assert aapl[0]["close"] == 201 and aapl[0]["date"] == dt.date(2025, 6, 2)
+    assert all(r["vwap"] is None for r in rows)
+
+
+def test_yahoo_frame_to_rows_skips_nan_close():
+    import numpy as np
+    import pandas as pd
+
+    from src.ingest.yahoo import _frame_to_rows
+
+    idx = pd.to_datetime(["2025-06-02", "2025-06-03"])
+    df = pd.DataFrame(
+        {"Open": [10.0, 11.0], "High": [10.5, 11.5], "Low": [9.5, 10.5],
+         "Close": [np.nan, 11.2], "Volume": [1000, 1100]},
+        index=idx,
+    )
+    rows = _frame_to_rows(df, ["ABC"])
+    assert len(rows) == 1  # the NaN-close row is dropped
+    assert rows[0]["date"] == dt.date(2025, 6, 3)
+
+
 def test_universe_snapshot_is_persisted_per_date(session):
     """The survivorship-bias defence: every day gets its own snapshot."""
     from src.storage.pit import get_universe

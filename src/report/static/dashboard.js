@@ -167,8 +167,9 @@ async function loadHistory() {
       if (have === 0 && ++stalls >= 3) {
         setPhase("Couldn't load any market data.", true);
         setNote(
-          "The backfill ran but fetched 0 bars — the POLYGON_API_KEY (and the other " +
-            "data keys) are most likely missing on the server. Add them and try again."
+          "The backfill ran but fetched 0 bars. Free-data mode needs SEC_USER_AGENT " +
+            "set (e.g. \"Your Name you@email.com\") for the universe list, and outbound " +
+            "access to Yahoo for prices. Check those and try again."
         );
         return null;
       }

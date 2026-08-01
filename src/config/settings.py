@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     min_market_cap: float = Field(default=150_000_000.0, alias="MIN_MARKET_CAP")
     min_universe_size: int = Field(default=4000, alias="MIN_UNIVERSE_SIZE")
 
+    # Free-data mode (no POLYGON_API_KEY): the universe is seeded from SEC's
+    # company_tickers list and bars come from Yahoo. Cap how many SEC names to
+    # pull bars for (0 = all ~10k; the price/ADV filters trim illiquid ones
+    # anyway). Lower it to make the first free backfill faster.
+    free_universe_max: int = Field(default=0, alias="FREE_UNIVERSE_MAX")
+
     # ---------------- Operational ----------------
     max_run_cost_usd: float = Field(default=2.0, alias="MAX_RUN_COST_USD")
     run_timezone: str = Field(default="America/New_York", alias="RUN_TIMEZONE")

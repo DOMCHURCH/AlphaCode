@@ -19,11 +19,13 @@ from typing import Any
 import numpy as np
 import pandas as pd
 import structlog
+from sqlalchemy import func, select
 
 from src.config.settings import get_settings
-from src.ingest import fmp, polygon
+from src.ingest import fmp, polygon, sec_edgar, yahoo
 from src.ingest.polygon import VALID_EXCHANGES
 from src.storage import repository
+from src.storage.models import DailyBar
 from src.storage.pit import get_price_panel
 
 log = structlog.get_logger(__name__)
@@ -112,24 +114,81 @@ async def build_universe(
     *,
     persist_bars: bool = True,
 ) -> tuple[pd.DataFrame, dict[str, Any]]:
-    """Stage 0. Returns (universe_df, diagnostics)."""
+    """Stage 0. Returns (universe_df, diagnostics).
+
+    Two sourcing modes. With a Polygon key, one grouped-daily call gives the
+    whole market's OHLCV plus reference/screener data. Without one, the funnel
+    runs on free data: the universe is seeded from SEC's company list and the
+    latest bars come from Yahoo (on top of whatever the backfill already stored).
+    """
     s = get_settings()
 
-    bars = await polygon.fetch_grouped_daily(as_of)
-    if not bars:
-        raise RuntimeError(
-            f"Polygon grouped-daily returned no rows for {as_of} -- market holiday?"
+    if s.polygon_api_key:
+        bars = await polygon.fetch_grouped_daily(as_of)
+        if not bars:
+            raise RuntimeError(
+                f"Polygon grouped-daily returned no rows for {as_of} -- market holiday?"
+            )
+        if persist_bars:
+            repository.save_bars(session, bars)
+            session.flush()
+        reference = await polygon.fetch_ticker_reference()
+        screener = await fmp.fetch_screener() if s.fmp_api_key else []
+        return build_universe_from_frames(
+            as_of, session, bars, reference, screener, settings=s
         )
-    if persist_bars:
-        repository.save_bars(session, bars)
+
+    # ---- free-data mode: SEC seed + Yahoo bars, no keys ------------------
+    reference = await sec_edgar.fetch_company_tickers()
+    seed = _stored_tickers(session) or [r["ticker"] for r in reference]
+    # Refresh the most recent sessions so "today" is current even between
+    # backfills; this also incrementally extends history each run.
+    recent = await yahoo.fetch_daily_bars_batch(
+        seed, as_of - dt.timedelta(days=12), as_of
+    )
+    if recent and persist_bars:
+        repository.save_bars(session, recent)
         session.flush()
 
-    reference = await polygon.fetch_ticker_reference()
-    screener = await fmp.fetch_screener()
+    bars = _latest_stored_bars(session, as_of)
+    if not bars:
+        raise RuntimeError(
+            "No stored bars to build a universe from. Run a backfill first "
+            "(the site's button does this automatically)."
+        )
+    # No cheap free market-cap/sector source -- screener stays empty and the
+    # market-cap gate relaxes. Liquidity (ADV) and price still do the filtering.
+    return build_universe_from_frames(as_of, session, bars, reference, [], settings=s)
 
-    return build_universe_from_frames(
-        as_of, session, bars, reference, screener, settings=s
+
+def _stored_tickers(session) -> list[str]:
+    """Distinct tickers already in the bar store (the backfilled set)."""
+    return list(
+        session.execute(select(DailyBar.ticker).distinct()).scalars().all()
     )
+
+
+def _latest_stored_bars(session, as_of: dt.date) -> list[dict[str, Any]]:
+    """The most recent stored session on/before as_of, in grouped-daily shape.
+
+    Free-data mode has no single "whole market for today" call, so we synthesise
+    it from storage: take the latest available trading day and return its bars.
+    """
+    latest = session.execute(
+        select(func.max(DailyBar.date)).where(DailyBar.date <= as_of)
+    ).scalar_one_or_none()
+    if latest is None:
+        return []
+    rows = session.execute(
+        select(DailyBar).where(DailyBar.date == latest)
+    ).scalars()
+    return [
+        {
+            "ticker": b.ticker, "date": b.date, "open": b.open, "high": b.high,
+            "low": b.low, "close": b.close, "volume": b.volume, "vwap": b.vwap,
+        }
+        for b in rows
+    ]
 
 
 def build_universe_from_frames(
@@ -188,11 +247,14 @@ def build_universe_from_frames(
     fallback = df["close"].fillna(0) * df["volume"].fillna(0)
     df["adv_20d"] = df["adv_20d"].fillna(fallback)
 
+    # Without a screener (free-data mode) there is no market cap to gate on, so
+    # relax that one filter and lean on price + dollar-volume liquidity instead.
+    has_caps = "market_cap" in df.columns and df["market_cap"].notna().any()
     survivors, rejects = apply_filters(
         df,
         min_price=s.min_price,
         min_dollar_volume=s.min_dollar_volume,
-        min_market_cap=s.min_market_cap,
+        min_market_cap=s.min_market_cap if has_caps else 0.0,
     )
 
     rows = [

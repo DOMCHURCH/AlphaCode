@@ -74,14 +74,24 @@ async def enrich_tickers(
 
     out: dict[str, dict[str, Any]] = {t: {} for t in tickers}
 
+    s = get_settings()
     sec_client = sec.make_client(concurrency=concurrency)
-    fh_client = fh.make_client(concurrency=min(concurrency, 5))
     gd_client = gd.make_client(concurrency=min(concurrency, 4))
-    pg_client = pg._client(concurrency=concurrency) if use_options else None
+    # Finnhub (estimates/insiders) and Polygon options are optional upgrades:
+    # skip them cleanly when their keys aren't set so free-data mode still runs.
+    fh_client = (
+        fh.make_client(concurrency=min(concurrency, 5)) if s.finnhub_api_key else None
+    )
+    pg_client = (
+        pg._client(concurrency=concurrency)
+        if use_options and s.polygon_api_key
+        else None
+    )
 
-    async with sec_client, fh_client, gd_client:
-        if pg_client is not None:
-            await pg_client.__aenter__()
+    async with sec_client, gd_client:
+        for opt in (fh_client, pg_client):
+            if opt is not None:
+                await opt.__aenter__()
         try:
             await asyncio.gather(
                 _run_sec(sec_client, session, tickers, ciks, as_of, out, concurrency),
@@ -90,8 +100,9 @@ async def enrich_tickers(
                 _run_options(pg_client, tickers, out, concurrency),
             )
         finally:
-            if pg_client is not None:
-                await pg_client.__aexit__(None, None, None)
+            for opt in (fh_client, pg_client):
+                if opt is not None:
+                    await opt.__aexit__(None, None, None)
 
     calls = sum(
         c.calls_made
@@ -126,6 +137,8 @@ async def _run_sec(client, session, tickers, ciks, as_of, out, concurrency):
 
 
 async def _run_finnhub(client, session, tickers, as_of, out, concurrency):
+    if client is None:  # no FINNHUB_API_KEY -- estimates/insiders skipped
+        return
     since = as_of - dt.timedelta(days=90)
 
     async def one(ticker: str):
