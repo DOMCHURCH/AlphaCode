@@ -31,30 +31,28 @@ from src.validation.ic import backfill_forward_returns, ic_report
 log = structlog.get_logger(__name__)
 
 
-@asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Boot the service.
+async def _boot(app: FastAPI) -> None:
+    """Migrate the DB and (optionally) start the scheduler, off the critical path.
 
-    - Migrate the database (tables + indexes) against the real DATABASE_URL.
-      Failures are logged, not fatal -- /health reports DB state and Railway's
-      healthcheck grace period lets Postgres come up.
-    - In single-service mode (ENABLE_SCHEDULER=true) start the daily funnel cron
-      in this same process, so one `uvicorn src.api:app` both serves and runs the
-      06:00 job. No separate worker needed.
+    Run in a background task so the HTTP server binds and answers /health
+    immediately -- a slow or unreachable Postgres must never stall startup past
+    Railway's healthcheck window. The DB work runs in a worker thread so its
+    synchronous connect can't block the event loop; /health reports DB state
+    independently.
     """
-    configure_logging()
     try:
-        init_db()
+        await asyncio.wait_for(asyncio.to_thread(init_db), timeout=30)
+        log.info("db_ready")
     except Exception as exc:  # noqa: BLE001 - health endpoint reports it
-        log.error("db_init_failed", error=str(exc))
+        log.error("db_init_failed", error=str(exc)[:300])
 
-    scheduler = None
     if get_settings().enable_scheduler:
         try:
             from src.scheduler import build_scheduler
 
             scheduler = build_scheduler()
             scheduler.start()
+            app.state.scheduler = scheduler
             s = get_settings()
             log.info(
                 "scheduler_started_in_api",
@@ -62,12 +60,28 @@ async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
                 f"{s.run_timezone} mon-fri",
             )
         except Exception as exc:  # noqa: BLE001 - serving must survive
-            log.error("scheduler_start_failed", error=str(exc))
-            scheduler = None
+            log.error("scheduler_start_failed", error=str(exc)[:300])
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Boot the service without blocking the healthcheck.
+
+    Startup (DB migration + optional in-process scheduler) runs as a background
+    task so `uvicorn` starts accepting requests immediately. In single-service
+    mode (ENABLE_SCHEDULER=true) the daily funnel cron runs in this same process.
+    """
+    try:
+        configure_logging()
+    except Exception:  # noqa: BLE001 - never let logging setup stall startup
+        pass
+    app.state.scheduler = None
+    boot_task = asyncio.create_task(_boot(app))
     try:
         yield
     finally:
+        boot_task.cancel()
+        scheduler = getattr(app.state, "scheduler", None)
         if scheduler is not None:
             scheduler.shutdown(wait=False)
             log.info("scheduler_stopped_in_api")

@@ -48,6 +48,10 @@ def get_engine() -> Engine:
     else:
         kwargs["pool_size"] = 5
         kwargs["max_overflow"] = 10
+        # Fail fast on an unreachable/slow Postgres instead of hanging the
+        # startup migration (and with it the healthcheck) for the driver's
+        # default multi-minute timeout.
+        kwargs["connect_args"] = {"connect_timeout": 10}
     return create_engine(s.database_url, **kwargs)
 
 
