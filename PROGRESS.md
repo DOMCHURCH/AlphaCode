@@ -69,11 +69,33 @@ permits the data hosts.
 
 ## Honest status of edge
 
-**Unknown.** IC, factor-decay, turnover, and the null benchmark are all
-implemented and unit-tested against synthetic signals with known IC, so the
-*measuring apparatus* works. But no real scores against real forward returns
-exist, so the *actual* edge has never been measured. The honest default holds:
-assume worthless until measured on live data.
+**Unknown, and unmeasurable in this environment.** IC, factor-decay, turnover,
+and the null benchmark are implemented and unit-tested against synthetic signals
+with known IC, so the *measuring apparatus* works. But no real scores against
+real forward returns exist, so the *actual* edge has never been measured. I did
+NOT run the validation harness on the synthetic seed and present it as an edge
+result — that would be fabricating a signal, which the guardrails forbid.
+
+Architectural read (a prior, not a measurement): the funnel implements
+well-replicated anomalies — 12-1 momentum with the mandatory last-month skip,
+Novy-Marx gross profitability, Sloan accruals, PEAD/SUE with time-decay, estimate
+revisions — each winsorized and sector-neutralised correctly (now tested). Those
+effects are real in the literature. But they are crowded and decay; the daily
+rebalance implies high turnover that transaction costs can eat; and the LLM
+layer's contribution is entirely unvalidated. Net-of-costs edge for *this*
+implementation is unproven. The honest prior is skepticism until the IC tracker
+and null benchmark run on live data across enough days to clear the noise.
+
+## Loop status: STOPPED after cycle 5
+
+The autonomous loop stopped itself here, on purpose. The remaining unknown that
+matters — live-path correctness and real edge — is gated on live market data,
+which needs BOTH API keys and a network policy that permits the data hosts.
+Neither exists here (see the hard-blocker section). Every further cycle would
+either hit that same wall or manufacture make-work, and inventing work is
+explicitly forbidden. To resume meaningfully: supply the keys AND an environment
+whose egress allows polygon/fmp/finnhub/fred/openrouter/sec/gdelt, then run
+`python -m src.pipeline` for several sessions and read `/validation`.
 
 ## Cycle log
 
