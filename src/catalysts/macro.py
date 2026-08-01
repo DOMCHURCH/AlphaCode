@@ -14,7 +14,6 @@ Regime classification from five series:
 from __future__ import annotations
 
 import datetime as dt
-import statistics
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -204,8 +203,3 @@ def summarise_for_report(state: MacroState) -> dict[str, Any]:
         "tilts": REGIME_SECTOR_TILTS.get(state.regime, {}),
         "final_count": state.final_count(),
     }
-
-
-def median_or_none(values: list[float]) -> float | None:
-    vals = [v for v in values if v is not None and np.isfinite(v)]
-    return statistics.median(vals) if vals else None

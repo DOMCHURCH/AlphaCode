@@ -15,7 +15,6 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Any
 
-import pandas as pd
 import structlog
 from pydantic import ValidationError
 
@@ -185,22 +184,3 @@ def select_final(
     return out
 
 
-def dives_to_frame(dives: list[DeepDive]) -> pd.DataFrame:
-    if not dives:
-        return pd.DataFrame()
-    rows = []
-    for d in dives:
-        rows.append(
-            {
-                "ticker": d.ticker,
-                "total_score": d.total_score,
-                **{f"sub_{k}": v for k, v in d.subscores.model_dump().items()},
-                "conviction": d.conviction,
-                "time_horizon_days": d.time_horizon_days,
-                "thesis": d.thesis,
-                "bull_case": d.bull_case,
-                "bear_case": d.bear_case,
-                "invalidation": d.invalidation,
-            }
-        )
-    return pd.DataFrame(rows).set_index("ticker")

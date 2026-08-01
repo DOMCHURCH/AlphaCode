@@ -283,4 +283,30 @@ def ic_report(session: Session, since: dt.date | None = None) -> dict[str, Any]:
         "mean": round(float(to["turnover"].mean()), 3) if not to.empty else None,
         "series": to.to_dict(orient="records") if not to.empty else [],
     }
+
+    # Survivorship-bias self-check: if every historical universe snapshot has the
+    # same size, the snapshots are probably not reconstructing history and every
+    # backtest built on them is a fantasy. This is the one guardrail the whole
+    # PIT design exists to protect, so it belongs in the validation report.
+    from src.storage.repository import iter_score_dates
+    from src.validation.backtest import walk_forward_universe_check
+
+    dates = list(iter_score_dates(session))
+    if len(dates) >= 2:
+        surv = walk_forward_universe_check(session, dates)
+        identical = len(surv) > 1 and surv["size"].nunique() == 1
+        out["survivorship_check"] = {
+            "n_dates": int(len(surv)),
+            "distinct_sizes": int(surv["size"].nunique()) if not surv.empty else 0,
+            "warning": (
+                "universe snapshots are identical in size across dates — likely "
+                "survivorship bias; backtests over this window are unreliable"
+                if identical else None
+            ),
+        }
+    else:
+        out["survivorship_check"] = {
+            "n_dates": len(dates),
+            "note": "need >=2 dated universe snapshots to check",
+        }
     return out

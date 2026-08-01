@@ -35,6 +35,11 @@ permits the data hosts.
 
 - **184 tests pass**, ruff clean. `pytest -p no:warnings`. (weasyprint PDF test
   runs where the system libs are present, skips otherwise.)
+- **Full funnel end-to-end** (cycle 5, seeded harness, skip_llm): 150 → 62 → 62
+  → 62 → 10, $0 tokens, renders the deterministic-ranking HTML + a valid PDF.
+  `python -m src.pipeline --resume` / `--skip-llm` both exercised.
+- **/validation** now surfaces a survivorship-bias self-check (keyed off scored
+  dates; returns a clear note until ≥2 exist).
 - **Point-in-time enforcement** (`tests/test_pit.py`, 41 tests): the guardrail
   suite. Sweeps every date in the month before a filing; fails if any can see
   the data. Restatement resolution + SEC-over-vendor tiebreak covered.
@@ -109,11 +114,21 @@ assume worthless until measured on live data.
   linear decay to zero over 60 days (a stale surprise is discounted, a
   <3-report history yields NaN SUE not a fake number), and the composite zeroes
   out a stale surprise end-to-end.
-- **Next cycle (5) is the reconciliation checkpoint:** stop adding; run the
-  funnel end to end on the seeded harness, read the report as a user, delete any
-  dead code, reconcile this file against the code. Then if no real defect
-  surfaces, run validation and report edge honestly (it is unmeasurable here —
-  no live data — so the honest answer is "unknown, machinery verified").
-- **Dead-code note for cycle 5:** `dives_to_frame` in llm/deep_dive.py and
-  `walk_forward_universe_check` in validation/backtest.py look unused by the
-  pipeline/API — verify and remove if truly dead.
+- **Cycle 5 (done, reconciliation checkpoint):** ran the funnel end to end and
+  read the report as a user (deterministic top-10 renders sensibly; PDF valid).
+  Deleted genuinely dead code: `dives_to_frame` (llm/deep_dive.py, unused +
+  freed the `pandas` import there), `median_or_none` (macro.py, unused + freed
+  `import statistics`), and dead internals inside the survivorship check.
+  `walk_forward_universe_check` was a real survivorship-bias guardrail that was
+  simply disconnected — rather than delete it, wired it into `/validation`
+  (`ic_report`), so a system whose whole PIT design fights survivorship bias now
+  actually reports on it. Reconciled this file.
+- **Open refinement (not urgent):** the survivorship check keys off scored dates
+  (`iter_score_dates`); universe snapshots can exist for more dates than were
+  scored (e.g. after a bare backfill). Keying off universe-snapshot dates would
+  cover more. Left as-is — the check is correct for the daily-run case and
+  keying it differently is a judgement call, not a bug.
+- **Honest edge status unchanged:** still unmeasurable here (no live data). The
+  validation machinery is verified; the actual signal is unknown. Any further
+  cycle that cannot reach live data should keep to deterministic-layer
+  correctness and coverage, and must not invent work.

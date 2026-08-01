@@ -256,17 +256,14 @@ def walk_forward_universe_check(
     snapshot is not doing its job and every backtest built on it is a fantasy.
     """
     rows = []
-    latest = None
     for d in sorted(dates):
         uni = get_universe(session, d)
-        tickers = set(uni["ticker"]) if not uni.empty else set()
-        rows.append({"date": d, "size": len(tickers)})
-        latest = tickers
+        size = len(set(uni["ticker"])) if not uni.empty else 0
+        rows.append({"date": d, "size": size})
     df = pd.DataFrame(rows)
     if len(df) > 1 and df["size"].nunique() == 1:
         log.warning(
             "universe_snapshots_identical",
             hint="every snapshot has the same size; survivorship bias is likely present",
         )
-    _ = latest
     return df
