@@ -419,6 +419,42 @@ async def run_pipeline(
 # ---------------------------------------------------------------------------
 # helpers
 # ---------------------------------------------------------------------------
+async def resume_last(
+    as_of: dt.date | None = None, *, skip_llm: bool = False
+) -> PipelineResult:
+    """Resume the most recent run for `as_of` from its furthest checkpoint.
+
+    This is the entrypoint that makes the Stage 3 checkpoint worth writing: if a
+    run died in the LLM stages, this re-uses the ~1600 Stage 3 API calls instead
+    of repeating them. Resolves the resume point from what was actually
+    checkpointed:
+
+        Stage 3 checkpointed -> resume_from=4  (restore Stage 3, no enrichment)
+        earlier only         -> resume_from=1  (reuse the universe snapshot,
+                                                 recompute the cheap stages)
+
+    Raises if there is no prior run to resume.
+    """
+    as_of = as_of or _last_trading_day()
+    with session_scope() as session:
+        run_id = repository.latest_run_id(session, as_of)
+        if run_id is None:
+            raise RuntimeError(
+                f"No prior run for {as_of} to resume. Start a fresh run instead."
+            )
+        max_stage = repository.max_checkpoint_stage(session, run_id)
+
+    resume_from = 4 if max_stage >= 3 else 1
+    log.info(
+        "resuming_run", run_id=run_id, as_of=str(as_of),
+        max_checkpoint_stage=max_stage, resume_from=resume_from,
+    )
+    return await run_pipeline(
+        as_of, run_id=run_id, resume_from=resume_from, skip_llm=skip_llm,
+        persist_universe=False,
+    )
+
+
 def _last_trading_day(today: dt.date | None = None) -> dt.date:
     """Most recent completed session, holiday-aware where the calendar exists."""
     today = today or dt.date.today()
@@ -632,3 +668,48 @@ def _num(v: Any) -> float | None:
     except (TypeError, ValueError):
         return None
     return None if not np.isfinite(f) else f
+
+
+def _cli() -> None:
+    """Manual trigger. `--resume` continues the last run for the date from its
+    furthest checkpoint; otherwise a fresh run is started."""
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Run or resume the alpha funnel")
+    parser.add_argument("--date", default=None, help="as-of date YYYY-MM-DD")
+    parser.add_argument(
+        "--resume", action="store_true",
+        help="resume the last run for the date from its furthest checkpoint",
+    )
+    parser.add_argument(
+        "--skip-llm", action="store_true",
+        help="run Stages 0-3 only; report the deterministic ranking",
+    )
+    args = parser.parse_args()
+
+    configure_logging()
+    from src.storage.db import init_db
+
+    init_db()
+    as_of = dt.date.fromisoformat(args.date) if args.date else None
+
+    import asyncio
+
+    if args.resume:
+        result = asyncio.run(resume_last(as_of, skip_llm=args.skip_llm))
+    else:
+        result = asyncio.run(run_pipeline(as_of, skip_llm=args.skip_llm))
+
+    print(
+        f"\nrun {result.run_id} | regime {result.regime} | "
+        f"funnel {result.funnel_counts} | "
+        f"tokens_in {result.cost.get('tokens_in', 0)} "
+        f"tokens_out {result.cost.get('tokens_out', 0)} "
+        f"cost ${result.cost.get('cost_usd', 0):.4f}"
+    )
+    if result.report_paths.get("html"):
+        print(f"report: {result.report_paths['html']}")
+
+
+if __name__ == "__main__":
+    _cli()

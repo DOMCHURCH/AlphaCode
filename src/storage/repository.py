@@ -220,10 +220,35 @@ def latest_run_id(session: Session, as_of: dt.date) -> str | None:
     ).scalar_one_or_none()
 
 
+def max_checkpoint_stage(session: Session, run_id: str) -> int:
+    """Highest stage with a saved checkpoint for this run, or 0 if none.
+
+    A resume replays from `this + 1`: everything through here is restorable, the
+    next stage is where the run actually died.
+    """
+    val = session.execute(
+        select(StageResult.stage)
+        .where(StageResult.run_id == run_id)
+        .order_by(StageResult.stage.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return int(val) if val is not None else 0
+
+
 # ---------------------------------------------------------------------------
 # Run log
 # ---------------------------------------------------------------------------
 def start_run(session: Session, run_id: str, as_of: dt.date) -> None:
+    """Idempotent. A resume reuses the original run_id, so re-inserting would
+    violate the unique constraint -- reset the existing row to running instead."""
+    existing = session.execute(
+        select(RunLog).where(RunLog.run_id == run_id)
+    ).scalar_one_or_none()
+    if existing is not None:
+        existing.status = "running"
+        existing.error = None
+        existing.finished_at = None
+        return
     session.add(RunLog(run_id=run_id, as_of_date=as_of, status="running"))
 
 
