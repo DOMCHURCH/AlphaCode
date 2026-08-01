@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -294,13 +294,22 @@ def validation(
     return report
 
 
-@app.post("/run", response_model=RunResponse)
+def _require_api_key(x_api_key: str | None = Header(default=None)) -> None:
+    """Guard the money-spending endpoint. No-op when API_KEY is unset (dev)."""
+    configured = get_settings().api_key
+    if configured and x_api_key != configured:
+        raise HTTPException(401, "missing or invalid X-API-Key")
+
+
+@app.post("/run", response_model=RunResponse, dependencies=[Depends(_require_api_key)])
 async def trigger_run(
     background: BackgroundTasks,
     date: str | None = None,
     skip_llm: bool = False,
 ) -> RunResponse:
-    """Manual trigger. Returns immediately; the run proceeds in the background."""
+    """Manual trigger. Returns immediately; the run proceeds in the background.
+
+    Requires the X-API-Key header iff API_KEY is set in the environment."""
     if _run_lock.locked():
         return RunResponse(
             accepted=False, detail="A run is already in progress."

@@ -58,6 +58,7 @@ the rest from `.env.example`:
 | `SEC_USER_AGENT` | `"Your Name your@email.com"` — SEC 403s without a real UA |
 | `ENV` | `prod` |
 | `MAX_RUN_COST_USD` | `2.0` (alerts if a run exceeds it) |
+| `API_KEY` | optional; if set, `POST /run` requires an `X-API-Key` header. **Set this in prod** — `/run` spends API tokens and the URL is public. Reads stay open. |
 
 The `api` strictly needs only `DATABASE_URL`/`REDIS_URL`, but setting the full
 set on both is simplest and harmless.

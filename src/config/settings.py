@@ -68,6 +68,12 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     env: Literal["dev", "prod"] = Field(default="dev", alias="ENV")
 
+    # Optional guard for the money-spending POST /run endpoint. Empty = open
+    # (local/dev default, no behaviour change). Set it in prod and callers must
+    # send it as the X-API-Key header. Read endpoints stay open so report links
+    # remain shareable.
+    api_key: str = Field(default="", alias="API_KEY")
+
     # Business-day buffer added on top of filing_date to model ingestion lag.
     pit_lag_business_days: int = Field(default=2, alias="PIT_LAG_BUSINESS_DAYS")
 
