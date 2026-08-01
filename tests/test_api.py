@@ -194,7 +194,7 @@ def test_root_serves_html_dashboard(client):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
     assert "<!DOCTYPE html>" in r.text
-    assert "Daily Equity Alpha Funnel" in r.text
-    assert "Open report" in r.text  # the dashboard's report button
+    assert "Alpha" in r.text and "Today's top 10" in r.text  # the site sections
+    assert "Operator controls" in r.text  # the run/backfill panel
     # JSON index moved to /api
     assert client.get("/api").headers["content-type"].startswith("application/json")

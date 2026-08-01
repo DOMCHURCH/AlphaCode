@@ -3,179 +3,287 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Daily Equity Alpha Funnel</title>
+<title>Alpha Funnel — daily equity screen</title>
 <style>
-:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2128;--grid:#21262d;--fg:#c9d1d9;
---muted:#8b949e;--up:#3fb950;--down:#f85149;--accent:#58a6ff;--warn:#d29922;}
+:root{
+  --bg:#0a0e14;--bg2:#0d1117;--panel:#141a22;--panel2:#1a212b;--line:#222b36;
+  --fg:#e6edf3;--muted:#8b949e;--dim:#6e7681;
+  --up:#3fb950;--down:#f85149;--accent:#58a6ff;--accent2:#7c93ff;--warn:#e3b341;
+  --hi:#2ea043;
+}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);
-font:15px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif}
+html{scroll-behavior:smooth}
+body{margin:0;background:radial-gradient(1200px 600px at 70% -10%,#12204a33,transparent),var(--bg);
+color:var(--fg);font:15px/1.6 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+-webkit-font-smoothing:antialiased}
 a{color:var(--accent);text-decoration:none}a:hover{text-decoration:underline}
-.wrap{max-width:1080px;margin:0 auto;padding:32px 20px 80px}
-header{border-bottom:1px solid var(--grid);padding-bottom:20px;margin-bottom:8px}
-h1{font-size:26px;margin:0 0 4px;letter-spacing:-.02em}
-h2{font-size:15px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
-margin:34px 0 12px;font-weight:600}
-.sub{color:var(--muted);font-size:13px}
-.card{background:var(--panel);border:1px solid var(--grid);border-radius:12px;
-padding:20px 22px;margin:14px 0}
-.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px}
-.stat{background:var(--panel2);border:1px solid var(--grid);border-radius:9px;padding:14px 16px}
-.stat b{display:block;font-size:24px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
-.stat span{color:var(--muted);font-size:12px}
-.pill{display:inline-block;font-size:12px;padding:3px 10px;border-radius:99px;
-background:var(--panel2);border:1px solid var(--grid);color:var(--muted)}
-.pill.ok{color:var(--up);border-color:var(--up)}
-.pill.no{color:var(--warn);border-color:var(--warn)}
-.pill.RISK_ON{color:var(--up);border-color:var(--up)}
-.pill.RISK_OFF{color:var(--down);border-color:var(--down)}
-.pill.LATE_CYCLE,.pill.RECOVERY{color:var(--warn);border-color:var(--warn)}
-.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center}
-.btn{display:inline-block;background:var(--accent);color:#0d1117;border:none;
-border-radius:8px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;
-font-family:inherit}
-.btn:hover{filter:brightness(1.08)}
-.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--grid)}
-.btn.big{font-size:15px;padding:13px 22px}
-.btn:disabled{opacity:.5;cursor:not-allowed}
-table{width:100%;border-collapse:collapse;font-size:14px}
-th,td{text-align:left;padding:10px 12px;border-bottom:1px solid var(--grid)}
-th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
-tbody tr:last-child td{border-bottom:none}
-td.num{text-align:right;font-variant-numeric:tabular-nums}
-.msg{margin-top:12px;font-size:13px;color:var(--muted);min-height:18px}
-.msg.ok{color:var(--up)}.msg.err{color:var(--down)}
-.muted{color:var(--muted)}
-.spin{display:inline-block;width:12px;height:12px;border:2px solid var(--grid);
-border-top-color:var(--accent);border-radius:50%;animation:s .7s linear infinite;
-vertical-align:-2px;margin-right:6px}
+.wrap{max-width:1120px;margin:0 auto;padding:0 20px}
+
+/* nav */
+nav{position:sticky;top:0;z-index:50;background:#0a0e14e6;backdrop-filter:blur(10px);
+border-bottom:1px solid var(--line)}
+.nav{display:flex;align-items:center;gap:22px;height:60px}
+.brand{font-weight:700;letter-spacing:-.02em;font-size:16px;display:flex;align-items:center;gap:9px}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--up);box-shadow:0 0 10px var(--up)}
+.nav a.link{color:var(--muted);font-size:14px}.nav a.link:hover{color:var(--fg);text-decoration:none}
+.nav .spacer{flex:1}
+.regime{font-size:12px;padding:4px 11px;border-radius:99px;border:1px solid var(--line);color:var(--muted)}
+.regime.RISK_ON{color:var(--up);border-color:#238636}
+.regime.RISK_OFF{color:var(--down);border-color:#8d2c2c}
+.regime.LATE_CYCLE,.regime.RECOVERY{color:var(--warn);border-color:#8a6d1f}
+
+/* hero */
+.hero{padding:64px 0 30px;text-align:center}
+.hero h1{font-size:clamp(30px,5vw,50px);line-height:1.05;letter-spacing:-.03em;margin:0 0 16px;
+background:linear-gradient(180deg,#fff,#9fb4d6);-webkit-background-clip:text;background-clip:text;color:transparent}
+.hero p{color:var(--muted);font-size:18px;max-width:640px;margin:0 auto 26px}
+.pipe{display:flex;gap:6px;justify-content:center;flex-wrap:wrap;margin:26px 0 6px}
+.pipe .s{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font-size:12px;color:var(--muted)}
+.pipe .s b{color:var(--fg);font-variant-numeric:tabular-nums}
+.pipe .arw{color:var(--dim);align-self:center}
+.kpis{display:flex;gap:26px;justify-content:center;flex-wrap:wrap;margin-top:28px}
+.kpi b{display:block;font-size:22px;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.kpi span{color:var(--dim);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+
+section{padding:38px 0}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;gap:14px;margin-bottom:18px;flex-wrap:wrap}
+h2{font-size:22px;letter-spacing:-.02em;margin:0}
+.sec-head .sub{color:var(--muted);font-size:13px}
+
+/* pick cards */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px}
+.pick{background:linear-gradient(180deg,var(--panel),#111721);border:1px solid var(--line);
+border-radius:14px;padding:18px 18px 16px;cursor:pointer;transition:.15s;position:relative;overflow:hidden}
+.pick:hover{border-color:#2f3b49;transform:translateY(-2px)}
+.pick .rank{position:absolute;top:14px;right:16px;color:var(--dim);font-size:12px;font-weight:600}
+.pick .tk{font-size:22px;font-weight:700;letter-spacing:.01em}
+.pick .meta{display:flex;gap:7px;flex-wrap:wrap;margin:8px 0 12px}
+.tag{font-size:11px;padding:3px 9px;border-radius:99px;background:var(--panel2);border:1px solid var(--line);color:var(--muted)}
+.tag.high{color:var(--up);border-color:#238636}.tag.medium{color:var(--warn);border-color:#8a6d1f}
+.tag.low{color:var(--dim)}
+.score{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+.score .n{font-size:30px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
+.score .of{color:var(--dim);font-size:13px}
+.bar{height:6px;border-radius:99px;background:var(--panel2);flex:1;overflow:hidden}
+.bar>i{display:block;height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent),var(--hi))}
+.thesis{color:#c2cdd9;font-size:14px}
+.pick .more{max-height:0;overflow:hidden;transition:max-height .3s ease;opacity:.0}
+.pick.open .more{max-height:900px;opacity:1;margin-top:14px}
+.sub6{display:grid;grid-template-columns:repeat(3,1fr);gap:7px;margin:12px 0}
+.sub6 .c{background:var(--panel2);border:1px solid var(--line);border-radius:7px;padding:7px 9px}
+.sub6 .c b{font-size:15px;font-variant-numeric:tabular-nums}.sub6 .c span{color:var(--dim);font-size:10px;text-transform:uppercase;letter-spacing:.04em}
+.case{border-left:3px solid var(--line);padding-left:11px;margin:10px 0;font-size:13.5px}
+.case.bull{border-color:var(--up)}.case.bear{border-color:var(--down)}
+.case.inval{border-color:var(--warn);background:#e3b3410f;padding:9px 11px;border-radius:0 7px 7px 0}
+.case b{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);display:block;margin-bottom:2px}
+.risks{font-size:13px;color:var(--muted);margin:8px 0 2px}
+.pick .foot{display:flex;gap:14px;margin-top:12px;font-size:12.5px}
+
+/* empty / loading */
+.empty{background:var(--panel);border:1px dashed var(--line);border-radius:14px;padding:40px;text-align:center;color:var(--muted)}
+.spin{display:inline-block;width:13px;height:13px;border:2px solid var(--line);border-top-color:var(--accent);
+border-radius:50%;animation:s .7s linear infinite;vertical-align:-2px;margin-right:7px}
 @keyframes s{to{transform:rotate(360deg)}}
-footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--grid);
-color:var(--muted);font-size:12px;line-height:1.7}
+
+/* how it works */
+.steps{display:grid;grid-template-columns:repeat(auto-fit,minmax(155px,1fr));gap:12px}
+.step{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px}
+.step .no{color:var(--accent);font-weight:700;font-size:13px}
+.step h4{margin:6px 0 5px;font-size:15px}
+.step p{margin:0;color:var(--muted);font-size:13px}
+
+/* archive */
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{text-align:left;padding:11px 12px;border-bottom:1px solid var(--line)}
+th{color:var(--dim);font-size:11px;text-transform:uppercase;letter-spacing:.06em;font-weight:500}
+tbody tr:hover{background:#ffffff05}
+td.num{text-align:right;font-variant-numeric:tabular-nums}
+
+/* operator */
+details.ops{margin-top:10px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:2px 18px}
+details.ops summary{cursor:pointer;padding:14px 0;color:var(--muted);font-size:14px;list-style:none}
+details.ops summary::-webkit-details-marker{display:none}
+details.ops[open] summary{color:var(--fg)}
+.btn{display:inline-block;background:var(--accent);color:#07101f;border:none;border-radius:8px;
+padding:10px 16px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
+.btn:hover{filter:brightness(1.08)}.btn:disabled{opacity:.5;cursor:not-allowed}
+.btn.ghost{background:transparent;color:var(--fg);border:1px solid var(--line)}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.msg{margin:12px 0 16px;font-size:13px;color:var(--muted);min-height:18px}
+.msg.ok{color:var(--up)}.msg.err{color:var(--down)}
 code{background:var(--panel2);padding:1px 6px;border-radius:5px;font-size:12px}
-.hero{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+footer{border-top:1px solid var(--line);padding:26px 0 60px;color:var(--dim);font-size:12.5px;line-height:1.7;margin-top:20px}
 </style>
 </head>
-<body><div class="wrap">
+<body>
 
-<header>
-  <div class="hero">
-    <div>
-      <h1>Daily Equity Alpha Funnel</h1>
-      <div class="sub">Screens ~6,000 US equities each morning to a ranked top-10.</div>
+<nav><div class="wrap nav">
+  <span class="brand"><span class="dot"></span>Alpha&nbsp;Funnel</span>
+  <a class="link" href="#picks">Today's picks</a>
+  <a class="link" href="#how">How it works</a>
+  <a class="link" href="#archive">Archive</a>
+  <a class="link" href="/validation">Validation</a>
+  <span class="spacer"></span>
+  <span id="regime" class="regime">—</span>
+</div></nav>
+
+<header class="hero"><div class="wrap">
+  <h1>The market, narrowed to ten names a day.</h1>
+  <p>A cascading funnel screens ~6,000 US equities every morning — trend, then
+     factors, then catalysts, then a language-model deep dive — to a ranked
+     top-10 with a written thesis and a falsifiable invalidation for each.</p>
+  <div class="pipe">
+    <span class="s">Universe <b>~6000</b></span><span class="arw">→</span>
+    <span class="s">Trend <b>1200</b></span><span class="arw">→</span>
+    <span class="s">Factors <b>400</b></span><span class="arw">→</span>
+    <span class="s">Catalysts <b>100</b></span><span class="arw">→</span>
+    <span class="s">Triage <b>25</b></span><span class="arw">→</span>
+    <span class="s">Deep dive <b>10</b></span>
+  </div>
+  <div class="kpis" id="kpis"></div>
+</div></header>
+
+<main class="wrap">
+
+<section id="picks">
+  <div class="sec-head">
+    <h2>Today's top 10</h2>
+    <span class="sub" id="picksMeta"></span>
+  </div>
+  <div id="picks-body"><div class="empty"><span class="spin"></span>Loading…</div></div>
+</section>
+
+<section id="how">
+  <div class="sec-head"><h2>How it works</h2>
+    <span class="sub">No language model runs before stage 4 — stages 0–3 are deterministic.</span></div>
+  <div class="steps">
+    <div class="step"><div class="no">01</div><h4>Trend gate</h4><p>Keep only names in a clean uptrend: above the 20/50/200 MAs, near 52-week highs, top relative strength.</p></div>
+    <div class="step"><div class="no">02</div><h4>Multi-factor</h4><p>Sector-neutral momentum, quality, estimate revisions, earnings drift and value — winsorized and z-scored.</p></div>
+    <div class="step"><div class="no">03</div><h4>Catalysts</h4><p>Insider cluster buys, SEC filings, news tone, options positioning, and the macro regime overlay.</p></div>
+    <div class="step"><div class="no">04</div><h4>LLM deep dive</h4><p>A model scores each finalist on six dimensions and writes a thesis with a concrete invalidation level.</p></div>
+  </div>
+</section>
+
+<section id="archive">
+  <div class="sec-head"><h2>Archive</h2><span class="sub">every past run</span></div>
+  <table><thead><tr><th>Date</th><th>Regime</th><th>Names</th><th class="num">Cost</th><th></th></tr></thead>
+  <tbody id="archive-body"><tr><td colspan="5" class="sub">loading…</td></tr></tbody></table>
+
+  <details class="ops">
+    <summary>⚙︎ Operator controls — load data &amp; trigger runs</summary>
+    <p class="sub" style="margin-top:0">Protected by your <code>API_KEY</code> (kept only in this browser).</p>
+    <div class="row">
+      <button class="btn ghost" onclick="setKey()">Set API key</button>
+      <button class="btn ghost" id="bfBtn" onclick="doPost('/backfill?days=600','Backfilling 600 sessions of price history…')">Backfill history</button>
+      <button class="btn" id="runBtn" onclick="doPost('/run','Running the funnel…')">Run now</button>
+      <span class="sub" id="ops-status"></span>
     </div>
-    <span id="regime" class="pill">loading…</span>
-  </div>
-</header>
+    <div class="msg" id="msg"></div>
+  </details>
+</section>
 
-<h2>Status</h2>
-<div class="card">
-  <div class="stats" id="stats"><span class="muted"><span class="spin"></span>loading…</span></div>
-</div>
+</main>
 
-<h2>Latest report</h2>
-<div class="card" id="latest">
-  <span class="muted">Checking for a report…</span>
-</div>
-
-<h2>Actions</h2>
-<div class="card">
-  <p class="sub" style="margin-top:0">
-    These call the protected endpoints and need your <code>API_KEY</code>. It's
-    stored only in this browser.</p>
-  <div class="row">
-    <button class="btn ghost" id="keyBtn" onclick="setKey()">Set API key</button>
-    <button class="btn" id="backfillBtn" onclick="doPost('/backfill?days=600','Backfilling 600 sessions of price history…')">Backfill history</button>
-    <button class="btn" id="runBtn" onclick="doPost('/run','Running the funnel…')">Run now</button>
-  </div>
-  <div class="msg" id="msg"></div>
-</div>
-
-<h2>Past reports</h2>
-<div class="card">
-  <table><thead><tr><th>Date</th><th>Regime</th><th class="num">Cost</th><th>Status</th><th></th></tr></thead>
-  <tbody id="reports"><tr><td class="muted" colspan="5">loading…</td></tr></tbody></table>
-</div>
-
-<footer>
+<footer><div class="wrap">
   Research and idea-generation only. The scores are the output of a heuristic
-  pipeline plus a language model's interpretation, not a prediction.
-  <b>Nothing here is investment advice.</b>
-  &nbsp;·&nbsp; <a href="/validation">validation</a> ·
-  <a href="/health">health</a> · <a href="/status">status (json)</a>
-</footer>
+  pipeline plus a language model's interpretation, not a prediction. Every thesis
+  ships with an explicit invalidation condition so it can be checked and thrown
+  out. <b>Nothing here is investment advice.</b><br>
+  <a href="/api">API</a> · <a href="/health">health</a> · <a href="/validation">validation</a>
+</div></footer>
 
-</div>
 <script>
-const $ = id => document.getElementById(id);
-const fmt = n => n==null ? "—" : n.toLocaleString();
+const $=id=>document.getElementById(id);
+const fmt=n=>n==null?"—":Number(n).toLocaleString();
+const esc=s=>(s||"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
+const RUB={trend:25,fundamental:20,catalyst:20,news:15,macro:10,risk:10};
 
-function getKey(){ return localStorage.getItem("alpha_api_key") || ""; }
-function setKey(){
-  const k = prompt("Enter your API_KEY (leave blank if the server has none set):", getKey());
-  if(k!==null){ localStorage.setItem("alpha_api_key", k); flash("API key saved in this browser.","ok"); }
-}
-function flash(t,cls){ const m=$("msg"); m.textContent=t; m.className="msg "+(cls||""); }
+function getKey(){return localStorage.getItem("alpha_api_key")||""}
+function setKey(){const k=prompt("Enter your API_KEY (blank if the server has none):",getKey());
+  if(k!==null){localStorage.setItem("alpha_api_key",k);flash("API key saved in this browser.","ok")}}
+function flash(t,c){const m=$("msg");m.textContent=t;m.className="msg "+(c||"")}
 
-async function doPost(path, working){
-  const btn = event.target; btn.disabled=true;
-  flash(working, "");
-  try{
-    const r = await fetch(path, {method:"POST", headers:{"X-API-Key": getKey()}});
-    if(r.status===401){ flash("Unauthorized — set your API key first.","err"); }
-    else{ const j = await r.json(); flash(j.detail || JSON.stringify(j), j.accepted?"ok":"err"); }
-  }catch(e){ flash("Request failed: "+e,"err"); }
-  finally{ btn.disabled=false; setTimeout(load, 1500); }
+async function doPost(path,working){
+  const btn=event.target;btn.disabled=true;flash(working,"");
+  try{const r=await fetch(path,{method:"POST",headers:{"X-API-Key":getKey()}});
+    if(r.status===401)flash("Unauthorized — set your API key first.","err");
+    else{const j=await r.json();flash(j.detail||JSON.stringify(j),j.accepted?"ok":"err")}
+  }catch(e){flash("Request failed: "+e,"err")}
+  finally{btn.disabled=false;setTimeout(loadAll,1500)}
 }
 
-async function load(){
-  try{
-    const s = await (await fetch("/status")).json();
-    $("stats").innerHTML = `
-      <div class="stat"><b>${fmt(s.price_bars)}</b><span>price bars</span></div>
-      <div class="stat"><b>${fmt(s.distinct_tickers_with_bars)}</b><span>tickers</span></div>
-      <div class="stat"><b>${fmt(s.runs)}</b><span>runs completed</span></div>
-      <div class="stat"><b>${s.latest_bar_date||"—"}</b><span>latest bar</span></div>
-      <div class="stat"><b>${s.ready_for_first_run?'<span style="color:var(--up)">yes</span>':'<span style="color:var(--warn)">no</span>'}</b><span>ready to run</span></div>
-      <div class="stat"><b>${s.backfill_running?'<span class="spin"></span>on':'off'}</b><span>backfill</span></div>`;
-  }catch(e){ $("stats").innerHTML='<span class="muted">status unavailable</span>'; }
+function scoreColor(s){return s>=75?"var(--up)":s>=60?"var(--warn)":"var(--muted)"}
 
-  try{
-    const reps = await (await fetch("/reports?limit=30")).json();
-    const latest = reps[0];
-    if(latest){
-      $("regime").textContent = latest.regime || "—";
-      $("regime").className = "pill "+(latest.regime||"");
-      $("latest").innerHTML = `
-        <div class="hero">
-          <div>
-            <div style="font-size:19px;font-weight:600">${latest.as_of}</div>
-            <div class="sub">regime ${latest.regime||"—"} ·
-              cost $${(latest.cost_usd||0).toFixed(3)} ·
-              ${latest.status}</div>
-          </div>
-          <a class="btn big" href="/report/${latest.as_of}/html">Open report →</a>
-        </div>
-        <div class="row" style="margin-top:12px">
-          <a href="/report/${latest.as_of}/pdf">Download PDF</a> ·
-          <a href="/report/${latest.as_of}">JSON</a>
-        </div>`;
-    } else {
-      $("latest").innerHTML = '<span class="muted">No report yet — load history then hit <b>Run now</b>.</span>';
-    }
-    $("reports").innerHTML = reps.length ? reps.map(r=>`
-      <tr>
-        <td>${r.as_of}</td>
-        <td><span class="pill ${r.regime||''}">${r.regime||'—'}</span></td>
-        <td class="num">$${(r.cost_usd||0).toFixed(3)}</td>
-        <td class="muted">${r.status}</td>
-        <td><a href="/report/${r.as_of}/html">open</a></td>
-      </tr>`).join("") : '<tr><td class="muted" colspan="5">No runs yet.</td></tr>';
-  }catch(e){ $("reports").innerHTML='<tr><td class="muted" colspan="5">unavailable</td></tr>'; }
+function pickCard(n,i){
+  const subs=n.subscores||{};
+  const sub6=Object.keys(RUB).map(k=>`<div class="c"><b>${subs[k]??"—"}</b><span>${k} /${RUB[k]}</span></div>`).join("");
+  const risks=(n.key_risks||[]).length?`<div class="risks"><b>Key risks:</b> ${esc((n.key_risks||[]).join("; "))}</div>`:"";
+  const cats=(n.catalysts_ahead||[]).map(c=>esc(c.event)+(c.date?` (${c.date})`:"")).filter(Boolean);
+  const catsHtml=cats.length?`<div class="risks"><b>Catalysts ahead:</b> ${cats.join("; ")}</div>`:"";
+  return `<div class="pick" onclick="this.classList.toggle('open')">
+    <div class="rank">#${i+1}</div>
+    <div class="tk">${esc(n.ticker)}</div>
+    <div class="meta">
+      ${n.sector?`<span class="tag">${esc(n.sector)}</span>`:""}
+      <span class="tag ${n.conviction||''}">${n.conviction||'—'} conviction</span>
+      ${n.time_horizon_days?`<span class="tag">${n.time_horizon_days}d</span>`:""}
+    </div>
+    <div class="score">
+      <div class="n" style="color:${scoreColor(n.total_score)}">${n.total_score}</div>
+      <div class="of">/100</div>
+      <div class="bar"><i style="width:${n.total_score}%"></i></div>
+    </div>
+    <div class="thesis">${esc(n.thesis||"")}</div>
+    <div class="more">
+      <div class="sub6">${sub6}</div>
+      ${n.bull_case?`<div class="case bull"><b>Bull</b>${esc(n.bull_case)}</div>`:""}
+      ${n.bear_case?`<div class="case bear"><b>Bear</b>${esc(n.bear_case)}</div>`:""}
+      ${n.invalidation?`<div class="case inval"><b>Invalidation</b>${esc(n.invalidation)}</div>`:""}
+      ${risks}${catsHtml}
+    </div>
+  </div>`;
 }
 
-load();
-setInterval(load, 15000);  // auto-refresh so backfill/run progress shows live
+async function loadPicks(){
+  let rep=null;
+  try{const r=await fetch("/report/latest");if(r.ok)rep=await r.json();}catch(e){}
+  const meta=$("picksMeta"),body=$("picks-body");
+  if(!rep||!rep.names||!rep.names.length){
+    body.innerHTML=`<div class="empty">
+      No report yet. Load price history, then run the funnel — the operator
+      controls are under <a href="#archive">Archive</a>.</div>`;
+    meta.textContent="";return;
+  }
+  meta.innerHTML=`<b>${rep.as_of}</b> · regime ${rep.regime||"—"} · $${(rep.cost_usd||0).toFixed(3)} ·
+    <a href="/report/${rep.as_of}/html">full report with charts →</a>`;
+  body.innerHTML=`<div class="grid">${rep.names.map(pickCard).join("")}</div>`;
+  const rg=$("regime");rg.textContent=rep.regime||"—";rg.className="regime "+(rep.regime||"");
+}
+
+async function loadStatusAndArchive(){
+  try{const s=await(await fetch("/status")).json();
+    $("kpis").innerHTML=`
+      <div class="kpi"><b>${fmt(s.price_bars)}</b><span>price bars</span></div>
+      <div class="kpi"><b>${fmt(s.distinct_tickers_with_bars)}</b><span>tickers</span></div>
+      <div class="kpi"><b>${fmt(s.runs)}</b><span>runs</span></div>
+      <div class="kpi"><b>${s.latest_bar_date||"—"}</b><span>latest data</span></div>`;
+    $("ops-status").textContent = s.backfill_running?"backfill running…":(s.run_in_progress?"run in progress…":
+      (s.ready_for_first_run?"ready to run":"needs backfill"));
+  }catch(e){}
+  try{const reps=await(await fetch("/reports?limit=60")).json();
+    $("archive-body").innerHTML=reps.length?reps.map(r=>`<tr>
+      <td><a href="/report/${r.as_of}/html">${r.as_of}</a></td>
+      <td>${r.regime||'—'}</td>
+      <td>${r.funnel&&r.funnel['Stage 5 final']!=null?r.funnel['Stage 5 final']:'—'}</td>
+      <td class="num">$${(r.cost_usd||0).toFixed(3)}</td>
+      <td><a href="/report/${r.as_of}/html">open</a> · <a href="/report/${r.as_of}/pdf">pdf</a></td>
+    </tr>`).join(""):'<tr><td colspan="5" class="sub">No runs yet.</td></tr>';
+  }catch(e){}
+}
+
+function loadAll(){loadPicks();loadStatusAndArchive();}
+loadAll();
+setInterval(loadStatusAndArchive,15000);
 </script>
 </body>
 </html>
