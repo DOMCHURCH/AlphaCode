@@ -448,8 +448,23 @@ def status() -> dict[str, Any]:
     return out
 
 
-@app.get("/")
-def root() -> JSONResponse:
+_DASHBOARD = Path(__file__).parent / "report" / "templates" / "dashboard.html"
+
+
+@app.get("/", response_class=HTMLResponse)
+def root() -> HTMLResponse:
+    """The dashboard: latest report, past reports, live status, run/backfill
+    buttons. A static page that reads the JSON endpoints below via fetch()."""
+    try:
+        return HTMLResponse(_DASHBOARD.read_text(encoding="utf-8"))
+    except OSError:
+        return HTMLResponse(
+            "<h1>Daily Equity Alpha Funnel</h1><p>See <a href='/api'>/api</a>.</p>"
+        )
+
+
+@app.get("/api")
+def api_index() -> JSONResponse:
     return JSONResponse(
         {
             "service": "Daily Equity Alpha Funnel",

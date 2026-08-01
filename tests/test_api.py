@@ -187,3 +187,14 @@ def test_backfill_requires_key_when_set(client, monkeypatch):
     assert client.post("/backfill?days=1").status_code == 401
     # Correct key is accepted (the background load itself no-ops without data keys).
     assert client.post("/backfill?days=1", headers={"X-API-Key": "bf"}).status_code == 200
+
+
+def test_root_serves_html_dashboard(client):
+    r = client.get("/")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "<!DOCTYPE html>" in r.text
+    assert "Daily Equity Alpha Funnel" in r.text
+    assert "Open report" in r.text  # the dashboard's report button
+    # JSON index moved to /api
+    assert client.get("/api").headers["content-type"].startswith("application/json")
