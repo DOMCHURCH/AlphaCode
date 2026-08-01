@@ -254,6 +254,44 @@ def latest_run_id(session: Session, as_of: dt.date) -> str | None:
     ).scalar_one_or_none()
 
 
+def latest_running_run(session: Session) -> RunLog | None:
+    """The most recently started run still marked `running`, if any.
+
+    Powers the live progress the one-button UI polls for: it lets `/status`
+    report which stage the in-flight run has reached without any shared memory
+    between the API request and the background pipeline task.
+    """
+    return session.execute(
+        select(RunLog)
+        .where(RunLog.status == "running")
+        .order_by(RunLog.started_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+
+
+def stage_progress(session: Session, run_id: str) -> list[dict[str, Any]]:
+    """Per-stage entry/exit counts for a run, ordered by stage.
+
+    Read straight off the checkpoints the pipeline writes as it advances, so the
+    front-end can show "Stage 3: 400 -> 100" while the funnel is still running.
+    """
+    rows = session.execute(
+        select(StageResult)
+        .where(StageResult.run_id == run_id)
+        .order_by(StageResult.stage)
+    ).scalars()
+    return [
+        {
+            "stage": r.stage,
+            "entry_count": r.entry_count,
+            "exit_count": r.exit_count,
+            "duration_s": r.duration_s,
+            "api_calls": r.api_calls,
+        }
+        for r in rows
+    ]
+
+
 def max_checkpoint_stage(session: Session, run_id: str) -> int:
     """Highest stage with a saved checkpoint for this run, or 0 if none.
 

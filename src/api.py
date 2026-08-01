@@ -417,6 +417,52 @@ async def _backfill_bg(days: int, fundamentals: bool) -> None:
             log.exception("backfill_failed", error=str(exc))
 
 
+# Human-readable stage labels + the count each stage narrows the funnel to, so
+# the one-button UI can render a progress bar from the raw checkpoints.
+_STAGE_STEPS: list[dict[str, Any]] = [
+    {"stage": 0, "label": "Building the universe", "target": 6000},
+    {"stage": 1, "label": "Trend gate — is it going up right now?", "target": 1200},
+    {"stage": 2, "label": "Multi-factor scoring", "target": 400},
+    {"stage": 3, "label": "Catalysts & news", "target": 100},
+    {"stage": 4, "label": "LLM triage", "target": 25},
+    {"stage": 5, "label": "LLM deep dive & scoring", "target": 10},
+    {"stage": 6, "label": "Writing the report", "target": 10},
+]
+_TOTAL_STAGES = len(_STAGE_STEPS)
+
+
+def _current_run_progress(session: Any) -> dict[str, Any] | None:
+    """Live stage progress for the in-flight run, or None when idle."""
+    run = repository.latest_running_run(session)
+    if run is None:
+        return None
+    stages = repository.stage_progress(session, run.run_id)
+    reached = max((s["stage"] for s in stages), default=0)
+    # The pipeline checkpoints a stage *after* it completes, so the stage
+    # actively being worked is the one after the highest checkpoint.
+    active = min(reached + 1, _TOTAL_STAGES - 1)
+    return {
+        "run_id": run.run_id,
+        "as_of": run.as_of_date.isoformat(),
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "active_stage": active,
+        "active_label": _STAGE_STEPS[active]["label"],
+        "stages_total": _TOTAL_STAGES,
+        "percent": round(100 * active / (_TOTAL_STAGES - 1)),
+        "steps": [
+            {
+                **_STAGE_STEPS[i],
+                "done": i <= reached,
+                "active": i == active,
+                "survivors": next(
+                    (s["exit_count"] for s in stages if s["stage"] == i), None
+                ),
+            }
+            for i in range(_TOTAL_STAGES)
+        ],
+    }
+
+
 @app.get("/status")
 def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness."""
@@ -442,6 +488,7 @@ def status() -> dict[str, Any]:
                 select(func.count(func.distinct(UniverseSnapshot.as_of_date)))
             ).scalar_one()
             out["runs"] = len(repository.list_runs(session, limit=1000))
+            out["current_run"] = _current_run_progress(session)
         out["ready_for_first_run"] = (out.get("price_bars") or 0) > 100_000
     except Exception as exc:  # noqa: BLE001
         out["error"] = str(exc)[:200]

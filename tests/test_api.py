@@ -179,6 +179,36 @@ def test_status_reports_counts(client):
     assert body["ready_for_first_run"] is False  # empty DB
 
 
+def test_status_exposes_live_run_progress(client):
+    """A running RunLog + its stage checkpoints surface as `current_run` so the
+    one-button UI can render live progress."""
+    from src.storage.db import session_scope
+    from src.storage.models import RunLog, StageResult
+
+    with session_scope() as s:
+        s.add(RunLog(run_id="live-1", as_of_date=AS_OF, status="running"))
+        # Stages 1 and 2 have completed checkpoints; stage 3 is where it's working.
+        s.add(StageResult(run_id="live-1", as_of_date=AS_OF, stage=1,
+                          entry_count=6000, exit_count=1200))
+        s.add(StageResult(run_id="live-1", as_of_date=AS_OF, stage=2,
+                          entry_count=1200, exit_count=400))
+
+    cr = client.get("/status").json()["current_run"]
+    assert cr is not None
+    assert cr["run_id"] == "live-1"
+    assert cr["active_stage"] == 3  # one past the highest checkpoint
+    assert 0 < cr["percent"] <= 100
+    assert cr["stages_total"] == len(cr["steps"])
+    by_stage = {step["stage"]: step for step in cr["steps"]}
+    assert by_stage[1]["done"] and by_stage[1]["survivors"] == 1200
+    assert by_stage[2]["survivors"] == 400
+    assert by_stage[3]["active"] is True
+
+
+def test_status_current_run_is_null_when_idle(client):
+    assert client.get("/status").json()["current_run"] is None
+
+
 def test_backfill_requires_key_when_set(client, monkeypatch):
     from src.config.settings import get_settings
 
