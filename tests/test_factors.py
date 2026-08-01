@@ -272,3 +272,88 @@ def test_piotroski_in_range_for_a_healthy_company():
     score = piotroski_f_score(frame)
     assert 0 <= score <= 9
     assert score >= 6, f"a clearly improving company scored only {score}"
+
+
+# ---------------------------------------------------------------------------
+# PEAD windowing (get_last_earnings) -- the spec's explicit time-decay
+# ---------------------------------------------------------------------------
+def test_pead_computes_sue_and_decays_with_time(session):
+    """SUE = (actual - consensus)/stdev(surprises); the drift weight decays
+    linearly to zero over 60 days. A stale surprise must be discounted."""
+    import datetime as dt
+
+    import numpy as np
+
+    from src.storage.models import EarningsEvent
+    from src.storage.pit import get_last_earnings
+
+    as_of = dt.date(2025, 6, 2)
+    # Five reports for FRESH, the last one 10 trading-ish days ago.
+    actuals = [1.0, 1.1, 0.9, 1.2, 1.3]  # consensus is 1.0 throughout
+    for k, a in enumerate(actuals):
+        # oldest first; newest (k=4) is 10 days before as_of
+        report = as_of - dt.timedelta(days=10 + (len(actuals) - 1 - k) * 90)
+        session.add(EarningsEvent(ticker="FRESH", report_date=report,
+                                  actual_eps=a, consensus_eps=1.0,
+                                  gap_pct=0.03))
+    # STALE: identical surprise history but the last report is 90 days ago.
+    for k, a in enumerate(actuals):
+        report = as_of - dt.timedelta(days=90 + (len(actuals) - 1 - k) * 90)
+        session.add(EarningsEvent(ticker="STALE", report_date=report,
+                                  actual_eps=a, consensus_eps=1.0, gap_pct=0.03))
+    # THIN: too few reports to estimate a surprise stdev.
+    for k in range(2):
+        session.add(EarningsEvent(ticker="THIN",
+                                  report_date=as_of - dt.timedelta(days=10 + k * 90),
+                                  actual_eps=1.2, consensus_eps=1.0, gap_pct=0.0))
+    session.flush()
+
+    out = get_last_earnings(session, ["FRESH", "STALE", "THIN"], as_of).set_index("ticker")
+
+    surprises = np.array(actuals) - 1.0
+    expected_sd = surprises.std(ddof=1)
+    expected_sue = (actuals[-1] - 1.0) / expected_sd
+
+    # FRESH: SUE matches the hand-computed value, window ~1 - 10/60.
+    assert out.at["FRESH", "sue"] == pytest.approx(expected_sue, rel=1e-6)
+    assert out.at["FRESH", "pead_window"] == pytest.approx(1 - 10 / 60, abs=0.02)
+    assert out.at["FRESH", "days_since_earnings"] == 10
+
+    # STALE: same SUE, but the drift window has fully decayed to zero.
+    assert out.at["STALE", "sue"] == pytest.approx(expected_sue, rel=1e-6)
+    assert out.at["STALE", "pead_window"] == 0.0
+
+    # THIN: cannot form a stdev from two points -> SUE is NaN, not a fake number.
+    assert np.isnan(out.at["THIN", "sue"])
+
+
+def test_pead_window_zeroes_out_stale_sue_in_the_composite(session):
+    """End-to-end: after the window multiply, a stale surprise contributes no
+    PEAD signal even though its raw SUE is large."""
+    import datetime as dt
+
+    import numpy as np
+    import pandas as pd
+
+    from src.factors.composite import assemble_raw_factors
+    from src.storage.models import EarningsEvent
+
+    as_of = dt.date(2025, 6, 2)
+    for k, a in enumerate([1.0, 1.1, 0.9, 1.5]):
+        session.add(EarningsEvent(ticker="OLD",
+                                  report_date=as_of - dt.timedelta(days=200 + (3 - k) * 90),
+                                  actual_eps=a, consensus_eps=1.0, gap_pct=0.05))
+    session.flush()
+
+    trend = pd.DataFrame(
+        {"close": [50.0], "mom_12_1": [0.1], "mom_quality": [0.5],
+         "mom_residual": [0.0]},
+        index=pd.Index(["OLD"], name="ticker"),
+    )
+    universe = pd.DataFrame(
+        {"ticker": ["OLD"], "sector": ["Technology"], "market_cap": [1e9]}
+    )
+    raw = assemble_raw_factors(session, trend, universe, as_of)
+    # 200+ days since the print: window is 0, so decayed SUE is 0 regardless of
+    # how large the raw surprise was.
+    assert raw.at["OLD", "sue"] == 0.0 or np.isnan(raw.at["OLD", "sue"])

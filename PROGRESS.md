@@ -33,7 +33,7 @@ permits the data hosts.
 
 ## Verified working (offline, this environment)
 
-- **182 tests pass**, ruff clean. `pytest -p no:warnings`. (weasyprint PDF test
+- **184 tests pass**, ruff clean. `pytest -p no:warnings`. (weasyprint PDF test
   runs where the system libs are present, skips otherwise.)
 - **Point-in-time enforcement** (`tests/test_pit.py`, 41 tests): the guardrail
   suite. Sweeps every date in the month before a filing; fails if any can see
@@ -101,8 +101,19 @@ assume worthless until measured on live data.
   to an additive tilt `blended + (tilt-1)*REGIME_TILT_STRENGTH`, which is
   sign-correct. Two regression tests: favoured sector wins at negative/zero/
   positive blends, and the tilt nudges without overwhelming a 3-sigma gap.
-- **Next cycle candidates:** (a) cycle-5 checkpoint (cycle 5) — run end to end,
-  read as a user, delete dead code, reconcile this file; (b) continue reading
-  the deterministic layers for real defects (this cycle found one, so the read
-  is paying off — momentum, quality, PEAD, and the news/insider scorers are the
-  places a silent sign/scale error would hide). Do NOT invent work.
+- **Cycle 4 (done):** read the PEAD path. The `pead_window` double-use (it both
+  decays SUE and is a standalone factor) is a defensible reading of the spec,
+  NOT a bug — left alone rather than rewritten to taste. But the PEAD
+  time-decay, which the spec explicitly requires, had zero test coverage. Added
+  two tests: `get_last_earnings` computes SUE = (actual-consensus)/stdev and the
+  linear decay to zero over 60 days (a stale surprise is discounted, a
+  <3-report history yields NaN SUE not a fake number), and the composite zeroes
+  out a stale surprise end-to-end.
+- **Next cycle (5) is the reconciliation checkpoint:** stop adding; run the
+  funnel end to end on the seeded harness, read the report as a user, delete any
+  dead code, reconcile this file against the code. Then if no real defect
+  surfaces, run validation and report edge honestly (it is unmeasurable here —
+  no live data — so the honest answer is "unknown, machinery verified").
+- **Dead-code note for cycle 5:** `dives_to_frame` in llm/deep_dive.py and
+  `walk_forward_universe_check` in validation/backtest.py look unused by the
+  pipeline/API — verify and remove if truly dead.
