@@ -64,6 +64,12 @@ class Settings(BaseSettings):
     run_timezone: str = Field(default="America/New_York", alias="RUN_TIMEZONE")
     run_hour: int = Field(default=6, alias="RUN_HOUR")
     run_minute: int = Field(default=0, alias="RUN_MINUTE")
+
+    # Single-service mode: run the daily scheduler inside the api process, so one
+    # `uvicorn src.api:app` does both serving and the 06:00 run. Off by default so
+    # local dev doesn't spawn a cron; set ENABLE_SCHEDULER=true on the one Railway
+    # service.
+    enable_scheduler: bool = Field(default=False, alias="ENABLE_SCHEDULER")
     report_dir: str = Field(default="./reports", alias="REPORT_DIR")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     env: Literal["dev", "prod"] = Field(default="dev", alias="ENV")

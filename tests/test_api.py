@@ -136,3 +136,35 @@ def test_report_served_from_db(client, tmp_path):
 def test_unknown_date_is_404(client):
     assert client.get("/report/2019-01-01").status_code == 404
     assert client.get("/report/not-a-date").status_code == 400
+
+
+def test_build_scheduler_registers_the_daily_job():
+    from src.scheduler import build_scheduler
+
+    sched = build_scheduler()
+    jobs = sched.get_jobs()
+    assert any(j.id == "daily_funnel" for j in jobs), "daily funnel job not registered"
+
+
+def test_api_boots_with_in_process_scheduler(tmp_path, monkeypatch):
+    """Single-service mode: ENABLE_SCHEDULER=true runs the cron inside the api
+    process. The app must boot (and shut the scheduler down) cleanly."""
+    from src.config.settings import get_settings
+    from src.storage.db import init_db, reset_engine_cache
+
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'one.db'}")
+    monkeypatch.setenv("ENABLE_SCHEDULER", "true")
+    get_settings.cache_clear()
+    reset_engine_cache()
+    init_db()
+    try:
+        from fastapi.testclient import TestClient
+
+        from src.api import app
+
+        with TestClient(app) as c:  # lifespan starts the scheduler
+            assert c.get("/health").status_code == 200
+        # exiting the context shuts it down without error
+    finally:
+        get_settings.cache_clear()
+        reset_engine_cache()

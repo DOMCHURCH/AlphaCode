@@ -1,103 +1,94 @@
 # Deploying to Railway
 
-The system is **one Python codebase** that runs as **two services + two plugins**.
-There is no separate frontend — the "UI" is HTML the FastAPI service renders and
-serves.
+The whole thing is **one repo → one service → Postgres + Redis**. No separate
+frontend (the API renders and serves the HTML), and no separate worker unless
+you want one — the daily cron runs inside the API process.
 
 ```
-┌─────────────┐     reads/writes      ┌────────────┐
-│  worker     │──────────────────────▶│  Postgres  │◀───────┐
-│ (scheduler) │                       └────────────┘        │
-│ runs funnel │                       ┌────────────┐        │ reads
-│ 06:00 ET    │──────────────────────▶│   Redis    │◀──┐    │
-└─────────────┘   rate limits/cache   └────────────┘   │    │
-                                                        │    │
-┌─────────────┐                                         │    │
-│   api       │─────────────────────────────────────────┴────┘
-│ (FastAPI)   │  serves /report /ticker /validation /run
-└─────────────┘
+┌──────────────────────────┐      ┌────────────┐
+│  service (this repo)      │─────▶│  Postgres  │
+│  uvicorn src.api:app      │      └────────────┘
+│  • serves reports + JSON  │      ┌────────────┐
+│  • runs the 06:00 funnel  │─────▶│   Redis    │
+│    (ENABLE_SCHEDULER=true)│      └────────────┘
+└──────────────────────────┘
 ```
 
-Both `worker` and `api` deploy from **this same repo**; only the start command
-differs. Rendered reports are stored in Postgres (`report_artifacts` table), so
-the `api` service can serve a report the `worker` rendered even though they have
-separate, ephemeral filesystems.
+## Steps
 
-## One-time setup
+1. **Project + plugins.** railway.app → New Project → Deploy from GitHub repo →
+   pick this repo/branch. Then **+ New → Database → PostgreSQL**, and again for
+   **Redis**.
 
-### 1. Create the project and plugins
-- New Railway project → add a **PostgreSQL** plugin and a **Redis** plugin.
+2. **The service is already created from the repo.** It builds via `nixpacks.toml`
+   (installs cairo/pango for the PDF) and starts `uvicorn src.api:app`. Config
+   path is `railway.toml` (the default).
 
-### 2. Create the `api` service
-- New service → deploy from this repo.
-- Settings → **Config-as-code path**: `railway.toml` (this is the default).
-- It builds via `nixpacks.toml` (installs cairo/pango for PDF, runs
-  `python -m src.migrate` so the schema is created/updated on every deploy).
-- Start command (from `railway.toml`): `uvicorn src.api:app --host 0.0.0.0 --port $PORT`.
-- Healthcheck: `/health`.
+3. **Variables** (Service → Variables):
+   | Variable | Value |
+   |---|---|
+   | `DATABASE_URL` | Add Reference → `Postgres.DATABASE_URL` |
+   | `REDIS_URL` | Add Reference → `Redis.REDIS_URL` |
+   | `ENABLE_SCHEDULER` | `true` &nbsp;← makes this one service run the daily cron |
+   | `POLYGON_API_KEY` `FMP_API_KEY` `FINNHUB_API_KEY` `FRED_API_KEY` `OPENROUTER_API_KEY` | your keys |
+   | `SEC_USER_AGENT` | `Your Name your@email.com` (SEC 403s without it) |
+   | `API_KEY` | a long random string (protects `POST /run`) |
+   | `ENV` | `prod` |
 
-### 3. Create the `worker` service
-- New service → deploy from the **same repo**.
-- Settings → **Config-as-code path**: `railway.worker.toml`.
-- Start command: `python -m src.scheduler` (in-process APScheduler cron at
-  06:00 America/New_York, weekdays, holiday-guarded).
+   `DATABASE_URL` can be a `postgres://` or `postgresql://` URL — the app
+   normalizes it and uses the psycopg2 driver.
 
-### 4. Set environment variables on BOTH services
-Railway injects `DATABASE_URL`/`REDIS_URL` when you add plugin references. Set
-the rest from `.env.example`:
+4. **Deploy.** On boot the service migrates the schema itself (tables + indexes
+   against Postgres) and, with `ENABLE_SCHEDULER=true`, starts the 06:00
+   America/New_York weekday cron. Check `https://<service>.up.railway.app/health`
+   → `{"status":"ok","database":"ok"}`.
 
-| Variable | Where it comes from |
-|---|---|
-| `DATABASE_URL` | `${{Postgres.DATABASE_URL}}` (reference) |
-| `REDIS_URL` | `${{Redis.REDIS_URL}}` (reference) |
-| `POLYGON_API_KEY` | polygon.io (paid tier for the daily grouped call) |
-| `FMP_API_KEY` | financialmodelingprep.com |
-| `FINNHUB_API_KEY` | finnhub.io (free tier is fine) |
-| `FRED_API_KEY` | fred.stlouisfed.org (free) |
-| `OPENROUTER_API_KEY` | openrouter.ai |
-| `SEC_USER_AGENT` | `"Your Name your@email.com"` — SEC 403s without a real UA |
-| `ENV` | `prod` |
-| `MAX_RUN_COST_USD` | `2.0` (alerts if a run exceeds it) |
-| `API_KEY` | optional; if set, `POST /run` requires an `X-API-Key` header. **Set this in prod** — `/run` spends API tokens and the URL is public. Reads stay open. |
+5. **Backfill once** (Stage 1 needs ~200 days of history; the pipeline aborts on
+   an empty universe rather than shipping junk). In the service shell (or
+   `railway run` locally against the same `DATABASE_URL`):
+   ```bash
+   python -m src.backfill --days 600                    # ~500 Polygon calls
+   python -m src.backfill --fundamentals --skip-bars    # SEC XBRL, slow
+   ```
 
-The `api` strictly needs only `DATABASE_URL`/`REDIS_URL`, but setting the full
-set on both is simplest and harmless.
+6. **First run + read it.**
+   ```bash
+   curl -X POST "https://<service>.up.railway.app/run" -H "X-API-Key: <API_KEY>"
+   ```
+   Then open `/report/latest/html`. After that the cron runs it every weekday
+   morning. Endpoints: `/report/{date}` (JSON), `/report/{date}/pdf`,
+   `/ticker/{symbol}/history`, `/validation`.
 
-## Before the first run: backfill
-
-Stage 1 needs ~200 trading days of history before it can compute anything, and
-the pipeline **aborts loudly** on an empty universe rather than shipping a bad
-report. So seed history once (needs the Polygon key + working egress). Run these
-from a one-off Railway shell on the `worker` service (or locally against the
-same `DATABASE_URL`):
+## Local dev
 
 ```bash
-python -m src.backfill --days 600                    # ~500 grouped-daily calls
-python -m src.backfill --fundamentals --skip-bars    # SEC XBRL, slow (hours for a full universe)
+python -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+cp .env.example .env            # fill keys; leave DATABASE_URL as sqlite for local
+python -m src.migrate
+uvicorn src.api:app --reload    # ENABLE_SCHEDULER unset -> no cron locally
 ```
 
-## Trigger and read
+SQLite is the local default; Postgres is used whenever `DATABASE_URL` points at
+one. Nothing else changes between the two.
 
-- Manual run: `POST /run` (or `POST /run?skip_llm=true` for a deterministic-only
-  run that spends no tokens).
-- Then: `GET /report/latest/html`, `GET /report/{date}/pdf`,
-  `GET /report/{date}` (JSON), `GET /ticker/{symbol}/history`, `GET /validation`.
-- Resume a crashed run: `python -m src.pipeline --resume --date YYYY-MM-DD`.
+## If you outgrow one service
 
-## Network policy
+Split into `api` + `worker`: add a second service from the same repo, set its
+config path to `railway.worker.toml` (starts `python -m src.scheduler`), and set
+`ENABLE_SCHEDULER` back to unset/false on the api service so the cron only runs
+in one place. Reports are stored in Postgres, so either service can serve them.
 
-Egress must permit the data hosts: `api.polygon.io`, `financialmodelingprep.com`,
-`finnhub.io`, `api.stlouisfed.org`, `data.sec.gov`, `api.gdeltproject.org`,
-`openrouter.ai`. If your Railway environment restricts egress, allowlist these
-or the ingest stages will fail.
+## Egress
 
-## What "ready" means here
+Allowlist these hosts if the environment restricts outbound traffic:
+`api.polygon.io`, `financialmodelingprep.com`, `finnhub.io`,
+`api.stlouisfed.org`, `data.sec.gov`, `api.gdeltproject.org`, `openrouter.ai`.
 
-The code, config, schema migration, and cross-service report serving are done
-and verified offline (185 tests, deterministic funnel + DB-served report proven
-end-to-end). What has **not** been run is a live pass against the real APIs —
-that requires the keys and egress above, and can only happen in your Railway
-environment. The honest expectation: first live run may surface
-vendor-response-shape quirks (field names, pagination) that only real payloads
-reveal; the ingest modules degrade and log rather than crash, but read the first
-run's logs.
+## What's verified vs not
+
+Code, config, schema migration, Postgres compatibility, single-service scheduler,
+and cross-service report serving are done and tested offline (194 tests). The
+one thing not run is a live pass against the real vendor APIs — that needs the
+keys + egress above and happens in your Railway environment. Read the first
+run's logs; live payloads occasionally differ from the documented shapes.

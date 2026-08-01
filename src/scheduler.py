@@ -44,14 +44,16 @@ async def daily_job() -> None:
     )
 
 
-def main() -> None:
-    configure_logging()
-    init_db()
-    s = get_settings()
+def build_scheduler():
+    """Build (but do not start) the daily-funnel scheduler.
 
+    Shared by the standalone worker (`python -m src.scheduler`) and the
+    single-service mode where the api process runs it in-loop (see src/api.py).
+    """
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.cron import CronTrigger
 
+    s = get_settings()
     scheduler = AsyncIOScheduler(timezone=s.run_timezone)
     scheduler.add_job(
         daily_job,
@@ -64,6 +66,15 @@ def main() -> None:
         misfire_grace_time=3600,
         coalesce=True,
     )
+    return scheduler
+
+
+def main() -> None:
+    configure_logging()
+    init_db()
+    s = get_settings()
+
+    scheduler = build_scheduler()
 
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)

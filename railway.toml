@@ -1,3 +1,9 @@
+# Single-service deploy (the simple default): one service runs both the API and
+# the daily funnel cron. Set ENABLE_SCHEDULER=true in the service's variables and
+# that's the whole app -- no separate worker. (To split into api + worker later,
+# point a second service at railway.worker.toml and leave ENABLE_SCHEDULER off
+# here.)
+
 [build]
 builder = "NIXPACKS"
 
