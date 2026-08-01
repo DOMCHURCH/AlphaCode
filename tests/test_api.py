@@ -226,5 +226,21 @@ def test_root_serves_html_dashboard(client):
     assert "<!DOCTYPE html>" in r.text
     assert "Alpha" in r.text and "Today's top 10" in r.text  # the site sections
     assert "Operator controls" in r.text  # the run/backfill panel
+    # The front-end is split into real files, not one inlined blob.
+    assert 'href="/static/dashboard.css"' in r.text
+    assert 'src="/static/dashboard.js"' in r.text
+    assert "<style>" not in r.text and "<script>" not in r.text
     # JSON index moved to /api
     assert client.get("/api").headers["content-type"].startswith("application/json")
+
+
+def test_static_assets_are_served(client):
+    css = client.get("/static/dashboard.css")
+    assert css.status_code == 200
+    assert css.headers["content-type"].startswith("text/css")
+    assert "--accent" in css.text  # the theme tokens
+
+    js = client.get("/static/dashboard.js")
+    assert js.status_code == 200
+    assert "javascript" in js.headers["content-type"]
+    assert "startResearch" in js.text  # the one-button entry point

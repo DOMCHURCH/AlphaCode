@@ -17,6 +17,7 @@ from fastapi.responses import (
     JSONResponse,
     Response,
 )
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
@@ -100,6 +101,12 @@ app = FastAPI(
 
 _run_lock = asyncio.Lock()
 _backfill_lock = asyncio.Lock()
+
+# Serve the dashboard's CSS/JS (and any future assets) as static files, so the
+# front-end lives in real .css/.js files instead of one inlined HTML blob.
+_STATIC_DIR = Path(__file__).parent / "report" / "static"
+if _STATIC_DIR.is_dir():
+    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
 class HealthResponse(BaseModel):
