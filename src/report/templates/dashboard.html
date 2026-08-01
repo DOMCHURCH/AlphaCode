@@ -41,6 +41,7 @@
       <div class="phase" id="phase">Starting…</div>
     </div>
     <div class="pbar"><i id="pbarFill"></i></div>
+    <div class="prog-note" id="progNote"></div>
     <div class="stepper" id="stepper"></div>
     <button class="prog-cancel" onclick="goHome()">← back</button>
   </div>
@@ -98,9 +99,8 @@
   <details class="ops">
     <summary>⚙︎ Operator controls — load data &amp; trigger runs manually</summary>
     <p class="sub" style="margin-top:0">The button above does this for you. These are here if you'd rather drive it by hand.
-       Protected by your <code>API_KEY</code> (kept only in this browser).</p>
+       No token required.</p>
     <div class="row">
-      <button class="btn ghost" onclick="setKey()">Set API key</button>
       <button class="btn ghost" onclick="doPost('/backfill?days=600','Backfilling 600 sessions of price history…')">Backfill history</button>
       <button class="btn ghost" onclick="doPost('/run','Running the funnel…')">Run now</button>
       <span class="sub" id="ops-status"></span>

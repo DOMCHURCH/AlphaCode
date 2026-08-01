@@ -59,6 +59,8 @@ background:linear-gradient(180deg,#fff,#a7bbdd);-webkit-background-clip:text;bac
 .pbar > i{display:block;height:100%;width:0;border-radius:99px;
   background:linear-gradient(90deg,var(--accent),var(--accent2));transition:width .5s cubic-bezier(.4,0,.2,1);
   box-shadow:0 0 18px #5b9dff88}
+.prog-note{max-width:640px;margin:-14px auto 26px;text-align:center;color:var(--dim);font-size:13px;line-height:1.55}
+.prog-note:empty{display:none}
 .stepper{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:8px}
 .pstep{display:flex;align-items:center;gap:16px;background:var(--panel);border:1px solid var(--line2);
   border-radius:12px;padding:15px 18px;opacity:.5;transition:.35s}

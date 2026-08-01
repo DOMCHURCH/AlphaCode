@@ -77,10 +77,9 @@ class Settings(BaseSettings):
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     env: Literal["dev", "prod"] = Field(default="dev", alias="ENV")
 
-    # Optional guard for the money-spending POST /run endpoint. Empty = open
-    # (local/dev default, no behaviour change). Set it in prod and callers must
-    # send it as the X-API-Key header. Read endpoints stay open so report links
-    # remain shareable.
+    # Deprecated / unused: the /run and /backfill endpoints are open by design so
+    # the one-button site needs no token. Kept only so an existing API_KEY env var
+    # doesn't fail settings validation. Safe to leave unset.
     api_key: str = Field(default="", alias="API_KEY")
 
     # Business-day buffer added on top of filing_date to model ingestion lag.

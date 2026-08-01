@@ -90,27 +90,13 @@ async function latestReportDate() {
   return null;
 }
 async function postJSON(path) {
-  const r = await fetch(path, { method: "POST", headers: { "X-API-Key": getKey() } });
-  if (r.status === 401) return { status: 401 };
+  // No token: the run/backfill endpoints are open by design.
+  const r = await fetch(path, { method: "POST" });
   try {
     return { status: r.status, ...(await r.json()) };
   } catch (e) {
     return { status: r.status };
   }
-}
-async function ensureKeyThen(path) {
-  let res = await postJSON(path);
-  if (res.status === 401) {
-    const k = prompt("This server is protected. Enter its API_KEY to start a run:", getKey());
-    if (k === null) return null;
-    localStorage.setItem("alpha_api_key", k);
-    res = await postJSON(path);
-    if (res.status === 401) {
-      setPhase("That API key was rejected.", true);
-      return null;
-    }
-  }
-  return res;
 }
 
 async function startResearch(force) {
@@ -120,40 +106,32 @@ async function startResearch(force) {
   CURRENT = null;
   showView("progress");
   window.scrollTo({ top: 0, behavior: "smooth" });
+  setNote("");
   renderStepper(null);
-  setPbar(4);
+  setPbar(2);
   setPhase("Checking the data warehouse…");
 
   const before = force ? null : await latestReportDate();
-  let st = await getStatus();
 
   try {
-    if (!st.run_in_progress) {
-      // First run on a fresh deploy needs a one-time history load.
-      if (!st.ready_for_first_run) {
-        setPhase("Loading market history (one-time on a fresh deploy)…");
-        const bf = await ensureKeyThen("/backfill?days=600");
-        if (bf === null) return goHome();
-        st = await waitUntil(
-          (s) => s.ready_for_first_run || s.run_in_progress,
-          (s) => {
-            setPbar(4 + Math.min(10, ((s.price_bars || 0) / 60000) * 10));
-            setPhase(
-              `Loading price history… ${fmt(s.price_bars || 0)} bars · ${fmt(
-                s.distinct_tickers_with_bars || 0
-              )} tickers`
-            );
-          }
-        );
-        if (st === null) return;
-      }
-      if (!st.run_in_progress) {
-        setPhase("Starting the funnel…");
-        const run = await ensureKeyThen("/run");
-        if (run === null) return goHome();
-      }
+    let st = await getStatus();
+
+    // 1) One-time on a fresh deploy: make sure a year of history is loaded.
+    if (!st.ready_for_first_run && !st.run_in_progress) {
+      st = await loadHistory();
+      if (st === null) return; // aborted
     }
-    // Poll the run's live stage progress until a fresh report lands.
+
+    // 2) Kick off the funnel if it isn't already running.
+    st = await getStatus();
+    if (!st.run_in_progress) {
+      setNote("");
+      setPhase("Starting the funnel…");
+      renderStepper(null);
+      await postJSON("/run");
+    }
+
+    // 3) Stream the run's live stage progress until a fresh report lands.
     await pollRun(before);
   } catch (e) {
     setPhase("Something went wrong: " + e, true);
@@ -162,13 +140,41 @@ async function startResearch(force) {
   }
 }
 
-async function waitUntil(cond, onTick, tries = 600) {
-  for (let i = 0; i < tries; i++) {
+/* First-run history load. Honest about being slow, and safe to walk away from:
+   the backfill runs server-side, so closing the tab doesn't stop it. */
+async function loadHistory() {
+  setNote(
+    "First-time setup: loading about a year of market history. This is a one-time " +
+      "step and can take a while on a rate-limited data plan — it keeps running on " +
+      "the server, so you can leave and come back. Research starts automatically " +
+      "once the data is ready."
+  );
+  if (!(await getStatus()).backfill_running) await postJSON("/backfill?days=600");
+
+  let stalls = 0;
+  for (let i = 0; i < 5400; i++) {
+    // generous: server-side load survives reloads
     if (ABORT) return null;
     const s = await getStatus();
-    if (onTick) onTick(s);
-    if (cond(s)) return s;
-    await sleep(2000);
+    const have = s.bar_dates || 0;
+    const need = s.history_target || 252;
+    setPhase(`Loading market history — ${fmt(have)} / ${fmt(need)} trading days`);
+    setPbar(Math.min(100, (have / need) * 100));
+    if (s.ready_for_first_run || s.run_in_progress) return s;
+    if (!s.backfill_running && have < need) {
+      // Load finished a pass but we're still short. If nothing at all loaded,
+      // the data API keys are probably missing — say so instead of looping.
+      if (have === 0 && ++stalls >= 3) {
+        setPhase("Couldn't load any market data.", true);
+        setNote(
+          "The backfill ran but fetched 0 bars — the POLYGON_API_KEY (and the other " +
+            "data keys) are most likely missing on the server. Add them and try again."
+        );
+        return null;
+      }
+      await postJSON("/backfill?days=600"); // nudge the next pass
+    }
+    await sleep(2500);
   }
   return await getStatus();
 }
@@ -207,6 +213,7 @@ async function pollRun(before) {
 }
 
 async function finishResearch() {
+  setNote("");
   setPbar(100);
   setPhase("Done — here are today's best ideas.");
   await sleep(450);
@@ -233,6 +240,10 @@ function setPhase(t, err) {
 }
 function setPbar(pct) {
   $("pbarFill").style.width = Math.max(0, Math.min(100, pct)) + "%";
+}
+function setNote(t) {
+  const el = $("progNote");
+  if (el) el.textContent = t || "";
 }
 function renderStepper(cr) {
   const steps =
@@ -362,17 +373,7 @@ async function loadPicks(auto) {
   return true;
 }
 
-/* ---------- operator controls ---------- */
-function getKey() {
-  return localStorage.getItem("alpha_api_key") || "";
-}
-function setKey() {
-  const k = prompt("Enter your API_KEY (blank if the server has none):", getKey());
-  if (k !== null) {
-    localStorage.setItem("alpha_api_key", k);
-    flash("API key saved in this browser.", "ok");
-  }
-}
+/* ---------- operator controls (no token needed) ---------- */
 function flash(t, c) {
   const m = $("msg");
   m.textContent = t;
@@ -383,12 +384,8 @@ async function doPost(path, working) {
   btn.disabled = true;
   flash(working, "");
   try {
-    const r = await fetch(path, { method: "POST", headers: { "X-API-Key": getKey() } });
-    if (r.status === 401) flash("Unauthorized — set your API key first.", "err");
-    else {
-      const j = await r.json();
-      flash(j.detail || JSON.stringify(j), j.accepted ? "ok" : "err");
-    }
+    const j = await postJSON(path);
+    flash(j.detail || JSON.stringify(j), j.accepted ? "ok" : "err");
   } catch (e) {
     flash("Request failed: " + e, "err");
   } finally {
@@ -408,8 +405,12 @@ async function refreshKpis() {
   const note = $("goNote");
   if (s.run_in_progress) {
     $("goLbl").textContent = "A run is in progress — watch it";
+  } else if (s.backfill_running) {
+    note.textContent = `Loading market history — ${fmt(s.bar_dates || 0)} / ${fmt(
+      s.history_target || 252
+    )} trading days. Click to watch.`;
   } else if (!s.ready_for_first_run) {
-    note.textContent = "First click loads market history (one-time), then screens the market.";
+    note.textContent = "First click loads about a year of market history (one-time), then screens the market.";
   }
   // If a run is already going when the page loads, jump into the progress view.
   if (s.run_in_progress && !RESEARCHING && $("view-start").hidden === false) startResearch(true);

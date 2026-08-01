@@ -31,10 +31,10 @@ API process), and no Redis (the cache and rate-limiter run in-process).
    | `ENABLE_SCHEDULER` | `true` &nbsp;← makes this one service run the daily cron |
    | `POLYGON_API_KEY` `FMP_API_KEY` `FINNHUB_API_KEY` `FRED_API_KEY` `OPENROUTER_API_KEY` | your keys |
    | `SEC_USER_AGENT` | `Your Name your@email.com` (SEC 403s without it) |
-   | `API_KEY` | a long random string (protects `POST /run`) |
    | `ENV` | `prod` |
 
-   (No `REDIS_URL` needed — leave it unset.)
+   (No `REDIS_URL` needed — leave it unset. No `API_KEY` needed either — the
+   site's one button drives `/backfill` and `/run` with no token.)
 
    `DATABASE_URL` can be a `postgres://` or `postgresql://` URL — the app
    normalizes it and uses the psycopg2 driver.
@@ -44,17 +44,17 @@ API process), and no Redis (the cache and rate-limiter run in-process).
    America/New_York weekday cron. Check `https://<service>.up.railway.app/health`
    → `{"status":"ok","database":"ok"}`.
 
-5. **Backfill once** (Stage 1 needs ~200 days of history; the pipeline aborts on
-   an empty universe rather than shipping junk). In the service shell (or
-   `railway run` locally against the same `DATABASE_URL`):
-   ```bash
-   python -m src.backfill --days 600                    # ~500 Polygon calls
-   python -m src.backfill --fundamentals --skip-bars    # SEC XBRL, slow
-   ```
+5. **Just open the site and press the button.** On a fresh deploy the one button
+   (`Research today's best stocks`) loads about a year of history itself
+   (Stage 1 needs 252 trading days), then runs the funnel and shows the top-10 —
+   no shell and no token. The first-time history load is slow on a rate-limited
+   data plan and keeps running server-side, so you can leave and come back.
 
-6. **First run + read it.**
+   Prefer to drive it by hand? The same endpoints are open (no `X-API-Key`):
    ```bash
-   curl -X POST "https://<service>.up.railway.app/run" -H "X-API-Key: <API_KEY>"
+   curl -X POST "https://<service>.up.railway.app/backfill?days=600"   # load history
+   curl -X POST "https://<service>.up.railway.app/run"                 # run the funnel
+   curl      "https://<service>.up.railway.app/status"                 # watch progress
    ```
    Then open `/report/latest/html`. After that the cron runs it every weekday
    morning. Endpoints: `/report/{date}` (JSON), `/report/{date}/pdf`,

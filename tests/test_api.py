@@ -57,21 +57,15 @@ def test_run_is_open_when_api_key_unset(client):
     assert r.json()["accepted"] in (True, False)  # accepted, or "already running"
 
 
-def test_run_requires_key_when_api_key_set(client, monkeypatch):
+def test_run_needs_no_token_even_if_api_key_set(client, monkeypatch):
+    """The run/backfill endpoints are open by design -- no app token needed,
+    even when API_KEY happens to be set in the environment."""
     from src.config.settings import get_settings
 
     monkeypatch.setenv("API_KEY", "s3cret")
     get_settings.cache_clear()
 
-    assert client.post("/run?skip_llm=true").status_code == 401
-    assert client.post(
-        "/run?skip_llm=true", headers={"X-API-Key": "wrong"}
-    ).status_code == 401
-    assert client.post(
-        "/run?skip_llm=true", headers={"X-API-Key": "s3cret"}
-    ).status_code == 200
-
-    # Reads stay open regardless of the key.
+    assert client.post("/run?skip_llm=true").status_code == 200
     assert client.get("/validation").status_code == 200
 
 
@@ -209,14 +203,13 @@ def test_status_current_run_is_null_when_idle(client):
     assert client.get("/status").json()["current_run"] is None
 
 
-def test_backfill_requires_key_when_set(client, monkeypatch):
+def test_backfill_needs_no_token(client, monkeypatch):
     from src.config.settings import get_settings
 
     monkeypatch.setenv("API_KEY", "bf")
     get_settings.cache_clear()
-    assert client.post("/backfill?days=1").status_code == 401
-    # Correct key is accepted (the background load itself no-ops without data keys).
-    assert client.post("/backfill?days=1", headers={"X-API-Key": "bf"}).status_code == 200
+    # Open even with API_KEY set (the background load no-ops without data keys).
+    assert client.post("/backfill?days=1").status_code == 200
 
 
 def test_root_serves_html_dashboard(client):

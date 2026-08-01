@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import BackgroundTasks, Depends, FastAPI, Header, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
 from fastapi.responses import (
     FileResponse,
     HTMLResponse,
@@ -345,14 +345,7 @@ def validation(
     return report
 
 
-def _require_api_key(x_api_key: str | None = Header(default=None)) -> None:
-    """Guard the money-spending endpoint. No-op when API_KEY is unset (dev)."""
-    configured = get_settings().api_key
-    if configured and x_api_key != configured:
-        raise HTTPException(401, "missing or invalid X-API-Key")
-
-
-@app.post("/run", response_model=RunResponse, dependencies=[Depends(_require_api_key)])
+@app.post("/run", response_model=RunResponse)
 async def trigger_run(
     background: BackgroundTasks,
     date: str | None = None,
@@ -360,7 +353,9 @@ async def trigger_run(
 ) -> RunResponse:
     """Manual trigger. Returns immediately; the run proceeds in the background.
 
-    Requires the X-API-Key header iff API_KEY is set in the environment."""
+    Open by design -- no token needed. A run is single-flighted by `_run_lock`,
+    so hitting this repeatedly just returns "already running" rather than
+    stacking work."""
     if _run_lock.locked():
         return RunResponse(
             accepted=False, detail="A run is already in progress."
@@ -383,7 +378,7 @@ async def _run_pipeline_bg(as_of: dt.date | None, skip_llm: bool) -> None:
             log.exception("manual_run_failed", error=str(exc))
 
 
-@app.post("/backfill", response_model=RunResponse, dependencies=[Depends(_require_api_key)])
+@app.post("/backfill", response_model=RunResponse)
 async def trigger_backfill(
     background: BackgroundTasks,
     days: int = Query(600, ge=1, le=2000),
@@ -392,10 +387,10 @@ async def trigger_backfill(
     """Load history so the funnel has something to screen. Curl-triggerable so no
     shell is needed. Returns immediately; the load runs in the background.
 
+    Open by design -- no token needed; single-flighted by `_backfill_lock`.
     `days` price sessions of bars (~500 Polygon calls). `fundamentals=true` also
     pulls SEC XBRL as-reported fundamentals, which is slow (can take hours for the
     full universe) -- do it after the bars load succeeds, not on the first call.
-    Requires X-API-Key iff API_KEY is set.
     """
     if _backfill_lock.locked():
         return RunResponse(accepted=False, detail="A backfill is already running.")
@@ -436,6 +431,13 @@ _STAGE_STEPS: list[dict[str, Any]] = [
     {"stage": 6, "label": "Writing the report", "target": 10},
 ]
 _TOTAL_STAGES = len(_STAGE_STEPS)
+
+# Stage 1 evaluates a 52-week high, a 12-month return and a 200-day SMA, so the
+# funnel needs about a year of sessions before its first run means anything.
+# Readiness is measured in *trading days loaded*, not raw bar count -- one
+# grouped-daily call adds ~10k bars for a single session, so a bar-count
+# threshold flips "ready" after ~10 days when the gate still has no history.
+MIN_HISTORY_DATES = 252
 
 
 def _current_run_progress(session: Any) -> dict[str, Any] | None:
@@ -491,12 +493,17 @@ def status() -> dict[str, Any]:
                 select(func.max(DailyBar.date))
             ).scalar_one()
             out["latest_bar_date"] = latest_bar.isoformat() if latest_bar else None
+            # Trading days loaded -- the honest measure of "enough history".
+            out["bar_dates"] = session.execute(
+                select(func.count(func.distinct(DailyBar.date)))
+            ).scalar_one()
+            out["history_target"] = MIN_HISTORY_DATES
             out["universe_snapshots"] = session.execute(
                 select(func.count(func.distinct(UniverseSnapshot.as_of_date)))
             ).scalar_one()
             out["runs"] = len(repository.list_runs(session, limit=1000))
             out["current_run"] = _current_run_progress(session)
-        out["ready_for_first_run"] = (out.get("price_bars") or 0) > 100_000
+        out["ready_for_first_run"] = (out.get("bar_dates") or 0) >= MIN_HISTORY_DATES
     except Exception as exc:  # noqa: BLE001
         out["error"] = str(exc)[:200]
     return out
