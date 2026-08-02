@@ -192,8 +192,7 @@ emptiness, don't tune it. No new features until the queue clears.
   the block, not the degrade.
 - [x] **#2 Stooq bulk daily** (done — src/ingest/stooq.py; keyless backfill uses it; Yahoo per-ticker dropped as default; verified offline on a synthetic bundle: 300×300 → 90k rows).
 
-- [ ] **#3 SEC SIC -> GICS sector map**, cached, so sector-neutral scoring isn't
-  silently universe-neutral without FMP.
+- [x] **#3 SEC SIC -> GICS sector map** (done — src/ingest/sic.py + SectorMap table + backfill_sectors; free universe attaches cached sectors; verified offline).
 - [ ] **#4 Fast-mode fallback server-side** so a cron run always yields a
   deterministic ranked list.
 - [ ] **#5 Rate-limit /run and /backfill** (open endpoints w/ a live LLM key).
