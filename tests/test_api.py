@@ -40,10 +40,17 @@ def client(api_db, monkeypatch):
     from src import api, runner
     from src.api import app
 
-    # Rate-limit gates are module-level; isolate them per test.
+    # Rate-limit gates and the diagnostics check-caches are module-level; isolate
+    # them per test so one test's cached /reconcile can't change another's verdict.
     api._run_gate.reset()
     api._backfill_gate.reset()
     api._reconcile_gate.reset()
+    api._RECONCILE_CACHE.update({"at": None, "data": None})
+    api._LLMCHECK_CACHE.update({"at": None, "data": None})
+    # Backfill diagnostics are module-level too; clear a prior test's error state.
+    import src.backfill as _bf
+
+    _bf._BACKFILL_STATE.update({"phase": "idle", "source": None, "last_error": None})
 
     # /run now spawns the pipeline as a child process (out-of-process, so a run
     # crash can't take the API down). These endpoint tests only exercise
@@ -55,6 +62,12 @@ def client(api_db, monkeypatch):
 
     monkeypatch.setattr(runner, "run_pipeline_subprocess", _no_subprocess)
     with TestClient(app) as c:
+        # Drain the background startup task (DB migrate + orphan sweep) before the
+        # test body, so the sweep can't race a test that seeds its own running run.
+        for _ in range(50):
+            c.get("/health")
+            if getattr(app.state, "boot_complete", False):
+                break
         yield c
 
 
@@ -462,6 +475,100 @@ def test_favicon_is_served(client):
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("image/svg+xml")
     assert "<svg" in r.text
+
+
+def test_diagnostics_page_and_assets(client):
+    r = client.get("/diagnostics")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert 'href="/static/diagnostics.css"' in r.text
+    assert 'src="/static/diagnostics.js"' in r.text
+    assert "Copy everything" in r.text  # the headline control
+
+    css = client.get("/static/diagnostics.css")
+    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
+    js = client.get("/static/diagnostics.js")
+    assert js.status_code == 200 and "buildCopyText" in js.text
+
+
+def test_diagnostics_json_shape(client):
+    d = client.get("/diagnostics.json").json()
+    for k in ("generated_at", "verdict", "data_health", "last_run", "config",
+              "logs", "actions"):
+        assert k in d
+    assert d["verdict"]["level"] in ("ok", "warn", "error")
+    assert d["verdict"]["headline"]
+    for a in ("run", "run_fast", "backfill", "reconcile"):
+        assert "enabled" in d["actions"][a]
+    # Empty DB: not enough history -> a warn verdict that says so, not a crash.
+    assert d["data_health"]["history"]["required"] == 252
+
+
+def test_diagnostics_config_never_prints_secret_values(client, monkeypatch):
+    """Config reports presence, never the value -- the whole point of it being
+    safe to copy-paste into a chat."""
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("POLYGON_API_KEY", "SUPERSECRETVALUE123")
+    monkeypatch.setenv("OPENROUTER_API_KEY", "OR-SECRET-XYZ-999")
+    get_settings.cache_clear()
+
+    raw = client.get("/diagnostics.json").text
+    assert "SUPERSECRETVALUE123" not in raw
+    assert "OR-SECRET-XYZ-999" not in raw
+
+    cfg = {c["name"]: c["status"] for c in client.get("/diagnostics.json").json()["config"]}
+    assert cfg["POLYGON_API_KEY"] == "present"
+    assert cfg["OPENROUTER_API_KEY"] in ("present", "invalid")
+
+
+def test_diagnostics_surfaces_a_failed_run_with_stage_rss(client):
+    """The whole reason the page exists: a failed run shows its stage table (with
+    peak rss persisted per stage) and the verdict names the failure -- no Railway
+    logs required."""
+    import datetime as dt
+
+    from src.storage import repository
+    from src.storage.db import session_scope
+    from src.storage.models import DailyBar
+
+    end = dt.date.today()
+    with session_scope() as s:
+        # 252 recent distinct sessions: clears both the history and staleness
+        # gates so the verdict reaches the failed-run check.
+        for i in range(252):
+            s.add(DailyBar(ticker="AAA", date=end - dt.timedelta(days=i),
+                           open=1, high=1, low=1, close=10.0, volume=1_000_000))
+        repository.start_run(s, "r-x", dt.date(2025, 6, 2))
+        repository.save_checkpoint(
+            s, "r-x", dt.date(2025, 6, 2), 1, entry_count=6000, exit_count=1200,
+            duration_s=3.0, api_calls=0, payload={"survivors": []},
+        )
+        repository.finish_run(
+            s, "r-x", status="failed",
+            error="insufficient history: 12/252 trading days.",
+        )
+
+    d = client.get("/diagnostics.json").json()
+    lr = d["last_run"]
+    assert lr["status"] == "failed"
+    stage1 = next(st for st in lr["stages"] if st["stage"] == 1)
+    assert stage1["entry"] == 6000 and stage1["exit"] == 1200
+    assert stage1["rss_mb"] is not None  # persisted via the checkpoint payload
+    assert d["verdict"]["level"] == "error"
+    assert "failed" in d["verdict"]["headline"].lower()
+    assert "insufficient history" in (lr["error"] or "")
+
+
+def test_rategate_peek_does_not_consume_budget():
+    from src import api
+
+    g = api._RateGate(lambda: 1)
+    assert g.peek() is None  # nothing spent yet
+    assert g.peek() is None  # peek is idempotent -- did not record a hit
+    assert g.check() is None  # spend the one allowance
+    assert g.peek() is not None  # now at the limit
+    assert g.peek() is not None  # still limited; peek didn't change state
 
 
 def test_startup_fails_orphaned_running_runs(api_db):

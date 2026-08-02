@@ -21,6 +21,7 @@ import os
 import signal
 import sys
 import uuid
+from typing import Any
 
 import structlog
 
@@ -71,10 +72,14 @@ async def run_pipeline_subprocess(
     log.info("run_subprocess_spawn", run_id=run_id, as_of=str(resolved), skip_llm=skip_llm)
     proc = await asyncio.create_subprocess_exec(
         *cmd,
-        stdout=None,  # inherit -- child logs go straight to our stdout
-        stderr=None,
+        # Pipe the child's stdout so we can BOTH echo it to our own stdout (Railway
+        # still captures every line) AND tee it into the /diagnostics log ring, so
+        # the pipeline's stage logs show up there even though it runs out-of-process.
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
         env={**os.environ, "PYTHONUNBUFFERED": "1"},
     )
+    await _tee_child_output(proc)
     rc = await proc.wait()
 
     if rc == 0:
@@ -97,6 +102,29 @@ async def run_pipeline_subprocess(
     except Exception as exc:  # noqa: BLE001 - reconcile is best-effort
         log.error("run_subprocess_reconcile_failed", run_id=run_id, error=str(exc)[:300])
     return rc
+
+
+async def _tee_child_output(proc: Any) -> None:
+    """Drain the child's stdout: echo each line to our stdout and ring-buffer it.
+
+    Draining continuously also prevents the child blocking on a full pipe. Any
+    failure here is non-fatal -- the run itself is what matters, not the tee.
+    """
+    from src.logging_config import record_log_line
+
+    if proc.stdout is None:
+        return
+    try:
+        while True:
+            raw = await proc.stdout.readline()
+            if not raw:
+                break
+            line = raw.decode("utf-8", "replace")
+            sys.stdout.write(line)  # keep Railway's stream complete
+            sys.stdout.flush()
+            record_log_line(line, src="run")
+    except Exception as exc:  # noqa: BLE001 - never let log plumbing kill the run
+        log.warning("run_subprocess_tee_failed", error=str(exc)[:200])
 
 
 def _resolve_last_trading_day() -> dt.date:

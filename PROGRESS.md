@@ -66,6 +66,29 @@ permits the data hosts.
 - Never fabricate/synthesize market data. Fail loudly instead.
 - Log token spend and funnel stage counts every run.
 - Don't skip ahead to the LLM layer while deterministic layers are unverified.
+- **Every diagnostic is reachable from `/diagnostics` — no CLI-only checks.**
+  See the section below; this is a standing requirement, not a one-off.
+
+## Diagnostics — `/diagnostics` is the single pane (phone-first)
+
+The operator is always on mobile with no shell. `/diagnostics` (page) +
+`GET /diagnostics.json` (payload) are the one place to look when something
+breaks. It shows, top to bottom: a plain-English **verdict banner** (what's
+wrong + what to do), **data health** (adjustment/coverage/recency/history from
+the reconcile cache + DB), **last run** (per-stage table incl. `peak rss_mb`,
+failed stage highlighted with its real error), **config** (every env var as
+present/missing/invalid, never the value), **recent logs** (in-memory ring, the
+pipeline child's stdout teed in by `src/runner.py`), and **actions** (run / run
+fast / backfill, rate-limited with disable reasons). A **"Copy everything"**
+button puts the whole state on the clipboard as text to paste into chat.
+
+**RULE for any future check you're asked to add:** wire it into this page. Add
+the data to `_diagnostics_*` in `src/api.py` (and the network-backed ones to a
+cache like `_RECONCILE_CACHE` so the 10s auto-refresh stays cheap), render it in
+`src/report/static/diagnostics.js`, and include it in `buildCopyText`. A check
+that only exists as a CLI module (`python -m src.something`) is not done until it
+is reachable here. Keep the CLI working, but share the logic (as `/reconcile`
+does with `src/reconcile.py`).
 
 ## Honest status of edge
 

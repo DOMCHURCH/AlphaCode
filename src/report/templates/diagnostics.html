@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Alpha Funnel — Diagnostics</title>
+<link rel="icon" href="/favicon.ico" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/diagnostics.css">
+</head>
+<body>
+
+<nav><div class="wrap nav">
+  <a class="brand" href="/"><span class="dot"></span>Alpha&nbsp;Funnel</a>
+  <span class="tag">Diagnostics</span>
+  <span class="spacer"></span>
+  <a class="link" href="/">← dashboard</a>
+</div></nav>
+
+<main class="wrap">
+
+  <!-- COPY EVERYTHING — the one tap that matters -->
+  <div class="copybar">
+    <button id="copyBtn" class="copy">📋 Copy everything</button>
+    <button id="refreshBtn" class="mini" title="Refresh now">↻ Refresh</button>
+    <span id="stamp" class="stamp">—</span>
+  </div>
+  <div id="copyMsg" class="copymsg" hidden></div>
+
+  <!-- 1. VERDICT -->
+  <section id="verdict" class="verdict v-ok">
+    <div class="v-head">Checking…</div>
+    <div class="v-detail"></div>
+    <div class="v-action"></div>
+  </section>
+
+  <!-- 2. DATA HEALTH -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Data health</h2>
+      <button id="reconcileBtn" class="mini">Check now</button>
+    </div>
+    <div id="health" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
+  <!-- 3. LAST RUN -->
+  <section class="card">
+    <div class="card-head"><h2>Last run</h2><span id="lastrun-meta" class="meta"></span></div>
+    <div id="lastrun" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
+  <!-- 4. CONFIG -->
+  <section class="card">
+    <div class="card-head"><h2>Config</h2><button id="llmBtn" class="mini">Check LLM</button></div>
+    <p class="hint">Presence only — secret values are never shown.</p>
+    <div id="config" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
+  <!-- 5. RECENT LOGS -->
+  <section class="card">
+    <div class="card-head"><h2>Recent logs</h2>
+      <div class="filters" id="logfilters">
+        <button class="chip on" data-level="">all</button>
+        <button class="chip" data-level="info">info+</button>
+        <button class="chip" data-level="warning">warn+</button>
+        <button class="chip" data-level="error">error</button>
+      </div>
+    </div>
+    <div id="logs" class="logs"><div class="loading">loading…</div></div>
+  </section>
+
+  <!-- 6. ACTIONS -->
+  <section class="card">
+    <div class="card-head"><h2>Actions</h2></div>
+    <div class="actions" id="actions">
+      <button class="act" data-action="run">Run now</button>
+      <button class="act" data-action="run_fast">Run fast (skip LLM)</button>
+      <button class="act" data-action="backfill">Backfill</button>
+    </div>
+    <div id="actionMsg" class="actionmsg"></div>
+  </section>
+
+  <footer>
+    Read-only except the buttons above, which are rate-limited. If a source is
+    unreachable it is named here rather than shown blank.
+  </footer>
+</main>
+
+<script src="/static/diagnostics.js" defer></script>
+</body>
+</html>

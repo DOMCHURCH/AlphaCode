@@ -81,6 +81,11 @@ async def _boot(app: FastAPI) -> None:
         except Exception as exc:  # noqa: BLE001 - serving must survive
             log.error("scheduler_start_failed", error=str(exc)[:300])
 
+    # Startup has fully settled (DB migrated, orphan runs swept, scheduler up).
+    # Observable so a test fixture can drain this background task before its body
+    # runs, rather than racing the orphan sweep against a seeded "running" run.
+    app.state.boot_complete = True
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -95,6 +100,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # noqa: BLE001 - never let logging setup stall startup
         pass
     app.state.scheduler = None
+    app.state.boot_complete = False
     boot_task = asyncio.create_task(_boot(app))
     try:
         yield
@@ -146,6 +152,19 @@ class _RateGate:
         if len(self._hits) >= limit:
             return max(1.0, 3600 - (now - self._hits[0]))
         self._hits.append(now)
+        return None
+
+    def peek(self) -> float | None:
+        """Like check() but WITHOUT recording a hit -- for reporting whether an
+        action button should be enabled, which must not consume the budget."""
+        limit = self._limit_fn()
+        if limit <= 0:
+            return None
+        now = time.monotonic()
+        cutoff = now - 3600
+        hits = [h for h in self._hits if h >= cutoff]
+        if len(hits) >= limit:
+            return max(1.0, 3600 - (now - hits[0]))
         return None
 
     def reset(self) -> None:
@@ -427,12 +446,14 @@ def ticker_history(
     }
 
 
-@app.get("/llm-check")
-async def llm_check() -> dict[str, Any]:
-    """Confirm the LLM is usable: does the configured model resolve against
-    OpenRouter's /api/v1/models? A run degrades to the deterministic ranking when
-    this fails, so this is the one place to see *why* the write-ups are missing
-    (usually a missing OPENROUTER_API_KEY or a bad model id)."""
+# Cached results of the two network-backed checks, so /diagnostics can render
+# them without a call on every 10s auto-refresh (and without burning the
+# reconcile rate limit). Each is refreshed when its own endpoint is hit.
+_RECONCILE_CACHE: dict[str, Any] = {"at": None, "data": None}
+_LLMCHECK_CACHE: dict[str, Any] = {"at": None, "data": None}
+
+
+async def _run_llm_check() -> dict[str, Any]:
     from src.llm.client import make_client, verify_model
 
     s = get_settings()
@@ -447,19 +468,30 @@ async def llm_check() -> dict[str, Any]:
             "OPENROUTER_API_KEY is not set — the LLM write-ups are disabled and "
             "runs fall back to the deterministic ranking."
         )
-        return out
-    try:
-        async with make_client() as c:
-            resolved = []
-            for name in {s.llm_triage_model, s.llm_deep_model}:
-                await verify_model(c, name)
-                resolved.append(name)
-        out["ok"] = True
-        out["resolved"] = resolved
-    except Exception as exc:  # noqa: BLE001 - report, don't crash
-        out["ok"] = False
-        out["error"] = str(exc)[:600]
+    else:
+        try:
+            async with make_client() as c:
+                resolved = []
+                for name in {s.llm_triage_model, s.llm_deep_model}:
+                    await verify_model(c, name)
+                    resolved.append(name)
+            out["ok"] = True
+            out["resolved"] = resolved
+        except Exception as exc:  # noqa: BLE001 - report, don't crash
+            out["ok"] = False
+            out["error"] = str(exc)[:600]
+    _LLMCHECK_CACHE["at"] = dt.datetime.now(dt.UTC).isoformat()
+    _LLMCHECK_CACHE["data"] = out
     return out
+
+
+@app.get("/llm-check")
+async def llm_check() -> dict[str, Any]:
+    """Confirm the LLM is usable: does the configured model resolve against
+    OpenRouter's /api/v1/models? A run degrades to the deterministic ranking when
+    this fails, so this is the one place to see *why* the write-ups are missing
+    (usually a missing OPENROUTER_API_KEY or a bad model id)."""
+    return await _run_llm_check()
 
 
 @app.get("/reconcile")
@@ -472,7 +504,10 @@ async def reconcile_endpoint(sample: int = Query(15, ge=1, le=50)) -> dict[str, 
     _enforce_rate(_reconcile_gate, "reconcile")
     from src.reconcile import reconcile
 
-    return await reconcile(sample=sample)
+    data = await reconcile(sample=sample)
+    _RECONCILE_CACHE["at"] = dt.datetime.now(dt.UTC).isoformat()
+    _RECONCILE_CACHE["data"] = data
+    return data
 
 
 @app.get("/validation")
@@ -694,6 +729,323 @@ def status() -> dict[str, Any]:
     return out
 
 
+# ---------------------------------------------------------------------------
+# /diagnostics -- the one place to look when something breaks. A phone-first
+# page that aggregates every check into a single screen (and a single copy-to-
+# clipboard blob). All the assembly below is CHEAP (DB reads + in-memory state):
+# the two network-backed checks (reconcile, llm-check) are shown from cache so
+# the page can auto-refresh without making calls or burning a rate limit.
+# ---------------------------------------------------------------------------
+def _config_report() -> list[dict[str, Any]]:
+    """Every env var as present / missing / invalid -- never the value itself."""
+    s = get_settings()
+
+    def opt(name: str, present: bool, note: str) -> dict[str, Any]:
+        return {"name": name, "status": "present" if present else "missing", "note": note}
+
+    rows: list[dict[str, Any]] = [
+        {"name": "DATABASE_URL",
+         "status": "present" if s.database_url else "missing",
+         "note": "postgres" if not s.is_sqlite else "sqlite (dev/local)"},
+    ]
+    ua_ok = bool(s.sec_user_agent) and "@" in s.sec_user_agent \
+        and "example.com" not in s.sec_user_agent
+    rows.append({
+        "name": "SEC_USER_AGENT",
+        "status": "present" if ua_ok else ("invalid" if s.sec_user_agent else "missing"),
+        "note": "ok" if ua_ok else "needs a real contact email — SEC blocks blank/default UAs",
+    })
+    rows.append(opt("POLYGON_API_KEY", bool(s.polygon_api_key), "optional — bars + reference"))
+    rows.append({
+        "name": "POLYGON_TIER", "status": "info",
+        "note": f"{s.polygon_tier} — "
+        + ("bars come from Stooq bulk; Polygon capped at "
+           f"{s.polygon_free_rate_per_min}/min, not used for backfill"
+           if s.polygon_tier == "free"
+           else "Polygon allowed for backfill"),
+    })
+    rows.append(opt("FMP_API_KEY", bool(s.fmp_api_key), "optional — caps, GICS sectors, batch EOD"))
+    rows.append(opt("FINNHUB_API_KEY", bool(s.finnhub_api_key), "optional — estimates/earnings"))
+    rows.append(opt("FRED_API_KEY", bool(s.fred_api_key), "optional — macro regime tilt"))
+    rows.append(opt("REDIS_URL", bool(s.redis_url), "optional — shared rate limits"))
+
+    llm = _LLMCHECK_CACHE["data"]
+    if not s.openrouter_api_key:
+        rows.append({"name": "OPENROUTER_API_KEY", "status": "missing",
+                     "note": "LLM write-ups disabled; runs use the deterministic ranking"})
+    elif llm is None:
+        rows.append({"name": "OPENROUTER_API_KEY", "status": "present",
+                     "note": "models not checked yet this session — tap Check LLM"})
+    elif llm.get("ok"):
+        rows.append({"name": "OPENROUTER_API_KEY", "status": "present",
+                     "note": "models resolve: " + ", ".join(llm.get("resolved", []))})
+    else:
+        rows.append({"name": "OPENROUTER_API_KEY", "status": "invalid",
+                     "note": (llm.get("error") or "model check failed")[:160]})
+    return rows
+
+
+def _diagnostics_data_health(session: Any) -> dict[str, Any]:
+    from sqlalchemy import func
+
+    from src.backfill import get_backfill_state
+    from src.storage.models import DailyBar
+
+    s = get_settings()
+    bf = get_backfill_state()
+    errors: dict[str, str] = {}
+
+    price_bars = session.execute(select(func.count()).select_from(DailyBar)).scalar_one()
+    tickers = session.execute(
+        select(func.count(func.distinct(DailyBar.ticker)))
+    ).scalar_one()
+    latest = session.execute(select(func.max(DailyBar.date))).scalar_one()
+    bar_dates = session.execute(
+        select(func.count(func.distinct(DailyBar.date)))
+    ).scalar_one()
+    required = s.min_history_days
+    staleness = (dt.date.today() - latest).days if latest else None
+
+    coverage: dict[str, Any] = {
+        "tickers_loaded": tickers, "min_for_valid_run": s.min_universe_size,
+    }
+    adjustment: dict[str, Any] = {"status": "unchecked"}
+    rc = _RECONCILE_CACHE["data"]
+    if rc:
+        sym = rc.get("symbology_sec") or {}
+        if isinstance(sym, dict):
+            coverage["sec_universe"] = sym.get("sec_tickers")
+            coverage["joined_with_sec"] = sym.get("joined")
+            coverage["join_rate"] = sym.get("join_rate_vs_sec")
+        adj = rc.get("adjustment") or {}
+        summary = adj.get("summary") or {}
+        checked = adj.get("checked", 0)
+        overall = (
+            "unadjusted" if summary.get("unadjusted") else
+            "adjusted" if (summary.get("adjusted") and not summary.get("inconclusive")) else
+            "inconclusive" if checked else "unchecked"
+        )
+        adjustment = {
+            "status": overall, "checked": checked, "summary": summary,
+            "verdicts": adj.get("verdicts") or {}, "note": adj.get("note"),
+        }
+        if rc.get("sec_error"):
+            errors["sec"] = str(rc["sec_error"])[:200]
+
+    return {
+        "backfill": {
+            "source": bf.get("source"),
+            "sources_available": bf.get("sources_available"),
+            "phase": bf.get("phase"),
+            "last_error": bf.get("last_error"),
+            "polygon_tier": bf.get("polygon_tier") or s.polygon_tier,
+            "last_progress_at": bf.get("last_progress_at"),
+            "units_done": bf.get("units_done"),
+            "units_total": bf.get("units_total"),
+            "unit": bf.get("unit"),
+        },
+        "coverage": coverage,
+        "recency": {
+            "latest_bar_date": latest.isoformat() if latest else None,
+            "staleness_days": staleness,
+        },
+        "history": {
+            "loaded": bar_dates, "required": required,
+            "pct": round(100 * min(1.0, bar_dates / required)) if required else 0,
+        },
+        "adjustment": adjustment,
+        "price_bars": price_bars,
+        "reconcile_checked_at": _RECONCILE_CACHE["at"],
+        "errors": errors,
+    }
+
+
+def _diagnostics_last_run(session: Any) -> dict[str, Any] | None:
+    run = repository.latest_run(session)
+    if run is None:
+        return None
+    stages = repository.stage_progress(session, run.run_id)
+    reached = max((st["stage"] for st in stages), default=0)
+    failed_stage = min(reached + 1, _TOTAL_STAGES - 1) if run.status == "failed" else None
+    by_stage = {st["stage"]: st for st in stages}
+    fc = run.funnel_counts or {}
+
+    rows: list[dict[str, Any]] = []
+    if "Stage 0 universe" in fc:
+        rows.append({
+            "stage": 0, "label": _STAGE_STEPS[0]["label"], "entry": None,
+            "exit": fc["Stage 0 universe"], "duration_s": None, "api_calls": None,
+            "rss_mb": None, "failed": failed_stage == 0,
+        })
+    for i in range(1, _TOTAL_STAGES):
+        st = by_stage.get(i)
+        if st is not None:
+            rows.append({
+                "stage": i, "label": _STAGE_STEPS[i]["label"],
+                "entry": st["entry_count"], "exit": st["exit_count"],
+                "duration_s": round(st["duration_s"], 2) if st["duration_s"] else st["duration_s"],
+                "api_calls": st["api_calls"], "rss_mb": st.get("rss_mb"),
+                "failed": failed_stage == i,
+            })
+        elif failed_stage == i:
+            # The stage it died in never checkpointed -- show it as the failure row.
+            rows.append({
+                "stage": i, "label": _STAGE_STEPS[i]["label"], "entry": None,
+                "exit": None, "duration_s": None, "api_calls": None,
+                "rss_mb": None, "failed": True,
+            })
+    return {
+        "run_id": run.run_id, "as_of": run.as_of_date.isoformat(),
+        "status": run.status, "regime": run.regime,
+        "error": (run.error or "")[:800] or None,
+        "started_at": run.started_at.isoformat() if run.started_at else None,
+        "finished_at": run.finished_at.isoformat() if run.finished_at else None,
+        "failed_stage": failed_stage, "cost_usd": run.cost_usd, "stages": rows,
+    }
+
+
+def _diagnostics_actions() -> dict[str, Any]:
+    def rate_reason(gate: _RateGate) -> str | None:
+        retry = gate.peek()
+        if retry is None:
+            return None
+        return f"rate limited — try again in ~{int(retry // 60) + 1} min"
+
+    def act(busy: bool, busy_msg: str, rate: str | None) -> dict[str, Any]:
+        if busy:
+            return {"enabled": False, "reason": busy_msg}
+        if rate:
+            return {"enabled": False, "reason": rate}
+        return {"enabled": True, "reason": None}
+
+    run_busy = _run_lock.locked()
+    bf_busy = _backfill_lock.locked()
+    run_rate = rate_reason(_run_gate)
+    return {
+        "run": act(run_busy, "a run is already in progress", run_rate),
+        "run_fast": act(run_busy, "a run is already in progress", run_rate),
+        "backfill": act(bf_busy, "a backfill is already running", rate_reason(_backfill_gate)),
+        "reconcile": act(False, "", rate_reason(_reconcile_gate)),
+    }
+
+
+def _diagnostics_verdict(
+    health: dict[str, Any], last_run: dict[str, Any] | None, db_ok: bool
+) -> dict[str, Any]:
+    """One plain-English line: what's wrong and what to do. Ordered by severity."""
+    if not db_ok:
+        return {"level": "error", "headline": "Database unreachable",
+                "detail": "The service can't read its own data.",
+                "action": "Check DATABASE_URL and that Postgres is up."}
+
+    adj = health["adjustment"]
+    if adj.get("status") == "unadjusted":
+        bad = [t for t, v in (adj.get("verdicts") or {}).items() if v == "unadjusted"]
+        return {
+            "level": "error",
+            "headline": "Prices look UNADJUSTED — do not trust the funnel",
+            "detail": (f"{', '.join(bad[:5])} did not adjust across a known split. "
+                       "Unadjusted prices make every momentum factor wrong: splits "
+                       "read as crashes and split names look deleted."),
+            "action": "Fix the price source (or set POLYGON_TIER=paid) and re-backfill.",
+        }
+
+    bf = health["backfill"]
+    if bf.get("phase") == "error":
+        return {
+            "level": "error",
+            "headline": f"Backfill blocked: {bf.get('source') or 'all sources'}",
+            "detail": bf.get("last_error") or "The last backfill failed.",
+            "action": "Tap Backfill to retry, or check the source is reachable.",
+        }
+
+    st = health["recency"].get("staleness_days")
+    if st is not None and st > 5:
+        return {"level": "warn", "headline": f"Price data is {st} days stale",
+                "detail": "A run would screen on stale prices.",
+                "action": "Tap Backfill to refresh the bars."}
+
+    h = health["history"]
+    if h["loaded"] < h["required"]:
+        return {
+            "level": "warn",
+            "headline": f"Not enough history: {h['loaded']}/{h['required']} trading days",
+            "detail": "The trend gate needs a full year before a run means anything.",
+            "action": "Tap Backfill and let it finish filling in.",
+        }
+
+    if last_run and last_run["status"] == "failed":
+        stg = last_run.get("failed_stage")
+        label = _STAGE_STEPS[stg]["label"] if stg is not None else "a stage"
+        return {"level": "error", "headline": f"Last run failed at {label}",
+                "detail": last_run.get("error") or "No error text was recorded.",
+                "action": "Read the stage table below, fix the cause, and Run again."}
+
+    s = get_settings()
+    llm = _LLMCHECK_CACHE["data"]
+    if s.openrouter_api_key and llm and not llm.get("ok"):
+        return {"level": "warn", "headline": "LLM model check failed",
+                "detail": (llm.get("error") or "")[:300],
+                "action": "Fix OPENROUTER_API_KEY / model ids. Runs still produce the deterministic ranking."}
+
+    if adj.get("status") == "unchecked":
+        return {"level": "ok", "headline": "Everything working",
+                "detail": "Data is fresh and the last run is healthy. Price adjustment not yet verified this session.",
+                "action": "Tap Check data health to confirm splits are adjusted."}
+    return {"level": "ok", "headline": "Everything working",
+            "detail": "Data is fresh, prices are adjusted, the last run is healthy, and the config resolves.",
+            "action": None}
+
+
+@app.get("/diagnostics.json")
+def diagnostics_json() -> dict[str, Any]:
+    """Everything the /diagnostics page renders, in one cheap payload."""
+    from src.logging_config import get_recent_logs
+
+    db_ok = True
+    health: dict[str, Any]
+    last_run: dict[str, Any] | None = None
+    try:
+        with session_scope() as session:
+            health = _diagnostics_data_health(session)
+            last_run = _diagnostics_last_run(session)
+    except Exception as exc:  # noqa: BLE001 - say so on the page, never blank
+        db_ok = False
+        health = {
+            "error": str(exc)[:200],
+            "backfill": {}, "coverage": {}, "recency": {},
+            "history": {"loaded": 0, "required": get_settings().min_history_days, "pct": 0},
+            "adjustment": {"status": "unchecked"}, "errors": {"database": str(exc)[:200]},
+        }
+
+    return {
+        "generated_at": dt.datetime.now(dt.UTC).isoformat(),
+        "verdict": _diagnostics_verdict(health, last_run, db_ok),
+        "data_health": health,
+        "last_run": last_run,
+        "config": _config_report(),
+        "logs": get_recent_logs(limit=200),
+        "actions": _diagnostics_actions(),
+        "run_in_progress": _run_lock.locked(),
+        "backfill_running": _backfill_lock.locked(),
+    }
+
+
+_DIAGNOSTICS = Path(__file__).parent / "report" / "templates" / "diagnostics.html"
+
+
+@app.get("/diagnostics", response_class=HTMLResponse)
+def diagnostics_page() -> HTMLResponse:
+    """The break-glass page: verdict, data health, last run, config, logs, and
+    action buttons -- everything on one phone screen, with one-tap copy."""
+    try:
+        return HTMLResponse(_DIAGNOSTICS.read_text(encoding="utf-8"))
+    except OSError:
+        return HTMLResponse(
+            "<h1>Diagnostics</h1><p>See <a href='/diagnostics.json'>/diagnostics.json</a>.</p>"
+        )
+
+
 _DASHBOARD = Path(__file__).parent / "report" / "templates" / "dashboard.html"
 
 
@@ -718,7 +1070,8 @@ def api_index() -> JSONResponse:
                 "/health", "/status", "/reports", "/report/{date}",
                 "/report/{date}/html", "/report/{date}/pdf",
                 "/ticker/{symbol}/history", "/validation", "/llm-check",
-                "/reconcile", "POST /backfill", "POST /run",
+                "/reconcile", "/diagnostics", "/diagnostics.json",
+                "POST /backfill", "POST /run",
             ],
             "disclaimer": (
                 "Research and idea-generation only. Not investment advice."

@@ -56,6 +56,8 @@ def _stub_exec(monkeypatch, *, returncode: int, on_wait=None):
     captured: dict[str, str] = {}
 
     class _FakeProc:
+        stdout = None  # the runner's output tee handles a None stream gracefully
+
         def __init__(self, run_id: str) -> None:
             self._run_id = run_id
 

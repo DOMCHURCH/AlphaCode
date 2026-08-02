@@ -238,6 +238,8 @@ def save_checkpoint(
     payload: Any,
     rejected: Any = None,
 ) -> None:
+    from src.logging_config import peak_rss_mb
+
     _upsert(
         session,
         StageResult,
@@ -250,7 +252,9 @@ def save_checkpoint(
                 "exit_count": exit_count,
                 "duration_s": duration_s,
                 "api_calls": api_calls,
-                "payload": {"data": jsonable(payload)},
+                # `data` is the resume payload; `rss_mb` is the process high-water
+                # mark captured as this stage checkpoints, surfaced in /diagnostics.
+                "payload": {"data": jsonable(payload), "rss_mb": peak_rss_mb()},
                 "rejected": (
                     {"data": jsonable(rejected)} if rejected is not None else None
                 ),
@@ -313,9 +317,17 @@ def stage_progress(session: Session, run_id: str) -> list[dict[str, Any]]:
             "exit_count": r.exit_count,
             "duration_s": r.duration_s,
             "api_calls": r.api_calls,
+            "rss_mb": (r.payload or {}).get("rss_mb"),
         }
         for r in rows
     ]
+
+
+def latest_run(session: Session) -> RunLog | None:
+    """The most recently STARTED run (running or finished), for diagnostics."""
+    return session.execute(
+        select(RunLog).order_by(RunLog.started_at.desc()).limit(1)
+    ).scalar_one_or_none()
 
 
 def mark_orphaned_runs_failed(session: Session) -> int:
