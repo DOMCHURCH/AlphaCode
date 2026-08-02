@@ -232,3 +232,42 @@ def test_run_blocks_on_insufficient_history(file_db):
 
     with pytest.raises(pipeline.DataQualityError, match="insufficient history"):
         asyncio.run(pipeline.run_pipeline(AS_OF, resume_from=1, skip_llm=True))
+
+
+def test_llm_unavailable_falls_back_to_deterministic(file_db, monkeypatch):
+    """A cron run must always produce a deterministic ranked list. If the LLM is
+    misconfigured (verification fails), the run degrades to the deterministic
+    ranking + report instead of aborting -- and persists picks for the site."""
+    from src import pipeline
+    from src.catalysts import stage3 as s3
+    from src.llm import triage
+    from src.storage import repository
+    from src.storage.db import session_scope
+
+    _seed()
+    monkeypatch.setattr(s3, "enrich_tickers", _empty_enrich)
+
+    async def _bad_verify():
+        raise RuntimeError("OPENROUTER_API_KEY invalid / model not found")
+
+    monkeypatch.setattr(pipeline, "verify_configured_models", _bad_verify)
+
+    async def _no_triage(*a, **k):
+        raise AssertionError("LLM triage ran despite a failed verification")
+
+    monkeypatch.setattr(triage, "run_triage", _no_triage)
+
+    res = asyncio.run(
+        pipeline.run_pipeline(
+            AS_OF, run_id="FALLBACK", resume_from=1, skip_llm=False,
+            persist_universe=False,
+        )
+    )
+    assert res.status == "ok"
+    assert res.report_paths.get("html")           # a report was produced
+    assert res.funnel_counts.get("Stage 5 final", 0) > 0  # deterministic top-N
+    assert any("deterministic" in w.lower() for w in res.warnings)
+
+    with session_scope() as session:
+        theses = repository.get_theses(session, AS_OF)
+    assert len(theses) > 0, "fast-mode fallback persisted no picks for the site"

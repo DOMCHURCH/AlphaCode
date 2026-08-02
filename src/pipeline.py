@@ -27,7 +27,7 @@ from src.config.settings import get_settings
 from src.factors import composite, trend
 from src.ingest.rate_limiter import get_rate_limiter
 from src.llm import deep_dive, triage
-from src.llm.client import ModelNotAvailable, verify_configured_models
+from src.llm.client import verify_configured_models
 from src.llm.cost import CostTracker
 from src.llm.packets import build_deep_packet, build_triage_packet
 from src.llm.schemas import DeepDive
@@ -158,16 +158,23 @@ async def run_pipeline(
 
     try:
         # ---------------- model verification, before anything expensive -----
+        # A cron run must ALWAYS produce a deterministic ranked list. So if the
+        # LLM is misconfigured (bad OPENROUTER_API_KEY / unresolvable model id),
+        # we do not abort -- we degrade to the deterministic ranking and say so.
+        # This is not weakening a gate: the deterministic Stages 0-3 still run in
+        # full and any data-quality abort still propagates.
+        run_llm = not skip_llm
         model_info: dict[str, Any] = {}
-        if not skip_llm:
+        if run_llm:
             try:
-                verified = await verify_configured_models()
-                model_info = verified
-            except ModelNotAvailable:
-                raise
-            except Exception as exc:  # noqa: BLE001
-                warnings.append(f"Model verification skipped: {exc}")
-                log.warning("model_verification_skipped", error=str(exc)[:200])
+                model_info = await verify_configured_models()
+            except Exception as exc:  # noqa: BLE001 - includes ModelNotAvailable
+                run_llm = False
+                warnings.append(
+                    f"LLM unavailable at startup ({str(exc)[:180]}); produced the "
+                    f"deterministic ranking instead of model write-ups."
+                )
+                log.warning("llm_unavailable_deterministic_fallback", error=str(exc)[:200])
 
         with session_scope() as session:
             # ---------------- Stage 0: universe --------------------------
@@ -296,95 +303,112 @@ async def run_pipeline(
                 )
             _check_drop("3 catalysts", len(comp.selected), len(st3.selected), warnings)
 
-            # ---------------- Stage 4: LLM triage ------------------------
+            # ---------------- Stage 4-5: LLM triage + deep dive ----------
             dives: list[DeepDive] = []
             triage_df = pd.DataFrame()
             deterministic_top: list[dict[str, Any]] = []
-            if skip_llm:
-                warnings.append(
+
+            def _deterministic_fallback(reason: str) -> list[dict[str, Any]]:
+                warnings.append(reason)
+                top = _deterministic_ranking(st3.selected, sectors, s.stage5_take)
+                funnel["Stage 5 final"] = len(top)
+                return top
+
+            if not run_llm:
+                deterministic_top = _deterministic_fallback(
                     "LLM stages skipped — the ranking below is the deterministic "
                     "Stages 0-3 output, with no thesis and no model scoring."
                 )
-                selected_25 = list(st3.selected.head(s.stage4_take).index)
-                deterministic_top = _deterministic_ranking(
-                    st3.selected, sectors, s.stage5_take
-                )
-                funnel["Stage 5 final"] = len(deterministic_top)
             else:
-                with _stage("llm_triage", 4, len(st3.selected), timings) as box:
-                    packets = [
-                        build_triage_packet(
-                            t, st3.selected.loc[t], tr.survivors.loc[t],
-                            comp.raw.loc[t], st3.detail.get(t, {}), macro,
+                # A cron run must always produce a deterministic ranked list: if
+                # the LLM stages fail at runtime, fall back to the deterministic
+                # ranking. A data-quality abort still propagates (re-raised).
+                try:
+                    with _stage("llm_triage", 4, len(st3.selected), timings) as box:
+                        packets = [
+                            build_triage_packet(
+                                t, st3.selected.loc[t], tr.survivors.loc[t],
+                                comp.raw.loc[t], st3.detail.get(t, {}), macro,
+                            )
+                            for t in st3.selected.index
+                        ]
+                        tri = await triage.run_triage(
+                            packets, st3.selected, take=s.stage4_take,
+                            model_info=model_info.get(s.llm_triage_model),
                         )
-                        for t in st3.selected.index
-                    ]
-                    tri = await triage.run_triage(
-                        packets, st3.selected, take=s.stage4_take,
-                        model_info=model_info.get(s.llm_triage_model),
-                    )
-                    cost.record("triage", tri.usage)
-                    triage_df = tri.verdicts
-                    selected_25 = tri.selected
-                    box["exit"] = len(selected_25)
-                    box["api_calls"] = tri.llm_calls
-                    funnel["Stage 4 triage"] = len(selected_25)
-                    stage_sectors["Stage 4"] = _sector_counts_from_index(
-                        pd.Index(selected_25), sectors
-                    )
-                    repository.save_checkpoint(
-                        session, run_id, as_of, 4, entry_count=len(st3.selected),
-                        exit_count=len(selected_25),
-                        duration_s=timings[-1].duration_s if timings else 0.0,
-                        api_calls=tri.llm_calls, payload={"selected": selected_25},
-                    )
+                        cost.record("triage", tri.usage)
+                        triage_df = tri.verdicts
+                        selected_25 = tri.selected
+                        box["exit"] = len(selected_25)
+                        box["api_calls"] = tri.llm_calls
+                        funnel["Stage 4 triage"] = len(selected_25)
+                        stage_sectors["Stage 4"] = _sector_counts_from_index(
+                            pd.Index(selected_25), sectors
+                        )
+                        repository.save_checkpoint(
+                            session, run_id, as_of, 4, entry_count=len(st3.selected),
+                            exit_count=len(selected_25),
+                            duration_s=timings[-1].duration_s if timings else 0.0,
+                            api_calls=tri.llm_calls, payload={"selected": selected_25},
+                        )
 
-                # ---------------- Stage 5: LLM deep dive -----------------
-                with _stage("llm_deep_dive", 5, len(selected_25), timings) as box:
-                    quarterlies = _load_quarterlies(session, selected_25, as_of)
-                    next_earn = get_next_earnings(session, selected_25, as_of)
-                    deep_packets = [
-                        build_deep_packet(
-                            t, st3.selected.loc[t], tr.survivors.loc[t],
-                            comp.raw.loc[t], st3.detail.get(t, {}), macro,
-                            fundamentals=quarterlies.get(t),
-                            sector_percentiles=_sector_percentiles(comp.scores, t),
-                            next_earnings=next_earn.get(t),
+                    # ---------------- Stage 5: LLM deep dive -------------
+                    with _stage("llm_deep_dive", 5, len(selected_25), timings) as box:
+                        quarterlies = _load_quarterlies(session, selected_25, as_of)
+                        next_earn = get_next_earnings(session, selected_25, as_of)
+                        deep_packets = [
+                            build_deep_packet(
+                                t, st3.selected.loc[t], tr.survivors.loc[t],
+                                comp.raw.loc[t], st3.detail.get(t, {}), macro,
+                                fundamentals=quarterlies.get(t),
+                                sector_percentiles=_sector_percentiles(comp.scores, t),
+                                next_earnings=next_earn.get(t),
+                            )
+                            for t in selected_25
+                            if t in st3.selected.index
+                        ]
+                        take = min(s.stage5_take, macro.final_count(s.stage5_take))
+                        dd = await deep_dive.run_deep_dive(
+                            deep_packets,
+                            sectors=sectors.to_dict(),
+                            take=take,
+                            model_info=model_info.get(s.llm_deep_model),
                         )
-                        for t in selected_25
-                        if t in st3.selected.index
-                    ]
-                    take = min(s.stage5_take, macro.final_count(s.stage5_take))
-                    dd = await deep_dive.run_deep_dive(
-                        deep_packets,
-                        sectors=sectors.to_dict(),
-                        take=take,
-                        model_info=model_info.get(s.llm_deep_model),
-                    )
-                    cost.record("deep_dive", dd.usage)
-                    dives = dd.final
-                    box["exit"] = len(dives)
-                    box["api_calls"] = dd.llm_calls
-                    funnel["Stage 5 final"] = len(dives)
-                    stage_sectors["Stage 5"] = _sector_counts_from_index(
-                        pd.Index([d.ticker for d in dives]), sectors
-                    )
-                    if dd.failures:
-                        warnings.append(
-                            f"{len(dd.failures)} deep dives failed validation: "
-                            + ", ".join(list(dd.failures)[:5])
+                        cost.record("deep_dive", dd.usage)
+                        dives = dd.final
+                        box["exit"] = len(dives)
+                        box["api_calls"] = dd.llm_calls
+                        funnel["Stage 5 final"] = len(dives)
+                        stage_sectors["Stage 5"] = _sector_counts_from_index(
+                            pd.Index([d.ticker for d in dives]), sectors
                         )
-                    repository.save_checkpoint(
-                        session, run_id, as_of, 5, entry_count=len(selected_25),
-                        exit_count=len(dives),
-                        duration_s=timings[-1].duration_s if timings else 0.0,
-                        api_calls=dd.llm_calls,
-                        payload={"final": [d.ticker for d in dives]},
-                    )
-                    if macro.regime == "RISK_OFF":
-                        warnings.append(
-                            f"RISK_OFF regime — final list capped at {take} names."
+                        if dd.failures:
+                            warnings.append(
+                                f"{len(dd.failures)} deep dives failed validation: "
+                                + ", ".join(list(dd.failures)[:5])
+                            )
+                        repository.save_checkpoint(
+                            session, run_id, as_of, 5, entry_count=len(selected_25),
+                            exit_count=len(dives),
+                            duration_s=timings[-1].duration_s if timings else 0.0,
+                            api_calls=dd.llm_calls,
+                            payload={"final": [d.ticker for d in dives]},
                         )
+                        if macro.regime == "RISK_OFF":
+                            warnings.append(
+                                f"RISK_OFF regime — final list capped at {take} names."
+                            )
+                except DataQualityError:
+                    raise
+                except Exception as exc:  # noqa: BLE001 - LLM must not kill the run
+                    log.warning(
+                        "llm_stage_failed_deterministic_fallback", error=str(exc)[:300]
+                    )
+                    dives, triage_df = [], pd.DataFrame()
+                    deterministic_top = _deterministic_fallback(
+                        f"LLM stages failed mid-run ({str(exc)[:180]}); fell back to "
+                        f"the deterministic ranking."
+                    )
 
             if not cost.check_budget():
                 warnings.append(
