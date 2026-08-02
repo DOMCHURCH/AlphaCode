@@ -138,6 +138,7 @@ class _RateGate:
 
 _run_gate = _RateGate(lambda: get_settings().run_rate_per_hour)
 _backfill_gate = _RateGate(lambda: get_settings().backfill_rate_per_hour)
+_reconcile_gate = _RateGate(lambda: get_settings().reconcile_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -422,6 +423,19 @@ async def llm_check() -> dict[str, Any]:
     return out
 
 
+@app.get("/reconcile")
+async def reconcile_endpoint(sample: int = Query(15, ge=1, le=50)) -> dict[str, Any]:
+    """The same checks as `python -m src.reconcile`, over HTTP for phones with no
+    shell. Read-only and rate-limited (it makes a few network calls). Returns
+    symbology (Stooq vs the SEC universe), coverage vs Polygon, the split
+    ADJUSTMENT verdict (unadjusted -> momentum is wrong), and recency. Nothing is
+    fabricated -- missing inputs are reported as such."""
+    _enforce_rate(_reconcile_gate, "reconcile")
+    from src.reconcile import reconcile
+
+    return await reconcile(sample=sample)
+
+
 @app.get("/validation")
 def validation(
     since: str | None = None, backfill: bool = True
@@ -661,7 +675,7 @@ def api_index() -> JSONResponse:
                 "/health", "/status", "/reports", "/report/{date}",
                 "/report/{date}/html", "/report/{date}/pdf",
                 "/ticker/{symbol}/history", "/validation", "/llm-check",
-                "POST /backfill", "POST /run",
+                "/reconcile", "POST /backfill", "POST /run",
             ],
             "disclaimer": (
                 "Research and idea-generation only. Not investment advice."

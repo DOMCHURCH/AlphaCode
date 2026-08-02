@@ -86,6 +86,9 @@ class Settings(BaseSettings):
     # for a human; low enough to defeat a script. 0 disables the limit.
     run_rate_per_hour: int = Field(default=20, alias="RUN_RATE_PER_HOUR")
     backfill_rate_per_hour: int = Field(default=8, alias="BACKFILL_RATE_PER_HOUR")
+    # /reconcile makes a handful of network calls (SEC + Yahoo per sampled name),
+    # so cap it low -- it's a diagnostic, not a hot path.
+    reconcile_rate_per_hour: int = Field(default=6, alias="RECONCILE_RATE_PER_HOUR")
 
     # Hard per-chunk timeout (seconds) for the Yahoo/yfinance batch download.
     # yfinance does a blocking socket read with no timeout of its own; a stalled

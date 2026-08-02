@@ -43,6 +43,7 @@ def client(api_db):
     # Rate-limit gates are module-level; isolate them per test.
     api._run_gate.reset()
     api._backfill_gate.reset()
+    api._reconcile_gate.reset()
     with TestClient(app) as c:
         yield c
 
@@ -159,6 +160,51 @@ def test_stock_detail_page(client):
     assert "Company health" in r.text  # the fundamentals section rendered
 
     assert client.get("/stock/ZZZZ").status_code == 404
+
+
+def test_reconcile_endpoint_returns_the_checks(client, monkeypatch):
+    """GET /reconcile exposes the same checks as the CLI over HTTP (for phones),
+    read-only. Returns symbology / coverage / adjustment / recency; a missing
+    input is reported, never fabricated."""
+    import datetime as dt
+
+    from src.ingest import sec_edgar, yahoo
+    from src.storage.db import session_scope
+    from src.storage.models import DailyBar
+
+    with session_scope() as s:
+        s.add(DailyBar(ticker="AAA", date=dt.date.today() - dt.timedelta(days=1),
+                       open=1, high=1, low=1, close=10.0, volume=1000))
+
+    async def fake_tickers():
+        return [{"ticker": "AAA", "cik": "1", "name": "x"},
+                {"ticker": "ZZZ", "cik": "2", "name": "y"}]
+
+    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
+    monkeypatch.setattr(yahoo, "fetch_corporate_actions", lambda *a, **k: [])
+
+    body = client.get("/reconcile?sample=5").json()
+    for key in ("symbology_sec", "coverage_vs_polygon", "adjustment", "recency"):
+        assert key in body
+    assert body["symbology_sec"]["joined"] == 1        # AAA joins, ZZZ has no bar
+    assert body["coverage_vs_polygon"] == "skipped (no POLYGON_API_KEY)"
+    assert body["recency"]["latest_bar_date"] is not None
+
+
+def test_reconcile_is_rate_limited(client, monkeypatch):
+    from src.config.settings import get_settings
+    from src.ingest import sec_edgar, yahoo
+
+    monkeypatch.setenv("RECONCILE_RATE_PER_HOUR", "2")
+    get_settings.cache_clear()
+
+    async def fake_tickers():
+        return []
+
+    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
+    monkeypatch.setattr(yahoo, "fetch_corporate_actions", lambda *a, **k: [])
+    codes = [client.get("/reconcile").status_code for _ in range(3)]
+    assert codes == [200, 200, 429]
 
 
 def test_llm_check_reports_missing_key(client, monkeypatch):
