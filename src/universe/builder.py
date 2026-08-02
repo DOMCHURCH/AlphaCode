@@ -22,7 +22,7 @@ import structlog
 from sqlalchemy import func, select
 
 from src.config.settings import get_settings
-from src.ingest import fmp, polygon, sec_edgar, yahoo
+from src.ingest import fmp, polygon, sec_edgar
 from src.ingest.polygon import VALID_EXCHANGES
 from src.storage import repository
 from src.storage.models import DailyBar
@@ -138,18 +138,12 @@ async def build_universe(
             as_of, session, bars, reference, screener, settings=s
         )
 
-    # ---- free-data mode: SEC seed + Yahoo bars, no keys ------------------
+    # ---- free-data mode: SEC seed + stored (Stooq-bulk) bars, no keys -----
+    # The wide-end price load is the keyless backfill's job (Stooq bulk daily,
+    # one download). We do NOT per-ticker loop here -- we read the latest stored
+    # session. If it's stale, the fix is to re-run the bulk backfill, not to
+    # hammer a per-ticker API from a datacenter IP.
     reference = await sec_edgar.fetch_company_tickers()
-    seed = _stored_tickers(session) or [r["ticker"] for r in reference]
-    # Refresh the most recent sessions so "today" is current even between
-    # backfills; this also incrementally extends history each run.
-    recent = await yahoo.fetch_daily_bars_batch(
-        seed, as_of - dt.timedelta(days=12), as_of
-    )
-    if recent and persist_bars:
-        repository.save_bars(session, recent)
-        session.flush()
-
     bars = _latest_stored_bars(session, as_of)
     if not bars:
         raise RuntimeError(
@@ -159,13 +153,6 @@ async def build_universe(
     # No cheap free market-cap/sector source -- screener stays empty and the
     # market-cap gate relaxes. Liquidity (ADV) and price still do the filtering.
     return build_universe_from_frames(as_of, session, bars, reference, [], settings=s)
-
-
-def _stored_tickers(session) -> list[str]:
-    """Distinct tickers already in the bar store (the backfilled set)."""
-    return list(
-        session.execute(select(DailyBar.ticker).distinct()).scalars().all()
-    )
 
 
 def _latest_stored_bars(session, as_of: dt.date) -> list[dict[str, Any]]:

@@ -34,7 +34,7 @@ API process), and no Redis (the cache and rate-limiter run in-process).
    | `ENV` | `prod` |
 
    **The funnel runs on free data by default** — the universe comes from SEC's
-   company list and prices from Yahoo, so **no market-data keys are required**.
+   company list and prices from the Stooq bulk daily archive, so **no market-data keys are required**.
    `SEC_USER_AGENT` is the one must-set variable. `OPENROUTER_API_KEY` is only
    needed for the LLM thesis stages (without it, run with `skip_llm` and you
    still get the ranked, deterministic top-10).
@@ -55,10 +55,11 @@ API process), and no Redis (the cache and rate-limiter run in-process).
    → `{"status":"ok","database":"ok"}`.
 
 5. **Just open the site and press the button.** On a fresh deploy the one button
-   (`Research today's best stocks`) loads about a year of history itself
-   (Stage 1 needs 252 trading days), then runs the funnel and shows the top-10 —
-   no shell and no token. The first-time history load is slow on a rate-limited
-   data plan and keeps running server-side, so you can leave and come back.
+   (`Research today's best stocks`) loads history itself (Stage 1 needs a full
+   252 trading days — below that the run is blocked, not run degraded), then runs
+   the funnel and shows the top-10 — no shell and no token. Keyless mode loads
+   the whole market in one Stooq bulk download; with a `POLYGON_API_KEY` it uses
+   grouped-daily instead. The load runs server-side, so you can leave and return.
 
    Prefer to drive it by hand? The same endpoints are open (no `X-API-Key`):
    ```bash
@@ -93,8 +94,10 @@ in one place. Reports are stored in Postgres, so either service can serve them.
 ## Egress
 
 Allowlist these hosts if the environment restricts outbound traffic:
-`api.polygon.io`, `financialmodelingprep.com`, `finnhub.io`,
-`api.stlouisfed.org`, `data.sec.gov`, `api.gdeltproject.org`, `openrouter.ai`.
+`stooq.com` (keyless bulk prices), `www.sec.gov` + `data.sec.gov` (universe seed
++ fundamentals), `api.gdeltproject.org` (news), `openrouter.ai` (LLM). Optional
+upgrades: `api.polygon.io`, `financialmodelingprep.com`, `finnhub.io`,
+`api.stlouisfed.org`.
 
 ## What's verified vs not
 

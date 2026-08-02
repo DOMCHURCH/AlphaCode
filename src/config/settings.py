@@ -68,11 +68,17 @@ class Settings(BaseSettings):
     # run is BLOCKED and the shortfall surfaced -- never run degraded to succeed.
     min_history_days: int = Field(default=252, alias="MIN_HISTORY_DAYS")
 
-    # Free-data mode (no POLYGON_API_KEY): the universe is seeded from SEC's
-    # company_tickers list and bars come from Yahoo. Cap how many SEC names to
-    # pull bars for (0 = all ~10k; the price/ADV filters trim illiquid ones
-    # anyway). Lower it to make the first free backfill faster.
+    # Free-data mode (no POLYGON_API_KEY): bars come from the Stooq bulk archive
+    # (one download, whole market). Cap how many tickers to keep (0 = all; the
+    # price/ADV filters trim illiquid ones anyway). Lower it to make the first
+    # free backfill faster.
     free_universe_max: int = Field(default=0, alias="FREE_UNIVERSE_MAX")
+
+    # Keyless wide-end source: the Stooq bulk daily archive. Override if Stooq
+    # changes the path.
+    stooq_bulk_url: str = Field(
+        default="https://stooq.com/db/h/d_us_txt.zip", alias="STOOQ_BULK_URL"
+    )
 
     # Hard per-chunk timeout (seconds) for the Yahoo/yfinance batch download.
     # yfinance does a blocking socket read with no timeout of its own; a stalled

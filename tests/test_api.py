@@ -308,27 +308,25 @@ def test_yahoo_download_timeout_never_hangs(monkeypatch):
 
 
 def test_backfill_surfaces_error_when_no_bars(api_db, monkeypatch):
-    """When the keyless path can load nothing (yfinance missing), the backfill
-    returns (releasing the lock) and marks itself errored with a clear reason."""
+    """When the keyless Stooq download fails, the backfill returns (releasing the
+    lock) and marks itself errored with a clear reason -- never a silent empty
+    load."""
     import asyncio
 
     from src import backfill
-    from src.ingest import sec_edgar, yahoo
+    from src.ingest import stooq
 
-    async def fake_tickers():
-        return [{"ticker": "AAA", "cik": "1", "name": "x"}]
+    async def boom(*a, **k):
+        raise RuntimeError("throttled or the URL changed")
 
-    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
-    monkeypatch.setattr(yahoo, "_yf", None, raising=False)
-    monkeypatch.setattr(yahoo, "_yf_checked", True, raising=False)
+    monkeypatch.setattr(stooq, "download_bulk", boom)
 
     n = asyncio.run(backfill.backfill_bars(600, end=dt.date(2025, 7, 31)))
     assert n == 0
     st = backfill.get_backfill_state()
     assert st["phase"] == "error"
-    assert st["source"] == "yahoo"
-    assert st["yfinance_available"] is False
-    assert st["last_error"]
+    assert st["source"] == "stooq"
+    assert "Stooq download failed" in st["last_error"]
 
 
 def test_root_serves_html_dashboard(client):

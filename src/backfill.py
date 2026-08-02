@@ -18,13 +18,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+from pathlib import Path
 from typing import Any
 
 import structlog
 from sqlalchemy import select
 
 from src.config.settings import get_settings
-from src.ingest import polygon, sec_edgar, yahoo
+from src.ingest import polygon, sec_edgar, stooq
 from src.ingest.base import gather_bounded
 from src.logging_config import configure_logging
 from src.storage import repository
@@ -168,50 +169,54 @@ async def _backfill_bars_polygon(days: int, end: dt.date) -> int:
 
 
 async def _backfill_bars_free(days: int, end: dt.date) -> int:
-    """Keyless history load: SEC universe seed, Yahoo bars, batched.
+    """Keyless history load from the Stooq bulk daily archive.
 
-    `days` is trading sessions; Yahoo returns a calendar window, so we ask for
-    ~1.5x calendar days to cover it. Bars are saved chunk-by-chunk so progress
-    (and /status) climbs steadily and a mid-run failure keeps what it loaded.
+    ONE download of the whole US market, parsed and loaded locally -- no key and
+    no rate limit, unlike the old Yahoo per-ticker loop (unreliable from
+    datacenter IPs). `days` bounds how far back to keep. Rows are saved in
+    batches so /status climbs and a mid-load failure keeps what it loaded. Any
+    failure fails loudly -- never a silent empty load.
     """
-    start = end - dt.timedelta(days=int(days * 1.5) + 10)
-    yf_ok = yahoo.yfinance_available()
-    reference = await sec_edgar.fetch_company_tickers()
-    tickers = [r["ticker"] for r in reference]
-    cap = get_settings().free_universe_max
-    if cap and cap > 0:
-        tickers = tickers[:cap]
-    chunk = 200
-    chunks_total = (len(tickers) + chunk - 1) // chunk
+    since = end - dt.timedelta(days=int(days * 1.5) + 10)
+    cap = get_settings().free_universe_max or None
     _update_state(
-        source="yahoo", unit="chunks", units_total=chunks_total, units_done=0,
-        yfinance_available=yf_ok,
+        source="stooq", unit="tickers", units_total=0, units_done=0, rows=0,
     )
-    log.info("backfill_free_start", companies=len(tickers), start=str(start), end=str(end))
+    log.info("backfill_free_start", source="stooq", since=str(since), cap=cap)
 
-    total = 0
-    for idx, i in enumerate(range(0, len(tickers), chunk)):
-        batch = tickers[i : i + chunk]
-        rows = await yahoo.fetch_daily_bars_batch(batch, start, end, chunk=chunk)
-        if rows:
-            with session_scope() as session:
-                repository.save_bars(session, rows)
-            total += len(rows)
-        _update_state(units_done=idx + 1, rows=total, last_error=yahoo.last_error())
-        log.info(
-            "backfill_free_progress", done=min(i + chunk, len(tickers)),
-            total=len(tickers), rows=total,
+    def _save(batch: list[dict[str, Any]]) -> int:
+        with session_scope() as session:
+            return repository.save_bars(session, batch)
+
+    def _progress(tickers_done: int, rows: int) -> None:
+        _update_state(units_done=tickers_done, rows=rows)
+
+    try:
+        zip_path = await stooq.download_bulk()
+    except Exception as exc:  # noqa: BLE001 - loud failure, no silent empty load
+        _update_state(phase="error", last_error=f"Stooq download failed: {str(exc)[:200]}")
+        log.error("stooq_download_failed", error=str(exc)[:300])
+        return 0
+
+    try:
+        total = stooq.load_bulk_from_zip(
+            zip_path, _save, since=since, max_tickers=cap, on_progress=_progress
         )
+    except Exception as exc:  # noqa: BLE001
+        _update_state(phase="error", last_error=f"Stooq parse failed: {str(exc)[:200]}")
+        log.error("stooq_parse_failed", error=str(exc)[:300])
+        return 0
+    finally:
+        try:
+            Path(zip_path).unlink(missing_ok=True)
+        except OSError:
+            pass
 
     if total == 0:
-        if not yf_ok:
-            err = "yfinance is not installed on the server (keyless price source)"
-        else:
-            err = yahoo.last_error() or "Yahoo returned no bars for any chunk"
-        _update_state(phase="error", last_error=err)
+        _update_state(phase="error", last_error="Stooq bulk archive yielded no rows")
     else:
         _update_state(phase="done")
-    log.info("backfill_bars_complete", source="yahoo", rows=total)
+    log.info("backfill_bars_complete", source="stooq", rows=total)
     return total
 
 

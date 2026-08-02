@@ -190,8 +190,8 @@ async function loadHistory() {
       setPhase("Couldn't load market history.", true);
       setNote(
         (bf.last_error ? bf.last_error + " " : "") +
-          "Check POLYGON_API_KEY (primary price source) or, for keyless mode, " +
-          "SEC_USER_AGENT plus outbound Yahoo access, then try again."
+          "Check POLYGON_API_KEY (fast primary source) or, for keyless mode, " +
+          "SEC_USER_AGENT plus outbound access to stooq.com, then try again."
       );
       return null;
     }
@@ -201,9 +201,9 @@ async function loadHistory() {
       if (have === 0 && ++stalls >= 3) {
         setPhase("Couldn't load any market data.", true);
         setNote(
-          "The backfill ran but fetched 0 bars. Free-data mode needs SEC_USER_AGENT " +
+          "The backfill ran but fetched 0 bars. Keyless mode needs SEC_USER_AGENT " +
             "set (e.g. \"Your Name you@email.com\") for the universe list, and outbound " +
-            "access to Yahoo for prices. Check those and try again."
+            "access to stooq.com for the bulk price archive. Check those and try again."
         );
         return null;
       }
