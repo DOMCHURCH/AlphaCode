@@ -29,8 +29,10 @@ BUCKETS: dict[str, Bucket] = {
     "fmp": Bucket("fmp", rps=10.0, burst=20),
     # Free tier is 60 req/min. Stay under it.
     "finnhub": Bucket("finnhub", rps=0.95, burst=10),
-    # SEC hard-caps at 10 req/sec and will block you for exceeding it.
-    "sec": Bucket("sec", rps=8.0, burst=10),
+    # SEC hard-caps at 10 req/sec and blocks on exceed. Saturate just under it
+    # (9/sec sustained, burst 10) rather than the conservative 8 -- Stage 3's SEC
+    # submissions are the deterministic-run bottleneck.
+    "sec": Bucket("sec", rps=9.0, burst=10),
     # Free but slow. Be polite.
     "gdelt": Bucket("gdelt", rps=2.0, burst=4, max_wait_s=60.0),
     "fred": Bucket("fred", rps=5.0, burst=10),

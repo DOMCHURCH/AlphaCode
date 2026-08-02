@@ -72,12 +72,21 @@ class PipelineResult:
 
 @contextmanager
 def _stage(name: str, number: int, entry: int, timings: list) -> Iterator[dict]:
+    # Reset the write ledger on entry so it reflects only THIS stage; log its
+    # rows_written/attempted on exit (every stage, even those that only write a
+    # checkpoint) and abort on a wholesale zero -- unless the body already raised,
+    # so we never mask the real error with the write check.
+    repository.reset_write_ledger()
     t0 = time.perf_counter()
     box: dict[str, Any] = {"exit": 0, "api_calls": 0}
     log.info("stage_start", stage=number, name=name, entry=entry,
              rss_mb=peak_rss_mb())
+    raised = False
     try:
         yield box
+    except BaseException:
+        raised = True
+        raise
     finally:
         dur = time.perf_counter() - t0
         timings.append(
@@ -90,6 +99,21 @@ def _stage(name: str, number: int, entry: int, timings: list) -> Iterator[dict]:
             exit=box["exit"], duration_s=round(dur, 2), api_calls=box["api_calls"],
             rss_mb=peak_rss_mb(),
         )
+        stats = repository.get_write_ledger()
+        if stats:
+            log.info(
+                "stage_writes", stage=f"{number} {name}",
+                writes={t: f"{d['written']}/{d['attempted']}" for t, d in stats.items()},
+            )
+        if not raised:
+            dead = repository.assert_writes(min_attempts=100)
+            if dead:
+                detail = ", ".join(f"{t} (0/{stats[t]['attempted']})" for t in dead)
+                raise DataQualityError(
+                    f"Stage {number} {name}: wrote 0 rows to {detail} despite "
+                    f"attempting >100 -- a persist is silently failing, not returning "
+                    f"empty. Aborting rather than continuing with missing data."
+                )
 
 
 def _check_drop(name: str, entry: int, exit_: int, warnings: list[str]) -> None:
@@ -238,12 +262,10 @@ async def run_pipeline(
                 if resume_from > 0:
                     universe = get_universe(session, as_of)
                 else:
-                    repository.reset_write_ledger()
                     universe, diag = await build_universe(
                         as_of, session, persist_bars=persist_universe
                     )
                     funnel_rejects["Stage 0 universe"] = diag.get("rejects", {})
-                    _check_stage_writes("Stage 0 universe")
                 box["exit"] = len(universe)
                 funnel["Stage 0 universe"] = len(universe)
                 stage_sectors["Stage 0"] = _sector_counts(universe)
@@ -347,14 +369,13 @@ async def run_pipeline(
                     # Stage 3 fans out per-ticker persistence (filings, insiders,
                     # estimates, news) through gather_bounded, which isolates a
                     # failing ticker into a warning -- so a SYSTEMATIC persist bug
-                    # would silently zero a whole table. Guard it with the write
-                    # ledger: attempted-vs-written, abort on a wholesale zero.
-                    repository.reset_write_ledger()
+                    # would silently zero a whole table. The _stage wrapper's write
+                    # ledger catches that: it aborts if a table attempted >100 and
+                    # wrote 0.
                     st3 = await s3.run_stage3(
                         session, factor_scores, tr.survivors, universe, as_of, macro,
                         take=s.stage3_take,
                     )
-                    _check_stage_writes("Stage 3 catalysts")
                 box["exit"] = len(st3.selected)
                 box["api_calls"] = st3.api_calls
                 funnel["Stage 3 catalysts"] = len(st3.selected)

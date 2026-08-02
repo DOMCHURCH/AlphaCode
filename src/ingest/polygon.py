@@ -21,6 +21,24 @@ BASE_URL = "https://api.polygon.io"
 VALID_EXCHANGES = {"XNYS", "XNAS", "ARCX"}
 
 
+# Calls permitted on the FREE tier. Grouped-daily is a single whole-market call
+# (the daily increment). Everything else -- options snapshots, the paginated
+# reference, per-ticker aggs -- 403s on free and, worse, makes the shared rate
+# limiter sleep up to its max_wait per call (the 12s-wait flood). So on free we
+# refuse those calls IMMEDIATELY, naming the call site, instead of stalling.
+_FREE_TIER_PERMITTED = frozenset({"grouped_daily"})
+
+
+def _guard_tier(call: str) -> None:
+    s = get_settings()
+    if s.polygon_tier == "free" and call not in _FREE_TIER_PERMITTED:
+        raise PermanentAPIError(
+            f"polygon.{call} is not available on POLYGON_TIER=free -- refused "
+            f"without a network call (it would 403 and stall the rate limiter "
+            f"~12s). Set POLYGON_TIER=paid to enable it."
+        )
+
+
 def _client(concurrency: int | None = None) -> APIClient:
     key = get_settings().polygon_api_key
     if not key:
@@ -41,6 +59,7 @@ async def fetch_grouped_daily(
     Returns rows shaped like {ticker, date, open, high, low, close, volume, vwap}.
     An empty list means the market was closed that day.
     """
+    _guard_tier("grouped_daily")
     async with _client() as c:
         data = await c.get_json(
             f"/v2/aggs/grouped/locale/us/market/stocks/{date.isoformat()}",
@@ -74,6 +93,7 @@ async def fetch_ticker_reference(
     *, market: str = "stocks", active: bool = True, limit: int = 1000
 ) -> list[dict[str, Any]]:
     """Paginated /v3/reference/tickers. Gives type (CS/ETF/...) and exchange."""
+    _guard_tier("ticker_reference")
     out: list[dict[str, Any]] = []
     async with _client() as c:
         params: dict[str, Any] = {
@@ -112,6 +132,7 @@ async def fetch_daily_bars(
     ticker: str, start: dt.date, end: dt.date, *, adjusted: bool = True
 ) -> list[dict[str, Any]]:
     """Backfill path for a single ticker. Not used in the daily hot loop."""
+    _guard_tier("daily_bars")
     async with _client() as c:
         data = await c.get_json(
             f"/v2/aggs/ticker/{ticker}/range/1/day/{start.isoformat()}/{end.isoformat()}",
@@ -148,6 +169,7 @@ async def fetch_options_snapshot(
     Returns a compact dict, never the raw chain. Degrades to empty on failure --
     options data is a nice-to-have, not a gate.
     """
+    _guard_tier("options_snapshot")
     owns = client is None
     c = client or _client()
     try:

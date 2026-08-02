@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
+import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from typing import Any
@@ -83,11 +84,26 @@ async def enrich_tickers(
     fh_client = (
         fh.make_client(concurrency=min(concurrency, 5)) if s.finnhub_api_key else None
     )
+    # Options need a PAID Polygon plan. On free tier the calls 403 and stall the
+    # rate limiter ~12s each, so don't even create the client -- _run_options then
+    # skips. (polygon._guard_tier is the belt-and-braces backstop at call level.)
     pg_client = (
         pg._client(concurrency=concurrency)
-        if use_options and s.polygon_api_key
+        if use_options and s.polygon_api_key and s.polygon_tier == "paid"
         else None
     )
+
+    async def _timed(name: str, coro):
+        """Time each data source so the Stage-3 cost is attributable (SEC vs
+        GDELT vs options), since they run concurrently."""
+        t0 = time.perf_counter()
+        try:
+            return await coro
+        finally:
+            log.info(
+                "stage3_source_timing", source=name,
+                elapsed_s=round(time.perf_counter() - t0, 2),
+            )
 
     async with sec_client, gd_client:
         for opt in (fh_client, pg_client):
@@ -95,10 +111,10 @@ async def enrich_tickers(
                 await opt.__aenter__()
         try:
             await asyncio.gather(
-                _run_sec(sec_client, session, tickers, ciks, as_of, out, concurrency),
-                _run_finnhub(fh_client, session, tickers, as_of, out, concurrency),
-                _run_gdelt(gd_client, session, tickers, names, as_of, out, concurrency),
-                _run_options(pg_client, tickers, out, concurrency),
+                _timed("sec", _run_sec(sec_client, session, tickers, ciks, as_of, out, concurrency)),
+                _timed("finnhub", _run_finnhub(fh_client, session, tickers, as_of, out, concurrency)),
+                _timed("gdelt", _run_gdelt(gd_client, session, tickers, names, as_of, out, concurrency)),
+                _timed("options", _run_options(pg_client, tickers, out, concurrency)),
             )
         finally:
             for opt in (fh_client, pg_client):

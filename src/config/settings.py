@@ -62,7 +62,10 @@ class Settings(BaseSettings):
 
     # ---------------- Funnel widths ----------------
     stage1_target: int = Field(default=1200, alias="STAGE1_TARGET")
-    stage2_take: int = Field(default=400, alias="STAGE2_TAKE")
+    # Stage 2 output = Stage 3 input. Stage 3 is the only expensive stage (per-
+    # ticker SEC/GDELT/options), so 200 halves it; the ~400 band was always
+    # approximate and Stage 3 still narrows to ~100.
+    stage2_take: int = Field(default=200, alias="STAGE2_TAKE")
     stage3_take: int = Field(default=100, alias="STAGE3_TAKE")
     stage4_take: int = Field(default=25, alias="STAGE4_TAKE")
     stage5_take: int = Field(default=10, alias="STAGE5_TAKE")
