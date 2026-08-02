@@ -27,6 +27,7 @@ from src.ingest.polygon import VALID_EXCHANGES
 from src.storage import repository
 from src.storage.models import DailyBar
 from src.storage.pit import load_price_panels
+from src.util import or_default
 
 log = structlog.get_logger(__name__)
 
@@ -324,7 +325,7 @@ def build_universe_from_frames(
             "exchange": r.get("exchange"),
             "security_type": r.get("security_type"),
             "sector": r.get("sector") if pd.notna(r.get("sector")) else None,
-            "sector_source": r.get("sector_source") or "unknown",
+            "sector_source": or_default(r.get("sector_source"), "unknown"),
             "industry": r.get("industry") if pd.notna(r.get("industry")) else None,
             "cik": str(r["cik"]) if pd.notna(r.get("cik")) else None,
             "market_cap": _f(r.get("market_cap")),

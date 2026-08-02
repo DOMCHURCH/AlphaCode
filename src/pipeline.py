@@ -37,6 +37,7 @@ from src.storage import repository
 from src.storage.db import session_scope
 from src.storage.pit import assert_no_lookahead, get_next_earnings, get_universe
 from src.universe.builder import build_universe
+from src.util import or_default
 
 log = structlog.get_logger(__name__)
 
@@ -585,7 +586,7 @@ def _deterministic_ranking(
             {
                 "rank": rank,
                 "ticker": ticker,
-                "sector": sectors.get(ticker) or "Unknown",
+                "sector": or_default(sectors.get(ticker), "Unknown"),
                 "stage3_score": _num(r.get("stage3_score")),
                 "factor_composite": _num(r.get("factor_composite")),
                 "catalyst_score": _num(r.get("catalyst_score")),
@@ -640,7 +641,7 @@ def _near_misses(
             rows.append(
                 {
                     "ticker": t,
-                    "sector": sectors.get(t) or "Unknown",
+                    "sector": or_default(sectors.get(t), "Unknown"),
                     "score": float(r.get("llm_triage_score", 0)),
                     "why": str(r.get("why", "")),
                 }
@@ -653,7 +654,7 @@ def _near_misses(
             rows.append(
                 {
                     "ticker": t,
-                    "sector": sectors.get(t) or "Unknown",
+                    "sector": or_default(sectors.get(t), "Unknown"),
                     "score": float(st3.selected.at[t, "stage3_score"]),
                     "why": "deterministic stage-3 rank",
                 }

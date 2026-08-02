@@ -42,6 +42,7 @@ from src.storage.pit import (
     get_insider_transactions,
     get_next_earnings,
 )
+from src.util import or_default
 
 log = structlog.get_logger(__name__)
 
@@ -172,7 +173,7 @@ async def _run_finnhub(client, session, tickers, as_of, out, concurrency):
 
 async def _run_gdelt(client, session, tickers, names, as_of, out, concurrency):
     async def one(ticker: str):
-        name = names.get(ticker) or ticker
+        name = or_default(names.get(ticker), ticker)
         bundle = await gd.fetch_news_bundle(client, ticker, str(name), as_of)
         out[ticker]["news"] = bundle
         repository.save_news(

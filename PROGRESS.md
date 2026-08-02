@@ -90,6 +90,40 @@ that only exists as a CLI module (`python -m src.something`) is not done until i
 is reachable here. Keep the CLI working, but share the logic (as `/reconcile`
 does with `src/reconcile.py`).
 
+## Live-data run — cycle log (first real end-to-end run)
+
+The user's deploy has real data (312/252 trading days, 15,100 Stooq tickers,
+Polygon tier-gating confirmed, deepseek LLM resolves). Stages 1-6 had never run
+on real data. This section logs each failure the real run hit and the fix. NOTE:
+this sandbox still cannot reach live hosts, so runs happen on the deploy and the
+failures come from its /diagnostics blob; fixes are verified here against the
+seeded harness + unit tests, not a live run.
+
+- **Cycle A — Stage 0 crash: NaN read as a string.** `is_common_stock`
+  (builder.py) did `security_type is not None and security_type.upper()`; a
+  missing cell is NaN (a float), not None, so `nan.upper()` raised. `ticker` was
+  the same trap. Fixed with `_is_missing()` (None OR NaN) + str() coercion; also
+  killed the object-dtype `.fillna` FutureWarning at builder.py:270 with an
+  explicit `.astype(bool)`. Commit c6e69f9.
+- **Cycle A (sweep) — the same trap across the codebase.** `Series.get(k) or
+  default` is silently wrong: a NaN cell is TRUTHY, so the fallback never fires
+  and NaN leaks downstream (as a dict key, or `str(nan)=="nan"`). A full sweep
+  (factors/catalysts/ingest/report/llm/validation/storage) found 8 genuine
+  DataFrame-derived sites: pipeline `_deterministic_ranking`/`_near_misses`
+  sector lookups (x3), stage3 GDELT name (`"nan"` company name), packets triage
+  + deep sector (x2), deep_dive sector→dict-key, builder sector_source, yahoo
+  dividend/split_ratio (x2). All routed through a new NaN-safe `or_default`
+  (`src/util.py`), which returns the default for None/NaN and the falsy cases
+  `or` already covered. Plain-dict `.get(...) or {}` sites (JSON API responses)
+  were correctly left alone -- those return None, not NaN. Tests: `or_default`
+  over NaN/None/""/Series.get; is_common_stock over NaN/None/""/whitespace.
+  288 tests pass, ruff clean.
+- **Next real failure:** expected at Stage 1-6 on the deploy. Redeploy, run, read
+  the /diagnostics blob, fix the actual cause, repeat. Sanity bands to check each
+  stage: S0 4-7k survivors of 15.1k; S1 300-2500; S2 ~400 (+ mapped/unmapped
+  sector ratio); S3 ~100; S4/5 25→10. Any stage dropping >95% is a bug until
+  explained. Watch rss_mb per stage (<1GB).
+
 ## Honest status of edge
 
 **Unknown, and unmeasurable in this environment.** IC, factor-decay, turnover,

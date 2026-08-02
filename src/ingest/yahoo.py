@@ -17,6 +17,7 @@ from typing import Any
 import structlog
 
 from src.config.settings import get_settings
+from src.util import or_default
 
 log = structlog.get_logger(__name__)
 
@@ -199,8 +200,8 @@ def fetch_corporate_actions(ticker: str, since: dt.date | None = None) -> list[d
                 {
                     "ticker": ticker,
                     "date": d,
-                    "dividend": float(row.get("Dividends", 0) or 0),
-                    "split_ratio": float(row.get("Stock Splits", 0) or 0),
+                    "dividend": float(or_default(row.get("Dividends", 0), 0)),
+                    "split_ratio": float(or_default(row.get("Stock Splits", 0), 0)),
                 }
             )
     except Exception as exc:  # noqa: BLE001

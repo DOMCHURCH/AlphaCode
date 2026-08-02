@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from src.catalysts.macro import MacroState
+from src.util import or_default
 
 
 def _r(v: Any, nd: int = 2) -> float | None:
@@ -51,7 +52,7 @@ def build_triage_packet(
 
     packet: dict[str, Any] = {
         "t": ticker,
-        "sec": scores.get("sector") or "Unknown",
+        "sec": or_default(scores.get("sector"), "Unknown"),
         "px": _r(trend.get("close")),
         "rs": _i(trend.get("rs_percentile")),
         "mom_z": _r(scores.get("momentum")),
@@ -101,7 +102,7 @@ def build_deep_packet(
 
     packet: dict[str, Any] = {
         "ticker": ticker,
-        "sector": scores.get("sector") or "Unknown",
+        "sector": or_default(scores.get("sector"), "Unknown"),
         "factor_breakdown": {
             "momentum_z": _r(scores.get("momentum")),
             "quality_z": _r(scores.get("quality")),

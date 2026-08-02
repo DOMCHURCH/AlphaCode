@@ -23,6 +23,7 @@ from src.ingest.base import gather_bounded
 from src.llm import client as llm_client
 from src.llm.prompts import DEEP_DIVE_SYSTEM, RETRY_SUFFIX
 from src.llm.schemas import DeepDive, ModelUsage
+from src.util import or_default
 
 log = structlog.get_logger(__name__)
 
@@ -162,7 +163,7 @@ def select_final(
     overflow: list[DeepDive] = []
 
     for d in ranked:
-        sec = sectors.get(d.ticker) or "Unknown"
+        sec = or_default(sectors.get(d.ticker), "Unknown")
         if counts[sec] >= max_per_sector:
             overflow.append(d)
             continue
