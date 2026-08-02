@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from functools import lru_cache
 
 import structlog
-from sqlalchemy import Engine, create_engine, text
+from sqlalchemy import Engine, create_engine, inspect, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from src.config.settings import get_settings
@@ -74,15 +74,56 @@ def session_scope() -> Iterator[Session]:
         session.close()
 
 
-def init_db(engine: Engine | None = None) -> None:
-    """Create all tables and performance indexes. Idempotent.
+def _sync_added_columns(engine: Engine) -> None:
+    """Add columns present in the models but missing from an existing table.
 
-    Called at service startup (api + worker) as well as by `src.migrate` and the
-    tests, so a deploy migrates itself against the real database without relying
-    on a build-time step.
+    `create_all` creates missing TABLES but never adds a new COLUMN to a table
+    that already exists -- so a column added to a model after the table was first
+    created (e.g. `sector_source`) is silently absent on a long-lived Postgres,
+    and every query that selects it fails with UndefinedColumn. This closes that
+    gap: it diffs each model against the live table and issues an additive-only
+    `ALTER TABLE ADD COLUMN` for anything missing. Additive and idempotent -- it
+    never drops or retypes a column, and skips a not-null column with no default
+    (that needs a real migration, not a silent one). Works on Postgres + SQLite.
+    """
+    insp = inspect(engine)
+    for table in Base.metadata.sorted_tables:
+        if not insp.has_table(table.name):
+            continue  # create_all just made it, with every column
+        existing = {c["name"] for c in insp.get_columns(table.name)}
+        for col in table.columns:
+            if col.name in existing:
+                continue
+            if not col.nullable and col.server_default is None and col.default is None:
+                log.warning(
+                    "column_needs_manual_migration",
+                    table=table.name, column=col.name,
+                    reason="not-null with no default cannot be added in place",
+                )
+                continue
+            coltype = col.type.compile(dialect=engine.dialect)
+            ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {coltype}'
+            try:
+                with engine.begin() as conn:
+                    conn.execute(text(ddl))
+                log.info("column_added", table=table.name, column=col.name, type=coltype)
+            except Exception as exc:  # noqa: BLE001 - one failed add must not stall boot
+                log.warning(
+                    "column_add_failed", table=table.name, column=col.name,
+                    error=str(exc)[:200],
+                )
+
+
+def init_db(engine: Engine | None = None) -> None:
+    """Create all tables, sync added columns, and build performance indexes.
+
+    Idempotent. Called at service startup (api + worker) as well as by
+    `src.migrate` and the tests, so a deploy migrates itself against the real
+    database without relying on a build-time step.
     """
     engine = engine or get_engine()
     Base.metadata.create_all(engine)
+    _sync_added_columns(engine)
     with engine.begin() as conn:
         for name, ddl in EXTRA_INDEXES:
             try:
