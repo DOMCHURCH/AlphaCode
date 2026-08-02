@@ -243,36 +243,109 @@ def assert_no_lookahead(
 # ---------------------------------------------------------------------------
 # Prices
 # ---------------------------------------------------------------------------
+# How many tickers to pull per query. The whole point is to never hold the
+# entire universe's bars (6000 tickers x ~400 sessions ~= 2.4M rows) in memory
+# at once: at 6000 rows-per-column that materialises ~500MB of ORM/Row tuples
+# and OOM-kills a small container before pandas ever sees them. One chunk is a
+# few hundred thousand rows, freed before the next is fetched.
+_BAR_CHUNK = 400
+_PRICE_FIELDS = ("open", "high", "low", "close", "volume")
+
+
+def _chunked(seq: list[str], size: int) -> Iterable[list[str]]:
+    for i in range(0, len(seq), size):
+        yield seq[i : i + size]
+
+
+def _bar_rows(
+    session: Session,
+    tickers: list[str],
+    start: dt.date,
+    end: dt.date,
+    fields: Sequence[str],
+):
+    """Stream (ticker, date, *fields) rows for a ticker chunk.
+
+    Core select of only the requested columns (no ORM row objects, which are
+    ~10x the memory), read through a server-side cursor (`stream_results`) so
+    Postgres does not buffer the whole result client-side. `yield_per` fetches
+    in batches instead of one giant list.
+    """
+    cols = [DailyBar.ticker, DailyBar.date] + [getattr(DailyBar, f) for f in fields]
+    stmt = (
+        select(*cols)
+        .where(DailyBar.ticker.in_(tickers))
+        .where(DailyBar.date >= start)
+        .where(DailyBar.date <= end)
+        .order_by(DailyBar.ticker, DailyBar.date)
+    )
+    return session.execute(
+        stmt, execution_options={"stream_results": True, "yield_per": 20_000}
+    ).all()
+
+
 def get_bars(
     session: Session,
     tickers: Sequence[str],
     start: dt.date,
     end: dt.date,
 ) -> pd.DataFrame:
-    """Long-format OHLCV for a ticker set over [start, end]."""
+    """Long-format OHLCV for a ticker set over [start, end].
+
+    Fetched in ticker chunks so the universe-wide read never materialises the
+    whole result at once; OHLC come back as float32 (half the memory of the
+    float64 default, and price precision does not need the extra bits).
+    """
+    cols = ["ticker", "date", *_PRICE_FIELDS]
     if not tickers:
-        return pd.DataFrame(
-            columns=["ticker", "date", "open", "high", "low", "close", "volume"]
+        return pd.DataFrame(columns=cols)
+    frames: list[pd.DataFrame] = []
+    for group in _chunked(sorted(set(tickers)), _BAR_CHUNK):
+        rows = _bar_rows(session, group, start, end, _PRICE_FIELDS)
+        if rows:
+            frames.append(pd.DataFrame(rows, columns=cols))
+    if not frames:
+        return pd.DataFrame(columns=cols)
+    df = pd.concat(frames, ignore_index=True)
+    for c in ("open", "high", "low", "close"):
+        df[c] = df[c].astype("float32")
+    return df
+
+
+def load_price_panels(
+    session: Session,
+    tickers: Sequence[str],
+    start: dt.date,
+    end: dt.date,
+    fields: Sequence[str] = ("close",),
+) -> dict[str, pd.DataFrame]:
+    """Wide panels (index=date, columns=ticker), one per field, in ONE pass.
+
+    Built chunk-by-chunk: each ticker chunk is fetched, pivoted to a wide slice
+    and appended, so peak memory is one chunk of rows plus the growing float32
+    panels -- never the full long frame. Chunks hold disjoint tickers, so the
+    per-field concat along columns is a clean date-aligned outer join.
+    """
+    fields = list(fields)
+    uniq = sorted({t for t in tickers if t})
+    parts: dict[str, list[pd.DataFrame]] = {f: [] for f in fields}
+    if uniq:
+        head = ["ticker", "date", *fields]
+        for group in _chunked(uniq, _BAR_CHUNK):
+            rows = _bar_rows(session, group, start, end, fields)
+            if not rows:
+                continue
+            cdf = pd.DataFrame(rows, columns=head)
+            for f in fields:
+                wide = cdf.pivot(index="date", columns="ticker", values=f)
+                parts[f].append(wide.astype("float32"))
+            del rows, cdf
+    out: dict[str, pd.DataFrame] = {}
+    for f in fields:
+        out[f] = (
+            pd.concat(parts[f], axis=1).sort_index() if parts[f] else pd.DataFrame()
         )
-    stmt = (
-        select(
-            DailyBar.ticker,
-            DailyBar.date,
-            DailyBar.open,
-            DailyBar.high,
-            DailyBar.low,
-            DailyBar.close,
-            DailyBar.volume,
-        )
-        .where(DailyBar.ticker.in_(list(tickers)))
-        .where(DailyBar.date >= start)
-        .where(DailyBar.date <= end)
-        .order_by(DailyBar.ticker, DailyBar.date)
-    )
-    rows = session.execute(stmt).all()
-    return pd.DataFrame(
-        rows, columns=["ticker", "date", "open", "high", "low", "close", "volume"]
-    )
+    return out
 
 
 def get_price_panel(
@@ -283,10 +356,7 @@ def get_price_panel(
     field: str = "close",
 ) -> pd.DataFrame:
     """Wide panel: index=date, columns=ticker. This is what Stage 1 vectorises."""
-    long = get_bars(session, tickers, start, end)
-    if long.empty:
-        return pd.DataFrame()
-    return long.pivot(index="date", columns="ticker", values=field).sort_index()
+    return load_price_panels(session, tickers, start, end, (field,))[field]
 
 
 # ---------------------------------------------------------------------------

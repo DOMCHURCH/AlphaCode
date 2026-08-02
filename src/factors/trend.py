@@ -211,22 +211,18 @@ def run_trend_gate(
 def load_panels(
     session, tickers: list[str], as_of: dt.date, lookback_days: int = 600
 ) -> dict[str, pd.DataFrame]:
-    """Load 400+ trading days of bars for the universe into wide panels."""
-    from src.storage.pit import get_bars
+    """Load 400+ trading days of bars for the universe into wide panels.
+
+    Streamed in ticker chunks and pivoted incrementally (see
+    ``pit.load_price_panels``), so a universe-wide load never holds the full
+    ~2.4M-row long frame in memory -- that unbounded read was OOM-killing the
+    container mid-Stage-1. Panels come back float32.
+    """
+    from src.storage.pit import load_price_panels
 
     start = as_of - dt.timedelta(days=lookback_days)
-    long = get_bars(session, tickers, start, as_of)
-    if long.empty:
-        empty = pd.DataFrame()
-        return {"close": empty, "high": empty, "low": empty, "volume": empty}
-    out = {}
-    for field in ("close", "high", "low", "volume"):
-        out[field] = (
-            long.pivot(index="date", columns="ticker", values=field)
-            .sort_index()
-            .astype(float)
-        )
-    return out
+    fields = ("close", "high", "low", "volume")
+    return load_price_panels(session, tickers, start, as_of, fields)
 
 
 def stage1_payload(result: TrendResult) -> dict[str, Any]:

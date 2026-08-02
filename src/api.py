@@ -519,11 +519,15 @@ async def trigger_run(
 
 
 async def _run_pipeline_bg(as_of: dt.date | None, skip_llm: bool) -> None:
-    from src.pipeline import run_pipeline
+    # Run out-of-process: the pipeline can OOM or segfault (numpy, kaleido/
+    # Chromium), and inside the uvicorn worker that would take the web server --
+    # and /status -- down with it. The child writes its RunLog/checkpoints to the
+    # shared DB; /status polls those. A dead child is reconciled by the runner.
+    from src.runner import run_pipeline_subprocess
 
     async with _run_lock:
         try:
-            await run_pipeline(as_of, skip_llm=skip_llm)
+            await run_pipeline_subprocess(as_of, skip_llm=skip_llm)
         except Exception as exc:  # noqa: BLE001 - logged, never crashes the API
             log.exception("manual_run_failed", error=str(exc))
 

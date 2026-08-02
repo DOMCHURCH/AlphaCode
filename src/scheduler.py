@@ -16,7 +16,8 @@ import structlog
 
 from src.config.settings import get_settings
 from src.logging_config import configure_logging
-from src.pipeline import is_trading_day, run_pipeline
+from src.pipeline import is_trading_day
+from src.runner import run_pipeline_subprocess
 from src.storage.db import init_db
 from src.validation.ic import backfill_forward_returns
 
@@ -37,11 +38,10 @@ async def daily_job() -> None:
     except Exception as exc:  # noqa: BLE001 - never block the run on this
         log.warning("forward_return_backfill_failed", error=str(exc))
 
-    result = await run_pipeline()
-    log.info(
-        "daily_job_complete", run_id=result.run_id, names=len(result.dives),
-        cost_usd=result.cost.get("cost_usd"), warnings=len(result.warnings),
-    )
+    # Out-of-process (see src/runner.py): a run that OOMs or segfaults must not
+    # take down the single-service API that hosts this scheduler.
+    rc = await run_pipeline_subprocess(None)
+    log.info("daily_job_complete", returncode=rc)
 
 
 def build_scheduler():

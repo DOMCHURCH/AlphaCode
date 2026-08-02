@@ -26,7 +26,7 @@ from src.ingest import fmp, polygon, sec_edgar
 from src.ingest.polygon import VALID_EXCHANGES
 from src.storage import repository
 from src.storage.models import DailyBar
-from src.storage.pit import get_price_panel
+from src.storage.pit import load_price_panels
 
 log = structlog.get_logger(__name__)
 
@@ -260,9 +260,10 @@ def build_universe_from_frames(
     # 20-day ADV from stored history; fall back to today's dollar volume if the
     # backfill has not run yet.
     start = as_of - dt.timedelta(days=45)
-    close_panel = get_price_panel(session, df["ticker"].tolist(), start, as_of, "close")
-    vol_panel = get_price_panel(session, df["ticker"].tolist(), start, as_of, "volume")
-    adv = compute_adv(close_panel, vol_panel)
+    panels = load_price_panels(
+        session, df["ticker"].tolist(), start, as_of, ("close", "volume")
+    )
+    adv = compute_adv(panels["close"], panels["volume"])
     df["adv_20d"] = df["ticker"].map(adv).astype(float)
     fallback = df["close"].fillna(0) * df["volume"].fillna(0)
     df["adv_20d"] = df["adv_20d"].fillna(fallback)

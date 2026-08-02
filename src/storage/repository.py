@@ -337,6 +337,26 @@ def mark_orphaned_runs_failed(session: Session) -> int:
     return len(orphans)
 
 
+def fail_run_if_running(session: Session, run_id: str, error: str) -> bool:
+    """Mark one run `failed` iff it is still `running`. Returns whether it did.
+
+    The pipeline runs in a child process; if that child is OOM-killed or
+    segfaults, its own error handler never runs, so its RunLog stays `running`
+    forever and drives the /status poll loop. The parent that spawned it calls
+    this on a non-zero exit to reconcile the ghost. Idempotent: a run that
+    already finished (the child wrote its own success/failure) is left alone.
+    """
+    run = session.execute(
+        select(RunLog).where(RunLog.run_id == run_id)
+    ).scalar_one_or_none()
+    if run is None or run.status != "running":
+        return False
+    run.status = "failed"
+    run.error = (error or "the run process exited without finishing")[:2000]
+    run.finished_at = dt.datetime.now(dt.UTC)
+    return True
+
+
 def max_checkpoint_stage(session: Session, run_id: str) -> int:
     """Highest stage with a saved checkpoint for this run, or 0 if none.
 

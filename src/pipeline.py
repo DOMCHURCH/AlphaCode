@@ -31,7 +31,7 @@ from src.llm.client import verify_configured_models
 from src.llm.cost import CostTracker
 from src.llm.packets import build_deep_packet, build_triage_packet
 from src.llm.schemas import DeepDive
-from src.logging_config import configure_logging
+from src.logging_config import configure_logging, peak_rss_mb
 from src.report.builder import build_report
 from src.storage import repository
 from src.storage.db import session_scope
@@ -73,7 +73,8 @@ class PipelineResult:
 def _stage(name: str, number: int, entry: int, timings: list) -> Iterator[dict]:
     t0 = time.perf_counter()
     box: dict[str, Any] = {"exit": 0, "api_calls": 0}
-    log.info("stage_start", stage=number, name=name, entry=entry)
+    log.info("stage_start", stage=number, name=name, entry=entry,
+             rss_mb=peak_rss_mb())
     try:
         yield box
     finally:
@@ -81,9 +82,12 @@ def _stage(name: str, number: int, entry: int, timings: list) -> Iterator[dict]:
         timings.append(
             StageTiming(number, name, entry, box["exit"], dur, box["api_calls"])
         )
+        # rss_mb is the process high-water mark AFTER this stage -- watch it climb
+        # stage to stage to see exactly where an OOM allocates.
         log.info(
             "stage_end", stage=number, name=name, entry=entry,
             exit=box["exit"], duration_s=round(dur, 2), api_calls=box["api_calls"],
+            rss_mb=peak_rss_mb(),
         )
 
 
@@ -773,6 +777,11 @@ def _cli() -> None:
     parser = argparse.ArgumentParser(description="Run or resume the alpha funnel")
     parser.add_argument("--date", default=None, help="as-of date YYYY-MM-DD")
     parser.add_argument(
+        "--run-id", default=None,
+        help="use this run_id instead of generating one (lets a parent process "
+        "that spawned this run reconcile its RunLog if it dies)",
+    )
+    parser.add_argument(
         "--resume", action="store_true",
         help="resume the last run for the date from its furthest checkpoint",
     )
@@ -793,7 +802,9 @@ def _cli() -> None:
     if args.resume:
         result = asyncio.run(resume_last(as_of, skip_llm=args.skip_llm))
     else:
-        result = asyncio.run(run_pipeline(as_of, skip_llm=args.skip_llm))
+        result = asyncio.run(
+            run_pipeline(as_of, run_id=args.run_id, skip_llm=args.skip_llm)
+        )
 
     print(
         f"\nrun {result.run_id} | regime {result.regime} | "

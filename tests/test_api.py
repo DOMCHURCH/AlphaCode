@@ -34,16 +34,26 @@ def api_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(api_db):
+def client(api_db, monkeypatch):
     from fastapi.testclient import TestClient
 
-    from src import api
+    from src import api, runner
     from src.api import app
 
     # Rate-limit gates are module-level; isolate them per test.
     api._run_gate.reset()
     api._backfill_gate.reset()
     api._reconcile_gate.reset()
+
+    # /run now spawns the pipeline as a child process (out-of-process, so a run
+    # crash can't take the API down). These endpoint tests only exercise
+    # acceptance and rate-limiting, so stub the spawn -- we don't want a real
+    # `python -m src.pipeline` firing off the background task. The runner itself
+    # is covered directly in tests/test_runner.py.
+    async def _no_subprocess(as_of, skip_llm=False):
+        return 0
+
+    monkeypatch.setattr(runner, "run_pipeline_subprocess", _no_subprocess)
     with TestClient(app) as c:
         yield c
 
