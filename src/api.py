@@ -420,7 +420,11 @@ async def trigger_backfill(
 
 
 async def _backfill_bg(days: int, fundamentals: bool) -> None:
-    from src.backfill import backfill_bars, backfill_fundamentals
+    from src.backfill import (
+        backfill_bars,
+        backfill_fundamentals,
+        record_backfill_error,
+    )
 
     async with _backfill_lock:
         try:
@@ -430,6 +434,7 @@ async def _backfill_bg(days: int, fundamentals: bool) -> None:
                 m = await backfill_fundamentals()
                 log.info("backfill_fundamentals_done", rows=m)
         except Exception as exc:  # noqa: BLE001 - logged, never crashes the API
+            record_backfill_error(str(exc))
             log.exception("backfill_failed", error=str(exc))
 
 
@@ -491,10 +496,14 @@ def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness."""
     from sqlalchemy import func
 
+    from src.backfill import get_backfill_state
     from src.storage.models import DailyBar, UniverseSnapshot
 
     out: dict[str, Any] = {"backfill_running": _backfill_lock.locked(),
                            "run_in_progress": _run_lock.locked()}
+    # Source-agnostic backfill diagnostics (Polygon or Yahoo): progress, the
+    # source in use, last error, and last_progress_at so "stuck" is self-explaining.
+    out["backfill"] = get_backfill_state()
     try:
         with session_scope() as session:
             out["price_bars"] = session.execute(

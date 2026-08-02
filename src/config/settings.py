@@ -68,6 +68,20 @@ class Settings(BaseSettings):
     # anyway). Lower it to make the first free backfill faster.
     free_universe_max: int = Field(default=0, alias="FREE_UNIVERSE_MAX")
 
+    # Hard per-chunk timeout (seconds) for the Yahoo/yfinance batch download.
+    # yfinance does a blocking socket read with no timeout of its own; a stalled
+    # Yahoo connection would otherwise hang the whole backfill (and hold the
+    # backfill lock) forever. A timed-out chunk is logged and skipped.
+    yahoo_download_timeout: float = Field(
+        default=120.0, alias="YAHOO_DOWNLOAD_TIMEOUT"
+    )
+    # Hard per-call timeout (seconds) for a Polygon grouped-daily request. Bounds
+    # each day of the backfill loop so a single hung call can't freeze the whole
+    # load; the day is logged, recorded in the backfill diagnostics, and skipped.
+    polygon_fetch_timeout: float = Field(
+        default=60.0, alias="POLYGON_FETCH_TIMEOUT"
+    )
+
     # ---------------- Operational ----------------
     max_run_cost_usd: float = Field(default=2.0, alias="MAX_RUN_COST_USD")
     run_timezone: str = Field(default="America/New_York", alias="RUN_TIMEZONE")

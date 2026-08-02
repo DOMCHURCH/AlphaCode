@@ -16,10 +16,16 @@ from typing import Any
 
 import structlog
 
+from src.config.settings import get_settings
+
 log = structlog.get_logger(__name__)
 
 _yf: Any | None = None
 _yf_checked = False
+
+# Last download error seen by fetch_daily_bars_batch, surfaced through the
+# backfill diagnostics so a stalled/failed keyless load can explain itself.
+_last_error: str | None = None
 
 
 def _yfinance() -> Any | None:
@@ -35,6 +41,16 @@ def _yfinance() -> Any | None:
         log.info("yfinance_unavailable", error=str(exc))
         _yf = None
     return _yf
+
+
+def yfinance_available() -> bool:
+    """Whether the optional yfinance package could be imported."""
+    return _yfinance() is not None
+
+
+def last_error() -> str | None:
+    """The most recent Yahoo batch-download error, or None."""
+    return _last_error
 
 
 def _frame_to_rows(df: Any, tickers: list[str]) -> list[dict[str, Any]]:
@@ -96,7 +112,10 @@ def _download(yf: Any, tickers: list[str], start: dt.date, end: dt.date) -> Any:
         interval="1d",
         auto_adjust=True,
         group_by="ticker",
-        threads=True,
+        # We already run this whole call in one worker thread under a hard
+        # timeout; yfinance's own thread pool nested inside that adds no speed
+        # and its worker threads can outlive/deadlock a timed-out parent call.
+        threads=False,
         progress=False,
         actions=False,
     )
@@ -108,6 +127,7 @@ async def fetch_daily_bars_batch(
     end: dt.date,
     *,
     chunk: int = 200,
+    timeout: float | None = None,
 ) -> list[dict[str, Any]]:
     """Free OHLCV history for many tickers via Yahoo, batched.
 
@@ -115,19 +135,38 @@ async def fetch_daily_bars_batch(
     in one threaded call, so ~10k names cost ~50 calls, not 10k. Degrades to an
     empty list if yfinance is unavailable or a chunk fails -- one bad chunk never
     sinks the backfill.
+
+    Each chunk download runs in a worker thread under a hard `timeout` (seconds,
+    default from settings). yfinance itself does a blocking socket read with no
+    timeout, so without this a stalled Yahoo connection would hang the coroutine
+    -- and the backfill lock -- forever. A timed-out chunk is logged and skipped.
     """
+    global _last_error
+    _last_error = None
     yf = _yfinance()
     if yf is None:
         log.error("yahoo_batch_no_yfinance")
+        _last_error = "yfinance is not installed"
         return []
+    if timeout is None:
+        timeout = get_settings().yahoo_download_timeout
     clean = list(dict.fromkeys(t.upper() for t in tickers if t))
     out: list[dict[str, Any]] = []
     for i in range(0, len(clean), chunk):
         batch = clean[i : i + chunk]
         try:
-            df = await asyncio.to_thread(_download, yf, batch, start, end)
+            df = await asyncio.wait_for(
+                asyncio.to_thread(_download, yf, batch, start, end), timeout=timeout
+            )
             rows = _frame_to_rows(df, batch)
+        except TimeoutError:
+            # NB: the stalled worker thread is abandoned, not killed -- yfinance
+            # provides no cancellation -- but the loop is freed to move on.
+            _last_error = f"Yahoo download timed out after {timeout:.0f}s"
+            log.warning("yahoo_batch_chunk_timeout", n=len(batch), timeout=timeout)
+            rows = []
         except Exception as exc:  # noqa: BLE001 - one bad chunk is survivable
+            _last_error = str(exc)[:200]
             log.warning("yahoo_batch_chunk_failed", n=len(batch), error=str(exc)[:200])
             rows = []
         out.extend(rows)

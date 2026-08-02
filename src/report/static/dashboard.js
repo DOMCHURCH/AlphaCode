@@ -158,9 +158,22 @@ async function loadHistory() {
     const s = await getStatus();
     const have = s.bar_dates || 0;
     const need = s.history_target || 252;
-    setPhase(`Loading market history — ${fmt(have)} / ${fmt(need)} trading days`);
+    const bf = s.backfill || {};
+    const src = bf.source ? ` via ${bf.source}` : "";
+    setPhase(`Loading market history${src} — ${fmt(have)} / ${fmt(need)} trading days`);
     setPbar(Math.min(100, (have / need) * 100));
     if (s.ready_for_first_run || s.run_in_progress) return s;
+    // The backfill reported a hard failure and isn't running: stop spinning and
+    // say why, instead of looping on a load that can't progress.
+    if (!s.backfill_running && bf.phase === "error" && have < need) {
+      setPhase("Couldn't load market history.", true);
+      setNote(
+        (bf.last_error ? bf.last_error + " " : "") +
+          "Check POLYGON_API_KEY (primary price source) or, for keyless mode, " +
+          "SEC_USER_AGENT plus outbound Yahoo access, then try again."
+      );
+      return null;
+    }
     if (!s.backfill_running && have < need) {
       // Load finished a pass but we're still short. If nothing at all loaded,
       // the data API keys are probably missing — say so instead of looping.

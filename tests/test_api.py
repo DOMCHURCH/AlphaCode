@@ -242,6 +242,76 @@ def test_backfill_needs_no_token(client, monkeypatch):
     assert client.post("/backfill?days=1").status_code == 200
 
 
+def test_status_exposes_backfill_diagnostics(client):
+    """/status carries a source-agnostic `backfill` block so the loader can tell
+    the user what's happening (or why it stalled) instead of spinning."""
+    bf = client.get("/status").json()["backfill"]
+    for key in (
+        "phase", "source", "units_done", "units_total", "rows",
+        "last_error", "polygon_key_present", "yfinance_available",
+        "last_progress_at",
+    ):
+        assert key in bf
+
+
+def test_yahoo_download_timeout_never_hangs(monkeypatch):
+    """A hung yfinance download must not freeze the coroutine: the hard timeout
+    frees the loop, the chunk is skipped, and the error is recorded for /status."""
+    import asyncio
+    import time
+
+    from src.ingest import yahoo
+
+    monkeypatch.setattr(yahoo, "_yf", object(), raising=False)
+    monkeypatch.setattr(yahoo, "_yf_checked", True, raising=False)
+
+    def hang(yf, tickers, start, end):  # noqa: ANN001
+        time.sleep(3)  # a stalled socket read; short so it can't wedge teardown
+        return None
+
+    monkeypatch.setattr(yahoo, "_download", hang)
+
+    async def run_it():
+        # Measure inside the loop: the coroutine is freed on the timeout even
+        # though the abandoned worker thread keeps sleeping (and asyncio.run's
+        # teardown then waits for it -- that wait is not what we're asserting on).
+        t0 = time.time()
+        rows = await yahoo.fetch_daily_bars_batch(
+            ["AAA", "BBB"], dt.date(2024, 1, 1), dt.date(2024, 6, 1),
+            chunk=200, timeout=0.3,
+        )
+        return rows, time.time() - t0
+
+    rows, elapsed = asyncio.run(run_it())
+    assert rows == []
+    assert elapsed < 2.5  # returned on the 0.3s timeout, did not wait the 3s sleep
+    assert "timed out" in (yahoo.last_error() or "").lower()
+
+
+def test_backfill_surfaces_error_when_no_bars(api_db, monkeypatch):
+    """When the keyless path can load nothing (yfinance missing), the backfill
+    returns (releasing the lock) and marks itself errored with a clear reason."""
+    import asyncio
+
+    from src import backfill
+    from src.ingest import sec_edgar, yahoo
+
+    async def fake_tickers():
+        return [{"ticker": "AAA", "cik": "1", "name": "x"}]
+
+    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
+    monkeypatch.setattr(yahoo, "_yf", None, raising=False)
+    monkeypatch.setattr(yahoo, "_yf_checked", True, raising=False)
+
+    n = asyncio.run(backfill.backfill_bars(600, end=dt.date(2025, 7, 31)))
+    assert n == 0
+    st = backfill.get_backfill_state()
+    assert st["phase"] == "error"
+    assert st["source"] == "yahoo"
+    assert st["yfinance_available"] is False
+    assert st["last_error"]
+
+
 def test_root_serves_html_dashboard(client):
     r = client.get("/")
     assert r.status_code == 200
