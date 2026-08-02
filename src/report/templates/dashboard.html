@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Alpha Funnel — one-click US stock research</title>
 <link rel="preconnect" href="https://s3.tradingview.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/dashboard.css">
 </head>
 <body>
@@ -21,16 +24,31 @@
 
 <!-- ===================== START ===================== -->
 <header id="view-start" class="hero">
-  <div class="eyebrow">Daily equity alpha funnel</div>
-  <h1>The best stock ideas, in one click.</h1>
-  <p class="lede">Press the button. A cascading funnel screens ~6,000 liquid US
-     equities down to a ranked <b>top&nbsp;10</b> — each scored out of 100 with a
-     written thesis and a live chart.</p>
-  <button id="goBtn" class="cta" onclick="startResearch()">
-    <span id="goLbl">Research today's best stocks</span><span class="arw">→</span>
-  </button>
-  <div class="cta-note" id="goNote">No language model runs before stage 4 — the first four passes are pure math.</div>
-  <div class="kpis" id="kpis"></div>
+  <div class="herotext">
+    <div class="eyebrow">Daily equity alpha funnel</div>
+    <h1>The best stock ideas, in one press.</h1>
+    <p class="lede">A cascading funnel screens ~6,000 liquid US equities down to a
+       ranked <b>top&nbsp;10</b> — each scored out of 100 with a written thesis and
+       live charts.</p>
+    <button id="goBtn" class="cta" onclick="startResearch()">
+      <span id="goLbl">Research today's best stocks</span><span class="arw">→</span>
+    </button>
+    <div class="cta-note" id="goNote">No language model runs before stage 4 — the first four passes are pure math.</div>
+    <div class="kpis" id="kpis"></div>
+  </div>
+  <div class="plate" aria-hidden="true">
+    <svg viewBox="0 0 200 200">
+      <rect width="200" height="200" fill="#FBFAF4"/>
+      <path d="M0 0 H100 A100 100 0 0 1 0 100 Z" fill="#2340BE"/>
+      <circle cx="150" cy="50" r="42" fill="#F3C218"/>
+      <path d="M100 100 H200 V200 Z" fill="#E1362C"/>
+      <rect x="0" y="120" width="80" height="80" fill="#161310"/>
+      <circle cx="40" cy="160" r="22" fill="#F3EFE4"/>
+      <path d="M100 100 L100 200 L0 200 Z" fill="#F3C218"/>
+      <line x1="100" y1="0" x2="100" y2="200" stroke="#161310" stroke-width="2"/>
+      <line x1="0" y1="100" x2="200" y2="100" stroke="#161310" stroke-width="2"/>
+    </svg>
+  </div>
 </header>
 
 <!-- ===================== PROGRESS ===================== -->

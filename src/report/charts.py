@@ -20,15 +20,17 @@ import structlog
 
 log = structlog.get_logger(__name__)
 
-BG = "#0d1117"
-PANEL = "#161b22"
-GRID = "#21262d"
-FG = "#c9d1d9"
-MUTED = "#8b949e"
-UP = "#3fb950"
-DOWN = "#f85149"
-ACCENT = "#58a6ff"
-WARN = "#d29922"
+# Bauhaus "paper" palette: light warm ground, ink text, primary-triad series.
+# Up/positive = cobalt blue, down/negative = Bauhaus red, attention = chrome yellow.
+BG = "#F3EFE4"
+PANEL = "#FBFAF4"
+GRID = "#D9D2C2"
+FG = "#161310"
+MUTED = "#8b8272"
+UP = "#2340BE"
+DOWN = "#E1362C"
+ACCENT = "#2340BE"
+WARN = "#F3C218"
 
 _kaleido_ok: bool | None = None
 
@@ -44,7 +46,7 @@ def _layout(fig, title: str, height: int = 400) -> Any:
         title=dict(text=title, font=dict(size=15, color=FG), x=0.01, xanchor="left"),
         paper_bgcolor=BG,
         plot_bgcolor=PANEL,
-        font=dict(color=FG, size=11, family="Inter, system-ui, sans-serif"),
+        font=dict(color=FG, size=11, family="Jost, Futura, Century Gothic, system-ui, sans-serif"),
         height=height,
         margin=dict(l=50, r=25, t=45, b=40),
         showlegend=False,

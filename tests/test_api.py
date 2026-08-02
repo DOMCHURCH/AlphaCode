@@ -331,7 +331,7 @@ def test_static_assets_are_served(client):
     css = client.get("/static/dashboard.css")
     assert css.status_code == 200
     assert css.headers["content-type"].startswith("text/css")
-    assert "--accent" in css.text  # the theme tokens
+    assert "--ink" in css.text and "--paper" in css.text  # the theme tokens
 
     js = client.get("/static/dashboard.js")
     assert js.status_code == 200

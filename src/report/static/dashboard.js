@@ -14,7 +14,9 @@ const esc = (s) =>
 const fmt = (n) => (n == null ? "—" : Number(n).toLocaleString());
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const RUB = { trend: 25, fundamental: 20, catalyst: 20, news: 15, macro: 10, risk: 10 };
-const col = (s) => (s >= 75 ? "var(--up)" : s >= 60 ? "var(--warn)" : "var(--muted)");
+// Score tier -> a coloured square (blue strong / yellow medium / red weak).
+// Colour lives in a shape, never low-contrast text, on the paper ground.
+const tier = (s) => (s >= 75 ? "hi" : s >= 60 ? "med" : "lo");
 
 let PICKS = {};
 let CURRENT = null;
@@ -250,7 +252,7 @@ const STAGE_FALLBACK = [
 function setPhase(t, err) {
   const p = $("phase");
   p.textContent = t;
-  p.style.color = err ? "var(--down)" : "";
+  p.style.color = err ? "var(--red)" : "";
 }
 function setPbar(pct) {
   $("pbarFill").style.width = Math.max(0, Math.min(100, pct)) + "%";
@@ -259,21 +261,28 @@ function setNote(t) {
   const el = $("progNote");
   if (el) el.textContent = t || "";
 }
+/* The funnel as a numbered vertical timeline: done nodes filled, the current
+   node highlighted, upcoming outlined — each showing its live survivor count. */
 function renderStepper(cr) {
   const steps =
     cr && cr.steps
       ? cr.steps
       : STAGE_FALLBACK.map((s, i) => ({ ...s, done: false, active: i === 0 && !!cr, survivors: null }));
-  $("stepper").innerHTML = steps
-    .map((s) => {
-      const cls = s.done ? "done" : s.active ? "active" : "";
-      const ic = s.done ? "✓" : s.active ? "" : s.stage;
-      const cnt = s.survivors != null ? fmt(s.survivors) : s.done ? "—" : `→ ${fmt(s.target)}`;
-      return `<div class="pstep ${cls}"><div class="ic">${ic}</div>
-      <div class="lbl"><b>${esc(s.label)}</b><span>narrows toward ${fmt(s.target)} names</span></div>
-      <div class="cnt">${cnt}</div></div>`;
-    })
-    .join("");
+  $("stepper").innerHTML =
+    "<ol class='timeline'>" +
+    steps
+      .map((s) => {
+        const cls = s.done ? "done" : s.active ? "active" : "";
+        const num = String(s.stage).padStart(2, "0");
+        const cnt = s.survivors != null ? fmt(s.survivors) : s.done ? "—" : `→ ${fmt(s.target)}`;
+        return `<li class="tl-step ${cls}">
+        <div class="tl-node"><span class="tl-num">${num}</span></div>
+        <div class="tl-body"><div class="tl-label">${esc(s.label)}</div>
+          <div class="tl-meta">narrows toward ${fmt(s.target)} names</div></div>
+        <div class="tl-count">${cnt}</div></li>`;
+      })
+      .join("") +
+    "</ol>";
 }
 
 /* ---------- analyze a symbol ---------- */
@@ -328,7 +337,7 @@ function renderPick(side, n) {
     .filter(Boolean);
   side.innerHTML = `
     <a class="detaillink" href="/stock/${encodeURIComponent(n.ticker)}">Open full detail page — charts &amp; analysis →</a>
-    <div class="scorebig"><div class="n" style="color:${col(n.total_score)}">${n.total_score}</div><div class="of">/100 · funnel score</div></div>
+    <div class="scorebig"><span class="tier ${tier(n.total_score)}" style="width:20px;height:20px"></span><div class="n">${n.total_score}</div><div class="of">/100 · funnel score</div></div>
     <div class="meta"><span class="tag">rank #${n._rank}</span>
       <span class="tag ${n.conviction || ""}">${n.conviction || "—"} conviction</span>
       ${n.time_horizon_days ? `<span class="tag">${n.time_horizon_days}d horizon</span>` : ""}</div>
@@ -379,8 +388,7 @@ async function loadPicks(auto) {
     <div class="prow" data-t="${esc(n.ticker)}" onclick="analyze('${esc(n.ticker)}')">
       <span class="rk">#${i + 1}</span>
       <div><div class="tk">${esc(n.ticker)}</div><div class="sec">${esc(n.sector || "")}</div></div>
-      <span class="sc" style="color:${col(n.total_score)}">${n.total_score}</span>
-      <span class="cv ${n.conviction || ""}"></span>
+      <span class="sc"><span class="tier ${tier(n.total_score)}"></span>${n.total_score}</span>
       <a class="prow-detail" href="/stock/${encodeURIComponent(n.ticker)}" onclick="event.stopPropagation()" title="Full detail page">↗</a>
     </div>`
       )
