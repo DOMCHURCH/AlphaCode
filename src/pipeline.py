@@ -360,7 +360,8 @@ async def run_pipeline(
 
             # ---------------- persist scores and theses ------------------
             _persist_scores(
-                session, as_of, tr, comp, st3, triage_df, dives, sectors
+                session, as_of, tr, comp, st3, triage_df, dives, sectors,
+                deterministic_top,
             )
 
             # ---------------- Stage 6: report ---------------------------
@@ -599,7 +600,8 @@ def _near_misses(
 
 
 def _persist_scores(
-    session, as_of: dt.date, tr, comp, st3, triage_df, dives, sectors
+    session, as_of: dt.date, tr, comp, st3, triage_df, dives, sectors,
+    deterministic_top=None,
 ) -> None:
     """Store every scored name so the IC tracker can measure this run later."""
     dive_by_ticker = {d.ticker: d for d in dives}
@@ -660,6 +662,36 @@ def _persist_scores(
             for d in dives
         ],
     )
+
+    # Fast mode (skip_llm): no DeepDives, so persist minimal theses from the
+    # deterministic top-N so the site's picks list still populates. No prose --
+    # just the funnel score (a bounded map of the composite z) and sector.
+    if not dives and deterministic_top:
+        repository.save_theses(
+            session,
+            [
+                {
+                    "as_of_date": as_of,
+                    "ticker": d["ticker"],
+                    "total_score": _deterministic_score(d.get("factor_composite")),
+                    "subscores": None,
+                    "thesis": (
+                        "Fast mode — ranked by the deterministic funnel "
+                        "(Stages 0-3); no model write-up."
+                    ),
+                    "conviction": None,
+                    "key_risks": [],
+                    "catalysts_ahead": [],
+                }
+                for d in deterministic_top
+            ],
+        )
+
+
+def _deterministic_score(composite: float | None) -> int:
+    """Map a composite z-score to a bounded 0-100 funnel score for fast mode."""
+    z = composite if isinstance(composite, (int, float)) else 0.0
+    return int(max(5, min(99, round(50 + 12 * z))))
 
 
 def _num(v: Any) -> float | None:

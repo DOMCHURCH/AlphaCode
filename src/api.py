@@ -526,8 +526,21 @@ def status() -> dict[str, Any]:
             out["universe_snapshots"] = session.execute(
                 select(func.count(func.distinct(UniverseSnapshot.as_of_date)))
             ).scalar_one()
-            out["runs"] = len(repository.list_runs(session, limit=1000))
+            all_runs = repository.list_runs(session, limit=1000)
+            out["runs"] = len(all_runs)
             out["current_run"] = _current_run_progress(session)
+            # The most recent run's outcome, so the UI can explain a failure
+            # ("finished without a screen") with the real reason instead of
+            # telling the user to go read server logs.
+            if all_runs:
+                r = all_runs[0]
+                out["last_run"] = {
+                    "as_of": r.as_of_date.isoformat(),
+                    "status": r.status,
+                    "regime": r.regime,
+                    "error": (r.error or "")[:500] or None,
+                    "funnel": r.funnel_counts,
+                }
         out["ready_for_first_run"] = (out.get("bar_dates") or 0) >= MIN_HISTORY_DATES
     except Exception as exc:  # noqa: BLE001
         out["error"] = str(exc)[:200]

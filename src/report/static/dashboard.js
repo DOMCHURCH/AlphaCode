@@ -101,7 +101,7 @@ async function postJSON(path) {
   }
 }
 
-async function startResearch(force) {
+async function startResearch(force, skipLlm) {
   if (RESEARCHING) return;
   RESEARCHING = true;
   ABORT = false;
@@ -109,6 +109,7 @@ async function startResearch(force) {
   showView("progress");
   window.scrollTo({ top: 0, behavior: "smooth" });
   setNote("");
+  setActions("");
   renderStepper(null);
   setPbar(2);
   setPhase("Checking the data warehouse…");
@@ -118,7 +119,7 @@ async function startResearch(force) {
   try {
     let st = await getStatus();
 
-    // 1) One-time on a fresh deploy: make sure a year of history is loaded.
+    // 1) One-time on a fresh deploy: make sure ~a year of history is loaded.
     if (!st.ready_for_first_run && !st.run_in_progress) {
       st = await loadHistory();
       if (st === null) return; // aborted
@@ -128,15 +129,33 @@ async function startResearch(force) {
     st = await getStatus();
     if (!st.run_in_progress) {
       setNote("");
-      setPhase("Starting the funnel…");
+      setPhase(skipLlm ? "Starting fast mode (no write-ups)…" : "Starting the funnel…");
       renderStepper(null);
-      await postJSON("/run");
+      await postJSON(skipLlm ? "/run?skip_llm=true" : "/run");
     }
 
     // 3) Stream the run's live stage progress until a fresh report lands.
-    await pollRun(before);
+    let outcome = await pollRun(before);
+
+    // 4) If the full run couldn't produce a screen, fall back to fast mode once
+    //    (the LLM write-ups are the usual failure point). A deterministic run
+    //    still yields the ranked top-10.
+    if (outcome === "failed" && !skipLlm && !ABORT) {
+      const lr = (await getStatus()).last_run || {};
+      setPhase("Full research didn't finish — retrying in fast mode…");
+      setNote(lr.error ? "Reason: " + lr.error : "");
+      await postJSON("/run?skip_llm=true");
+      outcome = await pollRun(before);
+    }
+
+    if (outcome === "failed" && !ABORT) {
+      const lr = (await getStatus()).last_run || {};
+      showFailure(lr.error);
+    }
   } catch (e) {
-    setPhase("Something went wrong: " + e, true);
+    setPhase("Something went wrong.", true);
+    setNote(String(e));
+    setActions("retry");
   } finally {
     RESEARCHING = false;
   }
@@ -195,10 +214,12 @@ async function loadHistory() {
   return await getStatus();
 }
 
+// Returns "done" (a fresh report landed) or "failed" (the run stopped without
+// one). The caller decides whether to fall back to fast mode / show the error.
 async function pollRun(before) {
   let idle = 0;
   for (let i = 0; i < 1200; i++) {
-    if (ABORT) return;
+    if (ABORT) return "aborted";
     const s = await getStatus();
     const cr = s.current_run;
     if (cr) {
@@ -207,29 +228,41 @@ async function pollRun(before) {
       setPbar(cr.percent);
       setPhase(`Stage ${cr.active_stage} — ${cr.active_label}`);
     } else if (!s.run_in_progress) {
-      // No active run: either it finished, or it never showed. Check for a report.
       const latest = await latestReportDate();
       if (latest && latest !== before) {
         await finishResearch();
-        return;
+        return "done";
       }
       if (++idle >= 4) {
         const latest2 = await latestReportDate();
         if (latest2) {
           await finishResearch();
-          return;
+          return "done";
         }
-        setPhase("The run finished without producing a screen — check Operator controls / logs.", true);
-        return;
+        return "failed";
       }
     }
     await sleep(2000);
   }
-  setPhase("Still running — this is taking longer than usual.", true);
+  return "failed";
+}
+
+/* Turn a dead-end into an explained, actionable state. */
+function showFailure(reason) {
+  setPbar(100);
+  setPhase("Research couldn't produce a screen.", true);
+  setNote(
+    (reason ? "Reason: " + reason + "  " : "") +
+      "This usually means a data-quality gate tripped, or the LLM write-up step " +
+      "isn't configured (OPENROUTER_API_KEY). Fast mode skips the write-ups and " +
+      "still gives you the ranked top-10."
+  );
+  setActions("fail");
 }
 
 async function finishResearch() {
   setNote("");
+  setActions("");
   setPbar(100);
   setPhase("Done — here are today's best ideas.");
   await sleep(450);
@@ -260,6 +293,20 @@ function setPbar(pct) {
 function setNote(t) {
   const el = $("progNote");
   if (el) el.textContent = t || "";
+}
+/* Action buttons under the timeline for failure / retry states. */
+function setActions(kind) {
+  const el = $("progActions");
+  if (!el) return;
+  if (kind === "fail") {
+    el.innerHTML =
+      `<button class="rerun" onclick="startResearch(true,true)">⚡ Fast mode — ranked top-10, no write-ups</button>` +
+      `<button class="rerun" onclick="startResearch(true)">↻ Try full run again</button>`;
+  } else if (kind === "retry") {
+    el.innerHTML = `<button class="rerun" onclick="startResearch(true)">↻ Try again</button>`;
+  } else {
+    el.innerHTML = "";
+  }
 }
 /* The funnel as a numbered vertical timeline: done nodes filled, the current
    node highlighted, upcoming outlined — each showing its live survivor count. */

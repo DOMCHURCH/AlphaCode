@@ -334,3 +334,32 @@ def test_restore_from_checkpoint_rejects_garbage():
     assert restore_from_checkpoint({}) is None
     assert restore_from_checkpoint({"selected": []}) is None
     assert restore_from_checkpoint({"selected": [{"no_ticker": 1}]}) is None
+
+
+def test_fast_mode_persists_picks_so_the_site_shows_them(session):
+    """skip_llm has no DeepDives; it must still persist minimal theses from the
+    deterministic top-N, or the site's picks list comes up empty."""
+    import datetime as dt
+    from types import SimpleNamespace
+
+    import pandas as pd
+
+    from src.pipeline import _deterministic_score, _persist_scores
+    from src.storage import repository
+
+    as_of = dt.date(2025, 6, 2)
+    comp = SimpleNamespace(scores=pd.DataFrame())  # no per-name scores to store
+    det = [
+        {"ticker": "AAA", "factor_composite": 2.0, "sector": "Tech"},
+        {"ticker": "BBB", "factor_composite": 0.0, "sector": "Energy"},
+        {"ticker": "CCC", "factor_composite": -1.0, "sector": "Health"},
+    ]
+    _persist_scores(session, as_of, None, comp, None, None, [], pd.Series(dtype=object), det)
+    session.flush()
+
+    theses = {t.ticker: t for t in repository.get_theses(session, as_of)}
+    assert set(theses) == {"AAA", "BBB", "CCC"}
+    assert theses["AAA"].total_score == _deterministic_score(2.0)  # ~74
+    assert theses["BBB"].total_score == 50
+    assert theses["AAA"].total_score > theses["CCC"].total_score  # ordering holds
+    assert theses["AAA"].conviction is None  # honest: no model conviction

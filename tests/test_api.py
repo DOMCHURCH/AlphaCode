@@ -233,6 +233,25 @@ def test_status_current_run_is_null_when_idle(client):
     assert client.get("/status").json()["current_run"] is None
 
 
+def test_status_surfaces_last_run_error(client):
+    """A failed run's reason is exposed so the UI can explain a dead-end instead
+    of telling the user to read server logs."""
+    import datetime as dt
+
+    from src.storage import repository
+    from src.storage.db import session_scope
+
+    with session_scope() as s:
+        repository.start_run(s, "r-fail", dt.date(2025, 6, 2))
+        repository.finish_run(
+            s, "r-fail", status="failed",
+            error="Universe is 12 names, below the 4000 floor. Aborting.",
+        )
+    lr = client.get("/status").json()["last_run"]
+    assert lr["status"] == "failed"
+    assert "below the 4000 floor" in lr["error"]
+
+
 def test_backfill_needs_no_token(client, monkeypatch):
     from src.config.settings import get_settings
 
