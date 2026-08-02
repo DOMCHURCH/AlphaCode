@@ -49,6 +49,22 @@ async def _boot(app: FastAPI) -> None:
     except Exception as exc:  # noqa: BLE001 - health endpoint reports it
         log.error("db_init_failed", error=str(exc)[:300])
 
+    # Sweep runs left "running" by a killed process. A run executes in-process,
+    # so a redeploy/OOM kills it without finish_run and RunLog stays "running"
+    # forever -- that ghost shows in /status.current_run and the site polls it
+    # endlessly. Single-service: any real live run would be in THIS process, so
+    # anything "running" at boot is orphaned. Best-effort; never stall startup.
+    try:
+        def _sweep() -> int:
+            with session_scope() as session:
+                return repository.mark_orphaned_runs_failed(session)
+
+        swept = await asyncio.wait_for(asyncio.to_thread(_sweep), timeout=15)
+        if swept:
+            log.warning("orphaned_runs_failed", count=swept)
+    except Exception as exc:  # noqa: BLE001 - serving must survive
+        log.error("orphan_sweep_failed", error=str(exc)[:300])
+
     if get_settings().enable_scheduler:
         try:
             from src.scheduler import build_scheduler
@@ -155,6 +171,29 @@ def _enforce_rate(gate: _RateGate, what: str) -> None:
 _STATIC_DIR = Path(__file__).parent / "report" / "static"
 if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+
+
+# A tiny Bauhaus mark (the hero plate, quartered) so browsers stop requesting a
+# missing /favicon.ico -- otherwise every page view logs a 404. Inlined as an SVG
+# so there's no binary asset to ship or a static path to keep in sync.
+_FAVICON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
+    '<rect width="32" height="32" fill="#F3EFE4"/>'
+    '<path d="M0 0H16A16 16 0 0 1 0 16Z" fill="#2340BE"/>'
+    '<circle cx="24" cy="8" r="7" fill="#F3C218"/>'
+    '<path d="M16 16H32V32Z" fill="#E1362C"/>'
+    '<rect x="0" y="19" width="13" height="13" fill="#161310"/>'
+    "</svg>"
+)
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon() -> Response:
+    return Response(
+        content=_FAVICON,
+        media_type="image/svg+xml",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
 
 
 class HealthResponse(BaseModel):

@@ -443,3 +443,60 @@ def test_static_assets_are_served(client):
     assert js.status_code == 200
     assert "javascript" in js.headers["content-type"]
     assert "startResearch" in js.text  # the one-button entry point
+
+
+def test_favicon_is_served(client):
+    """Browsers auto-request /favicon.ico; without a route every page view logs
+    a 404. It's served as an inline SVG mark, not a missing binary."""
+    r = client.get("/favicon.ico")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("image/svg+xml")
+    assert "<svg" in r.text
+
+
+def test_startup_fails_orphaned_running_runs(api_db):
+    """A container restart kills an in-process run without finish_run, leaving
+    RunLog stuck at `running` forever -- that ghost drives /status.current_run
+    and the site polls it endlessly. Boot must sweep it to `failed` so the UI
+    stops chasing a run that is never coming back."""
+    import datetime as dt
+
+    from fastapi.testclient import TestClient
+    from sqlalchemy import select
+
+    from src.api import app
+    from src.storage.db import session_scope
+    from src.storage.models import RunLog
+
+    # A run left mid-flight by a process that is now gone.
+    with session_scope() as s:
+        s.add(RunLog(run_id="ghost-1", as_of_date=dt.date(2025, 6, 2),
+                     status="running"))
+
+    def _ghost_status() -> str:
+        with session_scope() as s:
+            return s.execute(
+                select(RunLog).where(RunLog.run_id == "ghost-1")
+            ).scalar_one().status
+
+    # _boot runs as a background task (so serving isn't blocked on the DB), so the
+    # sweep lands slightly after startup. Pump the loop with requests until it does.
+    with TestClient(app) as c:
+        swept = False
+        for _ in range(50):
+            c.get("/health")
+            if _ghost_status() == "failed":
+                swept = True
+                break
+        assert swept, "orphaned 'running' run was not swept to 'failed' at boot"
+
+    with session_scope() as s:
+        row = s.execute(
+            select(RunLog).where(RunLog.run_id == "ghost-1")
+        ).scalar_one()
+        assert row.status == "failed"
+        assert row.error and "restart" in row.error
+        assert row.finished_at is not None
+    # And the ghost no longer drives the live-progress view.
+    with TestClient(app) as c:
+        assert c.get("/status").json()["current_run"] is None

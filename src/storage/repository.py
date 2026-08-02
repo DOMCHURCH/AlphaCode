@@ -318,6 +318,25 @@ def stage_progress(session: Session, run_id: str) -> list[dict[str, Any]]:
     ]
 
 
+def mark_orphaned_runs_failed(session: Session) -> int:
+    """Fail any run still marked `running` -- the process that ran it is gone.
+
+    A run executes in-process; a container restart (redeploy or OOM) kills it
+    without calling finish_run, leaving RunLog stuck at "running" forever. That
+    ghost then shows up in /status.current_run and the site polls it endlessly.
+    Called once at startup (single-service: any live run would be in THIS
+    process, so anything "running" at boot is orphaned).
+    """
+    orphans = session.execute(
+        select(RunLog).where(RunLog.status == "running")
+    ).scalars().all()
+    for r in orphans:
+        r.status = "failed"
+        r.error = (r.error or "interrupted by a process restart (redeploy or OOM)")[:2000]
+        r.finished_at = dt.datetime.now(dt.UTC)
+    return len(orphans)
+
+
 def max_checkpoint_stage(session: Session, run_id: str) -> int:
     """Highest stage with a saved checkpoint for this run, or 0 if none.
 
