@@ -819,7 +819,7 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
             coverage["join_rate"] = sym.get("join_rate_vs_sec")
         adj = rc.get("adjustment") or {}
         summary = adj.get("summary") or {}
-        checked = adj.get("checked", 0)
+        checked = adj.get("tested_with_known_splits", adj.get("checked", 0))
         overall = (
             "unadjusted" if summary.get("unadjusted") else
             "adjusted" if (summary.get("adjusted") and not summary.get("inconclusive")) else
@@ -827,7 +827,12 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
         )
         adjustment = {
             "status": overall, "checked": checked, "summary": summary,
-            "verdicts": adj.get("verdicts") or {}, "note": adj.get("note"),
+            "verdicts": adj.get("verdicts") or {},
+            "details": adj.get("details") or {},
+            "unadjusted_names": adj.get("unadjusted_names") or [],
+            "control": adj.get("control") or {},
+            "splits_source": adj.get("splits_source"),
+            "note": adj.get("note"),
         }
         if rc.get("sec_error"):
             errors["sec"] = str(rc["sec_error"])[:200]

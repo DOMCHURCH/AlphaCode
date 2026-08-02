@@ -69,6 +69,12 @@ function row(k, v, sub) {
     `<div class="v">${v}</div></div>`;
 }
 function pill(text, kind) { return `<span class="pill ${kind}">${esc(text)}</span>`; }
+// A stacked label/value block for values too long to sit beside a label on a
+// phone (e.g. the "X adj · Y un · Z incon" count lines).
+function statline(k, v, sub) {
+  return `<div class="statrow"><div class="k">${esc(k)}</div><div class="vwide">${esc(v)}</div>` +
+    (sub ? `<div class="sub">${esc(sub)}</div>` : "") + `</div>`;
+}
 
 function renderHealth(h) {
   if (h.error) {
@@ -79,23 +85,28 @@ function renderHealth(h) {
     hist = h.history || {}, adj = h.adjustment || {};
   let out = "";
 
-  // Adjustment — the dangerous one, first and loud.
+  // Adjustment — the dangerous one, first and loud. Split-targeted: the
+  // denominator is names that ACTUALLY split, not a random draw.
   const sm = adj.summary || {};
+  const src = adj.splits_source ? ` · via ${adj.splits_source}` : "";
   if (adj.status === "unadjusted") {
     out += row("Price adjustment", pill("unadjusted", "bad"),
-      "Splits read as crashes and split names look deleted — every momentum factor is wrong.");
-    const bad = Object.entries(adj.verdicts || {}).filter(([, v]) => v === "unadjusted").map(([t]) => t);
-    if (bad.length) out += row("Unadjusted names", esc(bad.slice(0, 8).join(", ")));
+      "Splits read as crashes and split names look deleted — those names' momentum is wrong.");
   } else if (adj.status === "adjusted") {
-    out += row("Price adjustment", pill("adjusted", "ok"),
-      `checked ${sm.adjusted || 0} names across known splits`);
+    out += row("Price adjustment", pill("adjusted", "ok"), `${adj.checked || 0} split names tested${src}`);
   } else if (adj.status === "inconclusive") {
-    out += row("Price adjustment", pill("inconclusive", "warn"), "no clean split in the sampled window");
+    out += row("Price adjustment", pill("inconclusive", "warn"), `${adj.checked || 0} tested — no clean signal${src}`);
   } else {
-    out += row("Price adjustment", pill("not checked", "mute"), "tap “Check now” to verify against real splits");
+    out += row("Price adjustment", pill("not checked", "mute"), "tap “Check now” — samples names that actually split");
   }
-  if (sm.adjusted || sm.unadjusted || sm.inconclusive)
-    out += row("Adjustment sample", `${sm.adjusted || 0} adj · ${sm.unadjusted || 0} un · ${sm.inconclusive || 0} incon`);
+  const counts = (x) => `${x.adjusted || 0} adj · ${x.unadjusted || 0} un · ${x.inconclusive || 0} incon · ${x.no_data || 0} n/a`;
+  if (adj.checked)
+    out += statline(`Split-targeted (${adj.checked})`, counts(sm),
+      "names with a known split in the window — this is the real rate");
+  const cs = (adj.control && adj.control.summary) || {};
+  if (adj.control && adj.control.tested)
+    out += statline(`Random control (${adj.control.tested})`, counts(cs),
+      "random names rarely split in-window — inconclusive here is expected, not a problem");
 
   // Backfill source.
   const avail = (bf.sources_available || []).join(", ") || "—";
@@ -133,6 +144,23 @@ function renderHealth(h) {
 
   if (h.reconcile_checked_at)
     out += row("Data checked", esc(new Date(h.reconcile_checked_at).toLocaleString()));
+
+  // Per-split detail for the unadjusted names (AERT first) — the numbers to
+  // judge whether it's a genuine gap or a reverse-split detector artifact.
+  const details = adj.details || {};
+  const unadj = adj.unadjusted_names || [];
+  let det = "";
+  for (const t of unadj) {
+    for (const d of details[t] || []) {
+      const jump = d.price_before != null
+        ? `${d.price_before} → ${d.price_after} = ${d.observed_ratio}× · unadj expects ${d.expected_if_unadjusted}×, adj 1×`
+        : "";
+      det += `<div class="stage fail"><div class="st-name">${esc(t)} — ${esc(d.kind)} split ${esc(d.ratio)} on ${esc(d.ex_date)}</div>` +
+        (jump ? `<div class="st-nums">${esc(jump)}</div>` : "") +
+        `<div class="st-err">${esc(d.reasoning)}</div></div>`;
+    }
+  }
+  if (det) out += `<div class="detail-head">Unadjusted — split detail</div>${det}`;
 
   $("health").innerHTML = out;
 }
@@ -223,11 +251,25 @@ function buildCopyText(d) {
   } else {
     const bf = h.backfill || {}, cov = h.coverage || {}, rec = h.recency || {},
       hist = h.history || {}, adj = h.adjustment || {}, sm = adj.summary || {};
-    push(`  Price adjustment: ${adj.status || "unchecked"}` +
-      (sm.adjusted || sm.unadjusted || sm.inconclusive
-        ? ` (adj ${sm.adjusted || 0}, unadj ${sm.unadjusted || 0}, incon ${sm.inconclusive || 0})` : ""));
-    const bad = Object.entries(adj.verdicts || {}).filter(([, x]) => x === "unadjusted").map(([t]) => t);
+    push(`  Price adjustment: ${adj.status || "unchecked"} (split-targeted` +
+      (adj.splits_source ? `, via ${adj.splits_source}` : "") + ")");
+    if (adj.checked)
+      push(`    tested ${adj.checked}: adj ${sm.adjusted || 0}, unadj ${sm.unadjusted || 0}, ` +
+        `incon ${sm.inconclusive || 0}, no-data ${sm.no_data || 0}`);
+    const cs = (adj.control && adj.control.summary) || {};
+    if (adj.control && adj.control.tested)
+      push(`    control ${adj.control.tested} (random): adj ${cs.adjusted || 0}, unadj ${cs.unadjusted || 0}, ` +
+        `incon ${cs.inconclusive || 0}, no-data ${cs.no_data || 0}`);
+    const bad = adj.unadjusted_names || [];
     if (bad.length) push("    unadjusted: " + bad.join(", "));
+    for (const t of bad) {
+      for (const d of (adj.details || {})[t] || []) {
+        const jump = d.price_before != null
+          ? `${d.price_before}→${d.price_after} = ${d.observed_ratio}x (unadj expects ${d.expected_if_unadjusted}x, adj 1x)` : "";
+        push(`      ${t} ${d.kind} ${d.ratio} on ${d.ex_date}: ${jump}`);
+        push(`        ${d.reasoning}`);
+      }
+    }
     push(`  Backfill source: ${bf.source || "—"} [${bf.phase || "idle"}] available: ${(bf.sources_available || []).join(", ") || "—"}`);
     if (bf.last_error) push("    error: " + bf.last_error);
     push(`  Polygon tier: ${bf.polygon_tier || "—"}`);

@@ -135,9 +135,15 @@ class APIClient:
         if resp.status_code >= 500:
             raise TransientAPIError(f"{self.source} {resp.status_code}")
         if resp.status_code == 403:
-            # SEC returns 403 when the User-Agent header is missing or bad.
+            # SEC returns 403 on a missing/bad User-Agent; Polygon returns 403 with
+            # a body that distinguishes an unactivated/misconfigured key ("Unknown
+            # API Key") from a plan/tier limit ("NOT_AUTHORIZED ... not entitled").
+            # Include the body verbatim so the caller can tell which -- error bodies
+            # from these APIs never echo the key.
+            body = (resp.text or "").strip().replace("\n", " ")[:300]
             raise PermanentAPIError(
                 f"{self.source} 403 forbidden -- check API key / User-Agent"
+                + (f" | body: {body}" if body else "")
             )
         if resp.status_code >= 400:
             raise PermanentAPIError(

@@ -81,6 +81,42 @@ async def fetch_batch_eod(date: dt.date) -> list[dict[str, Any]]:
     return out
 
 
+async def fetch_stock_splits(
+    start: dt.date, end: dt.date
+) -> list[dict[str, Any]]:
+    """Every split across the market in [start, end] -- ONE call.
+
+    `/api/v3/stock_split_calendar`. Returns {ticker, date, ratio} where ratio is
+    new-shares-per-old (>1 forward, <1 reverse) -- the same convention Yahoo and
+    the split-adjustment detector use. This is the bulk source that lets the
+    reconciler SAMPLE NAMES THAT ACTUALLY SPLIT instead of scanning the whole
+    universe hoping to land on one. A plan without it raises PermanentAPIError,
+    which the caller catches to fall back.
+    """
+    async with _client() as c:
+        data = await c.get_json(
+            "/api/v3/stock_split_calendar",
+            params=_auth({"from": start.isoformat(), "to": end.isoformat()}),
+            cache_ttl=12 * 3600,
+        )
+    out: list[dict[str, Any]] = []
+    for r in data or []:
+        sym = r.get("symbol") or r.get("ticker")
+        d = _parse_date(r.get("date"))
+        num = _as_float(r.get("numerator"))
+        den = _as_float(r.get("denominator"))
+        if not sym or not d:
+            continue
+        ratio = None
+        if num and den and den != 0:
+            ratio = num / den  # e.g. 4/1 = 4 (forward), 1/10 = 0.1 (reverse)
+        if ratio is None or ratio <= 0 or ratio == 1.0:
+            continue
+        out.append({"ticker": str(sym).upper(), "date": d, "ratio": ratio})
+    log.info("fmp_stock_splits", start=str(start), end=str(end), rows=len(out))
+    return out
+
+
 async def fetch_screener(
     *,
     exchanges: Iterable[str] = ("NYSE", "NASDAQ", "AMEX"),
