@@ -21,6 +21,7 @@ import datetime as dt
 from typing import Any
 
 import structlog
+from sqlalchemy import select
 
 from src.config.settings import get_settings
 from src.ingest import polygon, sec_edgar, yahoo
@@ -28,6 +29,7 @@ from src.ingest.base import gather_bounded
 from src.logging_config import configure_logging
 from src.storage import repository
 from src.storage.db import init_db, session_scope
+from src.storage.models import DailyBar
 from src.storage.pit import get_universe
 
 log = structlog.get_logger(__name__)
@@ -100,49 +102,68 @@ async def _backfill_bars_polygon(days: int, end: dt.date) -> int:
     """
     timeout = get_settings().polygon_fetch_timeout
     _update_state(source="polygon", unit="sessions", units_total=days)
+
+    # Skip days already in the store. A re-run/resume otherwise walks backward
+    # from today and re-downloads every loaded day before it can add a new one,
+    # so bar_dates sits frozen (e.g. at 202) while rate-limited calls are spent
+    # re-fetching history we already have. Loading the existing date set once
+    # lets us jump straight to the missing days.
+    with session_scope() as session:
+        existing: set[dt.date] = set(
+            session.execute(select(DailyBar.date).distinct()).scalars().all()
+        )
+
     total = 0
     day = end
-    fetched_sessions = 0
+    covered = 0          # sessions we have data for (skipped-existing + fetched)
+    fetched_sessions = 0  # sessions actually downloaded this run
     calendar_days = 0
 
-    while fetched_sessions < days and calendar_days < days * 2:
+    while covered < days and calendar_days < days * 2:
         calendar_days += 1
         if day.weekday() < 5:
-            try:
-                rows = await asyncio.wait_for(
-                    polygon.fetch_grouped_daily(day), timeout=timeout
-                )
-            except TimeoutError:
-                log.warning("backfill_day_timeout", date=str(day), timeout=timeout)
-                _update_state(last_error=f"grouped-daily {day} timed out after {timeout:.0f}s")
-                rows = []
-            except Exception as exc:  # noqa: BLE001 - one bad day is survivable
-                log.warning("backfill_day_failed", date=str(day), error=str(exc)[:200])
-                _update_state(last_error=f"{day}: {str(exc)[:200]}")
-                rows = []
-            if rows:
-                with session_scope() as session:
-                    repository.save_bars(session, rows)
-                total += len(rows)
-                fetched_sessions += 1
-                if fetched_sessions % 25 == 0:
-                    log.info(
-                        "backfill_progress", sessions=fetched_sessions,
-                        rows=total, at=str(day),
+            if day in existing:
+                covered += 1  # already stored -- no API call
+            else:
+                try:
+                    rows = await asyncio.wait_for(
+                        polygon.fetch_grouped_daily(day), timeout=timeout
                     )
-            # Publish progress every iteration (even skipped days) so the loader
-            # can see last_progress_at advancing and knows the loop is alive.
-            _update_state(units_done=fetched_sessions, rows=total)
+                except TimeoutError:
+                    log.warning("backfill_day_timeout", date=str(day), timeout=timeout)
+                    _update_state(last_error=f"grouped-daily {day} timed out after {timeout:.0f}s")
+                    rows = []
+                except Exception as exc:  # noqa: BLE001 - one bad day is survivable
+                    log.warning("backfill_day_failed", date=str(day), error=str(exc)[:200])
+                    _update_state(last_error=f"{day}: {str(exc)[:200]}")
+                    rows = []
+                if rows:
+                    with session_scope() as session:
+                        repository.save_bars(session, rows)
+                    total += len(rows)
+                    fetched_sessions += 1
+                    covered += 1
+                    existing.add(day)
+                    if fetched_sessions % 25 == 0:
+                        log.info(
+                            "backfill_progress", sessions=fetched_sessions,
+                            rows=total, at=str(day),
+                        )
+            # Publish progress every iteration so the loader sees last_progress_at
+            # advancing (and, once past the loaded days, units_done climbing).
+            _update_state(units_done=covered, rows=total)
         day -= dt.timedelta(days=1)
 
-    if fetched_sessions == 0:
+    if covered == 0:
         _update_state(
             phase="error",
             last_error=_BACKFILL_STATE["last_error"] or "Polygon returned no bars",
         )
     else:
         _update_state(phase="done")
-    log.info("backfill_bars_complete", sessions=fetched_sessions, rows=total)
+    log.info(
+        "backfill_bars_complete", sessions=covered, fetched=fetched_sessions, rows=total
+    )
     return total
 
 
