@@ -183,6 +183,44 @@ def get_sector_map(session: Session) -> dict[str, dict[str, Any]]:
     return {t: {"sector": s, "sector_source": src} for t, s, src in rows}
 
 
+def sector_map_stats(session: Session, sample: int = 8) -> dict[str, Any]:
+    """Sector-map coverage + a sample of raw SIC -> GICS mappings, for
+    /diagnostics -- so 'sector coverage is 0' is answerable without a shell:
+    is the map empty (backfill not run), or populated but unmapped (SIC->GICS
+    gap)?"""
+    from sqlalchemy import func
+
+    total = session.execute(
+        select(func.count()).select_from(SectorMap)
+    ).scalar_one()
+    mapped = session.execute(
+        select(func.count()).select_from(SectorMap).where(SectorMap.sector.isnot(None))
+    ).scalar_one()
+    rows = session.execute(
+        select(
+            SectorMap.ticker, SectorMap.sic, SectorMap.sic_description, SectorMap.sector
+        ).where(SectorMap.sector.isnot(None)).limit(sample)
+    ).all()
+    unmapped_rows = session.execute(
+        select(SectorMap.ticker, SectorMap.sic, SectorMap.sic_description)
+        .where(SectorMap.sector.is_(None)).limit(sample)
+    ).all()
+    return {
+        "total": total,
+        "mapped": mapped,
+        "unmapped": total - mapped,
+        "mapped_ratio": round(mapped / total, 3) if total else 0.0,
+        "sample_mapped": [
+            {"ticker": t, "sic": sic, "desc": desc, "sector": sec}
+            for t, sic, desc, sec in rows
+        ],
+        "sample_unmapped": [
+            {"ticker": t, "sic": sic, "desc": desc}
+            for t, sic, desc in unmapped_rows
+        ],
+    }
+
+
 def sector_map_ciks(session: Session) -> set[str]:
     """CIKs already mapped, so a sector backfill can skip them (pull once)."""
     rows = session.execute(

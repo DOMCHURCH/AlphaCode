@@ -112,6 +112,28 @@ def _check_drop(name: str, entry: int, exit_: int, warnings: list[str]) -> None:
         )
 
 
+def _completeness_gate(comp, threshold: float) -> float:
+    """Abort if mean per-name factor completeness is below `threshold`.
+
+    A ranking scored on mostly-missing factors is not defensible. The error names
+    WHICH factors are empty (e.g. revisions with no FINNHUB key, fundamentals that
+    didn't join) so the operator fixes the data instead of the number. Returns the
+    mean completeness when it passes.
+    """
+    mean_comp = float(comp.scores["data_completeness"].mean())
+    if mean_comp < threshold:
+        cov = comp.factor_coverage or {}
+        empty = sorted(f for f, c in cov.items() if c < 0.05)
+        thin = ", ".join(f"{f}={c:.0%}" for f, c in sorted(cov.items()))
+        raise DataQualityError(
+            f"Stage 2 mean factor completeness {mean_comp:.1%} < {threshold:.0%} "
+            f"floor -- the ranking would rest on mostly-missing data. Empty factors: "
+            f"{', '.join(empty) or 'none'}. Per-factor coverage: {thin}. Fix the data "
+            f"(keys/joins) before shipping a ranking; not tuning the floor down."
+        )
+    return mean_comp
+
+
 def _check_stage_writes(stage_name: str) -> dict[str, dict[str, int]]:
     """Log rows_written vs rows_attempted for the stage, and abort if a table was
     tried in bulk but wrote nothing.
@@ -293,6 +315,10 @@ async def run_pipeline(
                     api_calls=0, payload={"selected": comp.selected},
                 )
             _check_drop("2 factors", len(tr.survivors), len(comp.selected), warnings)
+
+            # Completeness gate: a composite built on mostly-NaN factors is not a
+            # defensible ranking. Abort (don't ship) with the per-factor coverage.
+            _completeness_gate(comp, s.min_mean_completeness)
 
             # ---------------- macro regime -------------------------------
             macro = await load_macro_state(session, as_of)

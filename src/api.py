@@ -809,6 +809,10 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
     coverage: dict[str, Any] = {
         "tickers_loaded": tickers, "min_for_valid_run": s.min_universe_size,
     }
+    try:
+        sector_map = repository.sector_map_stats(session)
+    except Exception as exc:  # noqa: BLE001 - diagnostics must not crash on this
+        sector_map = {"error": str(exc)[:200]}
     adjustment: dict[str, Any] = {"status": "unchecked"}
     rc = _RECONCILE_CACHE["data"]
     if rc:
@@ -859,6 +863,7 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
             "pct": round(100 * min(1.0, bar_dates / required)) if required else 0,
         },
         "adjustment": adjustment,
+        "sector_map": sector_map,
         "price_bars": price_bars,
         "reconcile_checked_at": _RECONCILE_CACHE["at"],
         "errors": errors,

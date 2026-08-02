@@ -9,7 +9,7 @@ knows how to assemble the raw factor frame and run the z-score/composite math.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
@@ -37,6 +37,7 @@ class CompositeResult:
     raw: pd.DataFrame  # raw factor values, for the report appendix
     z: pd.DataFrame  # sector-neutral z-scores
     selected: list[str]
+    factor_coverage: dict[str, float] = field(default_factory=dict)
 
 
 def assemble_raw_factors(
@@ -184,11 +185,21 @@ def run_stage2(
     )
     result = score_composite(raw)
     result.selected = list(result.scores.head(take).index)
+    # Per-factor coverage: fraction of the Stage-1 survivors with a REAL value
+    # (not NaN) for each factor. A factor at ~0 contributes nothing and its
+    # category weight is dead -- the thing that produces a low mean_completeness.
+    n = max(1, len(raw))
+    factor_cov = {
+        f: round(float(raw[f].notna().sum()) / n, 3) if f in raw.columns else 0.0
+        for f in ALL_FACTORS
+    }
+    result.factor_coverage = factor_cov
     log.info(
         "stage2_complete",
         entry=len(trend_features),
         exit=len(result.selected),
         mean_completeness=float(result.scores["data_completeness"].mean()),
+        factor_coverage=factor_cov,
     )
     return result
 

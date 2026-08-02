@@ -192,6 +192,23 @@ async def build_universe(
     # sector-neutral instead of universe-neutral. Names not yet mapped keep a
     # null sector (honest) until the sector backfill reaches them.
     sector_by_ticker = repository.get_sector_map(session)
+    # Surface the sector-map state loudly: an EMPTY map here means every name will
+    # be sector-unknown and Stage 2 loses sector-neutrality entirely. That happens
+    # when the SIC sector backfill has not finished before the funnel runs -- the
+    # fix is to run /backfill?sectors=true to completion first, not to proceed.
+    _mapped = sum(1 for m in sector_by_ticker.values() if m.get("sector"))
+    if not sector_by_ticker:
+        log.warning(
+            "sector_map_empty",
+            note="SectorMap has 0 rows -- run the SIC sector backfill "
+            "(/backfill?sectors=true) to completion BEFORE the funnel, or every "
+            "name is sector-unknown and Stage 2 is not sector-neutral",
+        )
+    else:
+        log.info(
+            "sector_map_loaded", cached=len(sector_by_ticker), mapped=_mapped,
+            unmapped=len(sector_by_ticker) - _mapped,
+        )
     screener = [
         {
             "ticker": t, "market_cap": np.nan, "sector": m.get("sector"),
@@ -292,10 +309,13 @@ def build_universe_from_frames(
     df.loc[~has_sector, "sector_source"] = "unknown"
     df.loc[~has_sector, "sector"] = None
 
-    # Cast to bool explicitly: an all-None `active` column merges as object dtype,
-    # and .fillna on object dtype is deprecated to silently downcast (FutureWarning).
+    # An all-None `active` column merges as object dtype, and `.fillna` on object
+    # dtype is deprecated to silently downcast (FutureWarning fires INSIDE fillna,
+    # so a trailing .astype doesn't suppress it). Go through the nullable boolean
+    # dtype, which fills and converts without the warning. A missing `active` means
+    # "not known to be delisted" -> keep it.
     active = df.get("active", pd.Series(True, index=df.index))
-    df["delisted"] = ~active.fillna(True).astype(bool)
+    df["delisted"] = ~active.astype("boolean").fillna(True).to_numpy(dtype=bool)
 
     # 20-day ADV from stored history; fall back to today's dollar volume if the
     # backfill has not run yet.

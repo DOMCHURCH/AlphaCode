@@ -117,6 +117,23 @@ function renderHealth(h) {
   if (bf.last_error) out += row("Backfill error", `<span style="color:var(--red)">${esc(bf.last_error)}</span>`);
   out += row("Polygon tier", esc(bf.polygon_tier || "—"));
 
+  // Sector map — the "why is sector coverage 0" answer.
+  const sm2 = h.sector_map || {};
+  if (sm2.error) {
+    out += row("Sector map", `<span style="color:var(--red)">${esc(sm2.error)}</span>`);
+  } else if ((sm2.total || 0) === 0) {
+    out += row("Sector map", pill("empty", "bad"),
+      "SIC backfill has not run — every name is sector-unknown, Stage 2 loses sector-neutrality");
+  } else {
+    const ratio = sm2.mapped_ratio != null ? `${(sm2.mapped_ratio * 100).toFixed(0)}%` : "—";
+    const kind = sm2.mapped_ratio >= 0.6 ? "ok" : sm2.mapped_ratio > 0 ? "warn" : "bad";
+    out += statline(`Sector map (${fmtNum(sm2.total)} cached)`,
+      `${fmtNum(sm2.mapped)} mapped · ${fmtNum(sm2.unmapped)} unmapped · ${pill(ratio, kind)}`);
+    const ex = (sm2.sample_mapped || []).slice(0, 5)
+      .map((r) => `${esc(r.ticker)} SIC ${esc(r.sic)}→${esc(r.sector)}`).join(" · ");
+    if (ex) out += `<div class="sub" style="padding:0 2px 10px;border-bottom:1px solid rgba(22,19,16,.18)">${ex}</div>`;
+  }
+
   // Coverage.
   out += row("Tickers loaded", fmtNum(cov.tickers_loaded),
     `min for a valid run: ${fmtNum(cov.min_for_valid_run)}`);
@@ -274,6 +291,13 @@ function buildCopyText(d) {
     if (bf.last_error) push("    error: " + bf.last_error);
     push(`  Polygon tier: ${bf.polygon_tier || "—"}`);
     push(`  Tickers loaded: ${fmtNum(cov.tickers_loaded)} (min ${fmtNum(cov.min_for_valid_run)})`);
+    const sm2 = h.sector_map || {};
+    if (sm2.error) push(`  Sector map: ERROR ${sm2.error}`);
+    else if ((sm2.total || 0) === 0) push("  Sector map: EMPTY (SIC backfill not run)");
+    else {
+      push(`  Sector map: ${fmtNum(sm2.mapped)}/${fmtNum(sm2.total)} mapped (${((sm2.mapped_ratio || 0) * 100).toFixed(0)}%)`);
+      for (const r of (sm2.sample_mapped || []).slice(0, 5)) push(`    ${r.ticker} SIC ${r.sic} (${r.desc || ""}) -> ${r.sector}`);
+    }
     if (cov.sec_universe != null) push(`  Vs SEC: ${fmtNum(cov.joined_with_sec)}/${fmtNum(cov.sec_universe)} (${cov.join_rate != null ? (cov.join_rate * 100).toFixed(1) + "%" : "—"})`);
     push(`  Latest bar: ${rec.latest_bar_date || "—"} (${rec.staleness_days == null ? "?" : rec.staleness_days + "d"} stale)`);
     push(`  Trading days: ${fmtNum(hist.loaded)}/${fmtNum(hist.required)} (${hist.pct || 0}%)`);

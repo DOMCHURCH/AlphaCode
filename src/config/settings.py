@@ -80,6 +80,14 @@ class Settings(BaseSettings):
     # run is BLOCKED and the shortfall surfaced -- never run degraded to succeed.
     min_history_days: int = Field(default=252, alias="MIN_HISTORY_DAYS")
 
+    # Stage 2 aborts if mean per-name factor completeness falls below this. A
+    # composite scored on mostly-NaN factors (e.g. no estimate revisions without a
+    # FINNHUB key, or fundamentals that didn't join) is not a defensible ranking --
+    # better to fail loudly and fix the data than ship a score built on ~16%.
+    min_mean_completeness: float = Field(
+        default=0.4, alias="MIN_MEAN_COMPLETENESS"
+    )
+
     # Free-data mode (no POLYGON_API_KEY): bars come from the Stooq bulk archive
     # (one download, whole market). Cap how many tickers to keep (0 = all; the
     # price/ADV filters trim illiquid ones anyway). Lower it to make the first
