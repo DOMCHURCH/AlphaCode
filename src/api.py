@@ -813,6 +813,10 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
         sector_map = repository.sector_map_stats(session)
     except Exception as exc:  # noqa: BLE001 - diagnostics must not crash on this
         sector_map = {"error": str(exc)[:200]}
+    try:
+        fundamentals = repository.fundamentals_stats(session)
+    except Exception as exc:  # noqa: BLE001
+        fundamentals = {"error": str(exc)[:200]}
     adjustment: dict[str, Any] = {"status": "unchecked"}
     rc = _RECONCILE_CACHE["data"]
     if rc:
@@ -864,6 +868,7 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
         },
         "adjustment": adjustment,
         "sector_map": sector_map,
+        "fundamentals": fundamentals,
         "price_bars": price_bars,
         "reconcile_checked_at": _RECONCILE_CACHE["at"],
         "errors": errors,

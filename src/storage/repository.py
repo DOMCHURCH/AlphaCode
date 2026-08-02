@@ -221,6 +221,51 @@ def sector_map_stats(session: Session, sample: int = 8) -> dict[str, Any]:
     }
 
 
+def fundamentals_stats(session: Session) -> dict[str, Any]:
+    """Fundamentals coverage for /diagnostics -- answers 'the fundamentals table
+    is empty' with numbers: row count, distinct tickers, latest filing, and how
+    many of the current universe have at least one record."""
+    from sqlalchemy import func
+
+    rows = session.execute(
+        select(func.count()).select_from(Fundamental)
+    ).scalar_one()
+    distinct = session.execute(
+        select(func.count(func.distinct(Fundamental.ticker)))
+    ).scalar_one()
+    latest = session.execute(
+        select(func.max(Fundamental.filing_date))
+    ).scalar_one_or_none()
+
+    latest_uni = session.execute(
+        select(func.max(UniverseSnapshot.as_of_date))
+    ).scalar_one_or_none()
+    uni_total = 0
+    uni_with = 0
+    if latest_uni is not None:
+        uni_tickers = set(
+            session.execute(
+                select(UniverseSnapshot.ticker).where(
+                    UniverseSnapshot.as_of_date == latest_uni
+                )
+            ).scalars().all()
+        )
+        uni_total = len(uni_tickers)
+        if uni_tickers and rows:
+            fund_tickers = set(
+                session.execute(select(func.distinct(Fundamental.ticker))).scalars().all()
+            )
+            uni_with = len(uni_tickers & fund_tickers)
+    return {
+        "rows": rows,
+        "distinct_tickers": distinct,
+        "latest_filing_date": latest.isoformat() if latest else None,
+        "universe_total": uni_total,
+        "universe_with_fundamentals": uni_with,
+        "universe_coverage": round(uni_with / uni_total, 3) if uni_total else 0.0,
+    }
+
+
 def sector_map_ciks(session: Session) -> set[str]:
     """CIKs already mapped, so a sector backfill can skip them (pull once)."""
     rows = session.execute(

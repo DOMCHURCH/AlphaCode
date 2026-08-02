@@ -163,41 +163,58 @@ def residual_momentum(
     Cleaner signal than raw momentum and much less crowded, because it strips
     out the part of the move that is just "this sector went up".
 
-    Implemented as a vectorised OLS per ticker on a two-factor design matrix.
+    Vectorised: tickers in the SAME sector share the design matrix
+    [1, market, sector_return], so ONE least-squares solve handles every ticker
+    in that sector at once (Y is a matrix, not a vector). This turns ~5,000
+    per-ticker `lstsq` calls into ~11 (one per sector) -- the whole of Stage 1's
+    runtime. Sector-less names regress on [1, market] only.
     """
     rets = daily_returns(panel).tail(lookback)
     if rets.empty or len(rets) < 60:
         return pd.Series(np.nan, index=panel.columns)
 
-    mkt = market.reindex(rets.index).astype(float)
+    mkt = market.reindex(rets.index).astype(float).to_numpy(dtype=float)
     sector_rets = _sector_return_matrix(rets, sectors)
+    sec_of = sectors.reindex(rets.columns)
+    n_days = len(rets)
+    ones = np.ones(n_days, dtype=float)
 
-    out: dict[str, float] = {}
-    mkt_v = mkt.to_numpy(dtype=float)
-    for ticker in rets.columns:
-        y = rets[ticker].to_numpy(dtype=float)
-        sec_name = sectors.get(ticker)
-        sec_v = (
-            sector_rets[sec_name].to_numpy(dtype=float)
-            if sec_name in sector_rets.columns
-            else np.zeros_like(mkt_v)
-        )
-        X = np.column_stack([np.ones_like(mkt_v), mkt_v, sec_v])
-        mask = np.isfinite(y) & np.isfinite(X).all(axis=1)
-        if mask.sum() < 60:
-            out[ticker] = np.nan
+    out = pd.Series(np.nan, index=rets.columns, dtype=float)
+    # Group by sector (NaN-sector names batched together, regressed on market
+    # only) so each group is a single matrix solve.
+    grouped = sec_of.fillna("__nosec__")
+    for sec, cols_idx in grouped.groupby(grouped).groups.items():
+        cols = [c for c in cols_idx if c in rets.columns]
+        if not cols:
             continue
+        if sec != "__nosec__" and sec in sector_rets.columns:
+            X = np.column_stack([ones, mkt, sector_rets[sec].to_numpy(dtype=float)])
+        else:  # sector-less (or a sector with no return series): market only
+            X = np.column_stack([ones, mkt])
+        row_ok = np.isfinite(X).all(axis=1)
+        if int(row_ok.sum()) < 60:
+            continue
+        Xf = X[row_ok]
+        Y = rets[cols].to_numpy(dtype=float)[row_ok]  # [Tf, n]
+        finite_per_col = np.isfinite(Y).sum(axis=0)
+        # Fill missing days with 0 (a neutral daily return) so the batched solve is
+        # well-posed; the residual on a filled day is then ~0 and columns with too
+        # few real days are set NaN below.
+        Yf = np.nan_to_num(Y, nan=0.0)
         try:
-            beta, *_ = np.linalg.lstsq(X[mask], y[mask], rcond=None)
+            beta, *_ = np.linalg.lstsq(Xf, Yf, rcond=None)  # [k, n]
         except np.linalg.LinAlgError:
-            out[ticker] = np.nan
             continue
-        resid = y[mask] - X[mask] @ beta
-        # Skip the most recent month of residuals, same logic as 12-1.
-        if len(resid) > skip:
+        resid = Yf - Xf @ beta  # [Tf, n]
+        if resid.shape[0] > skip:  # drop the most recent month, same as 12-1
             resid = resid[:-skip]
-        out[ticker] = float(np.expm1(np.log1p(resid).sum())) if len(resid) else np.nan
-    return pd.Series(out)
+        # Cumulative abnormal (residual) return = SUM of residuals. Summing rather
+        # than prod(1+r)-1 avoids log1p's domain error on residuals below -1 (which
+        # are regression residuals, not real returns); for the small residuals here
+        # the two are numerically ~equal, and the factor is z-scored anyway.
+        val = np.where(finite_per_col >= 60, resid.sum(axis=0), np.nan)
+        out.loc[cols] = val
+    return out.reindex(panel.columns)
 
 
 def _sector_return_matrix(rets: pd.DataFrame, sectors: pd.Series) -> pd.DataFrame:

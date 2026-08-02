@@ -134,6 +134,21 @@ function renderHealth(h) {
     if (ex) out += `<div class="sub" style="padding:0 2px 10px;border-bottom:1px solid rgba(22,19,16,.18)">${ex}</div>`;
   }
 
+  // Fundamentals — is the table empty (backfill not run) or thin?
+  const fu = h.fundamentals || {};
+  if (fu.error) {
+    out += row("Fundamentals", `<span style="color:var(--red)">${esc(fu.error)}</span>`);
+  } else if ((fu.rows || 0) === 0) {
+    out += row("Fundamentals", pill("empty", "bad"),
+      "SEC XBRL backfill has not populated the table — quality/value/pead factors are all 0%");
+  } else {
+    const uc = fu.universe_coverage != null ? `${(fu.universe_coverage * 100).toFixed(0)}%` : "—";
+    const kind = fu.universe_coverage >= 0.6 ? "ok" : fu.universe_coverage > 0 ? "warn" : "bad";
+    out += statline(`Fundamentals (${fmtNum(fu.rows)} rows)`,
+      `${fmtNum(fu.distinct_tickers)} tickers · ${fmtNum(fu.universe_with_fundamentals)}/${fmtNum(fu.universe_total)} of universe · ${pill(uc, kind)}`,
+      `latest filing ${fu.latest_filing_date || "—"}`);
+  }
+
   // Coverage.
   out += row("Tickers loaded", fmtNum(cov.tickers_loaded),
     `min for a valid run: ${fmtNum(cov.min_for_valid_run)}`);
@@ -298,6 +313,10 @@ function buildCopyText(d) {
       push(`  Sector map: ${fmtNum(sm2.mapped)}/${fmtNum(sm2.total)} mapped (${((sm2.mapped_ratio || 0) * 100).toFixed(0)}%)`);
       for (const r of (sm2.sample_mapped || []).slice(0, 5)) push(`    ${r.ticker} SIC ${r.sic} (${r.desc || ""}) -> ${r.sector}`);
     }
+    const fu = h.fundamentals || {};
+    if (fu.error) push(`  Fundamentals: ERROR ${fu.error}`);
+    else if ((fu.rows || 0) === 0) push("  Fundamentals: EMPTY (SEC XBRL backfill not run)");
+    else push(`  Fundamentals: ${fmtNum(fu.rows)} rows, ${fmtNum(fu.distinct_tickers)} tickers, ${fmtNum(fu.universe_with_fundamentals)}/${fmtNum(fu.universe_total)} of universe, latest ${fu.latest_filing_date || "—"}`);
     if (cov.sec_universe != null) push(`  Vs SEC: ${fmtNum(cov.joined_with_sec)}/${fmtNum(cov.sec_universe)} (${cov.join_rate != null ? (cov.join_rate * 100).toFixed(1) + "%" : "—"})`);
     push(`  Latest bar: ${rec.latest_bar_date || "—"} (${rec.staleness_days == null ? "?" : rec.staleness_days + "d"} stale)`);
     push(`  Trading days: ${fmtNum(hist.loaded)}/${fmtNum(hist.required)} (${hist.pct || 0}%)`);

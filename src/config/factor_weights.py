@@ -64,6 +64,27 @@ CATEGORY_FACTORS: dict[str, dict[str, float]] = {
     "value": VALUE_WEIGHTS,
 }
 
+# Provenance of each non-price factor, so the completeness gate can say whether a
+# 0% factor is a DATA-LOADING GAP (free -- SEC XBRL can fill it, run the backfill)
+# or a SPEND DECISION (no free source; permanently 0% without a paid feed). The
+# momentum factors are price-derived and always present, so they are in neither.
+SEC_SUPPLIABLE_FACTORS = frozenset(
+    {
+        # quality + value (from SEC XBRL fundamentals)
+        "gross_profitability", "roic", "accruals", "fcf_yield", "piotroski",
+        "debt_trend", "ev_ebit_inv", "ev_sales_inv", "fcf_price",
+        # pead (from as-reported earnings; needs an EarningsEvent writer, still no
+        # paid feed required)
+        "sue", "pead_window", "earnings_gap",
+    }
+)
+PAID_ONLY_FACTORS = frozenset(
+    {
+        # estimate revisions + analyst signals: no free source (needs Finnhub/paid)
+        "eps_rev_4w", "rev_rev_4w", "up_down_ratio_90d", "reco_trend_delta",
+    }
+)
+
 # Factors where a LOW raw value is the good outcome. Their z-score is flipped.
 NEGATIVE_FACTORS = frozenset(
     {

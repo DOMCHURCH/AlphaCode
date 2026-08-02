@@ -48,6 +48,24 @@ def test_gate_aborts_on_low_completeness_and_names_empty_factors():
     assert "not tuning the floor down" in msg
 
 
+def test_gate_message_splits_free_vs_paid_gaps():
+    """The operator must be able to tell a fixable data gap (SEC XBRL, free) from
+    a spend decision (paid feed) at a glance."""
+    raw = _raw(present=["mom_12_1"])
+    res = score_composite(raw)
+    res.factor_coverage = {
+        "mom_12_1": 1.0,
+        "roic": 0.0, "fcf_yield": 0.0,          # SEC-suppliable, free
+        "eps_rev_4w": 0.0, "reco_trend_delta": 0.0,  # paid only
+    }
+    with pytest.raises(DataQualityError) as ei:
+        _completeness_gate(res, 0.4)
+    msg = str(ei.value)
+    assert "FREE" in msg and "roic" in msg and "fcf_yield" in msg
+    assert "PAID" in msg and "eps_rev_4w" in msg and "reco_trend_delta" in msg
+    assert "fundamentals=true" in msg  # tells them the free fix
+
+
 def test_gate_passes_when_data_is_present():
     raw = _raw(present=ALL_FACTORS)  # every factor has a value
     res = score_composite(raw)

@@ -146,14 +146,28 @@ def _completeness_gate(comp, threshold: float) -> float:
     """
     mean_comp = float(comp.scores["data_completeness"].mean())
     if mean_comp < threshold:
+        from src.config.factor_weights import (
+            PAID_ONLY_FACTORS,
+            SEC_SUPPLIABLE_FACTORS,
+        )
+
         cov = comp.factor_coverage or {}
-        empty = sorted(f for f, c in cov.items() if c < 0.05)
+        empty = {f for f, c in cov.items() if c < 0.05}
+        # Split the empty factors so the operator knows what they're looking at:
+        # a data-loading gap they can fix for free, vs a paid-feed spend decision.
+        sec_gap = sorted(empty & SEC_SUPPLIABLE_FACTORS)
+        paid_gap = sorted(empty & PAID_ONLY_FACTORS)
         thin = ", ".join(f"{f}={c:.0%}" for f, c in sorted(cov.items()))
         raise DataQualityError(
             f"Stage 2 mean factor completeness {mean_comp:.1%} < {threshold:.0%} "
-            f"floor -- the ranking would rest on mostly-missing data. Empty factors: "
-            f"{', '.join(empty) or 'none'}. Per-factor coverage: {thin}. Fix the data "
-            f"(keys/joins) before shipping a ranking; not tuning the floor down."
+            f"floor -- the ranking would rest on mostly-missing data.\n"
+            f"  FREE, fix by loading data (SEC XBRL): {', '.join(sec_gap) or 'none'}. "
+            f"Run /backfill?fundamentals=true (quality+value); pead needs an earnings "
+            f"backfill.\n"
+            f"  PAID, spend decision (no free source, needs Finnhub): "
+            f"{', '.join(paid_gap) or 'none'}.\n"
+            f"  Per-factor coverage: {thin}.\n"
+            f"Fix the data before shipping a ranking; not tuning the floor down."
         )
     return mean_comp
 
