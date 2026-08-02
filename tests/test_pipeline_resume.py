@@ -192,3 +192,43 @@ def test_start_run_is_idempotent_for_resume(file_db):
         assert run.status == "running"
         assert run.error is None
         assert run.finished_at is None
+
+
+def test_run_blocks_on_insufficient_history(file_db):
+    """< a year of trading days must abort the run with an insufficient-history
+    error, not run the trend gate degraded. Uses the resume path so no network
+    universe call is needed; the guard sits before Stage 1 either way."""
+    import asyncio
+
+    from src import pipeline
+    from src.storage import repository
+    from src.storage.db import session_scope
+    from src.universe.builder import build_universe_from_frames
+
+    rng = np.random.default_rng(3)
+    dates = [d.date() for d in pd.bdate_range(end=AS_OF, periods=120)]  # << 252
+    tickers = [f"T{i:03d}" for i in range(80)]
+    closes = 100 * np.exp(
+        np.cumsum(rng.normal(0, 0.009, (len(dates), len(tickers))) + 0.0015, axis=0)
+    )
+    with session_scope() as s:
+        bars = [
+            {"ticker": t, "date": d, "open": float(closes[i, j]) * 0.995,
+             "high": float(closes[i, j]) * 1.01, "low": float(closes[i, j]) * 0.99,
+             "close": float(closes[i, j]), "volume": 3_000_000.0}
+            for j, t in enumerate(tickers)
+            for i, d in enumerate(dates)
+        ]
+        repository.save_bars(s, bars)
+        s.flush()
+        ref = [{"ticker": t, "name": f"Co {t}", "security_type": "CS",
+                "exchange": "XNAS", "cik": str(1000 + i), "active": True}
+               for i, t in enumerate(tickers)]
+        scr = [{"ticker": t, "market_cap": 1e9, "sector": "Technology",
+                "industry": "X"} for t in tickers]
+        build_universe_from_frames(
+            AS_OF, s, [b for b in bars if b["date"] == AS_OF], ref, scr
+        )
+
+    with pytest.raises(pipeline.DataQualityError, match="insufficient history"):
+        asyncio.run(pipeline.run_pipeline(AS_OF, resume_from=1, skip_llm=True))

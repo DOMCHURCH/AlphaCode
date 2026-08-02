@@ -22,24 +22,23 @@ def sma(panel: pd.DataFrame, window: int) -> pd.DataFrame:
     return panel.rolling(window, min_periods=window).mean()
 
 
-def slope(panel: pd.DataFrame, lookback: int, min_points: int = 5) -> pd.Series:
+def slope(panel: pd.DataFrame, lookback: int) -> pd.Series:
     """Simple slope of the last `lookback` observations, per column.
 
-    Normalised by the level so it is comparable across price scales. Tolerant of
-    leading NaNs (e.g. an SMA200 that has only just warmed up on a short first
-    backfill): within the window it uses the first and last *valid* points and
-    only needs `min_points` of them, so the 200-day-SMA slope is computable on
-    ~205 days of history instead of demanding a full 252.
+    Normalised by the level so it is comparable across price scales. Requires a
+    fully-formed window: if the panel is shorter than `lookback + 1`, or the
+    window's first point is NaN (e.g. an SMA200 that has only just warmed up),
+    the slope is NaN. That is deliberate -- a 200-day SMA with a handful of days
+    of existence has a noise slope, and a name that cannot be evaluated on this
+    gate must fail it, not pass on a fabricated trend.
     """
-    if panel.empty:
+    if len(panel) < lookback + 1:
         return pd.Series(np.nan, index=panel.columns)
     tail = panel.tail(lookback + 1)
-    valid = tail.notna().sum()
-    first = tail.bfill().iloc[0]  # first valid in the window, per column
-    last = tail.ffill().iloc[-1]  # last valid in the window, per column
+    first = tail.iloc[0]
+    last = tail.iloc[-1]
     denom = first.abs().replace(0, np.nan)
-    out = (last - first) / denom
-    return out.where(valid >= min_points, np.nan)
+    return (last - first) / denom
 
 
 def total_return(panel: pd.DataFrame, lookback: int) -> pd.Series:

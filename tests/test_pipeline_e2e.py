@@ -363,3 +363,29 @@ def test_fast_mode_persists_picks_so_the_site_shows_them(session):
     assert theses["BBB"].total_score == 50
     assert theses["AAA"].total_score > theses["CCC"].total_score  # ordering holds
     assert theses["AAA"].conviction is None  # honest: no model conviction
+
+
+def test_history_depth_counts_distinct_trading_days(session):
+    """The pipeline's insufficient-history guard keys off this: distinct trading
+    days stored on/before as_of, the ceiling on any name's usable history."""
+    import datetime as dt
+
+    from src.pipeline import _history_depth
+    from src.storage import repository
+
+    as_of = dt.date(2025, 6, 2)
+    dates = [d.date() for d in pd.bdate_range(end=as_of, periods=100)]
+    # Two tickers sharing the same 100 dates -> 100 distinct days, not 200.
+    repository.save_bars(
+        session,
+        [
+            {"ticker": t, "date": d, "open": 10, "high": 11, "low": 9,
+             "close": 10.0, "volume": 1_000_000}
+            for t in ("AAA", "BBB")
+            for d in dates
+        ],
+    )
+    session.flush()
+    assert _history_depth(session, as_of) == 100
+    # A future as_of still only sees what's stored on/before it.
+    assert _history_depth(session, dates[50]) == 51

@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     min_market_cap: float = Field(default=150_000_000.0, alias="MIN_MARKET_CAP")
     min_universe_size: int = Field(default=4000, alias="MIN_UNIVERSE_SIZE")
 
+    # Trading days of history required before a run is allowed. Stage 1 evaluates
+    # a 52-week high, a 12-month return and a 200-day SMA (and its 21-day slope),
+    # so a run on less than a year is degraded, not just "smaller". Below this the
+    # run is BLOCKED and the shortfall surfaced -- never run degraded to succeed.
+    min_history_days: int = Field(default=252, alias="MIN_HISTORY_DAYS")
+
     # Free-data mode (no POLYGON_API_KEY): the universe is seeded from SEC's
     # company_tickers list and bars come from Yahoo. Cap how many SEC names to
     # pull bars for (0 = all ~10k; the price/ADV filters trim illiquid ones

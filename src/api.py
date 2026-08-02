@@ -452,13 +452,11 @@ _STAGE_STEPS: list[dict[str, Any]] = [
 _TOTAL_STAGES = len(_STAGE_STEPS)
 
 # Trading days of history the funnel needs before its first run means anything.
-# The hard floor is the 200-day SMA (Stage 1's deepest window); the 52-week
-# high / 12-month return use `.tail(252)`, which degrades gracefully to whatever
-# history exists, and Stage-2 momentum that needs a full year just scores z=0
-# until the backfill fills in. So 200 sessions is enough for a defensible run --
-# demanding a full 252 only makes a rate-limited first backfill drag on for no
-# real gain. Readiness is measured in trading days loaded, not raw bar count.
-MIN_HISTORY_DATES = 205
+# Read from settings at call time (see `settings.min_history_days`, default 252 =
+# a full year) so the API readiness gate and the pipeline's hard block agree. A
+# run on less than this is degraded -- the 200-day-SMA slope, the 52-week high
+# and the 12-month return are all ill-formed -- so below the floor the run is
+# BLOCKED and the shortfall surfaced, never run degraded to succeed.
 
 
 def _current_run_progress(session: Any) -> dict[str, Any] | None:
@@ -522,7 +520,7 @@ def status() -> dict[str, Any]:
             out["bar_dates"] = session.execute(
                 select(func.count(func.distinct(DailyBar.date)))
             ).scalar_one()
-            out["history_target"] = MIN_HISTORY_DATES
+            out["history_target"] = get_settings().min_history_days
             out["universe_snapshots"] = session.execute(
                 select(func.count(func.distinct(UniverseSnapshot.as_of_date)))
             ).scalar_one()
@@ -541,7 +539,9 @@ def status() -> dict[str, Any]:
                     "error": (r.error or "")[:500] or None,
                     "funnel": r.funnel_counts,
                 }
-        out["ready_for_first_run"] = (out.get("bar_dates") or 0) >= MIN_HISTORY_DATES
+        out["ready_for_first_run"] = (
+            (out.get("bar_dates") or 0) >= get_settings().min_history_days
+        )
     except Exception as exc:  # noqa: BLE001
         out["error"] = str(exc)[:200]
     return out

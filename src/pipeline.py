@@ -107,6 +107,27 @@ def _check_drop(name: str, entry: int, exit_: int, warnings: list[str]) -> None:
         )
 
 
+def _history_depth(session, as_of: dt.date) -> int:
+    """Distinct trading days of price history stored on/before `as_of`.
+
+    The ceiling on how much history any ticker can have -- if the store holds
+    fewer than a year of sessions, no name can be evaluated on the full-year
+    windows the trend gate uses.
+    """
+    from sqlalchemy import func, select
+
+    from src.storage.models import DailyBar
+
+    return int(
+        session.execute(
+            select(func.count(func.distinct(DailyBar.date))).where(
+                DailyBar.date <= as_of
+            )
+        ).scalar_one()
+        or 0
+    )
+
+
 async def run_pipeline(
     as_of: dt.date | None = None,
     *,
@@ -170,6 +191,19 @@ async def run_pipeline(
 
             tickers = universe["ticker"].tolist()
             sectors = universe.set_index("ticker")["sector"]
+
+            # Hard block: the trend gate is only honest with a full year of
+            # history (200-day SMA + its slope, 52-week high, 12-month return).
+            # On less, we do NOT run degraded -- we stop and surface the
+            # shortfall so the operator/UI knows to finish the backfill first.
+            depth = _history_depth(session, as_of)
+            need = s.min_history_days
+            if depth < need:
+                raise DataQualityError(
+                    f"insufficient history: {depth}/{need} trading days. "
+                    f"The trend gate needs a full year; finish the backfill "
+                    f"before running (not running degraded)."
+                )
 
             # ---------------- Stage 1: trend gate ------------------------
             with _stage("trend_gate", 1, len(tickers), timings) as box:
