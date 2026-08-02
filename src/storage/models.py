@@ -388,6 +388,24 @@ class ReportArtifact(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class CacheEntry(Base):
+    """Cross-process HTTP response cache with a TTL.
+
+    Redis is optional here; without it the in-process cache is lost every time
+    the pipeline runs (it runs in a fresh subprocess), so re-running the same day
+    re-hits SEC/GDELT for every ticker. This table persists those responses so a
+    same-day re-run is served from Postgres, not the network. Keyed by the same
+    hash the API client uses; `expires_at` is naive UTC.
+    """
+
+    __tablename__ = "cache_entries"
+
+    cache_key: Mapped[str] = mapped_column(String(80), primary_key=True)
+    value: Mapped[str] = mapped_column(Text)
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime, index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 ALL_TABLES = [
     UniverseSnapshot,
     DailyBar,
@@ -403,6 +421,7 @@ ALL_TABLES = [
     Thesis,
     RunLog,
     ReportArtifact,
+    CacheEntry,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

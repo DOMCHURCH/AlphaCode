@@ -7,6 +7,7 @@ work without a server.
 
 from __future__ import annotations
 
+import datetime as dt
 import json
 import time
 from typing import Any
@@ -16,6 +17,52 @@ import structlog
 from src.config.settings import get_settings
 
 log = structlog.get_logger(__name__)
+
+
+def _naive_utcnow() -> dt.datetime:
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
+def _pg_cache_enabled() -> bool:
+    """Use the Postgres cache table when Redis is not configured -- the in-process
+    dict is lost every subprocess run, so it can't serve a same-day re-run."""
+    return not get_settings().redis_url
+
+
+def _pg_get(key: str) -> Any | None:
+    from sqlalchemy import select
+
+    from src.storage.db import session_scope
+    from src.storage.models import CacheEntry
+
+    try:
+        with session_scope() as s:
+            row = s.execute(
+                select(CacheEntry).where(CacheEntry.cache_key == key)
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            if row.expires_at is not None and row.expires_at < _naive_utcnow():
+                return None
+            return json.loads(row.value)
+    except Exception as exc:  # noqa: BLE001 - a cache miss must never break a call
+        log.debug("pg_cache_get_failed", key=key, error=str(exc)[:200])
+        return None
+
+
+def _pg_set(key: str, value: Any, ttl: int) -> None:
+    from src.storage.db import session_scope
+    from src.storage.models import CacheEntry
+
+    expires = _naive_utcnow() + dt.timedelta(seconds=ttl) if ttl else None
+    payload = json.dumps(value, default=str)
+    try:
+        with session_scope() as s:
+            s.merge(
+                CacheEntry(cache_key=key, value=payload, expires_at=expires)
+            )
+    except Exception as exc:  # noqa: BLE001 - a failed cache write must not break a call
+        log.debug("pg_cache_set_failed", key=key, error=str(exc)[:200])
 
 _client: Any | None = None
 _client_checked = False
@@ -100,6 +147,9 @@ def reset_redis_cache() -> None:
 
 
 def cache_get_json(key: str) -> Any | None:
+    # Postgres when Redis is absent, so a fresh subprocess still sees the cache.
+    if _pg_cache_enabled():
+        return _pg_get(key)
     raw = get_redis().get(key)
     if raw is None:
         return None
@@ -110,6 +160,9 @@ def cache_get_json(key: str) -> Any | None:
 
 
 def cache_set_json(key: str, value: Any, ttl: int) -> None:
+    if _pg_cache_enabled():
+        _pg_set(key, value, ttl)
+        return
     try:
         get_redis().setex(key, ttl, json.dumps(value, default=str))
     except Exception as exc:  # pragma: no cover

@@ -137,6 +137,27 @@ seeded harness + unit tests, not a live run.
   landed 0. A stage can no longer complete having written nothing it tried to.
   Tests: the `items` upsert round-trips; the ledger records 0-written on a failed
   execute; the pipeline aborts on a wholesale zero and does not on real writes.
+- **Cycle C — first run reached Stage 3; four issues (all fixed).**
+  1. *Sectors 0%.* Not a mapping bug (sic_to_gics is correct) -- a TIMING bug: the
+     funnel's Stage 0 read the SectorMap 70s BEFORE the SIC backfill populated it.
+     Made it visible: builder logs `sector_map_empty` loudly at build time, and
+     /diagnostics has a Sector-map panel (total/mapped/unmapped + sample raw
+     SIC->GICS). Operational fix: run /backfill?sectors=true to completion before
+     the funnel.
+  2. *Mean completeness 0.157.* Composite logs per-factor coverage; pipeline now
+     ABORTS if mean completeness < MIN_MEAN_COMPLETENESS (0.40), naming the empty
+     factors. This run (no FINNHUB revisions, fundamentals not joining) would now
+     stop with a defensible message instead of shipping a 16%-data ranking.
+  3. *Speed (Stage 3 = the bottleneck).* Polygon tier check moved inside the
+     client: on free tier non-permitted calls (options) raise immediately instead
+     of the rate limiter sleeping 12s each (the flood); Stage 3 skips the options
+     client on free tier. SEC bucket 8->9/s. Stage 2 output (Stage 3 input)
+     400->200. Per-source timing logged (stage3_source_timing). Postgres cache
+     for SEC (24h, was NEVER caching -- source "sec" had no CACHE_TTL entry) and
+     GDELT (6h), so same-day re-runs skip the network instead of losing the
+     in-process cache each subprocess.
+  4. *stage_writes on every stage:* moved reset/log/abort into the _stage context
+     manager -- every stage logs rows_written/attempted and aborts on a bulk zero.
 - **Next real failure:** expected at Stage 1-6 on the deploy. Redeploy, run, read
   the /diagnostics blob, fix the actual cause, repeat. Sanity bands to check each
   stage: S0 4-7k survivors of 15.1k; S1 300-2500; S2 ~400 (+ mapped/unmapped

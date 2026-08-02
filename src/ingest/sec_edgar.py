@@ -134,7 +134,12 @@ async def fetch_company_tickers() -> list[dict[str, Any]]:
 
 
 async def fetch_submissions(client: APIClient, cik: str | int) -> dict[str, Any]:
-    return await client.get_json(f"/submissions/CIK{pad_cik(cik)}.json")
+    # 24h TTL: submissions (SIC + recent filings) are near-static intraday, and
+    # without this the source-"sec" client has no CACHE_TTL entry so it never
+    # cached -- every SIC fetch and every Stage-3 SEC call re-hit the network.
+    return await client.get_json(
+        f"/submissions/CIK{pad_cik(cik)}.json", cache_ttl=24 * 3600
+    )
 
 
 def parse_sic(payload: dict[str, Any]) -> tuple[str | None, str | None]:
