@@ -30,6 +30,36 @@ from src.storage.models import (
     UniverseSnapshot,
 )
 
+# Write accounting. A stage that TRIES to persist a lot and writes nothing is a
+# silent-failure bug -- e.g. a bad upsert raised per ticker and got swallowed by
+# gather_bounded -- not an empty result. Every _upsert tallies attempted-vs-written
+# per table here; the pipeline resets this per stage and aborts on a wholesale
+# zero (assert_writes). Single event loop, so a plain dict is enough.
+_write_ledger: dict[str, dict[str, int]] = {}
+
+
+def reset_write_ledger() -> None:
+    _write_ledger.clear()
+
+
+def get_write_ledger() -> dict[str, dict[str, int]]:
+    return {t: dict(s) for t, s in _write_ledger.items()}
+
+
+def _record_write(table: str, attempted: int, written: int) -> None:
+    s = _write_ledger.setdefault(table, {"attempted": 0, "written": 0})
+    s["attempted"] += attempted
+    s["written"] += written
+
+
+def assert_writes(min_attempts: int = 100) -> list[str]:
+    """Tables that attempted > `min_attempts` writes but wrote 0 -- a silent
+    write failure the pipeline must abort on, distinct from an empty result."""
+    return [
+        t for t, s in _write_ledger.items()
+        if s["attempted"] > min_attempts and s["written"] == 0
+    ]
+
 
 def _upsert(
     session: Session,
@@ -39,28 +69,41 @@ def _upsert(
     update_cols: Sequence[str] | None = None,
     chunk: int = 2000,
 ) -> int:
-    """Dialect-aware ON CONFLICT DO UPDATE. Works on Postgres and SQLite."""
+    """Dialect-aware ON CONFLICT DO UPDATE. Works on Postgres and SQLite.
+
+    Returns the number of rows actually written (executed), and records
+    attempted-vs-written in the ledger even when a batch raises -- so a swallowed
+    failure still shows up as attempted>0, written=0.
+    """
     if not rows:
         return 0
     dialect = session.bind.dialect.name if session.bind is not None else "sqlite"
     ins = pg_insert if dialect == "postgresql" else sqlite_insert
-    total = 0
-    for i in range(0, len(rows), chunk):
-        batch = rows[i : i + chunk]
-        stmt = ins(model).values(batch)
-        cols = update_cols or [
-            c for c in batch[0].keys() if c not in conflict_cols and c != "id"
-        ]
-        if cols:
-            stmt = stmt.on_conflict_do_update(
-                index_elements=list(conflict_cols),
-                set_={c: getattr(stmt.excluded, c) for c in cols},
-            )
-        else:
-            stmt = stmt.on_conflict_do_nothing(index_elements=list(conflict_cols))
-        session.execute(stmt)
-        total += len(batch)
-    return total
+    attempted = len(rows)
+    written = 0
+    try:
+        for i in range(0, len(rows), chunk):
+            batch = rows[i : i + chunk]
+            stmt = ins(model).values(batch)
+            cols = update_cols or [
+                c for c in batch[0].keys() if c not in conflict_cols and c != "id"
+            ]
+            if cols:
+                # Subscript, NOT attribute access: a column named `items`/`keys`/
+                # `values`/`count` collides with ColumnCollection's methods, so
+                # `stmt.excluded.items` returns the bound method (-> "can't adapt
+                # type 'method'"). `stmt.excluded[c]` always returns the column.
+                stmt = stmt.on_conflict_do_update(
+                    index_elements=list(conflict_cols),
+                    set_={c: stmt.excluded[c] for c in cols},
+                )
+            else:
+                stmt = stmt.on_conflict_do_nothing(index_elements=list(conflict_cols))
+            session.execute(stmt)
+            written += len(batch)
+        return written
+    finally:
+        _record_write(model.__tablename__, attempted, written)
 
 
 # ---------------------------------------------------------------------------

@@ -118,6 +118,25 @@ seeded harness + unit tests, not a live run.
   were correctly left alone -- those return None, not NaN. Tests: `or_default`
   over NaN/None/""/Series.get; is_common_stock over NaN/None/""/whitespace.
   288 tests pass, ruff clean.
+- **Cycle B — Stage 3 wrote ZERO filings, silently.** Two bugs. (1) The shared
+  `_upsert` built the `on_conflict_do_update` set_ with `getattr(stmt.excluded,
+  c)`; for the `items` column (FilingEvent, 8-K item codes) that returns
+  ColumnCollection.items -- the bound METHOD, not the column -- so psycopg2 raised
+  "can't adapt type 'method'" on every filing insert. Fixed with subscript
+  `stmt.excluded[c]`, which never collides. Audit: `_upsert` is the only upsert
+  chokepoint, and `items` is the only column whose name collides with a
+  ColumnCollection method (no keys/values/count/index columns), so the one fix
+  covers every table and future-proofs new ones. (2) MORE IMPORTANT: that error
+  was raised per-ticker inside `gather_bounded`, which isolates a failing ticker
+  into a warning -- so Stage 3 persisted 0 filings and the run continued. Added a
+  write ledger in repository (`_upsert` tallies attempted-vs-written per table,
+  recorded even when a batch raises) + `assert_writes`; the pipeline resets it
+  before Stage 0 build, Stage 3 enrichment, and score persistence, logs
+  rows_written/attempted per table (`stage_writes` -- visible in /diagnostics
+  logs), and ABORTS with DataQualityError if any table attempted >100 writes and
+  landed 0. A stage can no longer complete having written nothing it tried to.
+  Tests: the `items` upsert round-trips; the ledger records 0-written on a failed
+  execute; the pipeline aborts on a wholesale zero and does not on real writes.
 - **Next real failure:** expected at Stage 1-6 on the deploy. Redeploy, run, read
   the /diagnostics blob, fix the actual cause, repeat. Sanity bands to check each
   stage: S0 4-7k survivors of 15.1k; S1 300-2500; S2 ~400 (+ mapped/unmapped
