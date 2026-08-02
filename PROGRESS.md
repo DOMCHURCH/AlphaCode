@@ -194,7 +194,7 @@ emptiness, don't tune it. No new features until the queue clears.
 
 - [x] **#3 SEC SIC -> GICS sector map** (done — src/ingest/sic.py + SectorMap table + backfill_sectors; free universe attaches cached sectors; verified offline).
 - [x] **#4 Fast-mode fallback server-side** (done — pipeline: verification failure + runtime LLM failure both degrade to the deterministic ranking+report; DataQualityError still propagates; test added).
-- [ ] **#5 Rate-limit /run and /backfill** (open endpoints w/ a live LLM key).
+- [x] **#5 Rate-limit /run and /backfill** (done — _RateGate sliding-window, RUN_RATE_PER_HOUR/BACKFILL_RATE_PER_HOUR, 429+Retry-After; cron unaffected).
 - [ ] **#6 Confirm prod failure**; verify LLM model ids resolve at startup.
 
 NOTE: this environment still cannot reach live data (proxy blocks SEC/Yahoo/
