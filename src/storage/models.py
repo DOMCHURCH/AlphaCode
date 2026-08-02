@@ -307,6 +307,11 @@ class DailyScore(Base):
     sector: Mapped[str | None] = mapped_column(String(64))
     sector_source: Mapped[str | None] = mapped_column(String(8))  # fmp|sic|unknown
     stage_reached: Mapped[int] = mapped_column(Integer, default=1)
+    # Which factor set produced factor_composite: "full" (all 19) or
+    # "momentum_only" (3 price factors). IC evaluation MUST filter on this --
+    # a momentum-only score is not comparable to a full-composite score, and
+    # pooling them would measure neither.
+    mode: Mapped[str] = mapped_column(String(16), default="full", index=True)
     factor_composite: Mapped[float | None] = mapped_column(Float)
     catalyst_score: Mapped[float | None] = mapped_column(Float)
     llm_triage_score: Mapped[float | None] = mapped_column(Float)
@@ -354,6 +359,8 @@ class RunLog(Base):
     started_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
     finished_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     status: Mapped[str] = mapped_column(String(16), default="running")
+    # "full" | "momentum_only" -- see DailyScore.mode.
+    mode: Mapped[str] = mapped_column(String(16), default="full")
     regime: Mapped[str | None] = mapped_column(String(16))
     funnel_counts: Mapped[dict[str, Any] | None] = mapped_column(JSON)
     api_calls: Mapped[dict[str, Any] | None] = mapped_column(JSON)

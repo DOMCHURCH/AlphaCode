@@ -77,7 +77,15 @@
     <div class="actions" id="actions">
       <button class="act" data-action="run">Run now</button>
       <button class="act" data-action="run_fast">Run fast (skip LLM)</button>
+      <button class="act act-partial" data-action="run_momentum_only">
+        Run momentum only
+      </button>
     </div>
+    <p class="hint hint-partial">Momentum only scores on the 3 price-derived
+      factors (of 19) and skips the completeness gate on purpose, so it produces
+      output while fundamentals are still loading. Every report, ticker card and
+      stored score is labelled — it is a separate artifact, not the full
+      composite, and it is kept out of the full runs' IC tracking.</p>
 
     <div class="bf-head">Backfill — one data source at a time</div>
     <p class="hint">Each button loads only its own kind. Tapping a kind shows what

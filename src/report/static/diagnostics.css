@@ -138,6 +138,14 @@ main{padding:16px 0 60px}
 .act[disabled] .why{color:var(--ink2)}
 .actionmsg{font-family:var(--mono);font-size:12px;margin-top:10px;min-height:16px}
 
+/* Partial-data mode: loud, and never the same styling as a normal action. */
+.act-partial{background:var(--paper);color:var(--ink);border:2px dashed var(--ink)}
+.act-partial:hover{background:var(--yellow)}
+.hint-partial{margin:8px 0 0}
+.modebanner{border:2px solid var(--red);background:#F7DCDA;color:var(--red);
+  font:700 11px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.03em;
+  padding:8px 10px;margin:0 0 10px}
+
 .bf-head{font:800 13px/1 var(--disp);text-transform:uppercase;letter-spacing:.04em;
   margin:18px 0 6px;color:var(--ink)}
 .bf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}

@@ -669,3 +669,30 @@ def test_startup_fails_orphaned_running_runs(api_db):
     # And the ghost no longer drives the live-progress view.
     with TestClient(app) as c:
         assert c.get("/status").json()["current_run"] is None
+
+
+def test_run_accepts_momentum_only_mode(client, monkeypatch):
+    """The mode reaches the child process as --mode; a bogus mode is rejected
+    rather than silently defaulting to a full run."""
+    seen: dict = {}
+
+    async def fake_sub(as_of, skip_llm=False, mode="full"):
+        seen["mode"] = mode
+        seen["skip_llm"] = skip_llm
+        return 0
+
+    import src.runner as runner
+
+    monkeypatch.setattr(runner, "run_pipeline_subprocess", fake_sub)
+
+    r = client.post("/run?mode=momentum_only&skip_llm=true")
+    assert r.status_code == 200
+    assert "MOMENTUM ONLY" in r.json()["detail"]
+    assert seen == {"mode": "momentum_only", "skip_llm": True}
+
+    assert client.post("/run?mode=bogus").status_code == 400
+
+
+def test_diagnostics_exposes_the_momentum_only_action(client):
+    a = client.get("/diagnostics.json").json()["actions"]
+    assert "enabled" in a["run_momentum_only"]

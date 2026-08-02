@@ -26,7 +26,7 @@ from scipy import stats
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from src.config.factor_weights import CATEGORY_WEIGHTS
+from src.config.factor_weights import CATEGORY_WEIGHTS, MODE_FULL
 from src.storage.models import DailyScore
 from src.storage.pit import get_price_panel
 
@@ -104,6 +104,7 @@ def compute_ic(
     horizon: int = 21,
     since: dt.date | None = None,
     min_names: int = 5,
+    mode: str = MODE_FULL,
 ) -> ICResult:
     """Spearman rank correlation of score vs forward return, pooled by date.
 
@@ -111,7 +112,7 @@ def compute_ic(
     observations. Pooling would let a single day with many names dominate, and
     would conflate cross-sectional skill with time-series drift.
     """
-    stmt = select(DailyScore)
+    stmt = select(DailyScore).where(DailyScore.mode == mode)
     if since:
         stmt = stmt.where(DailyScore.as_of_date >= since)
     rows = list(session.execute(stmt).scalars())
@@ -154,7 +155,8 @@ def compute_ic(
 
 
 def factor_decay_analysis(
-    session: Session, *, horizon: int = 21, since: dt.date | None = None
+    session: Session, *, horizon: int = 21, since: dt.date | None = None,
+    mode: str = MODE_FULL,
 ) -> pd.DataFrame:
     """IC for each individual factor category.
 
@@ -162,7 +164,7 @@ def factor_decay_analysis(
     the quarterly re-fit; it is deliberately not wired to change weights
     automatically.
     """
-    stmt = select(DailyScore)
+    stmt = select(DailyScore).where(DailyScore.mode == mode)
     if since:
         stmt = stmt.where(DailyScore.as_of_date >= since)
     rows = list(session.execute(stmt).scalars())
@@ -220,7 +222,9 @@ def _verdict(ic: float) -> str:
     return "marginal"
 
 
-def turnover(session: Session, *, days: int = 30) -> pd.DataFrame:
+def turnover(
+    session: Session, *, days: int = 30, mode: str = MODE_FULL
+) -> pd.DataFrame:
     """Day-over-day turnover of the final top-10.
 
     If the list turns over completely every day the signal is noise. Healthy
@@ -228,7 +232,9 @@ def turnover(session: Session, *, days: int = 30) -> pd.DataFrame:
     """
     rows = list(
         session.execute(
-            select(DailyScore).where(DailyScore.final_rank.isnot(None))
+            select(DailyScore)
+            .where(DailyScore.final_rank.isnot(None))
+            .where(DailyScore.mode == mode)
         ).scalars()
     )
     if not rows:
@@ -263,12 +269,19 @@ def turnover(session: Session, *, days: int = 30) -> pd.DataFrame:
     return df
 
 
-def ic_report(session: Session, since: dt.date | None = None) -> dict[str, Any]:
-    """Everything the API's /validation endpoint returns."""
-    out: dict[str, Any] = {"horizons": {}}
+def ic_report(
+    session: Session, since: dt.date | None = None, mode: str = MODE_FULL
+) -> dict[str, Any]:
+    """Everything the API's /validation endpoint returns.
+
+    Scoped to ONE `mode`. A momentum-only score (3 factors) and a full-composite
+    score (19) are different quantities; pooling them would measure neither, so
+    every query below filters on mode and the result says which one it is.
+    """
+    out: dict[str, Any] = {"horizons": {}, "mode": mode}
     for h in HORIZONS:
         for col in ("llm_total_score", "factor_composite"):
-            res = compute_ic(session, score_col=col, horizon=h, since=since)
+            res = compute_ic(session, score_col=col, horizon=h, since=since, mode=mode)
             out["horizons"].setdefault(str(h), {})[col] = {
                 "ic": None if np.isnan(res.ic) else round(res.ic, 4),
                 "n_obs": res.n,
@@ -276,9 +289,9 @@ def ic_report(session: Session, since: dt.date | None = None) -> dict[str, Any]:
                 "p_value": None if np.isnan(res.p_value) else round(res.p_value, 4),
                 "verdict": _verdict(res.ic) if np.isfinite(res.ic) else "insufficient data",
             }
-    decay = factor_decay_analysis(session, since=since)
+    decay = factor_decay_analysis(session, since=since, mode=mode)
     out["factor_decay"] = decay.to_dict(orient="records") if not decay.empty else []
-    to = turnover(session)
+    to = turnover(session, mode=mode)
     out["turnover"] = {
         "mean": round(float(to["turnover"].mean()), 3) if not to.empty else None,
         "series": to.to_dict(orient="records") if not to.empty else [],

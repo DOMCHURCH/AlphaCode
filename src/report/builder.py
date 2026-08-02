@@ -20,7 +20,13 @@ from markupsafe import Markup
 from sqlalchemy.orm import Session
 
 from src.catalysts.macro import MacroState, summarise_for_report
-from src.config.factor_weights import CATEGORY_FACTORS, CATEGORY_WEIGHTS, RUBRIC_MAX
+from src.config.factor_weights import (
+    CATEGORY_WEIGHTS,
+    MODE_FULL,
+    MODE_LABEL,
+    RUBRIC_MAX,
+    mode_config,
+)
 from src.config.settings import get_settings
 from src.llm.schemas import DeepDive
 from src.report import charts as ch
@@ -76,11 +82,13 @@ def build_report(
     fundamentals: dict[str, pd.DataFrame] | None = None,
     deterministic_names: Sequence[dict[str, Any]] = (),
     output_dir: str | None = None,
+    mode: str = MODE_FULL,
 ) -> dict[str, str]:
     """Render HTML (+PDF). Returns {'html': path, 'pdf': path|''}"""
     out_dir = Path(output_dir or get_settings().report_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    mode_cat_w, mode_cat_f = mode_config(mode)
     universe_median = _universe_median_subscores(dives)
     names = []
     for d in dives:
@@ -99,6 +107,12 @@ def build_report(
                 "%Y-%m-%d %H:%M UTC"
             ),
             "duration_s": duration_s,
+            # Non-empty ONLY for a non-full mode. The template renders it in the
+            # header and on every ticker card, so a partial-data artifact can
+            # never be mistaken for the full composite -- including when a single
+            # card is screenshotted out of context.
+            "mode": mode,
+            "mode_label": MODE_LABEL.get(mode, ""),
         },
         "macro": summarise_for_report(macro),
         "funnel": funnel_counts,
@@ -107,12 +121,16 @@ def build_report(
         "near_misses": near_misses,
         "warnings": list(warnings),
         "rubric_max": RUBRIC_MAX,
+        # The weights ACTUALLY used to score this run, not the full-mode constants.
+        # In momentum-only mode the composite is 100% momentum; printing the five
+        # full-composite categories here would misrepresent what produced the
+        # ranking on the very page that reports it.
         "weights": {
-            "categories": CATEGORY_WEIGHTS,
-            "factors": {k: list(v) for k, v in CATEGORY_FACTORS.items()},
+            "categories": mode_cat_w,
+            "factors": {k: list(v) for k, v in mode_cat_f.items()},
         },
         "completeness": _completeness_rows(scores, [d.ticker for d in dives]),
-        "completeness_categories": list(CATEGORY_WEIGHTS),
+        "completeness_categories": list(mode_cat_w),
         "api_calls": api_calls,
         "cost": cost,
         "charts": {

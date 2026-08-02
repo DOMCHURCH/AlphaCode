@@ -49,7 +49,7 @@ def _describe_exit(rc: int) -> str:
 
 
 async def run_pipeline_subprocess(
-    as_of: dt.date | None, skip_llm: bool = False
+    as_of: dt.date | None, skip_llm: bool = False, mode: str = "full"
 ) -> int:
     """Spawn the funnel as a child process; return its exit code.
 
@@ -68,8 +68,13 @@ async def run_pipeline_subprocess(
     ]
     if skip_llm:
         cmd.append("--skip-llm")
+    if mode and mode != "full":
+        cmd += ["--mode", mode]
 
-    log.info("run_subprocess_spawn", run_id=run_id, as_of=str(resolved), skip_llm=skip_llm)
+    log.info(
+        "run_subprocess_spawn", run_id=run_id, as_of=str(resolved),
+        skip_llm=skip_llm, mode=mode,
+    )
     proc = await asyncio.create_subprocess_exec(
         *cmd,
         # Pipe the child's stdout so we can BOTH echo it to our own stdout (Railway

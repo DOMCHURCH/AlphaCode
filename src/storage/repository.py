@@ -6,6 +6,7 @@ import datetime as dt
 from collections.abc import Iterable, Sequence
 from typing import Any
 
+import structlog
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
@@ -29,6 +30,8 @@ from src.storage.models import (
     Thesis,
     UniverseSnapshot,
 )
+
+log = structlog.get_logger(__name__)
 
 # Write accounting. A stage that TRIES to persist a lot and writes nothing is a
 # silent-failure bug -- e.g. a bad upsert raised per ticker and got swallowed by
@@ -61,6 +64,42 @@ def assert_writes(min_attempts: int = 100) -> list[str]:
     ]
 
 
+def dedupe_on(
+    rows: Sequence[dict[str, Any]], key_cols: Sequence[str], *, label: str = ""
+) -> tuple[list[dict[str, Any]], int]:
+    """Collapse `rows` to one row per `key_cols`, keeping the FIRST occurrence.
+
+    Postgres refuses an ON CONFLICT DO UPDATE that would touch the same row twice
+    in one statement ("cannot affect row a second time"), so a batch carrying the
+    same natural key twice aborts the whole insert. Callers order `rows` so that
+    the record they want to survive comes first (see `save_fundamentals`, which
+    sorts by filing_date ascending -- earliest, i.e. as-first-reported, wins).
+
+    Returns (deduped_rows, n_dropped). Never merges values across duplicates: one
+    record wins whole, so a surviving row is always a real record as filed.
+    """
+    seen: set[tuple[Any, ...]] = set()
+    out: list[dict[str, Any]] = []
+    for r in rows:
+        k = tuple(r.get(c) for c in key_cols)
+        if k in seen:
+            continue
+        seen.add(k)
+        out.append(r)
+    dropped = len(rows) - len(out)
+    if dropped:
+        log.info(
+            "upsert_deduped",
+            table=label or "rows",
+            key=list(key_cols),
+            kept=len(out),
+            dropped=dropped,
+            # A large fraction means the key is wrong, not that SEC restates a lot.
+            dropped_pct=round(100 * dropped / max(1, len(rows)), 1),
+        )
+    return out, dropped
+
+
 def _upsert(
     session: Session,
     model: type[Base],
@@ -74,7 +113,14 @@ def _upsert(
     Returns the number of rows actually written (executed), and records
     attempted-vs-written in the ledger even when a batch raises -- so a swallowed
     failure still shows up as attempted>0, written=0.
+
+    Rows are always deduped on `conflict_cols` first. That is a structural
+    guarantee, not an optimisation: without it any caller passing the same natural
+    key twice takes down the whole statement with a CardinalityViolation.
     """
+    if not rows:
+        return 0
+    rows, _ = dedupe_on(rows, conflict_cols, label=model.__tablename__)
     if not rows:
         return 0
     dialect = session.bind.dialect.name if session.bind is not None else "sqlite"
@@ -121,10 +167,35 @@ def save_bars(session: Session, rows: Sequence[dict[str, Any]]) -> int:
 
 
 def save_fundamentals(session: Session, rows: Sequence[dict[str, Any]]) -> int:
+    """Persist as-reported fundamentals, one row per natural key per load.
+
+    SEC's bulk num.txt carries the same (ticker, metric, period_end) fact more
+    than once in a single quarter's file: amended filings (10-K/A, 10-Q/A) repeat
+    prior facts, and several XBRL tags map to one of our metrics, so a filing that
+    reports both aliases yields two identical-key rows.
+
+    Within a load we collapse to the EARLIEST filing_date -- what was actually
+    known at the time. Keeping the latest would import a later restatement into an
+    earlier date, which is exactly the lookahead bias the PIT layer exists to
+    prevent. `filing_date` stays in the DB constraint on purpose: a restatement
+    filed later is a genuinely new fact, visible only from its own filing date, so
+    a later load may legitimately add a second row for the same period, and
+    `pit.get_fundamentals` picks the latest one visible as of the read date.
+    """
+    ordered = sorted(
+        rows,
+        # None sorts last, so a row with a real filing_date always beats one without.
+        key=lambda r: (r.get("filing_date") is None, r.get("filing_date") or dt.date.max),
+    )
+    collapsed, _ = dedupe_on(
+        ordered,
+        ["ticker", "metric", "period_end", "source"],
+        label="fundamentals:earliest_filing",
+    )
     return _upsert(
         session,
         Fundamental,
-        list(rows),
+        collapsed,
         ["ticker", "metric", "period_end", "source", "filing_date"],
     )
 
@@ -136,7 +207,28 @@ def save_estimates(session: Session, rows: Sequence[dict[str, Any]]) -> int:
 
 
 def save_earnings(session: Session, rows: Sequence[dict[str, Any]]) -> int:
-    return _upsert(session, EarningsEvent, list(rows), ["ticker", "report_date"])
+    """Persist earnings events, one row per (ticker, report_date) per load.
+
+    Same collision as fundamentals, from the same source: a company can file a
+    10-Q and a 10-K/A on one day, so the bulk extract yields two events with the
+    same natural key. `report_date` IS the filing date here, so "earliest filing"
+    cannot break the tie and there is no lookahead either way -- both were known
+    that day. We break it deterministically instead: prefer the record that
+    carries a real actual_eps, then the LATEST period_end, which is the freshest
+    fiscal period reported that day (the actual earnings event, not an amendment
+    of an old one).
+    """
+    ordered = sorted(
+        rows,
+        key=lambda r: (
+            r.get("actual_eps") is None,          # rows with EPS first
+            -(r.get("period_end") or dt.date.min).toordinal(),  # latest period first
+        ),
+    )
+    collapsed, _ = dedupe_on(
+        ordered, ["ticker", "report_date"], label="earnings:same_day_filings"
+    )
+    return _upsert(session, EarningsEvent, collapsed, ["ticker", "report_date"])
 
 
 def save_filings(session: Session, rows: Sequence[dict[str, Any]]) -> int:
@@ -513,7 +605,9 @@ def max_checkpoint_stage(session: Session, run_id: str) -> int:
 # ---------------------------------------------------------------------------
 # Run log
 # ---------------------------------------------------------------------------
-def start_run(session: Session, run_id: str, as_of: dt.date) -> None:
+def start_run(
+    session: Session, run_id: str, as_of: dt.date, mode: str = "full"
+) -> None:
     """Idempotent. A resume reuses the original run_id, so re-inserting would
     violate the unique constraint -- reset the existing row to running instead."""
     existing = session.execute(
@@ -523,8 +617,9 @@ def start_run(session: Session, run_id: str, as_of: dt.date) -> None:
         existing.status = "running"
         existing.error = None
         existing.finished_at = None
+        existing.mode = mode
         return
-    session.add(RunLog(run_id=run_id, as_of_date=as_of, status="running"))
+    session.add(RunLog(run_id=run_id, as_of_date=as_of, status="running", mode=mode))
 
 
 def finish_run(

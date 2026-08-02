@@ -85,6 +85,48 @@ PAID_ONLY_FACTORS = frozenset(
     }
 )
 
+# ---------------------------------------------------------------------------
+# MOMENTUM-ONLY mode: a separate, labelled artifact -- NOT a degraded full run.
+#
+# It scores on the price-derived factors alone, which are the only ones that are
+# always present, so it produces output while fundamentals are still loading. It
+# bypasses the completeness gate BY DESIGN, because it never claims to be the
+# full composite: the 0.40 floor exists to stop a FULL run shipping a ranking
+# built on missing data, and this run does not pretend to be one.
+#
+# The price of that is that every output must say so on its face. `MODE_LABEL`
+# is stamped on the report header, on every ticker card, and on the stored
+# DailyScore row, and `DailyScore.mode` keeps momentum-only runs out of the IC
+# evaluation of full runs. Never mix the two in one evaluation.
+# ---------------------------------------------------------------------------
+MODE_FULL = "full"
+MODE_MOMENTUM_ONLY = "momentum_only"
+
+MOMENTUM_ONLY_CATEGORY_FACTORS: dict[str, dict[str, float]] = {
+    "momentum": MOMENTUM_WEIGHTS,
+}
+MOMENTUM_ONLY_CATEGORY_WEIGHTS: dict[str, float] = {"momentum": 1.0}
+
+_N_ALL_FACTORS = sum(len(w) for w in CATEGORY_FACTORS.values())
+_N_MOM_FACTORS = sum(len(w) for w in MOMENTUM_ONLY_CATEGORY_FACTORS.values())
+
+MODE_LABEL: dict[str, str] = {
+    MODE_FULL: "",
+    MODE_MOMENTUM_ONLY: (
+        f"MOMENTUM ONLY — {_N_MOM_FACTORS} of {_N_ALL_FACTORS} factors — "
+        f"not the full composite."
+    ),
+}
+
+
+def mode_config(mode: str) -> tuple[dict[str, float], dict[str, dict[str, float]]]:
+    """(category_weights, category_factors) for a scoring mode."""
+    if mode == MODE_MOMENTUM_ONLY:
+        return MOMENTUM_ONLY_CATEGORY_WEIGHTS, MOMENTUM_ONLY_CATEGORY_FACTORS
+    if mode != MODE_FULL:
+        raise ValueError(f"unknown scoring mode {mode!r}")
+    return CATEGORY_WEIGHTS, CATEGORY_FACTORS
+
 # Factors where a LOW raw value is the good outcome. Their z-score is flipped.
 NEGATIVE_FACTORS = frozenset(
     {

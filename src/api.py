@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from src.config.factor_weights import MODE_FULL, MODE_LABEL, MODE_MOMENTUM_ONLY
 from src.config.settings import get_settings
 from src.logging_config import configure_logging
 from src.storage import repository
@@ -534,26 +535,37 @@ async def trigger_run(
     background: BackgroundTasks,
     date: str | None = None,
     skip_llm: bool = False,
+    mode: str = MODE_FULL,
 ) -> RunResponse:
     """Manual trigger. Returns immediately; the run proceeds in the background.
+
+    `mode` = full | momentum_only. Momentum-only scores on the 3 price-derived
+    factors and skips the completeness gate BY DESIGN, producing a separate,
+    clearly-labelled artifact while fundamentals are still loading. It never
+    changes the full run, which keeps the completeness floor unchanged.
 
     Open by design -- no token needed. Rate-limited (it spends LLM credits) and
     single-flighted by `_run_lock`, so hitting it repeatedly is capped and just
     returns "already running" rather than stacking work."""
+    if mode not in (MODE_FULL, MODE_MOMENTUM_ONLY):
+        raise HTTPException(400, f"mode must be {MODE_FULL} or {MODE_MOMENTUM_ONLY}")
     _enforce_rate(_run_gate, "runs")
     if _run_lock.locked():
         return RunResponse(
             accepted=False, detail="A run is already in progress."
         )
     as_of = _parse_date(date) if date else None
-    background.add_task(_run_pipeline_bg, as_of, skip_llm)
+    background.add_task(_run_pipeline_bg, as_of, skip_llm, mode)
+    label = " (MOMENTUM ONLY)" if mode == MODE_MOMENTUM_ONLY else ""
     return RunResponse(
         accepted=True,
-        detail=f"Run queued for {as_of or 'the last trading day'}.",
+        detail=f"Run queued for {as_of or 'the last trading day'}{label}.",
     )
 
 
-async def _run_pipeline_bg(as_of: dt.date | None, skip_llm: bool) -> None:
+async def _run_pipeline_bg(
+    as_of: dt.date | None, skip_llm: bool, mode: str = MODE_FULL
+) -> None:
     # Run out-of-process: the pipeline can OOM or segfault (numpy, kaleido/
     # Chromium), and inside the uvicorn worker that would take the web server --
     # and /status -- down with it. The child writes its RunLog/checkpoints to the
@@ -562,7 +574,7 @@ async def _run_pipeline_bg(as_of: dt.date | None, skip_llm: bool) -> None:
 
     async with _run_lock:
         try:
-            await run_pipeline_subprocess(as_of, skip_llm=skip_llm)
+            await run_pipeline_subprocess(as_of, skip_llm=skip_llm, mode=mode)
         except Exception as exc:  # noqa: BLE001 - logged, never crashes the API
             log.exception("manual_run_failed", error=str(exc))
 
@@ -745,6 +757,12 @@ def status() -> dict[str, Any]:
                         if r.status == "failed" else None
                     ),
                     "funnel": r.funnel_counts,
+                    # Non-empty label ONLY for a partial-data mode, so the UI can
+                    # never present a momentum-only run as a full composite.
+                    "mode": getattr(r, "mode", MODE_FULL) or MODE_FULL,
+                    "mode_label": MODE_LABEL.get(
+                        getattr(r, "mode", MODE_FULL) or MODE_FULL, ""
+                    ),
                 }
         out["ready_for_first_run"] = (
             (out.get("bar_dates") or 0) >= get_settings().min_history_days
@@ -944,6 +962,8 @@ def _diagnostics_last_run(session: Any) -> dict[str, Any] | None:
         "started_at": run.started_at.isoformat() if run.started_at else None,
         "finished_at": run.finished_at.isoformat() if run.finished_at else None,
         "failed_stage": failed_stage, "cost_usd": run.cost_usd, "stages": rows,
+        "mode": getattr(run, "mode", MODE_FULL) or MODE_FULL,
+        "mode_label": MODE_LABEL.get(getattr(run, "mode", MODE_FULL) or MODE_FULL, ""),
     }
 
 
@@ -969,6 +989,11 @@ def _diagnostics_actions() -> dict[str, Any]:
     out = {
         "run": act(run_busy, "a run is already in progress", run_rate),
         "run_fast": act(run_busy, "a run is already in progress", run_rate),
+        # A separate, labelled artifact -- scores on the 3 price factors and skips
+        # the completeness gate by design. Not a way to get a full run past it.
+        "run_momentum_only": act(
+            run_busy, "a run is already in progress", run_rate
+        ),
         # One button per backfill kind: the user is on mobile and cannot construct
         # `/backfill?kind=…` URLs by hand. Each shares the single backfill lock/gate.
         "reconcile": act(False, "", rate_reason(_reconcile_gate)),

@@ -107,3 +107,114 @@ def test_pipeline_does_not_abort_when_writes_landed():
     # result), only a bulk zero is.
     repository._record_write("news_aggregates", 5, 0)
     assert pipeline._check_stage_writes("Stage 3 catalysts")  # returns stats, no raise
+
+
+# ---------------------------------------------------------------------------
+# Dedup: SEC bulk num.txt repeats the same fact in one batch (amended filings,
+# and several XBRL tags mapping to one metric). Postgres aborts the whole
+# statement with CardinalityViolation ("cannot affect row a second time"), so the
+# collapse happens in Python -- and WHICH row survives is a PIT decision.
+# ---------------------------------------------------------------------------
+def _fund(metric: str, value: float, filed: dt.date, period=dt.date(2024, 6, 30)) -> dict:
+    return {
+        "ticker": "AAPL", "metric": metric, "value": value, "period_end": period,
+        "fiscal_period": "Q3", "filing_date": filed, "source": "sec", "restated": False,
+    }
+
+
+def test_duplicate_fact_keeps_the_earliest_filing_date(db):
+    """The original filing is what was known at the time. A later restatement of
+    the same period must NOT overwrite it inside one load -- that would import
+    information that did not exist yet."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    rows = [
+        # Deliberately out of order, and the restatement is FIRST in the list, so
+        # "whatever is last/first in the file wins" would pick the wrong one.
+        _fund("revenue", 999.0, dt.date(2025, 2, 1)),   # later restatement
+        _fund("revenue", 100.0, dt.date(2024, 8, 1)),   # as first reported
+        _fund("revenue", 555.0, dt.date(2024, 11, 5)),  # amended 10-Q/A
+    ]
+    with session_scope() as s:
+        assert repository.save_fundamentals(s, rows) == 1  # 3 in, 1 written
+
+    with session_scope() as s:
+        got = s.execute(
+            select(Fundamental.value, Fundamental.filing_date)
+        ).all()
+    assert len(got) == 1
+    value, filed = got[0]
+    assert value == 100.0, "kept a restatement instead of the as-first-reported value"
+    assert filed == dt.date(2024, 8, 1)
+
+
+def test_dedup_is_per_natural_key_not_global(db):
+    """Different metrics/periods are different facts and must all survive."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    rows = [
+        _fund("revenue", 1.0, dt.date(2024, 8, 1)),
+        _fund("net_income", 2.0, dt.date(2024, 8, 1)),
+        _fund("revenue", 3.0, dt.date(2024, 8, 1), period=dt.date(2024, 3, 31)),
+        _fund("revenue", 9.0, dt.date(2024, 9, 1)),  # dup of row 1 -> dropped
+    ]
+    with session_scope() as s:
+        assert repository.save_fundamentals(s, rows) == 3
+    with session_scope() as s:
+        assert s.execute(select(Fundamental)).scalars().all().__len__() == 3
+
+
+def test_a_later_load_may_still_add_a_restatement(db):
+    """filing_date stays in the DB constraint: a restatement filed later is a real
+    new fact, visible only from its own filing date. Collapsing within a load must
+    not stop a subsequent load from recording it."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as s:
+        repository.save_fundamentals(s, [_fund("revenue", 100.0, dt.date(2024, 8, 1))])
+    with session_scope() as s:
+        repository.save_fundamentals(s, [_fund("revenue", 120.0, dt.date(2025, 2, 1))])
+    with session_scope() as s:
+        rows = s.execute(
+            select(Fundamental.value, Fundamental.filing_date)
+            .order_by(Fundamental.filing_date)
+        ).all()
+    assert [r[0] for r in rows] == [100.0, 120.0]
+
+
+def test_earnings_same_day_filings_collapse_deterministically(db):
+    """A 10-Q and a 10-K/A filed the same day collide on (ticker, report_date).
+    Neither is lookahead; the tie must break the same way every time."""
+    from src.storage.db import session_scope
+    from src.storage.models import EarningsEvent
+
+    day = dt.date(2024, 8, 1)
+    rows = [
+        {"ticker": "AAPL", "report_date": day, "period_end": dt.date(2023, 12, 31),
+         "actual_eps": None, "consensus_eps": None, "surprise_pct": None,
+         "gap_pct": None, "is_future": False},                       # stale amendment
+        {"ticker": "AAPL", "report_date": day, "period_end": dt.date(2024, 6, 30),
+         "actual_eps": 1.40, "consensus_eps": None, "surprise_pct": None,
+         "gap_pct": None, "is_future": False},                       # the real event
+    ]
+    with session_scope() as s:
+        assert repository.save_earnings(s, rows) == 1
+    with session_scope() as s:
+        got = s.execute(select(EarningsEvent.actual_eps, EarningsEvent.period_end)).all()
+    assert got == [(1.40, dt.date(2024, 6, 30))]
+
+
+def test_upsert_dedupes_on_conflict_cols_for_every_table(db):
+    """The universal safety net: no caller can hand _upsert a batch that would
+    touch the same row twice, whatever the table."""
+    from src.storage.db import session_scope
+
+    with session_scope() as s:
+        # Same (accession, ticker) twice in ONE batch -- the CardinalityViolation
+        # shape. Must collapse to a single write, not raise.
+        assert repository.save_filings(
+            s, [_filing("dup1", "2.02"), _filing("dup1", "5.02")]
+        ) == 1

@@ -431,6 +431,34 @@ async def _cik_to_ticker() -> dict[str, str]:
     return out
 
 
+def _collapse_earliest_filing(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One fundamental row per (ticker, metric, period_end, source), earliest
+    filing_date winning -- as first reported, never a later restatement."""
+    ordered = sorted(
+        rows,
+        key=lambda r: (r.get("filing_date") is None, r.get("filing_date") or dt.date.max),
+    )
+    kept, _ = repository.dedupe_on(
+        ordered, ["ticker", "metric", "period_end", "source"]
+    )
+    return kept
+
+
+def _collapse_earnings(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """One event per (ticker, report_date). report_date IS the filing date, so the
+    tie is between same-day filings: prefer the one with a real EPS, then the
+    latest fiscal period (the actual event, not an amendment of an older one)."""
+    ordered = sorted(
+        rows,
+        key=lambda r: (
+            r.get("actual_eps") is None,
+            -(r.get("period_end") or dt.date.min).toordinal(),
+        ),
+    )
+    kept, _ = repository.dedupe_on(ordered, ["ticker", "report_date"])
+    return kept
+
+
 async def backfill_fundamentals(
     as_of: dt.date | None = None, quarters: int | None = None
 ) -> int:
@@ -464,6 +492,18 @@ async def backfill_fundamentals(
             _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")
             continue
         loaded_quarters += 1
+        # Collapse across the WHOLE quarter BEFORE batching. save_fundamentals
+        # dedupes too, but only within the batch it is handed -- duplicates split
+        # across a 5000-row boundary would survive as two rows, and the later
+        # batch (carrying the restatement) would win the upsert. Earliest
+        # filing_date wins: what was actually known at the time.
+        raw = len(rows)
+        rows = _collapse_earliest_filing(rows)
+        log.info(
+            "sec_quarter_deduped", year=year, quarter=q, raw=raw, kept=len(rows),
+            dropped=raw - len(rows),
+            dropped_pct=round(100 * (raw - len(rows)) / max(1, raw), 1),
+        )
         for j in range(0, len(rows), 5000):
             with session_scope() as session:
                 total += repository.save_fundamentals(session, rows[j : j + 5000])
@@ -512,6 +552,15 @@ async def backfill_earnings(
         loaded_quarters += 1
         _update_state(units_done=i + 1)
 
+    # Same cross-batch hazard as fundamentals, plus one more: a filing can appear
+    # in more than one quarter's dataset, so collapse the accumulated events over
+    # ALL quarters before batching.
+    raw = len(events)
+    events = _collapse_earnings(events)
+    log.info(
+        "sec_earnings_deduped", raw=raw, kept=len(events), dropped=raw - len(events),
+        dropped_pct=round(100 * (raw - len(events)) / max(1, raw), 1),
+    )
     total = 0
     for j in range(0, len(events), 5000):
         with session_scope() as session:

@@ -208,7 +208,11 @@ function renderLastRun(lr) {
   const statusPill = lr.status === "ok" ? pill("ok", "ok")
     : lr.status === "failed" ? pill("failed", "bad") : pill(lr.status, "warn");
   meta.innerHTML = `${esc(lr.as_of)} · ${lr.regime || "—"}`;
-  let out = row("Run", statusPill, lr.run_id);
+  let out = "";
+  // Only set for a partial-data mode, so a momentum-only run can never be read
+  // as a full composite from this panel.
+  if (lr.mode_label) out += `<div class="modebanner">${esc(lr.mode_label)}</div>`;
+  out += row("Run", statusPill, lr.run_id);
   if (lr.error) out += `<div class="stage fail"><div class="st-err">${esc(lr.error)}</div></div>`;
 
   for (const s of lr.stages || []) {
@@ -412,6 +416,9 @@ async function copyEverything() {
 async function postAction(action) {
   const map = {
     run: "/run", run_fast: "/run?skip_llm=true",
+    // Separate labelled artifact: 3 of 19 factors, completeness gate skipped by
+    // design. skip_llm too -- there is no full composite for the model to read.
+    run_momentum_only: "/run?mode=momentum_only&skip_llm=true",
     // One URL per kind — the old single button POSTed bars and quietly ignored
     // the kind you meant, which is why a fundamentals request only loaded bars.
     backfill_bars: "/backfill?kind=bars&days=600",

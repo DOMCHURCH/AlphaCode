@@ -20,7 +20,9 @@ from sqlalchemy.orm import Session
 from src.config.factor_weights import (
     CATEGORY_FACTORS,
     CATEGORY_WEIGHTS,
+    MODE_FULL,
     NEGATIVE_FACTORS,
+    mode_config,
 )
 from src.factors import crosssection as xs
 from src.factors.fundamentals import build_fundamental_factors
@@ -38,6 +40,14 @@ class CompositeResult:
     z: pd.DataFrame  # sector-neutral z-scores
     selected: list[str]
     factor_coverage: dict[str, float] = field(default_factory=dict)
+    # Which factor set produced `factor_composite`. MODE_MOMENTUM_ONLY rankings
+    # are a separate artifact and must never be pooled with full runs.
+    mode: str = MODE_FULL
+    # Mean per-name completeness across ALL 19 factors, regardless of mode. In
+    # momentum-only mode `scores.data_completeness` is measured against the 3
+    # factors that mode uses (so it reads ~100%); this keeps the honest
+    # full-composite number visible so nobody mistakes one for the other.
+    full_completeness: float = 0.0
 
 
 def assemble_raw_factors(
@@ -179,11 +189,21 @@ def run_stage2(
     *,
     take: int = 400,
     revisions: pd.DataFrame | None = None,
+    mode: str = MODE_FULL,
 ) -> CompositeResult:
+    """`mode` selects which factor set scores the composite.
+
+    MODE_FULL is the real thing: all 19 factors, all five categories.
+    MODE_MOMENTUM_ONLY scores on the price-derived momentum factors alone -- a
+    separate, labelled artifact for use while fundamentals are still loading, not
+    a degraded full run. It does not touch any gate or weight of the full mode.
+    """
+    cat_w, cat_f = mode_config(mode)
     raw = assemble_raw_factors(
         session, trend_features, universe, as_of, revisions=revisions
     )
-    result = score_composite(raw)
+    result = score_composite(raw, category_weights=cat_w, category_factors=cat_f)
+    result.mode = mode
     result.selected = list(result.scores.head(take).index)
     # Per-factor coverage: fraction of the Stage-1 survivors with a REAL value
     # (not NaN) for each factor. A factor at ~0 contributes nothing and its
@@ -194,11 +214,21 @@ def run_stage2(
         for f in ALL_FACTORS
     }
     result.factor_coverage = factor_cov
+    # True 19-factor completeness, computed from `raw` (which always carries every
+    # factor) so it is mode-independent and cannot be inflated by scoring on a
+    # narrower set.
+    present = [f for f in ALL_FACTORS if f in raw.columns]
+    result.full_completeness = (
+        float(raw[present].notna().sum(axis=1).mean()) / len(ALL_FACTORS)
+        if present and len(raw) else 0.0
+    )
     log.info(
         "stage2_complete",
         entry=len(trend_features),
         exit=len(result.selected),
+        mode=mode,
         mean_completeness=float(result.scores["data_completeness"].mean()),
+        full_completeness=round(result.full_completeness, 3),
         factor_coverage=factor_cov,
     )
     return result

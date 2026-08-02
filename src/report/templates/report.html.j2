@@ -66,6 +66,12 @@ ul{margin:6px 0;padding-left:20px}li{margin:3px 0}
 .muted{color:var(--muted)}
 .warnbox{border:1px solid var(--warn);background:rgba(210,153,34,.08);
 border-radius:8px;padding:12px 16px;margin:16px 0;color:var(--warn)}
+/* Partial-data mode. Deliberately loud and repeated on every block, so a card
+   screenshotted on its own still carries the caveat. */
+.modebanner{border:2px solid var(--down);background:rgba(216,74,74,.12);
+border-radius:8px;padding:10px 14px;margin:10px 0;color:var(--down);
+font-weight:700;letter-spacing:.02em;text-transform:uppercase;font-size:13px}
+.modebanner.card-mode{margin:0 0 14px;font-size:11px;padding:7px 11px}
 footer{margin-top:56px;padding-top:20px;border-top:1px solid var(--grid);
 color:var(--muted);font-size:12px;line-height:1.7}
 code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
@@ -76,6 +82,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 
 <header>
   <h1>Daily Equity Alpha Funnel</h1>
+  {% if meta.mode_label %}<div class="modebanner">{{ meta.mode_label }}</div>{% endif %}
   <div class="sub">{{ meta.as_of }} &middot; run <code>{{ meta.run_id }}</code>
     &middot; generated {{ meta.generated_at }}</div>
   <div class="badges">
@@ -93,6 +100,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 
 <h2>Executive summary</h2>
 <div class="card">
+{% if meta.mode_label %}<div class="modebanner card-mode">{{ meta.mode_label }}</div>{% endif %}
 <table>
 <thead><tr>
   <th>#</th><th>Ticker</th><th>Sector</th><th class="num">Score</th>
@@ -116,6 +124,7 @@ code{background:var(--panel2);padding:1px 5px;border-radius:4px;font-size:12px}
 
 {% if deterministic_names %}
 <div class="card">
+{% if meta.mode_label %}<div class="modebanner card-mode">{{ meta.mode_label }}</div>{% endif %}
 <h3>Deterministic ranking — Stages 0-3 only</h3>
 <p class="sub">No language model ran. These are the funnel's own scores: a
 sector-neutral factor composite blended with the catalyst score and tilted by
@@ -159,6 +168,7 @@ the macro regime. There is no thesis text because there is nothing to write it.<
 <h2>Deep dives</h2>
 {% for n in names %}
 <section class="name">
+  {% if meta.mode_label %}<div class="modebanner card-mode">{{ meta.mode_label }}</div>{% endif %}
   <div class="namehead">
     <h3 class="tkr">{{ n.ticker }}</h3>
     <span class="pill">{{ n.sector }}</span>

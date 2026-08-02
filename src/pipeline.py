@@ -23,6 +23,12 @@ import structlog
 
 from src.catalysts import stage3 as s3
 from src.catalysts.macro import load_macro_state
+from src.config.factor_weights import (
+    MODE_FULL,
+    MODE_LABEL,
+    MODE_MOMENTUM_ONLY,
+    mode_config,
+)
 from src.config.settings import get_settings
 from src.factors import composite, trend
 from src.ingest.rate_limiter import get_rate_limiter
@@ -229,8 +235,18 @@ async def run_pipeline(
     resume_from: int = 0,
     skip_llm: bool = False,
     persist_universe: bool = True,
+    mode: str = MODE_FULL,
 ) -> PipelineResult:
+    """`mode` selects the scoring artifact this run produces.
+
+    MODE_FULL is the real funnel: all 19 factors, and the completeness floor
+    applies unchanged. MODE_MOMENTUM_ONLY scores on the 3 price-derived momentum
+    factors and skips the completeness gate BY DESIGN -- it is a separate,
+    labelled artifact for use while fundamentals load, never a way to get a full
+    run past the floor. Every output it produces carries MODE_LABEL.
+    """
     configure_logging()
+    mode_config(mode)  # validate early: an unknown mode fails before any work
     s = get_settings()
     as_of = as_of or _last_trading_day()
     run_id = run_id or f"{as_of.isoformat()}-{uuid.uuid4().hex[:8]}"
@@ -248,7 +264,7 @@ async def run_pipeline(
     t_start = time.perf_counter()
 
     with session_scope() as session:
-        repository.start_run(session, run_id, as_of)
+        repository.start_run(session, run_id, as_of, mode=mode)
 
     try:
         # ---------------- model verification, before anything expensive -----
@@ -354,7 +370,8 @@ async def run_pipeline(
             with _stage("factor_composite", 2, len(tr.survivors), timings) as box:
                 assert_no_lookahead(session, as_of)
                 comp = composite.run_stage2(
-                    session, tr.survivors, universe, as_of, take=s.stage2_take
+                    session, tr.survivors, universe, as_of, take=s.stage2_take,
+                    mode=mode,
                 )
                 box["exit"] = len(comp.selected)
                 funnel["Stage 2 factors"] = len(comp.selected)
@@ -371,7 +388,22 @@ async def run_pipeline(
 
             # Completeness gate: a composite built on mostly-NaN factors is not a
             # defensible ranking. Abort (don't ship) with the per-factor coverage.
-            _completeness_gate(comp, s.min_mean_completeness)
+            # MOMENTUM-ONLY bypasses it BY DESIGN -- it is not claiming to be the
+            # full composite, and it says so on every artifact it produces. The
+            # floor is untouched and still applies in full to MODE_FULL.
+            if mode == MODE_MOMENTUM_ONLY:
+                warnings.append(MODE_LABEL[MODE_MOMENTUM_ONLY])
+                log.warning(
+                    "completeness_gate_bypassed_by_design",
+                    mode=mode,
+                    label=MODE_LABEL[MODE_MOMENTUM_ONLY],
+                    # The honest full-composite number, so the bypass is never
+                    # mistaken for the data being complete.
+                    full_completeness=round(comp.full_completeness, 3),
+                    floor_unchanged=s.min_mean_completeness,
+                )
+            else:
+                _completeness_gate(comp, s.min_mean_completeness)
 
             # ---------------- macro regime -------------------------------
             macro = await load_macro_state(session, as_of)
@@ -541,7 +573,7 @@ async def run_pipeline(
             repository.reset_write_ledger()
             _persist_scores(
                 session, as_of, tr, comp, st3, triage_df, dives, sectors,
-                deterministic_top,
+                deterministic_top, mode=mode,
             )
             _check_stage_writes("persist scores")
 
@@ -557,7 +589,7 @@ async def run_pipeline(
                     funnel_counts=funnel, funnel_rejects=funnel_rejects,
                     stage_sectors=stage_sectors, near_misses=near,
                     api_calls=limiter.call_counts(), cost=cost.summary(),
-                    duration_s=duration, warnings=warnings,
+                    duration_s=duration, warnings=warnings, mode=mode,
                     deterministic_names=deterministic_top,
                     fundamentals=_load_quarterlies(
                         session, [d.ticker for d in dives], as_of
@@ -782,7 +814,7 @@ def _near_misses(
 
 def _persist_scores(
     session, as_of: dt.date, tr, comp, st3, triage_df, dives, sectors,
-    deterministic_top=None,
+    deterministic_top=None, mode: str = MODE_FULL,
 ) -> None:
     """Store every scored name so the IC tracker can measure this run later."""
     dive_by_ticker = {d.ticker: d for d in dives}
@@ -814,6 +846,9 @@ def _persist_scores(
                     else "unknown"
                 ),
                 "stage_reached": stage,
+                # Stamped on every stored score so IC can separate momentum-only
+                # runs from full runs and never pool the two.
+                "mode": mode,
                 "factor_composite": _num(r.get("factor_composite")),
                 "catalyst_score": catalyst,
                 "llm_triage_score": tri_score,
@@ -861,7 +896,12 @@ def _persist_scores(
                     "ticker": d["ticker"],
                     "total_score": _deterministic_score(d.get("factor_composite")),
                     "subscores": None,
+                    # The stored thesis is a user-facing output (it drives the
+                    # site's picks list and /stock/<ticker>), so a partial-data
+                    # mode must say so HERE too -- not only on the report page.
                     "thesis": (
+                        (MODE_LABEL[mode] + " ") if MODE_LABEL.get(mode) else ""
+                    ) + (
                         "Fast mode — ranked by the deterministic funnel "
                         "(Stages 0-3); no model write-up."
                     ),
@@ -908,6 +948,12 @@ def _cli() -> None:
         "--skip-llm", action="store_true",
         help="run Stages 0-3 only; report the deterministic ranking",
     )
+    parser.add_argument(
+        "--mode", default=MODE_FULL, choices=[MODE_FULL, MODE_MOMENTUM_ONLY],
+        help="scoring mode. 'momentum_only' scores on the 3 price factors and "
+        "skips the completeness gate BY DESIGN; every artifact it produces is "
+        "labelled as such. It is a separate thing, not a degraded full run.",
+    )
     args = parser.parse_args()
 
     configure_logging()
@@ -922,7 +968,9 @@ def _cli() -> None:
         result = asyncio.run(resume_last(as_of, skip_llm=args.skip_llm))
     else:
         result = asyncio.run(
-            run_pipeline(as_of, run_id=args.run_id, skip_llm=args.skip_llm)
+            run_pipeline(
+                as_of, run_id=args.run_id, skip_llm=args.skip_llm, mode=args.mode
+            )
         )
 
     print(

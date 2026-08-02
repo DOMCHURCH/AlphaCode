@@ -86,6 +86,65 @@ Four-part cycle. All diagnostics reachable from `/diagnostics` (mobile, no shell
   `np.fmax` (0.14s, numerically identical incl. NaN alignment). Deploy timing to
   be read from the split log after this ships.
 
+## Cycle: fundamentals dedup (the last blocker) + momentum-only mode
+
+- **Dedup — CardinalityViolation fixed.** The bulk fundamentals load died with
+  "ON CONFLICT DO UPDATE command cannot affect row a second time". TWO mechanisms
+  produce the duplicate, both real:
+  1. **Tag aliases.** `revenue` maps to 3 XBRL tags; a filing reporting two of
+     them emitted two rows with an IDENTICAL natural key. Collapsed in
+     `extract_fundamentals` (where the tag is still known), preferring the tag
+     listed first in `XBRL_CONCEPTS` — deterministic, not file order.
+  2. **Amended filings** (10-K/A, 10-Q/A) repeating prior-period facts.
+     Collapsed keeping the **EARLIEST `filing_date`** — as first reported. Keeping
+     the latest would import a later restatement into an earlier date, i.e. the
+     lookahead bias the PIT layer exists to prevent.
+- **Where the collapse happens matters.** `backfill_fundamentals` batches at
+  5,000 rows; deduping only inside a batch would let a duplicate split across a
+  boundary survive AND let the later batch (the restatement) win the upsert. So
+  the collapse runs across the WHOLE quarter before batching, and `backfill_
+  earnings` collapses across ALL quarters (a filing appears in more than one
+  dataset). `_upsert` also dedupes on `conflict_cols` for EVERY table as a
+  structural safety net. Drop counts + pct are logged per quarter
+  (`sec_quarter_deduped`) — a large fraction means the key is wrong.
+- **Constraint confirmed correct, unchanged.** SEC legitimately has multiple
+  values per (ticker, metric, period_end) — restatements — so `filing_date`
+  stays in `uq_fundamental_point`. `pit.get_fundamentals` picks the latest
+  filing VISIBLE as of the read date, so a restatement filed later is a genuine
+  new fact from its own filing date. Within-load collapse ≠ blocking that.
+- **Earnings collapse** on (ticker, report_date): `report_date` IS the filing
+  date, so earliest can't break a same-day 10-Q/10-K/A tie and neither is
+  lookahead. Deterministic instead: prefer a real `actual_eps`, then the latest
+  `period_end`.
+- **Verified at scale** (synthetic quarter, both mechanisms, 800 companies):
+  4,800 facts → 3,200 after alias collapse → 1,600 after earliest-filing
+  collapse; natural key unique; earliest filing survived, amendment rejected.
+
+- **MOMENTUM-ONLY mode** — a separate, LABELLED artifact, not a degraded run.
+  `mode_config()` in factor_weights; `run_pipeline(mode=)`, `/run?mode=
+  momentum_only`, `--mode`, and a `/diagnostics` button. Scores on the 3
+  price-derived momentum factors and **bypasses the completeness gate BY
+  DESIGN** — it never claims to be the full composite. The 0.40 floor is
+  UNCHANGED and still aborts a full run on the same thin data (locked by a test).
+  Label, verbatim: `MOMENTUM ONLY — 3 of 19 factors — not the full composite.`
+  It appears on the report header, the executive summary, the ranking block,
+  every ticker card, the run warnings, the /diagnostics last-run panel, and the
+  **stored thesis text** (which drives /stock/<ticker> — the one path that would
+  otherwise have shipped unlabelled).
+  `DailyScore.mode` + `RunLog.mode` are stored, and EVERY IC query
+  (`compute_ic`, `factor_decay_analysis`, `turnover`, `ic_report`) filters on
+  mode — momentum-only scores can never pool with full-composite scores.
+  Also fixed: the report's "Factor weights used" table printed the full five
+  categories regardless of mode; it now prints the weights that ACTUALLY scored
+  the run.
+  E2E on a prices-only seeded market (no fundamentals at all): full run aborts
+  on the floor; momentum-only returns an ordered top-10, labelled 4× in the HTML.
+
+- **Still deploy-only:** the real SEC bulk download. Re-verified this cycle —
+  `sec.gov` and `stooq.com` return 403 on CONNECT at the proxy (allowlist is
+  package registries only), so the live row counts must come from the deploy's
+  /diagnostics Fundamentals button.
+
 - **/validation** now surfaces a survivorship-bias self-check (keyed off scored
   dates; returns a clear note until ≥2 exist).
 - **Point-in-time enforcement** (`tests/test_pit.py`, 41 tests): the guardrail

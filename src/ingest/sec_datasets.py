@@ -44,6 +44,13 @@ DATASET_URL = (
 _TAG_TO_METRIC: dict[str, str] = {
     tag: metric for metric, tags in XBRL_CONCEPTS.items() for tag in tags
 }
+# Several tags map to ONE metric (revenue has 3 aliases). A filing that reports
+# two of them yields two rows with an identical natural key -- the duplicate that
+# aborts a Postgres upsert. The alias tuples in XBRL_CONCEPTS are already in
+# preference order (modern tag first), so rank by position and keep the best.
+_TAG_RANK: dict[str, int] = {
+    tag: i for _m, tags in XBRL_CONCEPTS.items() for i, tag in enumerate(tags)
+}
 _EPS_TAGS = frozenset(XBRL_CONCEPTS["eps"])
 # Periodic reports carry an earnings event (filing date + period end).
 _PERIODIC_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A"})
@@ -133,7 +140,8 @@ def extract_fundamentals(
         return []
     facts = facts[facts["qtrs"].isin(["0", "1", "4"])]
     sub_meta = sub.set_index("adsh")[["cik", "filed", "fp"]]
-    out: list[dict[str, Any]] = []
+    # (ticker, metric, period_end, filing_date) -> (tag_rank, row); best alias wins.
+    best: dict[tuple[Any, ...], tuple[int, dict[str, Any]]] = {}
     for r in facts.itertuples(index=False):
         meta = sub_meta.loc[r.adsh] if r.adsh in sub_meta.index else None
         if meta is None:
@@ -150,18 +158,28 @@ def extract_fundamentals(
             value = float(r.value)
         except (TypeError, ValueError):
             continue
-        out.append(
-            {
-                "ticker": ticker,
-                "metric": _TAG_TO_METRIC[r.tag],
-                "value": value,
-                "period_end": period_end,
-                "fiscal_period": str(meta["fp"] or "")[:8] or None,
-                "filing_date": filing_date,
-                "source": "sec",
-                "restated": False,
-            }
-        )
+        metric = _TAG_TO_METRIC[r.tag]
+        row = {
+            "ticker": ticker,
+            "metric": metric,
+            "value": value,
+            "period_end": period_end,
+            "fiscal_period": str(meta["fp"] or "")[:8] or None,
+            "filing_date": filing_date,
+            "source": "sec",
+            "restated": False,
+        }
+        # Collapse tag aliases here, where the tag is still known: one row per
+        # (ticker, metric, period_end, filing_date), preferring the tag listed
+        # first in XBRL_CONCEPTS. Without this a filing reporting both `Revenues`
+        # and `RevenueFromContractWithCustomerExcludingAssessedTax` emits two rows
+        # with an identical natural key, which aborts the whole upsert batch.
+        key = (ticker, metric, period_end, filing_date)
+        rank = _TAG_RANK.get(r.tag, 99)
+        prev = best.get(key)
+        if prev is None or rank < prev[0]:
+            best[key] = (rank, row)
+    out = [row for _rank, row in best.values()]
     return out
 
 
