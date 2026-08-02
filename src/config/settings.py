@@ -80,6 +80,13 @@ class Settings(BaseSettings):
         default="https://stooq.com/db/h/d_us_txt.zip", alias="STOOQ_BULK_URL"
     )
 
+    # Rate limits for the open, unauthenticated POST endpoints. /run spends LLM
+    # credits, so cap how often it (and /backfill) can be triggered per hour to
+    # stop anyone with the URL from burning the OpenRouter key. Generous enough
+    # for a human; low enough to defeat a script. 0 disables the limit.
+    run_rate_per_hour: int = Field(default=20, alias="RUN_RATE_PER_HOUR")
+    backfill_rate_per_hour: int = Field(default=8, alias="BACKFILL_RATE_PER_HOUR")
+
     # Hard per-chunk timeout (seconds) for the Yahoo/yfinance batch download.
     # yfinance does a blocking socket read with no timeout of its own; a stalled
     # Yahoo connection would otherwise hang the whole backfill (and hold the

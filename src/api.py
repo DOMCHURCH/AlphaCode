@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import datetime as dt
-from collections.abc import AsyncIterator
+import time
+from collections import deque
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
@@ -101,6 +103,51 @@ app = FastAPI(
 
 _run_lock = asyncio.Lock()
 _backfill_lock = asyncio.Lock()
+
+
+class _RateGate:
+    """A per-process sliding-window rate limit for the open POST endpoints.
+
+    The `/run` endpoint spends LLM credits and needs no token, so without a cap
+    anyone with the URL could hammer it. `limit_fn` is read live so the limit is
+    configurable via settings (0 disables). Not per-IP -- this is a single
+    personal service, and a global cap is what stops credit-burning abuse.
+    """
+
+    def __init__(self, limit_fn: Callable[[], int]) -> None:
+        self._limit_fn = limit_fn
+        self._hits: deque[float] = deque()
+
+    def check(self) -> float | None:
+        """None if allowed (and records the hit); else seconds until retry."""
+        limit = self._limit_fn()
+        if limit <= 0:
+            return None
+        now = time.monotonic()
+        cutoff = now - 3600
+        while self._hits and self._hits[0] < cutoff:
+            self._hits.popleft()
+        if len(self._hits) >= limit:
+            return max(1.0, 3600 - (now - self._hits[0]))
+        self._hits.append(now)
+        return None
+
+    def reset(self) -> None:
+        self._hits.clear()
+
+
+_run_gate = _RateGate(lambda: get_settings().run_rate_per_hour)
+_backfill_gate = _RateGate(lambda: get_settings().backfill_rate_per_hour)
+
+
+def _enforce_rate(gate: _RateGate, what: str) -> None:
+    retry = gate.check()
+    if retry is not None:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit reached for {what}. Try again in {int(retry)}s.",
+            headers={"Retry-After": str(int(retry))},
+        )
 
 # Serve the dashboard's CSS/JS (and any future assets) as static files, so the
 # front-end lives in real .css/.js files instead of one inlined HTML blob.
@@ -367,9 +414,10 @@ async def trigger_run(
 ) -> RunResponse:
     """Manual trigger. Returns immediately; the run proceeds in the background.
 
-    Open by design -- no token needed. A run is single-flighted by `_run_lock`,
-    so hitting this repeatedly just returns "already running" rather than
-    stacking work."""
+    Open by design -- no token needed. Rate-limited (it spends LLM credits) and
+    single-flighted by `_run_lock`, so hitting it repeatedly is capped and just
+    returns "already running" rather than stacking work."""
+    _enforce_rate(_run_gate, "runs")
     if _run_lock.locked():
         return RunResponse(
             accepted=False, detail="A run is already in progress."
@@ -407,6 +455,7 @@ async def trigger_backfill(
     as-reported fundamentals (slow). `sectors=true` caches the SIC->GICS sector
     map (once, near-static) so sector-neutral scoring works without FMP.
     """
+    _enforce_rate(_backfill_gate, "backfills")
     if _backfill_lock.locked():
         return RunResponse(accepted=False, detail="A backfill is already running.")
     background.add_task(_backfill_bg, days, fundamentals, sectors)

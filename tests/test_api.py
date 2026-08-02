@@ -37,8 +37,12 @@ def api_db(tmp_path, monkeypatch):
 def client(api_db):
     from fastapi.testclient import TestClient
 
+    from src import api
     from src.api import app
 
+    # Rate-limit gates are module-level; isolate them per test.
+    api._run_gate.reset()
+    api._backfill_gate.reset()
     with TestClient(app) as c:
         yield c
 
@@ -250,6 +254,31 @@ def test_status_surfaces_last_run_error(client):
     lr = client.get("/status").json()["last_run"]
     assert lr["status"] == "failed"
     assert "below the 4000 floor" in lr["error"]
+
+
+def test_run_is_rate_limited(client, monkeypatch):
+    """The open /run endpoint is capped so nobody can hammer the URL and burn
+    LLM credits. Past the hourly limit it 429s with a Retry-After."""
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("RUN_RATE_PER_HOUR", "3")
+    get_settings.cache_clear()
+    from src import api
+
+    api._run_gate.reset()
+    try:
+        codes = [api_run(client) for _ in range(4)]
+        assert codes[:3] == [200, 200, 200]
+        assert codes[3] == 429
+        r = client.post("/run?skip_llm=true")
+        assert r.status_code == 429
+        assert "Retry-After" in r.headers
+    finally:
+        api._run_gate.reset()
+
+
+def api_run(client):
+    return client.post("/run?skip_llm=true").status_code
 
 
 def test_backfill_needs_no_token(client, monkeypatch):
