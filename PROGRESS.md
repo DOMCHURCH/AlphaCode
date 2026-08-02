@@ -190,9 +190,8 @@ emptiness, don't tune it. No new features until the queue clears.
   truth; pipeline hard-blocks a run with `insufficient history: N/252` rather
   than running degraded. `_history_depth()` measures it. Tests updated to assert
   the block, not the degrade.
-- [ ] **#2 Stooq bulk daily** as the keyless wide-end (one download, whole
-  market, no rate limit); Polygon grouped-daily stays the daily incremental;
-  drop Yahoo per-ticker looping as the default.
+- [x] **#2 Stooq bulk daily** (done — src/ingest/stooq.py; keyless backfill uses it; Yahoo per-ticker dropped as default; verified offline on a synthetic bundle: 300×300 → 90k rows).
+
 - [ ] **#3 SEC SIC -> GICS sector map**, cached, so sector-neutral scoring isn't
   silently universe-neutral without FMP.
 - [ ] **#4 Fast-mode fallback server-side** so a cron run always yields a
