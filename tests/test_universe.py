@@ -30,6 +30,26 @@ def test_common_stock_filter(ticker, sec_type, expected):
     assert is_common_stock(ticker, sec_type) is expected
 
 
+def test_common_stock_filter_handles_pandas_missing_values():
+    """DataFrame cells arrive as NaN (a float), not None -- the exact Stage-0
+    crash: `nan.upper()`. Must handle NaN, None and "" for BOTH args."""
+    import numpy as np
+
+    # A missing security_type must not crash and must not reject a good ticker
+    # (unknown type is treated as "not disqualifying", same as the old None path).
+    assert is_common_stock("AAPL", np.nan) is True
+    assert is_common_stock("AAPL", None) is True
+    assert is_common_stock("AAPL", "") is True
+    # A missing/blank ticker is not a tradeable name.
+    assert is_common_stock(np.nan, "CS") is False
+    assert is_common_stock(None, "CS") is False
+    assert is_common_stock("", "CS") is False
+    # A real ETF with a NaN ticker still rejected, and a real type still gates.
+    assert is_common_stock("SPY", "ETF") is False
+    # Whitespace around a valid value is tolerated.
+    assert is_common_stock(" AAPL ", " CS ") is True
+
+
 def _frames(n=50, **overrides):
     bars, ref, scr = [], [], []
     for i in range(n):

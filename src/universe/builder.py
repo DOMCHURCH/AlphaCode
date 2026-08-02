@@ -40,12 +40,36 @@ EXCLUDED_TYPES = {
 }
 
 
-def is_common_stock(ticker: str, security_type: str | None) -> bool:
-    """Common stock only. Excludes ETFs, ETNs, warrants, units, rights, preferreds."""
+def _is_missing(v: Any) -> bool:
+    """True for a missing scalar: None, NaN or NaT.
+
+    Values read from a pandas DataFrame come back as NaN (a float) for missing
+    cells, so `v is None` is False and any string method on them raises
+    AttributeError. Every DataFrame-derived value tested for presence must go
+    through this, not `is None` -- that mismatch is the single most common pandas
+    failure mode in this codebase.
+    """
+    try:
+        return v is None or bool(pd.isna(v))
+    except (TypeError, ValueError):
+        return False  # non-scalar (list/array/Series) -> treat as present
+
+
+def is_common_stock(ticker: Any, security_type: Any) -> bool:
+    """Common stock only. Excludes ETFs, ETNs, warrants, units, rights, preferreds.
+
+    `ticker`/`security_type` may arrive from a DataFrame as NaN (a float), not
+    None -- hence the _is_missing guards and the str() coercions.
+    """
+    if _is_missing(ticker):
+        return False
+    ticker = str(ticker).strip()
     if not ticker:
         return False
-    if security_type is not None and security_type.upper() != "CS":
-        return False
+    if not _is_missing(security_type):
+        st = str(security_type).strip()
+        if st and st.upper() != "CS":
+            return False
     if _SUFFIX_RE.search(ticker):
         return False
     # Five-character NASDAQ tickers ending W/U/R are warrants/units/rights.
@@ -267,7 +291,10 @@ def build_universe_from_frames(
     df.loc[~has_sector, "sector_source"] = "unknown"
     df.loc[~has_sector, "sector"] = None
 
-    df["delisted"] = ~df.get("active", pd.Series(True, index=df.index)).fillna(True)
+    # Cast to bool explicitly: an all-None `active` column merges as object dtype,
+    # and .fillna on object dtype is deprecated to silently downcast (FutureWarning).
+    active = df.get("active", pd.Series(True, index=df.index))
+    df["delisted"] = ~active.fillna(True).astype(bool)
 
     # 20-day ADV from stored history; fall back to today's dollar volume if the
     # backfill has not run yet.
