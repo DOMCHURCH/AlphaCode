@@ -175,3 +175,27 @@ def test_custom_config_threshold_is_respected(price_panels):
         sectors=p["sectors"], config=strict,
     )
     assert (res.survivors["pct_of_52w_high"] >= 0.99).all()
+
+
+def test_gate_runs_on_short_history_without_collapsing():
+    """A first backfill may only have ~205 days. The 200-day-SMA slope must
+    still be computable (via slope()'s NaN tolerance) so the gate returns a real
+    universe instead of collapsing to zero -- this is what lets research start
+    on stored data without waiting out a full 252-session backfill."""
+    n = 207
+    dates = pd.bdate_range(end="2026-07-31", periods=n)
+    rng = np.random.default_rng(7)
+    tickers = [f"T{i:03d}" for i in range(300)]
+    close = pd.DataFrame(index=dates, columns=tickers, dtype=float)
+    for t in tickers:
+        drift = rng.uniform(-0.0003, 0.0013)
+        close[t] = 100 * np.cumprod(1 + rng.normal(drift, 0.012, n))
+    vol = pd.DataFrame(1e6, index=dates, columns=tickers)
+    sectors = pd.Series("Tech", index=tickers)
+
+    # The former failure mode: SMA200 slope all-NaN -> every name rejected.
+    sl = ind.slope(ind.sma(close, 200), 21)
+    assert sl.notna().all(), "sma200 slope collapsed to NaN on short history"
+
+    res = run_trend_gate(close, close * 1.01, close * 0.99, vol, sectors=sectors)
+    assert len(res.survivors) > 0, "gate collapsed to an empty universe"

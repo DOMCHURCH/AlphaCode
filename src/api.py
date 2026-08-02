@@ -451,12 +451,14 @@ _STAGE_STEPS: list[dict[str, Any]] = [
 ]
 _TOTAL_STAGES = len(_STAGE_STEPS)
 
-# Stage 1 evaluates a 52-week high, a 12-month return and a 200-day SMA, so the
-# funnel needs about a year of sessions before its first run means anything.
-# Readiness is measured in *trading days loaded*, not raw bar count -- one
-# grouped-daily call adds ~10k bars for a single session, so a bar-count
-# threshold flips "ready" after ~10 days when the gate still has no history.
-MIN_HISTORY_DATES = 252
+# Trading days of history the funnel needs before its first run means anything.
+# The hard floor is the 200-day SMA (Stage 1's deepest window); the 52-week
+# high / 12-month return use `.tail(252)`, which degrades gracefully to whatever
+# history exists, and Stage-2 momentum that needs a full year just scores z=0
+# until the backfill fills in. So 200 sessions is enough for a defensible run --
+# demanding a full 252 only makes a rate-limited first backfill drag on for no
+# real gain. Readiness is measured in trading days loaded, not raw bar count.
+MIN_HISTORY_DATES = 205
 
 
 def _current_run_progress(session: Any) -> dict[str, Any] | None:
