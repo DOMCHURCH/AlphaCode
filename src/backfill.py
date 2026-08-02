@@ -25,9 +25,9 @@ import structlog
 from sqlalchemy import select
 
 from src.config.settings import get_settings
-from src.ingest import polygon, sec_edgar, stooq
+from src.ingest import fmp, polygon, sec_edgar, stooq
 from src.ingest import sic as sic_map
-from src.ingest.base import gather_bounded
+from src.ingest.base import PermanentAPIError, gather_bounded
 from src.logging_config import configure_logging
 from src.storage import repository
 from src.storage.db import init_db, session_scope
@@ -49,7 +49,7 @@ log = structlog.get_logger(__name__)
 # ---------------------------------------------------------------------------
 _BACKFILL_STATE: dict[str, Any] = {
     "phase": "idle",             # idle | running | done | error
-    "source": None,              # "polygon" | "yahoo"
+    "source": None,              # "stooq" | "fmp_batch_eod" | "polygon"
     "unit": "sessions",          # what units_done/units_total count
     "units_done": 0,
     "units_total": 0,
@@ -57,6 +57,8 @@ _BACKFILL_STATE: dict[str, Any] = {
     "target_sessions": 0,        # `days` requested
     "last_error": None,
     "polygon_key_present": None,
+    "polygon_tier": None,        # "free" | "paid" -- why polygon is/ isn't used
+    "sources_available": None,   # the ordered wide-end chain for this config
     "yfinance_available": None,
     "last_progress_at": None,    # ISO ts; moves every iteration -> "still alive"
     "started_at": None,
@@ -78,32 +80,89 @@ def record_backfill_error(msg: str) -> None:
     _update_state(phase="error", last_error=msg[:300])
 
 
+def _wide_end_backfill_chain(s) -> list[tuple[str, Any]]:
+    """The ordered wide-end bar sources for a *multi-day* backfill.
+
+    Chosen by CAPABILITY, not key presence. Whole-market-in-one-call sources come
+    first: Stooq bulk (keyless, one download of the entire market's history) is
+    primary, FMP batch EOD (whole market per day, paid FMP endpoint) is the
+    fallback. Polygon grouped-daily is one call PER SESSION, so a multi-day
+    backfill is `days` calls -- fine on a paid plan, but on the rate-limited free
+    tier it 429s for hours, so it is included ONLY when POLYGON_TIER=paid, and
+    even then it sits last behind the bulk sources.
+    """
+    chain: list[tuple[str, Any]] = [("stooq", _backfill_bars_stooq)]
+    if s.fmp_api_key:
+        chain.append(("fmp_batch_eod", _backfill_bars_fmp_batch))
+    if s.polygon_api_key and s.polygon_tier == "paid":
+        chain.append(("polygon", _backfill_bars_polygon))
+    return chain
+
+
 async def backfill_bars(days: int, end: dt.date | None = None) -> int:
-    """Load `days` sessions of history. Uses Polygon if a key is set, else the
-    free Yahoo path (no key)."""
+    """Load `days` sessions of history from a whole-market bulk source.
+
+    Tries the capability-ordered source chain (see `_wide_end_backfill_chain`)
+    and returns the first that yields rows, logging which one actually loaded the
+    data so the choice is visible next time. Polygon grouped-daily is never used
+    for this multi-day load on the free tier -- that is the 429 flood this fixes.
+    """
     end = end or dt.date.today()
-    key = bool(get_settings().polygon_api_key)
+    s = get_settings()
+    chain = _wide_end_backfill_chain(s)
+    names = [n for n, _ in chain]
     _update_state(
-        phase="running", rows=0, units_done=0, last_error=None,
-        target_sessions=days, polygon_key_present=key,
-        yfinance_available=None, started_at=dt.datetime.now(dt.UTC).isoformat(),
+        phase="running", source=None, rows=0, units_done=0, last_error=None,
+        target_sessions=days, polygon_key_present=bool(s.polygon_api_key),
+        polygon_tier=s.polygon_tier, sources_available=names,
+        started_at=dt.datetime.now(dt.UTC).isoformat(),
     )
-    if key:
-        return await _backfill_bars_polygon(days, end)
-    return await _backfill_bars_free(days, end)
+    log.info(
+        "backfill_bars_start", days=days, sources=names,
+        polygon_tier=s.polygon_tier, polygon_key=bool(s.polygon_api_key),
+    )
+    if not chain:
+        _update_state(phase="error", last_error="no wide-end bar source available")
+        log.error("backfill_no_source")
+        return 0
+
+    errors: dict[str, str] = {}
+    for name, run in chain:
+        _update_state(phase="running", source=name, last_error=None)
+        log.info("backfill_source_try", source=name)
+        try:
+            rows = await run(days, end)
+        except Exception as exc:  # noqa: BLE001 - try the next source, then report
+            errors[name] = str(exc)[:200]
+            log.warning("backfill_source_failed", source=name, error=str(exc)[:200])
+            continue
+        if rows > 0:
+            _update_state(phase="done", source=name, rows=rows)
+            log.info(
+                "backfill_source_used", source=name, rows=rows,
+                also_tried=[n for n in names if n != name and n in errors],
+            )
+            return rows
+        errors.setdefault(name, "returned no rows")
+        log.warning("backfill_source_empty", source=name)
+
+    detail = "; ".join(f"{n}: {e}" for n, e in errors.items())
+    _update_state(phase="error", last_error=f"all wide-end sources failed: {detail}")
+    log.error("backfill_all_sources_failed", errors=errors)
+    return 0
 
 
 async def _backfill_bars_polygon(days: int, end: dt.date) -> int:
     """One grouped-daily call per session. Holidays return empty and are skipped.
 
-    Each day's call is bounded by a hard timeout so a single hung request can
-    never freeze the whole backfill (and hold `_backfill_lock`). Progress is
-    published to /status after every session so the loader visibly climbs -- on
-    the free Polygon tier (5 calls/min) this is slow but must never stall
-    silently.
+    Reached ONLY on a paid Polygon tier (see the chain): a multi-day loop of
+    per-session calls would 429 for hours on the free tier. Each day's call is
+    bounded by a hard timeout so a single hung request can never freeze the whole
+    backfill (and hold `_backfill_lock`). Progress is published to /status after
+    every session so the loader visibly climbs.
     """
     timeout = get_settings().polygon_fetch_timeout
-    _update_state(source="polygon", unit="sessions", units_total=days)
+    _update_state(unit="sessions", units_total=days)
 
     # Skip days already in the store. A re-run/resume otherwise walks backward
     # from today and re-downloads every loaded day before it can add a new one,
@@ -156,34 +215,30 @@ async def _backfill_bars_polygon(days: int, end: dt.date) -> int:
             _update_state(units_done=covered, rows=total)
         day -= dt.timedelta(days=1)
 
-    if covered == 0:
-        _update_state(
-            phase="error",
-            last_error=_BACKFILL_STATE["last_error"] or "Polygon returned no bars",
-        )
-    else:
-        _update_state(phase="done")
+    # Phase/source are owned by the orchestrator (backfill_bars); this source just
+    # reports how much it loaded.
     log.info(
-        "backfill_bars_complete", sessions=covered, fetched=fetched_sessions, rows=total
+        "backfill_polygon_complete", sessions=covered, fetched=fetched_sessions,
+        rows=total,
     )
     return total
 
 
-async def _backfill_bars_free(days: int, end: dt.date) -> int:
-    """Keyless history load from the Stooq bulk daily archive.
+async def _backfill_bars_stooq(days: int, end: dt.date) -> int:
+    """Keyless history load from the Stooq bulk daily archive -- the primary
+    wide-end source.
 
-    ONE download of the whole US market, parsed and loaded locally -- no key and
-    no rate limit, unlike the old Yahoo per-ticker loop (unreliable from
-    datacenter IPs). `days` bounds how far back to keep. Rows are saved in
-    batches so /status climbs and a mid-load failure keeps what it loaded. Any
-    failure fails loudly -- never a silent empty load.
+    ONE download of the whole US market, parsed and loaded locally: no key, no
+    rate limit, whole market and all of history in a single request. `days`
+    bounds how far back to keep. Rows are saved in batches so /status climbs and
+    a mid-load failure keeps what it loaded. A hard failure RAISES (descriptive
+    message) so the orchestrator can record it and try the next source rather
+    than silently loading nothing.
     """
     since = end - dt.timedelta(days=int(days * 1.5) + 10)
     cap = get_settings().free_universe_max or None
-    _update_state(
-        source="stooq", unit="tickers", units_total=0, units_done=0, rows=0,
-    )
-    log.info("backfill_free_start", source="stooq", since=str(since), cap=cap)
+    _update_state(unit="tickers", units_total=0, units_done=0, rows=0)
+    log.info("backfill_stooq_start", since=str(since), cap=cap)
 
     def _save(batch: list[dict[str, Any]]) -> int:
         with session_scope() as session:
@@ -194,30 +249,88 @@ async def _backfill_bars_free(days: int, end: dt.date) -> int:
 
     try:
         zip_path = await stooq.download_bulk()
-    except Exception as exc:  # noqa: BLE001 - loud failure, no silent empty load
-        _update_state(phase="error", last_error=f"Stooq download failed: {str(exc)[:200]}")
-        log.error("stooq_download_failed", error=str(exc)[:300])
-        return 0
+    except Exception as exc:
+        raise RuntimeError(f"Stooq download failed: {str(exc)[:200]}") from exc
 
     try:
         total = stooq.load_bulk_from_zip(
             zip_path, _save, since=since, max_tickers=cap, on_progress=_progress
         )
-    except Exception as exc:  # noqa: BLE001
-        _update_state(phase="error", last_error=f"Stooq parse failed: {str(exc)[:200]}")
-        log.error("stooq_parse_failed", error=str(exc)[:300])
-        return 0
+    except Exception as exc:
+        raise RuntimeError(f"Stooq parse failed: {str(exc)[:200]}") from exc
     finally:
         try:
             Path(zip_path).unlink(missing_ok=True)
         except OSError:
             pass
 
-    if total == 0:
-        _update_state(phase="error", last_error="Stooq bulk archive yielded no rows")
-    else:
-        _update_state(phase="done")
-    log.info("backfill_bars_complete", source="stooq", rows=total)
+    log.info("backfill_stooq_complete", rows=total)
+    return total
+
+
+async def _backfill_bars_fmp_batch(days: int, end: dt.date) -> int:
+    """Whole-market EOD from FMP's batch endpoint -- the bulk fallback.
+
+    One call per session (every symbol for one date), like Polygon grouped-daily
+    but on FMP's higher paid rate limits. It is a paid-tier endpoint, so we PROBE
+    it on the first needed day: if the plan lacks it (402/403 -> PermanentAPIError)
+    we log that and raise so the chain falls through to Polygon-or-error rather
+    than looping a dead endpoint. Skips days already stored (same as Polygon).
+    """
+    _update_state(unit="sessions", units_total=days)
+    with session_scope() as session:
+        existing: set[dt.date] = set(
+            session.execute(select(DailyBar.date).distinct()).scalars().all()
+        )
+
+    # Capability probe on the most recent business day we still need.
+    probe_day = end
+    while probe_day.weekday() >= 5 or probe_day in existing:
+        probe_day -= dt.timedelta(days=1)
+        if (end - probe_day).days > 10:  # everything recent already stored
+            break
+    try:
+        first = await fmp.fetch_batch_eod(probe_day)
+    except PermanentAPIError as exc:
+        log.warning("fmp_batch_eod_unavailable", detail=str(exc)[:200])
+        raise RuntimeError(
+            f"FMP plan lacks batch-request-end-of-day-prices ({str(exc)[:160]})"
+        ) from exc
+    log.info("fmp_batch_eod_capability", available=True, probe_day=str(probe_day))
+
+    total = 0
+    fetched = 0
+    if first:
+        with session_scope() as session:
+            repository.save_bars(session, first)
+        total += len(first)
+        fetched += 1
+        existing.add(probe_day)
+        _update_state(units_done=1, rows=total)
+
+    covered = len(existing)
+    day = end
+    calendar_days = 0
+    while covered < days and calendar_days < days * 2:
+        calendar_days += 1
+        if day.weekday() < 5 and day not in existing:
+            try:
+                rows = await fmp.fetch_batch_eod(day)
+            except Exception as exc:  # noqa: BLE001 - one bad day is survivable
+                log.warning("fmp_batch_day_failed", date=str(day), error=str(exc)[:200])
+                _update_state(last_error=f"{day}: {str(exc)[:200]}")
+                rows = []
+            if rows:
+                with session_scope() as session:
+                    repository.save_bars(session, rows)
+                total += len(rows)
+                fetched += 1
+                existing.add(day)
+            covered = len(existing)
+            _update_state(units_done=min(covered, days), rows=total)
+        day -= dt.timedelta(days=1)
+
+    log.info("fmp_batch_eod_complete", fetched=fetched, rows=total)
     return total
 
 

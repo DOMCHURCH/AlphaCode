@@ -16,6 +16,18 @@ class Settings(BaseSettings):
 
     # ---------------- API keys ----------------
     polygon_api_key: str = Field(default="", alias="POLYGON_API_KEY")
+    # Polygon plan. On the free tier grouped-daily is capped at 5 calls/min, so a
+    # multi-day backfill (one call per session) 429s for hours -- the wide end
+    # must come from a whole-market bulk source (Stooq) instead. Selection is by
+    # capability, not key presence: "free" caps Polygon to `polygon_free_rate_per_min`
+    # and forbids using it for backfill; "paid" allows the grouped-daily backfill
+    # loop. Default "free" -- the safe assumption; a key alone does not imply paid.
+    polygon_tier: Literal["free", "paid"] = Field(
+        default="free", alias="POLYGON_TIER"
+    )
+    polygon_free_rate_per_min: int = Field(
+        default=5, alias="POLYGON_FREE_RATE_PER_MIN"
+    )
     fmp_api_key: str = Field(default="", alias="FMP_API_KEY")
     finnhub_api_key: str = Field(default="", alias="FINNHUB_API_KEY")
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")

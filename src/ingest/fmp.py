@@ -40,6 +40,47 @@ def _auth(params: dict[str, Any] | None = None) -> dict[str, Any]:
     return p
 
 
+async def fetch_batch_eod(date: dt.date) -> list[dict[str, Any]]:
+    """`/api/v4/batch-request-end-of-day-prices` -- whole-market EOD for one date.
+
+    One call returns every symbol's OHLCV for `date` (CSV), so it is a
+    whole-market bulk source for the wide-end backfill, alongside Stooq. It is a
+    paid-tier FMP endpoint: a plan without it returns 402/403, which surfaces here
+    as PermanentAPIError -- the backfill's capability probe catches that and falls
+    through rather than looping a dead endpoint. Rows are shaped for the bar store.
+    """
+    async with _client() as c:
+        raw = await c.get_json(
+            "/api/v4/batch-request-end-of-day-prices",
+            params=_auth({"date": date.isoformat()}),
+            expect_json=False,  # this endpoint serves CSV
+            cache_ttl=6 * 3600,
+        )
+    records = _coerce_bulk_payload(raw)
+    out: list[dict[str, Any]] = []
+    for r in records:
+        sym = r.get("symbol") or r.get("ticker")
+        if not sym:
+            continue
+        out.append(
+            {
+                "ticker": sym,
+                "date": _parse_date(r.get("date")) or date,
+                "open": _as_float(r.get("open")),
+                "high": _as_float(r.get("high")),
+                "low": _as_float(r.get("low")),
+                "close": _as_float(r.get("close")),
+                "volume": _as_float(r.get("volume")),
+                # adjClose is present on this endpoint; keep close raw and record
+                # adjusted separately is out of scope -- the bar store holds one
+                # close, and Stooq is the primary keyless source anyway.
+                "vwap": None,
+            }
+        )
+    log.info("fmp_batch_eod", date=str(date), rows=len(out))
+    return out
+
+
 async def fetch_screener(
     *,
     exchanges: Iterable[str] = ("NYSE", "NASDAQ", "AMEX"),

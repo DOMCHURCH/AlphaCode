@@ -16,7 +16,7 @@ from typing import Any
 
 import structlog
 
-from src.config.rate_limits import BUCKETS, Bucket
+from src.config.rate_limits import Bucket, bucket_for
 from src.storage.cache import get_redis
 
 log = structlog.get_logger(__name__)
@@ -65,7 +65,7 @@ class RateLimiter:
 
     # -- registration -------------------------------------------------
     def _bucket(self, source: str) -> Bucket:
-        b = BUCKETS.get(source)
+        b = bucket_for(source)
         if b is None:
             raise KeyError(
                 f"No rate-limit bucket configured for source {source!r}. "

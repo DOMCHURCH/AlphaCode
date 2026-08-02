@@ -123,7 +123,19 @@ async def build_universe(
     """
     s = get_settings()
 
-    if s.polygon_api_key:
+    # Select by capability, not key presence. Polygon's universe path pages
+    # /v3/reference/tickers (many calls) plus grouped-daily -- fine on a paid
+    # plan, but on the free tier (5 calls/min) that pagination 429s, which is the
+    # Stage-0 failure this guard fixes. A free key falls through to the keyless
+    # path: SEC seeds the reference and the wide-end bars come from what the Stooq
+    # bulk backfill already stored -- exactly what Stooq was built to provide.
+    use_polygon = bool(s.polygon_api_key) and s.polygon_tier == "paid"
+    log.info(
+        "universe_source_select", source="polygon" if use_polygon else "free",
+        polygon_key=bool(s.polygon_api_key), polygon_tier=s.polygon_tier,
+    )
+
+    if use_polygon:
         bars = await polygon.fetch_grouped_daily(as_of)
         if not bars:
             raise RuntimeError(
