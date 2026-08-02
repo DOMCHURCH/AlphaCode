@@ -179,3 +179,27 @@ whose egress allows polygon/fmp/finnhub/fred/openrouter/sec/gdelt, then run
   validation machinery is verified; the actual signal is unknown. Any further
   cycle that cannot reach live data should keep to deterministic-layer
   correctness and coverage, and must not invent work.
+
+## Fix queue (autonomous loop, correctness-first)
+
+Directive: never weaken a gate/threshold/test to make a run succeed; surface
+emptiness, don't tune it. No new features until the queue clears.
+
+- [x] **#1 Revert gate loosening.** slope() back to strict (NaN on a
+  just-warmed SMA200); `settings.min_history_days`=252 is the one source of
+  truth; pipeline hard-blocks a run with `insufficient history: N/252` rather
+  than running degraded. `_history_depth()` measures it. Tests updated to assert
+  the block, not the degrade.
+- [ ] **#2 Stooq bulk daily** as the keyless wide-end (one download, whole
+  market, no rate limit); Polygon grouped-daily stays the daily incremental;
+  drop Yahoo per-ticker looping as the default.
+- [ ] **#3 SEC SIC -> GICS sector map**, cached, so sector-neutral scoring isn't
+  silently universe-neutral without FMP.
+- [ ] **#4 Fast-mode fallback server-side** so a cron run always yields a
+  deterministic ranked list.
+- [ ] **#5 Rate-limit /run and /backfill** (open endpoints w/ a live LLM key).
+- [ ] **#6 Confirm prod failure**; verify LLM model ids resolve at startup.
+
+NOTE: this environment still cannot reach live data (proxy blocks SEC/Yahoo/
+Stooq/Polygon; verified). Items are built + verified on the seeded/synthetic
+harness offline; live verification requires a deploy with keys + open egress.
