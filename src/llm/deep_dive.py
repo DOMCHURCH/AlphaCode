@@ -104,7 +104,7 @@ async def run_deep_dive(
     max_per_sector: int | None = None,
     model: str | None = None,
     model_info: dict[str, Any] | None = None,
-    concurrency: int = 5,
+    concurrency: int = 10,
 ) -> DeepDiveResult:
     s = get_settings()
     take = take or s.stage5_take
