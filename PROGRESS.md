@@ -195,7 +195,28 @@ emptiness, don't tune it. No new features until the queue clears.
 - [x] **#3 SEC SIC -> GICS sector map** (done — src/ingest/sic.py + SectorMap table + backfill_sectors; free universe attaches cached sectors; verified offline).
 - [x] **#4 Fast-mode fallback server-side** (done — pipeline: verification failure + runtime LLM failure both degrade to the deterministic ranking+report; DataQualityError still propagates; test added).
 - [x] **#5 Rate-limit /run and /backfill** (done — _RateGate sliding-window, RUN_RATE_PER_HOUR/BACKFILL_RATE_PER_HOUR, 429+Retry-After; cron unaffected).
-- [ ] **#6 Confirm prod failure**; verify LLM model ids resolve at startup.
+- [x] **#6 LLM model resolution** (done — verify_model against /api/v1/models
+  already existed + degrades post-#4; added self-serve GET /llm-check so the
+  operator can confirm the reason write-ups are missing).
+  BLOCKED: confirming the ACTUAL prod failure needs the live deploy/OpenRouter
+  (sandbox can't reach it). Hit /llm-check on the deploy to confirm.
+
+## Queue cleared (code) — offline funnel read (seeded harness)
+
+Ran the deterministic funnel on a seeded 180-name market (2/3 uptrend):
+counts 180 -> 67 -> 67 -> 67 -> 10. Every downtrend name cut by Stage 1 (gate
+gates). Top-10 ordered by descending composite z (+0.86..+0.16); scores track
+it. Sector spread across IT/Energy/Financials/Industrials/Staples (sector-neutral
+working). Gates gate and factors fire on the harness.
+
+STOP-AND-ASK / remaining (all need the live deploy — cannot be done here):
+- Confirm the real prod failure: hit `/llm-check` and `/status.last_run` on the
+  deploy and share them.
+- "Run on complete history + read the top-10 as a user": needs live data
+  (network blocked here); verified on the seeded harness only.
+- "Start IC tracking vs a random Stage-1 draw": the machinery exists
+  (/validation, benchmark_against_null, backfill_forward_returns) but only
+  accrues signal from real forward returns over live daily runs.
 
 NOTE: this environment still cannot reach live data (proxy blocks SEC/Yahoo/
 Stooq/Polygon; verified). Items are built + verified on the seeded/synthetic
