@@ -387,6 +387,41 @@ def ticker_history(
     }
 
 
+@app.get("/llm-check")
+async def llm_check() -> dict[str, Any]:
+    """Confirm the LLM is usable: does the configured model resolve against
+    OpenRouter's /api/v1/models? A run degrades to the deterministic ranking when
+    this fails, so this is the one place to see *why* the write-ups are missing
+    (usually a missing OPENROUTER_API_KEY or a bad model id)."""
+    from src.llm.client import make_client, verify_model
+
+    s = get_settings()
+    out: dict[str, Any] = {
+        "triage_model": s.llm_triage_model,
+        "deep_model": s.llm_deep_model,
+        "openrouter_key_present": bool(s.openrouter_api_key),
+    }
+    if not s.openrouter_api_key:
+        out["ok"] = False
+        out["error"] = (
+            "OPENROUTER_API_KEY is not set — the LLM write-ups are disabled and "
+            "runs fall back to the deterministic ranking."
+        )
+        return out
+    try:
+        async with make_client() as c:
+            resolved = []
+            for name in {s.llm_triage_model, s.llm_deep_model}:
+                await verify_model(c, name)
+                resolved.append(name)
+        out["ok"] = True
+        out["resolved"] = resolved
+    except Exception as exc:  # noqa: BLE001 - report, don't crash
+        out["ok"] = False
+        out["error"] = str(exc)[:600]
+    return out
+
+
 @app.get("/validation")
 def validation(
     since: str | None = None, backfill: bool = True
@@ -625,7 +660,7 @@ def api_index() -> JSONResponse:
             "endpoints": [
                 "/health", "/status", "/reports", "/report/{date}",
                 "/report/{date}/html", "/report/{date}/pdf",
-                "/ticker/{symbol}/history", "/validation",
+                "/ticker/{symbol}/history", "/validation", "/llm-check",
                 "POST /backfill", "POST /run",
             ],
             "disclaimer": (

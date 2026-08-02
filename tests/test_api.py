@@ -161,6 +161,20 @@ def test_stock_detail_page(client):
     assert client.get("/stock/ZZZZ").status_code == 404
 
 
+def test_llm_check_reports_missing_key(client, monkeypatch):
+    """/llm-check lets the operator confirm the LLM failure without reading logs.
+    With no key it says so (no network needed) and explains the fallback."""
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("OPENROUTER_API_KEY", "")
+    get_settings.cache_clear()
+    body = client.get("/llm-check").json()
+    assert body["ok"] is False
+    assert body["openrouter_key_present"] is False
+    assert "OPENROUTER_API_KEY is not set" in body["error"]
+    assert "deterministic" in body["error"]
+
+
 def test_unknown_date_is_404(client):
     assert client.get("/report/2019-01-01").status_code == 404
     assert client.get("/report/not-a-date").status_code == 400
