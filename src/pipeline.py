@@ -308,10 +308,27 @@ async def run_pipeline(
 
             # ---------------- Stage 1: trend gate ------------------------
             with _stage("trend_gate", 1, len(tickers), timings) as box:
+                # Split the stage timing into DB-load vs compute. The vectorised
+                # trend/residual-momentum math benchmarks at ~0.1s; if Stage 1
+                # takes seconds it is the Postgres panel read (600d x ~5k tickers),
+                # not the compute. Logging both settles which is which on deploy
+                # instead of guessing that "vectorisation isn't running".
+                _t_load = time.perf_counter()
                 panels = trend.load_panels(session, tickers, as_of)
+                _load_s = round(time.perf_counter() - _t_load, 2)
+                _t_comp = time.perf_counter()
                 tr = trend.run_trend_gate(
                     panels["close"], panels["high"], panels["low"], panels["volume"],
                     sectors=sectors,
+                )
+                _compute_s = round(time.perf_counter() - _t_comp, 2)
+                log.info(
+                    "stage1_timing_split",
+                    panel_load_s=_load_s,
+                    compute_s=_compute_s,
+                    tickers=len(tickers),
+                    panel_rows=int(panels["close"].shape[0] * panels["close"].shape[1])
+                    if not panels["close"].empty else 0,
                 )
                 box["exit"] = len(tr.survivors)
                 funnel["Stage 1 trend"] = len(tr.survivors)

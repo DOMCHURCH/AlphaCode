@@ -103,6 +103,16 @@ class Settings(BaseSettings):
         default="https://stooq.com/db/h/d_us_txt.zip", alias="STOOQ_BULK_URL"
     )
 
+    # SEC Financial Statement Data Sets: one ZIP per quarter (num.txt + sub.txt)
+    # replaces the per-CIK XBRL crawl. {year}/{q} are filled in. Override only if
+    # SEC moves the path. `sec_dataset_quarters` = how many recent quarters to
+    # load (8 = two years, enough for the trailing-quarter factors).
+    sec_dataset_url: str = Field(
+        default="https://www.sec.gov/files/dera/data/financial-statement-data-sets/{year}q{q}.zip",
+        alias="SEC_DATASET_URL",
+    )
+    sec_dataset_quarters: int = Field(default=8, alias="SEC_DATASET_QUARTERS")
+
     # Rate limits for the open, unauthenticated POST endpoints. /run spends LLM
     # credits, so cap how often it (and /backfill) can be triggered per hour to
     # stop anyone with the URL from burning the OpenRouter key. Generous enough

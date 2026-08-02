@@ -25,14 +25,13 @@ import structlog
 from sqlalchemy import select
 
 from src.config.settings import get_settings
-from src.ingest import fmp, polygon, sec_edgar, stooq
+from src.ingest import fmp, polygon, sec_datasets, sec_edgar, stooq
 from src.ingest import sic as sic_map
 from src.ingest.base import PermanentAPIError, gather_bounded
 from src.logging_config import configure_logging
 from src.storage import repository
 from src.storage.db import init_db, session_scope
 from src.storage.models import DailyBar
-from src.storage.pit import get_universe
 
 log = structlog.get_logger(__name__)
 
@@ -65,9 +64,25 @@ _BACKFILL_STATE: dict[str, Any] = {
 }
 
 
+# Last completed result per kind (bars/sectors/fundamentals/earnings), so the
+# four /diagnostics buttons can each show their own outcome, not one shared line.
+_BACKFILL_RESULTS: dict[str, dict[str, Any]] = {}
+
+
 def get_backfill_state() -> dict[str, Any]:
-    """A copy of the live backfill diagnostics, for /status."""
-    return dict(_BACKFILL_STATE)
+    """A copy of the live backfill diagnostics + per-kind last results, for /status."""
+    out = dict(_BACKFILL_STATE)
+    out["results"] = {k: dict(v) for k, v in _BACKFILL_RESULTS.items()}
+    return out
+
+
+def record_backfill_result(kind: str, rows: int, error: str | None = None) -> None:
+    """Record the outcome of a single backfill kind, for its /diagnostics button."""
+    _BACKFILL_RESULTS[kind] = {
+        "rows": int(rows or 0),
+        "error": error[:300] if error else None,
+        "at": dt.datetime.now(dt.UTC).isoformat(),
+    }
 
 
 def _update_state(**kw: Any) -> None:
@@ -404,51 +419,109 @@ async def backfill_sectors(limit: int | None = None, concurrency: int = 8) -> in
     return total
 
 
+async def _cik_to_ticker() -> dict[str, str]:
+    """{cik (leading zeros stripped) -> ticker} from the SEC company list."""
+    reference = await sec_edgar.fetch_company_tickers()
+    out: dict[str, str] = {}
+    for r in reference:
+        cik = str(r.get("cik") or "").lstrip("0")
+        tkr = str(r.get("ticker") or "").upper()
+        if cik and tkr:
+            out.setdefault(cik, tkr)
+    return out
+
+
 async def backfill_fundamentals(
-    as_of: dt.date | None = None, limit: int | None = None, concurrency: int = 8
+    as_of: dt.date | None = None, quarters: int | None = None
 ) -> int:
-    """SEC XBRL as-reported facts for the current universe.
+    """As-reported fundamentals via the SEC bulk Financial Statement Data Sets.
 
-    Slow -- roughly 17 concept calls per company at 8 req/sec. For 6000 names
-    budget a couple of hours. Run it once, then the daily pipeline only needs
-    the incremental filings.
+    ONE ZIP per quarter (num.txt + sub.txt) instead of ~17 XBRL concept calls per
+    company (~85k requests). Loads the last `quarters` quarters, joins facts to
+    filings for the honest (period_end, filing_date) pair, and saves them. Returns
+    the number of fundamental rows written.
     """
+    s = get_settings()
     as_of = as_of or dt.date.today()
-    with session_scope() as session:
-        universe = get_universe(session, as_of)
-    if universe.empty:
-        log.error("backfill_fundamentals_no_universe", as_of=str(as_of))
-        return 0
+    quarters = quarters or s.sec_dataset_quarters
+    cik_map = await _cik_to_ticker()
+    qs = sec_datasets.recent_quarters(as_of, quarters)
+    _update_state(
+        phase="running", source="sec_datasets", unit="quarters",
+        units_total=len(qs), units_done=0, rows=0, last_error=None,
+    )
+    log.info("backfill_fundamentals_start", quarters=qs, companies=len(cik_map))
 
-    rows_with_cik = universe[universe["cik"].notna()]
-    if limit:
-        rows_with_cik = rows_with_cik.head(limit)
-    log.info("backfill_fundamentals_start", companies=len(rows_with_cik))
-
-    client = sec_edgar.make_client(concurrency=concurrency)
     total = 0
+    loaded_quarters = 0
+    for i, (year, q) in enumerate(qs):
+        try:
+            zbytes = await sec_datasets.download_dataset(year, q)
+            sub, num = sec_datasets.parse_dataset(zbytes)
+            rows = sec_datasets.extract_fundamentals(sub, num, cik_map)
+        except Exception as exc:  # noqa: BLE001 - one bad quarter is survivable
+            log.warning("sec_dataset_quarter_failed", year=year, quarter=q, error=str(exc)[:200])
+            _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")
+            continue
+        loaded_quarters += 1
+        for j in range(0, len(rows), 5000):
+            with session_scope() as session:
+                total += repository.save_fundamentals(session, rows[j : j + 5000])
+        _update_state(units_done=i + 1, rows=total)
+        log.info("backfill_fundamentals_progress", year=year, quarter=q, rows=total)
 
-    async def one(ticker: str, cik: str) -> int:
-        rows = await sec_edgar.fetch_pit_fundamentals(client, ticker, cik)
-        if not rows:
-            return 0
+    if loaded_quarters == 0:
+        _update_state(phase="error", last_error=_BACKFILL_STATE.get("last_error")
+                      or "no SEC dataset quarter could be downloaded")
+    else:
+        _update_state(phase="done")
+    log.info("backfill_fundamentals_complete", rows=total, quarters_loaded=loaded_quarters)
+    return total
+
+
+async def backfill_earnings(
+    as_of: dt.date | None = None, quarters: int | None = None
+) -> int:
+    """Populate EarningsEvent from the SEC bulk datasets: one event per periodic
+    filing (10-Q/10-K), report_date = filing date, period_end = period, actual_eps
+    from the diluted-EPS fact. This is what fills the previously-empty table and
+    makes pead_window computable. consensus/surprise stay None (paid feed only);
+    earnings_gap (price gap) is a follow-up bars-join. Returns rows written."""
+    s = get_settings()
+    as_of = as_of or dt.date.today()
+    quarters = quarters or s.sec_dataset_quarters
+    cik_map = await _cik_to_ticker()
+    qs = sec_datasets.recent_quarters(as_of, quarters)
+    _update_state(
+        phase="running", source="sec_earnings", unit="quarters",
+        units_total=len(qs), units_done=0, rows=0, last_error=None,
+    )
+    log.info("backfill_earnings_start", quarters=qs)
+
+    events: list[dict[str, Any]] = []
+    loaded_quarters = 0
+    for i, (year, q) in enumerate(qs):
+        try:
+            zbytes = await sec_datasets.download_dataset(year, q)
+            sub, num = sec_datasets.parse_dataset(zbytes)
+            events.extend(sec_datasets.extract_earnings(sub, num, cik_map))
+        except Exception as exc:  # noqa: BLE001
+            log.warning("sec_dataset_quarter_failed", year=year, quarter=q, error=str(exc)[:200])
+            _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")
+            continue
+        loaded_quarters += 1
+        _update_state(units_done=i + 1)
+
+    total = 0
+    for j in range(0, len(events), 5000):
         with session_scope() as session:
-            repository.save_fundamentals(session, rows)
-        return len(rows)
-
-    async with client:
-        results = await gather_bounded(
-            [
-                one(str(r["ticker"]), str(r["cik"]))
-                for _, r in rows_with_cik.iterrows()
-            ],
-            concurrency,
-        )
-    for r in results:
-        if isinstance(r, int):
-            total += r
-
-    log.info("backfill_fundamentals_complete", rows=total)
+            total += repository.save_earnings(session, events[j : j + 5000])
+    if loaded_quarters == 0:
+        _update_state(phase="error", last_error=_BACKFILL_STATE.get("last_error")
+                      or "no SEC dataset quarter could be downloaded")
+    else:
+        _update_state(phase="done", rows=total)
+    log.info("backfill_earnings_complete", rows=total, quarters_loaded=loaded_quarters)
     return total
 
 
@@ -457,6 +530,10 @@ def main() -> None:
     parser.add_argument(
         "--days", type=int, default=600,
         help="trading sessions of price history to fetch (default 600)",
+    )
+    parser.add_argument(
+        "--earnings", action="store_true",
+        help="populate EarningsEvent from the SEC bulk datasets",
     )
     parser.add_argument(
         "--fundamentals", action="store_true",
@@ -482,7 +559,9 @@ def main() -> None:
         if args.sectors:
             await backfill_sectors(limit=args.limit)
         if args.fundamentals:
-            await backfill_fundamentals(limit=args.limit)
+            await backfill_fundamentals()
+        if args.earnings:
+            await backfill_earnings()
 
     asyncio.run(run())
 

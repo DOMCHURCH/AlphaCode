@@ -500,8 +500,60 @@ def test_diagnostics_json_shape(client):
     assert d["verdict"]["headline"]
     for a in ("run", "run_fast", "backfill", "reconcile"):
         assert "enabled" in d["actions"][a]
+    # One action per backfill kind so the mobile UI can render a button each,
+    # instead of one "Backfill" that silently only ran bars.
+    for a in ("backfill_bars", "backfill_sectors", "backfill_fundamentals",
+              "backfill_earnings"):
+        assert "enabled" in d["actions"][a]
+    # Per-kind results block is present (empty until a kind runs) so each button
+    # can show its own last outcome.
+    assert "results" in d["data_health"]["backfill"]
     # Empty DB: not enough history -> a warn verdict that says so, not a crash.
     assert d["data_health"]["history"]["required"] == 252
+
+
+def test_backfill_dispatches_on_kind_not_always_bars(client, monkeypatch):
+    """The old endpoint ran bars first regardless of what you asked for, so a
+    fundamentals request only ever loaded bars. Assert each kind routes to its
+    own loader and nothing else."""
+    import src.backfill as bf
+
+    called: list[str] = []
+
+    async def fake_bars(days, **k):
+        called.append("bars")
+        return 1
+
+    async def fake_sectors(**k):
+        called.append("sectors")
+        return 2
+
+    async def fake_fundamentals(**k):
+        called.append("fundamentals")
+        return 3
+
+    async def fake_earnings(**k):
+        called.append("earnings")
+        return 4
+
+    monkeypatch.setattr(bf, "backfill_bars", fake_bars)
+    monkeypatch.setattr(bf, "backfill_sectors", fake_sectors)
+    monkeypatch.setattr(bf, "backfill_fundamentals", fake_fundamentals)
+    monkeypatch.setattr(bf, "backfill_earnings", fake_earnings)
+
+    for kind in ("bars", "sectors", "fundamentals", "earnings"):
+        called.clear()
+        r = client.post(f"/backfill?kind={kind}")
+        assert r.status_code == 200
+        # Background task runs synchronously in the TestClient after the response.
+        assert called == [kind], f"{kind} routed to {called}, not itself"
+        res = bf.get_backfill_state()["results"]
+        assert kind in res and res[kind]["error"] is None
+
+
+def test_backfill_rejects_unknown_kind(client):
+    r = client.post("/backfill?kind=bogus")
+    assert r.status_code == 400
 
 
 def test_diagnostics_config_never_prints_secret_values(client, monkeypatch):

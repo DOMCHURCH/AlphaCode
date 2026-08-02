@@ -188,7 +188,19 @@ async def download_bulk(url: str | None = None, *, timeout: float = 600.0) -> Pa
     url = url or get_settings().stooq_bulk_url or DEFAULT_BULK_URL
     tmp = Path(tempfile.mkstemp(prefix="stooq_", suffix=".zip")[1])
     log.info("stooq_download_start", url=url)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as client:
+    # Stooq blocks datacenter requests that don't look like a browser -- a bare
+    # client gets a 403/404 HTML page, not the ZIP. Send a browser-like UA before
+    # concluding the URL is dead.
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
+            "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+        ),
+        "Accept": "application/zip,application/octet-stream,*/*",
+    }
+    async with httpx.AsyncClient(
+        follow_redirects=True, timeout=timeout, headers=headers
+    ) as client:
         async with client.stream("GET", url) as resp:
             if resp.status_code >= 400:
                 raise RuntimeError(f"Stooq bulk download {resp.status_code} for {url}")

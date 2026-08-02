@@ -137,20 +137,21 @@ async function startResearch(force, skipLlm) {
     // 3) Stream the run's live stage progress until a fresh report lands.
     let outcome = await pollRun(before);
 
-    // 4) If the full run couldn't produce a screen, fall back to fast mode once
-    //    (the LLM write-ups are the usual failure point). A deterministic run
-    //    still yields the ranked top-10.
+    // 4) Fast Mode skips the LLM write-ups (stages 4-5), so it can ONLY help a
+    //    failure that happened in an LLM stage. A data-quality/gate failure
+    //    (stages 0-3) would fail identically -- never retry it in fast mode.
     if (outcome === "failed" && !skipLlm && !ABORT) {
       const lr = (await getStatus()).last_run || {};
-      setPhase("Full research didn't finish — retrying in fast mode…");
-      setNote(lr.error ? "Reason: " + lr.error : "");
-      await postJSON("/run?skip_llm=true");
-      outcome = await pollRun(before);
+      if (isLlmStageFailure(lr)) {
+        setPhase("The write-up step failed — retrying without it…");
+        setNote(lr.error ? "Reason: " + lr.error : "");
+        await postJSON("/run?skip_llm=true");
+        outcome = await pollRun(before);
+      }
     }
 
     if (outcome === "failed" && !ABORT) {
-      const lr = (await getStatus()).last_run || {};
-      showFailure(lr.error);
+      showFailure((await getStatus()).last_run || {});
     }
   } catch (e) {
     setPhase("Something went wrong.", true);
@@ -247,17 +248,31 @@ async function pollRun(before) {
   return "failed";
 }
 
-/* Turn a dead-end into an explained, actionable state. */
-function showFailure(reason) {
+/* Turn a dead-end into an explained, actionable state -- from the CURRENT run's
+   actual error, never a guess. */
+function showFailure(lr) {
   setPbar(100);
   setPhase("Research couldn't produce a screen.", true);
-  setNote(
-    (reason ? "Reason: " + reason + "  " : "") +
-      "This usually means a data-quality gate tripped, or the LLM write-up step " +
-      "isn't configured (OPENROUTER_API_KEY). Fast mode skips the write-ups and " +
-      "still gives you the ranked top-10."
-  );
-  setActions("fail");
+  // Only surface an error that belongs to the run that just failed. A run that is
+  // running/succeeded (or a stale row) must not print an error as if it were live.
+  const err = lr && lr.status === "failed" ? lr.error || "" : "";
+  if (!err) {
+    setNote("The run stopped without producing a screen and reported no error. Try again.");
+    setActions("retry");
+    return;
+  }
+  const where = lr.failed_stage != null ? `Stage ${lr.failed_stage}` : "a stage";
+  // The exception carries its own specific remedy (e.g. the completeness gate
+  // lists the empty factors + the FREE/PAID split + the one action that fixes it).
+  // Show it verbatim; never replace it with "this usually means…".
+  setNote(`Failed at ${where}.\n\n${err}`);
+  // Fast Mode only skips the LLM write-ups, so offer it ONLY on an LLM-stage
+  // failure -- on a gate failure it would fail identically.
+  setActions(isLlmStageFailure(lr) ? "fail" : "retry");
+}
+
+function isLlmStageFailure(lr) {
+  return !!lr && lr.status === "failed" && (lr.failed_stage === 4 || lr.failed_stage === 5);
 }
 
 async function finishResearch() {

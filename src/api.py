@@ -567,57 +567,75 @@ async def _run_pipeline_bg(as_of: dt.date | None, skip_llm: bool) -> None:
             log.exception("manual_run_failed", error=str(exc))
 
 
+_BACKFILL_KINDS = ("bars", "sectors", "fundamentals", "earnings")
+
+
 @app.post("/backfill", response_model=RunResponse)
 async def trigger_backfill(
     background: BackgroundTasks,
+    kind: str = "bars",
     days: int = Query(600, ge=1, le=2000),
+    # Back-compat with the old boolean flags; `kind` is the current interface.
     fundamentals: bool = False,
     sectors: bool = False,
 ) -> RunResponse:
-    """Load history so the funnel has something to screen. Curl-triggerable so no
-    shell is needed. Returns immediately; the load runs in the background.
+    """Load ONE kind of data. `kind` = bars | sectors | fundamentals | earnings.
 
-    Open by design -- no token needed; single-flighted by `_backfill_lock`.
-    `days` price sessions of bars. `fundamentals=true` also pulls SEC XBRL
-    as-reported fundamentals (slow). `sectors=true` caches the SIC->GICS sector
-    map (once, near-static) so sector-neutral scoring works without FMP.
+    Each kind is dispatched on its own -- the old endpoint always ran bars first
+    regardless of what you asked for, which is why a fundamentals request only
+    ever loaded bars. Open by design; single-flighted by `_backfill_lock`.
     """
+    if fundamentals:
+        kind = "fundamentals"
+    elif sectors:
+        kind = "sectors"
+    kind = kind.lower()
+    if kind not in _BACKFILL_KINDS:
+        raise HTTPException(400, f"kind must be one of {list(_BACKFILL_KINDS)}")
     _enforce_rate(_backfill_gate, "backfills")
     if _backfill_lock.locked():
         return RunResponse(accepted=False, detail="A backfill is already running.")
-    background.add_task(_backfill_bg, days, fundamentals, sectors)
+    background.add_task(_backfill_bg, kind, days)
     return RunResponse(
-        accepted=True,
-        detail=(
-            f"Backfill queued: {days} sessions of bars"
-            + (" + SIC sector map" if sectors else "")
-            + (" + SEC fundamentals (slow)" if fundamentals else "")
-            + ". Watch GET /status for progress."
-        ),
+        accepted=True, detail=f"{kind} backfill queued. Watch GET /status for progress."
     )
 
 
-async def _backfill_bg(days: int, fundamentals: bool, sectors: bool = False) -> None:
+async def _backfill_bg(kind: str, days: int) -> None:
     from src.backfill import (
         backfill_bars,
+        backfill_earnings,
         backfill_fundamentals,
         backfill_sectors,
         record_backfill_error,
+        record_backfill_result,
     )
 
+    # B3: log the requested kind BEFORE any work, so the log always says what was
+    # asked for -- not just what ran.
+    log.info("backfill_requested", kind=kind, days=days)
     async with _backfill_lock:
         try:
-            n = await backfill_bars(days)
-            log.info("backfill_bars_done", rows=n)
-            if sectors:
+            if kind == "bars":
+                n = await backfill_bars(days)
+                log.info("backfill_bars_done", rows=n)
+                record_backfill_result("bars", n)
+            elif kind == "sectors":
                 sm = await backfill_sectors()
                 log.info("backfill_sectors_done", mapped=sm)
-            if fundamentals:
+                record_backfill_result("sectors", sm)
+            elif kind == "fundamentals":
                 m = await backfill_fundamentals()
                 log.info("backfill_fundamentals_done", rows=m)
+                record_backfill_result("fundamentals", m)
+            elif kind == "earnings":
+                e = await backfill_earnings()
+                log.info("backfill_earnings_done", rows=e)
+                record_backfill_result("earnings", e)
         except Exception as exc:  # noqa: BLE001 - logged, never crashes the API
             record_backfill_error(str(exc))
-            log.exception("backfill_failed", error=str(exc))
+            record_backfill_result(kind, 0, error=str(exc))
+            log.exception("backfill_failed", kind=kind, error=str(exc))
 
 
 # Human-readable stage labels + the count each stage narrows the funnel to, so
@@ -706,19 +724,26 @@ def status() -> dict[str, Any]:
             out["universe_snapshots"] = session.execute(
                 select(func.count(func.distinct(UniverseSnapshot.as_of_date)))
             ).scalar_one()
-            all_runs = repository.list_runs(session, limit=1000)
-            out["runs"] = len(all_runs)
+            out["runs"] = len(repository.list_runs(session, limit=1000))
             out["current_run"] = _current_run_progress(session)
-            # The most recent run's outcome, so the UI can explain a failure
-            # ("finished without a screen") with the real reason instead of
-            # telling the user to go read server logs.
-            if all_runs:
-                r = all_runs[0]
+            # The most recently STARTED run (not by as_of_date -- a same-day retry
+            # must supersede the earlier failure), with its run_id and the stage it
+            # died in, so the UI shows the CURRENT run's error and never a stale
+            # cached string. failed_stage lets it decide whether Fast Mode (LLM
+            # stages only) could even help.
+            r = repository.latest_run(session)
+            if r is not None:
+                reached = repository.max_checkpoint_stage(session, r.run_id)
                 out["last_run"] = {
+                    "run_id": r.run_id,
                     "as_of": r.as_of_date.isoformat(),
                     "status": r.status,
                     "regime": r.regime,
-                    "error": (r.error or "")[:500] or None,
+                    "error": (r.error or "")[:1000] or None,
+                    "failed_stage": (
+                        min(reached + 1, _TOTAL_STAGES - 1)
+                        if r.status == "failed" else None
+                    ),
                     "funnel": r.funnel_counts,
                 }
         out["ready_for_first_run"] = (
@@ -856,6 +881,9 @@ def _diagnostics_data_health(session: Any) -> dict[str, Any]:
             "units_done": bf.get("units_done"),
             "units_total": bf.get("units_total"),
             "unit": bf.get("unit"),
+            # Per-kind last result so each of the four diagnostics buttons can show
+            # its own outcome (rows written / error / when), not one shared line.
+            "results": bf.get("results") or {},
         },
         "coverage": coverage,
         "recency": {
@@ -936,12 +964,20 @@ def _diagnostics_actions() -> dict[str, Any]:
     run_busy = _run_lock.locked()
     bf_busy = _backfill_lock.locked()
     run_rate = rate_reason(_run_gate)
-    return {
+    bf_rate = rate_reason(_backfill_gate)
+    bf_act = act(bf_busy, "a backfill is already running", bf_rate)
+    out = {
         "run": act(run_busy, "a run is already in progress", run_rate),
         "run_fast": act(run_busy, "a run is already in progress", run_rate),
-        "backfill": act(bf_busy, "a backfill is already running", rate_reason(_backfill_gate)),
+        # One button per backfill kind: the user is on mobile and cannot construct
+        # `/backfill?kind=…` URLs by hand. Each shares the single backfill lock/gate.
         "reconcile": act(False, "", rate_reason(_reconcile_gate)),
     }
+    for kind in _BACKFILL_KINDS:
+        out[f"backfill_{kind}"] = dict(bf_act)
+    # Back-compat: the old single "backfill" action still points at bars.
+    out["backfill"] = dict(bf_act)
+    return out
 
 
 def _diagnostics_verdict(

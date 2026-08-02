@@ -46,6 +46,7 @@ function render(d) {
   renderConfig(d.config || []);
   renderLogs(d.logs || []);
   renderActions(d.actions || {});
+  renderBackfillResults((d.data_health || {}).backfill || {});
   const t = d.generated_at ? new Date(d.generated_at).toLocaleString() : "—";
   $("stamp").textContent = "updated " + t +
     (LATEST.run_in_progress ? " · run active (auto-refresh 10s)"
@@ -254,6 +255,32 @@ function filterLogs(logs, level) {
   return logs.filter((e) => (order[(e.level || "info").toLowerCase()] || 20) >= floor);
 }
 
+// Each backfill kind shows its own last outcome, so "Fundamentals" reflects what
+// the fundamentals load wrote — never a single shared line that hides which kind
+// actually ran. `results` comes straight from the backfill state (rows/error/at).
+function renderBackfillResults(bf) {
+  const results = bf.results || {};
+  document.querySelectorAll(".bf-result").forEach((el) => {
+    const kind = el.dataset.kind;
+    const r = results[kind];
+    if (!r) {
+      el.textContent = "not run this session";
+      el.className = "bf-result mute";
+      return;
+    }
+    const when = r.at ? new Date(r.at).toLocaleTimeString() : "";
+    if (r.error) {
+      el.innerHTML = `<span class="bf-bad">failed</span> ${esc(r.error)}` +
+        (when ? `<span class="bf-when">${esc(when)}</span>` : "");
+      el.className = "bf-result bad";
+    } else {
+      el.innerHTML = `<span class="bf-ok">${fmtNum(r.rows)} rows</span>` +
+        (when ? `<span class="bf-when">${esc(when)}</span>` : "");
+      el.className = "bf-result ok";
+    }
+  });
+}
+
 function renderActions(a) {
   document.querySelectorAll(".act").forEach((btn) => {
     const cfg = a[btn.dataset.action] || { enabled: true };
@@ -384,7 +411,13 @@ async function copyEverything() {
 // ---------------------------------------------------------------- actions
 async function postAction(action) {
   const map = {
-    run: "/run", run_fast: "/run?skip_llm=true", backfill: "/backfill?days=600&sectors=true",
+    run: "/run", run_fast: "/run?skip_llm=true",
+    // One URL per kind — the old single button POSTed bars and quietly ignored
+    // the kind you meant, which is why a fundamentals request only loaded bars.
+    backfill_bars: "/backfill?kind=bars&days=600",
+    backfill_sectors: "/backfill?kind=sectors",
+    backfill_fundamentals: "/backfill?kind=fundamentals",
+    backfill_earnings: "/backfill?kind=earnings",
   };
   const url = map[action];
   const msg = $("actionMsg");

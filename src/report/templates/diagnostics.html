@@ -77,7 +77,29 @@
     <div class="actions" id="actions">
       <button class="act" data-action="run">Run now</button>
       <button class="act" data-action="run_fast">Run fast (skip LLM)</button>
-      <button class="act" data-action="backfill">Backfill</button>
+    </div>
+
+    <div class="bf-head">Backfill — one data source at a time</div>
+    <p class="hint">Each button loads only its own kind. Tapping a kind shows what
+      that load last wrote (rows / error / when), so you can tell fundamentals
+      from bars instead of guessing.</p>
+    <div class="bf-grid" id="backfillActions">
+      <div class="bf-cell">
+        <button class="act bf" data-action="backfill_bars">Bars</button>
+        <div class="bf-result" data-kind="bars">—</div>
+      </div>
+      <div class="bf-cell">
+        <button class="act bf" data-action="backfill_sectors">Sectors</button>
+        <div class="bf-result" data-kind="sectors">—</div>
+      </div>
+      <div class="bf-cell">
+        <button class="act bf" data-action="backfill_fundamentals">Fundamentals</button>
+        <div class="bf-result" data-kind="fundamentals">—</div>
+      </div>
+      <div class="bf-cell">
+        <button class="act bf" data-action="backfill_earnings">Earnings</button>
+        <div class="bf-result" data-kind="earnings">—</div>
+      </div>
     </div>
     <div id="actionMsg" class="actionmsg"></div>
   </section>

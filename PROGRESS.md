@@ -38,6 +38,54 @@ permits the data hosts.
 - **Full funnel end-to-end** (cycle 5, seeded harness, skip_llm): 150 → 62 → 62
   → 62 → 10, $0 tokens, renders the deterministic-ranking HTML + a valid PDF.
   `python -m src.pipeline --resume` / `--skip-llm` both exercised.
+
+## Cycle: UI truth + backfill routing + dead sources + Stage-1 timing
+
+Four-part cycle. All diagnostics reachable from `/diagnostics` (mobile, no shell).
+
+- **A — the UI stops lying.** `/status.last_run` reads the CURRENT run's
+  `repository.latest_run` (run_id + `error` + `failed_stage` from the max
+  checkpoint), never a stale prior error. The dashboard shows the raw exception
+  verbatim (`Failed at Stage N.\n\n<error>`), no speculative "this usually means
+  X or Y". Fast-mode is only offered when the failure is actually in an LLM
+  stage (`failed_stage in {4,5}`) — Fast skips LLM, so offering it for a
+  data-quality failure was noise. DataQualityError already carries the gate's
+  own FREE/PAID-split text; the UI surfaces it, doesn't overwrite it.
+- **B — backfill routing was the five-cycle bug.** Root cause: `_backfill_bg`
+  ALWAYS ran `backfill_bars` first regardless of `kind`; the one dashboard
+  button only ever POSTed bars. A "fundamentals backfill" loaded bars and
+  nothing else. Fix: `/backfill?kind=bars|sectors|fundamentals|earnings`
+  dispatches to exactly ONE loader; `backfill_requested` is logged BEFORE any
+  work (B3). `/diagnostics` now has four explicit buttons (Bars, Sectors,
+  Fundamentals, Earnings), each showing its own last outcome (rows / error /
+  when) from `backfill.results[kind]`. No URL construction on mobile.
+  (`test_backfill_dispatches_on_kind_not_always_bars` asserts each kind routes
+  to itself and nothing else.)
+- **C — dead data sources rebuilt.**
+  - FUNDAMENTALS: replaced the per-CIK XBRL crawl (~85k requests) with SEC bulk
+    **Financial Statement Data Sets** — ONE ZIP per quarter (`src/ingest/
+    sec_datasets.py`). URL `https://www.sec.gov/files/dera/data/financial-
+    statement-data-sets/{year}q{q}.zip` confirmed current via data.gov + the SEC
+    archive page (sandbox can't fetch the ZIP: SEC 403s non-UA + proxy blocks
+    sec.gov — live download verified on deploy, which sends `SEC_USER_AGENT`).
+    num.txt × sub.txt joined on `adsh` fills fundamentals (PIT filing_date) AND
+    the previously-empty EarningsEvent table (`backfill_earnings`); consensus
+    stays None (needs a paid feed — never faked). Parser verified against a
+    synthetic ZIP in the documented tab-separated schema (6 tests).
+  - BARS: Stooq bulk `download_bulk` now sends a browser-like User-Agent before
+    concluding the URL is dead (datacenter IPs get a 403 HTML page from a bare
+    client). Still fails loudly on a non-ZIP body — never "no data".
+- **D — vectorization IS running; the panel LOAD is the cost.** The 0.09s
+  benchmark was `residual_momentum` alone. Stage 1's `_stage` timing box wraps
+  `trend.load_panels` (Postgres read of ~600d × ~5k tickers), so its total is
+  dominated by the DB read, not the compute. Confirmed at 5000×420:
+  `residual_momentum`=0.12s, full `compute_trend_features`=~2.0s. Added a
+  `stage1_timing_split` log (panel_load_s vs compute_s) so the deploy log proves
+  which is which — no more guessing. Also found `atr` was the single slowest
+  indicator (1.9s) via a stack/unstack round-trip; rewrote it element-wise with
+  `np.fmax` (0.14s, numerically identical incl. NaN alignment). Deploy timing to
+  be read from the split log after this ships.
+
 - **/validation** now surfaces a survivorship-bias self-check (keyed off scored
   dates; returns a clear note until ≥2 exist).
 - **Point-in-time enforcement** (`tests/test_pit.py`, 41 tests): the guardrail
