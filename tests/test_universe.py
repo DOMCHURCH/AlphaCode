@@ -97,6 +97,46 @@ def test_free_mode_universe_relaxes_market_cap(session):
     assert diag2["rejects"]["price_below_min"] == 1
 
 
+def test_sector_source_provenance_is_recorded(session):
+    """Every survivor gets a sector_source (fmp | sic | unknown) so IC can later
+    separate clean vendor sectors from the approximate SIC-derived ones and drop
+    the guessed ones."""
+    bars, ref, scr = _frames(20)
+    # 15 names have an FMP sector; 5 have none (unknown).
+    for i in range(15, 20):
+        scr[i]["sector"] = None
+    uni, diag = build_universe_from_frames(dt.date(2025, 6, 2), session, bars, ref, scr)
+    by = uni.set_index("ticker")
+    assert (by.loc[[f"T{i:03d}" for i in range(15)], "sector_source"] == "fmp").all()
+    assert (by.loc[[f"T{i:03d}" for i in range(15, 20)], "sector_source"] == "unknown").all()
+    # Unknown names carry no sector (not a catch-all bucket).
+    assert by.loc[[f"T{i:03d}" for i in range(15, 20)], "sector"].isna().all()
+    assert diag["sector_source_counts"].get("fmp") == 15
+
+    # And it round-trips through the persisted snapshot (get_universe), which the
+    # resume path reads -- else sector_source is lost before Stage 2.
+    from src.storage.pit import get_universe
+
+    reloaded = get_universe(session, dt.date(2025, 6, 2)).set_index("ticker")
+    assert reloaded.loc["T000", "sector_source"] == "fmp"
+    assert reloaded.loc["T019", "sector_source"] == "unknown"
+
+
+def test_free_mode_universe_marks_sic_and_unknown(session):
+    """The SIC-map screener path stamps sic / unknown per the map."""
+    bars, ref, _ = _frames(10)
+    screener = [
+        {"ticker": f"T{i:03d}", "market_cap": float("nan"),
+         "sector": ("Energy" if i < 6 else None),
+         "sector_source": ("sic" if i < 6 else "unknown"), "industry": None}
+        for i in range(10)
+    ]
+    uni, _ = build_universe_from_frames(dt.date(2025, 6, 2), session, bars, ref, screener)
+    by = uni.set_index("ticker")
+    assert (by.loc[[f"T{i:03d}" for i in range(6)], "sector_source"] == "sic").all()
+    assert (by.loc[[f"T{i:03d}" for i in range(6, 10)], "sector_source"] == "unknown").all()
+
+
 def test_parse_company_tickers():
     from src.ingest.sec_edgar import parse_company_tickers
 

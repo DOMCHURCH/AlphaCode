@@ -252,15 +252,19 @@ async def backfill_sectors(limit: int | None = None, concurrency: int = 8) -> in
 
     async def one(row: dict[str, Any]) -> dict[str, Any] | None:
         sic, desc = await sec_edgar.fetch_sic(client, row["cik"])
+        sector = sic_map.sic_to_gics(sic)
         return {
             "ticker": str(row["ticker"]).upper(),
             "cik": str(row["cik"]),
             "sic": sic,
             "sic_description": desc,
-            "sector": sic_map.sic_to_gics(sic),
+            "sector": sector,
+            # Provenance for IC: a real mapping vs an unmappable SIC. Never a guess.
+            "sector_source": "sic" if sector else "unknown",
         }
 
     total = 0
+    mapped = 0
     batch_size = 500
     async with client:
         for i in range(0, len(todo), batch_size):
@@ -271,11 +275,19 @@ async def backfill_sectors(limit: int | None = None, concurrency: int = 8) -> in
                 with session_scope() as session:
                     repository.save_sector_map(session, rows)
                 total += len(rows)
+                mapped += sum(1 for r in rows if r["sector"])
             _update_state(units_done=min(i + batch_size, len(todo)), rows=total)
             log.info("backfill_sectors_progress", done=total, total=len(todo))
 
+    unmapped = total - mapped
+    ratio = round(mapped / total, 3) if total else 0.0
     _update_state(phase="done")
-    log.info("backfill_sectors_complete", mapped=total)
+    # A sudden shift in this ratio between runs means SEC changed the SIC data
+    # or the feed shape -- worth an eyeball.
+    log.info(
+        "backfill_sectors_complete", mapped=mapped, unmapped=unmapped,
+        total=total, mapped_ratio=ratio,
+    )
     return total
 
 

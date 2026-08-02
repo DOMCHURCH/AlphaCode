@@ -156,9 +156,15 @@ async def build_universe(
     # null sector (honest) until the sector backfill reaches them.
     sector_by_ticker = repository.get_sector_map(session)
     screener = [
-        {"ticker": t, "market_cap": np.nan, "sector": sector_by_ticker.get(t),
-         "industry": None}
-        for t in sector_by_ticker
+        {
+            "ticker": t, "market_cap": np.nan, "sector": m.get("sector"),
+            "industry": None,
+            # Everything in the sector_map came from SIC; a present sector is
+            # 'sic', an absent one is 'unknown'. Never 'fmp' here.
+            "sector_source": m.get("sector_source")
+            or ("sic" if m.get("sector") else "unknown"),
+        }
+        for t, m in sector_by_ticker.items()
     ]
     return build_universe_from_frames(
         as_of, session, bars, reference, screener, settings=s
@@ -221,16 +227,33 @@ def build_universe_from_frames(
         df["active"] = True
 
     if not scr_df.empty:
+        # sector_source is present when the screener is the SIC map; the FMP
+        # screener has none -> it is the "fmp" provenance, filled in below.
+        if "sector_source" not in scr_df.columns:
+            scr_df["sector_source"] = None
         df = df.merge(
-            scr_df[["ticker", "market_cap", "sector", "industry"]].drop_duplicates(
-                "ticker"
-            ),
+            scr_df[
+                ["ticker", "market_cap", "sector", "industry", "sector_source"]
+            ].drop_duplicates("ticker"),
             on="ticker",
             how="left",
         )
     else:
-        for col in ("market_cap", "sector", "industry"):
-            df[col] = np.nan
+        df["market_cap"] = np.nan
+        for col in ("sector", "industry", "sector_source"):
+            df[col] = pd.Series([None] * len(df), index=df.index, dtype=object)
+
+    # Provenance for IC: a real vendor/SIC sector vs a guess. A non-null sector
+    # with no explicit source is the FMP screener; anything without a sector is
+    # 'unknown' (excluded from sector-neutral z-scoring, never guessed). Object
+    # dtype so string labels can be assigned into columns that may have merged
+    # as all-NaN floats.
+    df["sector"] = df["sector"].astype(object)
+    df["sector_source"] = df["sector_source"].astype(object)
+    has_sector = df["sector"].notna() & (df["sector"].astype(str).str.strip() != "")
+    df.loc[has_sector & df["sector_source"].isna(), "sector_source"] = "fmp"
+    df.loc[~has_sector, "sector_source"] = "unknown"
+    df.loc[~has_sector, "sector"] = None
 
     df["delisted"] = ~df.get("active", pd.Series(True, index=df.index)).fillna(True)
 
@@ -261,6 +284,7 @@ def build_universe_from_frames(
             "exchange": r.get("exchange"),
             "security_type": r.get("security_type"),
             "sector": r.get("sector") if pd.notna(r.get("sector")) else None,
+            "sector_source": r.get("sector_source") or "unknown",
             "industry": r.get("industry") if pd.notna(r.get("industry")) else None,
             "cik": str(r["cik"]) if pd.notna(r.get("cik")) else None,
             "market_cap": _f(r.get("market_cap")),
@@ -271,6 +295,11 @@ def build_universe_from_frames(
     ]
     repository.save_universe(session, as_of, rows)
 
+    src_counts = (
+        survivors["sector_source"].fillna("unknown").value_counts().to_dict()
+        if len(survivors) and "sector_source" in survivors.columns
+        else {}
+    )
     diagnostics = {
         "raw_tickers": len(bars_df),
         "universe_size": len(survivors),
@@ -278,10 +307,15 @@ def build_universe_from_frames(
         "sector_coverage": float(survivors["sector"].notna().mean())
         if len(survivors)
         else 0.0,
+        "sector_source_counts": src_counts,
     }
-    log.info("universe_built", as_of=str(as_of), **{
-        k: v for k, v in diagnostics.items() if k != "rejects"
-    })
+    # Log the provenance split each run -- a sudden move in unknown/fmp/sic means
+    # a feed changed shape, and it lets IC weigh the approximate SIC sectors.
+    log.info(
+        "universe_built", as_of=str(as_of), universe_size=len(survivors),
+        sector_coverage=round(diagnostics["sector_coverage"], 3),
+        sector_sources={str(k): int(v) for k, v in src_counts.items()},
+    )
     return survivors, diagnostics
 
 

@@ -83,6 +83,26 @@ def test_tiny_sectors_pool_into_the_universe():
     assert z[sectors == "Tiny"].std(ddof=1) > 0
 
 
+def test_unmapped_sectors_are_not_z_scored_as_their_own_bucket():
+    """Names with no real sector (NaN) must fall into the universe-wide residual,
+    NOT form an 'Unknown' peer group and get neutralized against each other.
+    Here 8 NaN-sector names (values 1..8) are pooled with a high-value small
+    sector; the top NaN name must NOT read as 'best in class' (which is what an
+    isolated Unknown bucket would produce)."""
+    idx = [f"U{i}" for i in range(8)] + [f"E{i}" for i in range(3)] + [f"T{i}" for i in range(10)]
+    vals = pd.Series(
+        [1, 2, 3, 4, 5, 6, 7, 8] + [100, 100, 100] + [0.0] * 10,
+        index=idx, dtype=float,
+    )
+    secs = pd.Series([np.nan] * 8 + ["Energy"] * 3 + ["Tech"] * 10, index=idx)
+    z = xs.sector_zscore(vals, secs, winsorize_first=False, min_sector_size=8)
+    # Pooled with the high-value Energy names, U7 (value 8) sits below the pool
+    # mean -> z < 0. In the old fake-Unknown-bucket behaviour it was top of its
+    # own group -> z > 0. This asserts the fix.
+    assert z["U7"] < 0
+    assert z[["U0", "U7"]].notna().all()  # still scored, just against real peers
+
+
 def test_missing_sector_label_still_scores():
     tickers = list("abcdefghij")
     values = pd.Series(np.arange(10, dtype=float), index=tickers)

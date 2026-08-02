@@ -98,15 +98,29 @@ _RANGES: list[tuple[int, int, str]] = [
 ]
 
 
+# Codes we deliberately refuse to map: the sector would be a guess, and a wrong
+# sector silently neutralizes a name against the wrong peers. These return None
+# (sector_source=unknown -> excluded from sector-neutral z-scoring), never a
+# forced bucket:
+#   6770 blank-check / SPAC   -- a shell; its eventual sector is unknown
+#   6719 holding companies NEC -- a diversified holdco can be any sector
+#   9995 / 9997 / 9999        -- non-classifiable establishments
+_UNMAPPABLE: frozenset[int] = frozenset({6770, 6719, 9995, 9997, 9999})
+
+
 def sic_to_gics(sic: int | str | None) -> str | None:
-    """Map a SIC code to a GICS-equivalent sector, or None if unmappable."""
+    """Map a SIC code to a GICS-equivalent sector, or None if unmappable.
+
+    Returns None for genuinely ambiguous codes (shells, diversified holdcos,
+    non-classifiable) so they are excluded rather than guessed into a bucket.
+    """
     if sic is None:
         return None
     try:
         code = int(str(sic).strip())
     except (TypeError, ValueError):
         return None
-    if code <= 0:
+    if code <= 0 or code in _UNMAPPABLE:
         return None
     for lo, hi, sector in _RANGES:
         if lo <= code <= hi:

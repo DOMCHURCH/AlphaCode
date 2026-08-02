@@ -56,6 +56,9 @@ class UniverseSnapshot(Base):
     exchange: Mapped[str | None] = mapped_column(String(16))
     security_type: Mapped[str | None] = mapped_column(String(16))
     sector: Mapped[str | None] = mapped_column(String(64), index=True)
+    # Where `sector` came from: fmp | sic | unknown. Lets IC analysis separate
+    # the clean vendor sectors from the approximate SIC-derived ones.
+    sector_source: Mapped[str | None] = mapped_column(String(8))
     industry: Mapped[str | None] = mapped_column(String(128))
     cik: Mapped[str | None] = mapped_column(String(16))
     market_cap: Mapped[float | None] = mapped_column(Float)
@@ -230,6 +233,8 @@ class SectorMap(Base):
     sic: Mapped[str | None] = mapped_column(String(8))
     sic_description: Mapped[str | None] = mapped_column(String(160))
     sector: Mapped[str | None] = mapped_column(String(40), index=True)
+    # sic (mapped) | unknown (SIC present but unmappable). Never a guess.
+    sector_source: Mapped[str | None] = mapped_column(String(8))
     ingested_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
@@ -300,6 +305,7 @@ class DailyScore(Base):
     as_of_date: Mapped[dt.date] = mapped_column(Date, nullable=False, index=True)
     ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
     sector: Mapped[str | None] = mapped_column(String(64))
+    sector_source: Mapped[str | None] = mapped_column(String(8))  # fmp|sic|unknown
     stage_reached: Mapped[int] = mapped_column(Integer, default=1)
     factor_composite: Mapped[float | None] = mapped_column(Float)
     catalyst_score: Mapped[float | None] = mapped_column(Float)

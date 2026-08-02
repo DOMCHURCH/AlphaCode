@@ -127,12 +127,17 @@ def save_sector_map(session: Session, rows: Sequence[dict[str, Any]]) -> int:
     return _upsert(session, SectorMap, list(rows), ["ticker"])
 
 
-def get_sector_map(session: Session) -> dict[str, str]:
-    """{ticker -> sector} for every mapped name with a non-null sector."""
+def get_sector_map(session: Session) -> dict[str, dict[str, Any]]:
+    """{ticker -> {sector, sector_source}} for every cached name.
+
+    Includes unmapped names (sector=None, sector_source='unknown') so the
+    universe builder can record provenance for all of them, not just the mapped
+    ones -- IC analysis needs to know which sectors are guessed vs real.
+    """
     rows = session.execute(
-        select(SectorMap.ticker, SectorMap.sector).where(SectorMap.sector.isnot(None))
+        select(SectorMap.ticker, SectorMap.sector, SectorMap.sector_source)
     ).all()
-    return dict(rows)
+    return {t: {"sector": s, "sector_source": src} for t, s, src in rows}
 
 
 def sector_map_ciks(session: Session) -> set[str]:

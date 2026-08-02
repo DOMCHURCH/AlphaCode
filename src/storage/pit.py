@@ -321,6 +321,7 @@ def get_universe(session: Session, as_of: dt.date) -> pd.DataFrame:
                 "exchange": r.exchange,
                 "security_type": r.security_type,
                 "sector": r.sector,
+                "sector_source": r.sector_source,
                 "industry": r.industry,
                 "cik": r.cik,
                 "market_cap": r.market_cap,

@@ -685,6 +685,11 @@ def _persist_scores(
                 "as_of_date": as_of,
                 "ticker": t,
                 "sector": sectors.get(t),
+                "sector_source": (
+                    str(r.get("sector_source"))
+                    if pd.notna(r.get("sector_source"))
+                    else "unknown"
+                ),
                 "stage_reached": stage,
                 "factor_composite": _num(r.get("factor_composite")),
                 "catalyst_score": catalyst,

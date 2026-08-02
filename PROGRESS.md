@@ -193,6 +193,13 @@ emptiness, don't tune it. No new features until the queue clears.
 - [x] **#2 Stooq bulk daily** (done — src/ingest/stooq.py; keyless backfill uses it; Yahoo per-ticker dropped as default; verified offline on a synthetic bundle: 300×300 → 90k rows).
 
 - [x] **#3 SEC SIC -> GICS sector map** (done — src/ingest/sic.py + SectorMap table + backfill_sectors; free universe attaches cached sectors; verified offline).
+  HARDENED (v2): sector_source (fmp|sic|unknown) on SectorMap/UniverseSnapshot/
+  DailyScore so IC can separate real vs SIC-derived vs guessed sectors;
+  unmapped SIC (incl. 6770 blank-check, 6719 holdco, 9995/7/9) -> None and
+  EXCLUDED from sector-neutral z-scoring (composite no longer pools them into an
+  'Unknown' bucket -> universe residual instead); mapped/unmapped ratio logged
+  each run; SIC->GICS hand-checked on the named cases. Live coverage/symbology/
+  adjustment/recency reconciliation: `python -m src.reconcile` (deploy-only).
 - [x] **#4 Fast-mode fallback server-side** (done — pipeline: verification failure + runtime LLM failure both degrade to the deterministic ranking+report; DataQualityError still propagates; test added).
 - [x] **#5 Rate-limit /run and /backfill** (done — _RateGate sliding-window, RUN_RATE_PER_HOUR/BACKFILL_RATE_PER_HOUR, 429+Retry-After; cron unaffected).
 - [x] **#6 LLM model resolution** (done — verify_model against /api/v1/models

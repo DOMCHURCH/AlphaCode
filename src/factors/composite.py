@@ -111,6 +111,9 @@ def assemble_raw_factors(
 
     # Carry through the descriptive columns the later stages need.
     raw["sector"] = uni.get("sector", pd.Series(dtype=object)).reindex(tickers)
+    raw["sector_source"] = uni.get(
+        "sector_source", pd.Series(dtype=object)
+    ).reindex(tickers)
     raw["market_cap"] = market_caps
     raw["close"] = prices
     return raw
@@ -128,9 +131,17 @@ def score_composite(
     factors = [f for w in cat_f.values() for f in w]
 
     sectors = raw["sector"] if "sector" in raw.columns else pd.Series(
-        "Unknown", index=raw.index
+        np.nan, index=raw.index, dtype=object
     )
-    sectors = sectors.fillna("Unknown")
+    # Names with no real sector (unmapped SIC, missing FMP) must NOT be pooled
+    # into an "Unknown" bucket and z-scored against each other -- that neutralizes
+    # against the wrong peers. Coerce non-sectors to NaN so `sector_zscore` drops
+    # them into the universe-wide residual pool (excluded from sector-neutral).
+    sectors = sectors.astype(object)
+    _blank = sectors.isna() | sectors.astype(str).str.strip().isin(
+        ["", "Unknown", "unknown", "N/A", "None", "nan"]
+    )
+    sectors = sectors.mask(_blank, other=np.nan)
 
     z, coverage = xs.build_factor_zscores(raw, sectors, factors, NEGATIVE_FACTORS)
 
@@ -149,6 +160,8 @@ def score_composite(
     scores["factor_composite"] = composite
     scores["data_completeness"] = coverage
     scores["sector"] = sectors
+    if "sector_source" in raw.columns:
+        scores["sector_source"] = raw["sector_source"]
     for cat, cov in cat_completeness.items():
         scores[f"completeness_{cat}"] = cov
     scores["rank"] = xs.cross_sectional_rank(composite)

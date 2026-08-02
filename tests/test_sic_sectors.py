@@ -111,9 +111,10 @@ def test_sector_backfill_caches_map_and_skips_done(tmp_path, monkeypatch):
     assert n == 3
     with session_scope() as s:
         smap = repository.get_sector_map(s)
-    assert smap["NVDA"] == INFO_TECH
-    assert smap["XOM"] == ENERGY
-    assert "NOSIC" not in smap  # 9995 -> None sector, not forced into a bucket
+    assert smap["NVDA"] == {"sector": INFO_TECH, "sector_source": "sic"}
+    assert smap["XOM"] == {"sector": ENERGY, "sector_source": "sic"}
+    # 9995 -> unmappable: stored but sector=None, source=unknown, NOT a bucket.
+    assert smap["NOSIC"] == {"sector": None, "sector_source": "unknown"}
 
     # A second pass skips already-mapped CIKs -> nothing new.
     assert asyncio.run(backfill.backfill_sectors()) == 0

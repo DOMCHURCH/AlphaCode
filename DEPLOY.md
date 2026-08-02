@@ -69,7 +69,20 @@ API process), and no Redis (the cache and rate-limiter run in-process).
    ```
    Then open `/report/latest/html`. After that the cron runs it every weekday
    morning. Endpoints: `/report/{date}` (JSON), `/report/{date}/pdf`,
-   `/ticker/{symbol}/history`, `/validation`.
+   `/ticker/{symbol}/history`, `/validation`, `/llm-check`.
+
+6. **Reconcile the keyless price source (first live run, once).** Synthetic-bundle
+   tests prove the Stooq loader works, not that Stooq's real data is what we
+   assume. In the service shell, after the first bulk backfill:
+   ```bash
+   python -m src.reconcile          # prints symbology / coverage / adjustment / recency
+   ```
+   Read the output. **The one that matters is `adjustment`:** if any names read
+   `unadjusted`, Stooq is serving raw (non-split-adjusted) prices and every
+   momentum factor is wrong — do not trust the funnel until the source is fixed
+   (switch to `POLYGON_API_KEY`, which is adjusted). Also check `coverage` (how
+   many liquid names Stooq actually has vs Polygon) and `recency` (how stale the
+   file is at 06:00 ET). Don't assume — read the numbers.
 
 ## Local dev
 
