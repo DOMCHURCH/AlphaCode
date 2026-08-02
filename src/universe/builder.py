@@ -150,9 +150,19 @@ async def build_universe(
             "No stored bars to build a universe from. Run a backfill first "
             "(the site's button does this automatically)."
         )
-    # No cheap free market-cap/sector source -- screener stays empty and the
-    # market-cap gate relaxes. Liquidity (ADV) and price still do the filtering.
-    return build_universe_from_frames(as_of, session, bars, reference, [], settings=s)
+    # No free market-cap source -> screener carries no cap (the gate relaxes),
+    # but sectors come from the cached SIC->GICS map so Stage-2 stays
+    # sector-neutral instead of universe-neutral. Names not yet mapped keep a
+    # null sector (honest) until the sector backfill reaches them.
+    sector_by_ticker = repository.get_sector_map(session)
+    screener = [
+        {"ticker": t, "market_cap": np.nan, "sector": sector_by_ticker.get(t),
+         "industry": None}
+        for t in sector_by_ticker
+    ]
+    return build_universe_from_frames(
+        as_of, session, bars, reference, screener, settings=s
+    )
 
 
 def _latest_stored_bars(session, as_of: dt.date) -> list[dict[str, Any]]:

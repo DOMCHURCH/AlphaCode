@@ -63,7 +63,7 @@ API process), and no Redis (the cache and rate-limiter run in-process).
 
    Prefer to drive it by hand? The same endpoints are open (no `X-API-Key`):
    ```bash
-   curl -X POST "https://<service>.up.railway.app/backfill?days=600"   # load history
+   curl -X POST "https://<service>.up.railway.app/backfill?days=600&sectors=true"  # history + SIC sector map
    curl -X POST "https://<service>.up.railway.app/run"                 # run the funnel
    curl      "https://<service>.up.railway.app/status"                 # watch progress
    ```

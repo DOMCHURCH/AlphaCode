@@ -137,6 +137,27 @@ async def fetch_submissions(client: APIClient, cik: str | int) -> dict[str, Any]
     return await client.get_json(f"/submissions/CIK{pad_cik(cik)}.json")
 
 
+def parse_sic(payload: dict[str, Any]) -> tuple[str | None, str | None]:
+    """Pull (sic, sicDescription) from a submissions payload. Pure/testable."""
+    if not isinstance(payload, dict):
+        return None, None
+    sic = payload.get("sic")
+    desc = payload.get("sicDescription")
+    sic = str(sic).strip() if sic not in (None, "") else None
+    desc = str(desc).strip()[:160] if desc else None
+    return sic, desc
+
+
+async def fetch_sic(client: APIClient, cik: str | int) -> tuple[str | None, str | None]:
+    """SIC code + description for one company. Cached by the client (near-static)."""
+    try:
+        payload = await fetch_submissions(client, cik)
+    except Exception as exc:  # noqa: BLE001 - one bad CIK is survivable
+        log.debug("sec_sic_failed", cik=str(cik), error=str(exc)[:200])
+        return None, None
+    return parse_sic(payload)
+
+
 def _parse_recent(payload: dict[str, Any]) -> list[dict[str, Any]]:
     """EDGAR returns recent filings as parallel arrays, not a list of objects."""
     recent = ((payload or {}).get("filings") or {}).get("recent") or {}

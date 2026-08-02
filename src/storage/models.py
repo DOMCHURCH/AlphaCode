@@ -219,6 +219,20 @@ class InsiderTransaction(Base):
     )
 
 
+class SectorMap(Base):
+    """SIC -> GICS-bucket sector per ticker. Near-static; pulled once from SEC
+    and cached so sector-neutral scoring works without a paid sector feed."""
+
+    __tablename__ = "sector_map"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    cik: Mapped[str | None] = mapped_column(String(16))
+    sic: Mapped[str | None] = mapped_column(String(8))
+    sic_description: Mapped[str | None] = mapped_column(String(160))
+    sector: Mapped[str | None] = mapped_column(String(40), index=True)
+    ingested_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class NewsAggregate(Base):
     """GDELT-derived, per ticker per day. Never raw article text."""
 

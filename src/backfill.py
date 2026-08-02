@@ -26,6 +26,7 @@ from sqlalchemy import select
 
 from src.config.settings import get_settings
 from src.ingest import polygon, sec_edgar, stooq
+from src.ingest import sic as sic_map
 from src.ingest.base import gather_bounded
 from src.logging_config import configure_logging
 from src.storage import repository
@@ -220,6 +221,64 @@ async def _backfill_bars_free(days: int, end: dt.date) -> int:
     return total
 
 
+async def backfill_sectors(limit: int | None = None, concurrency: int = 8) -> int:
+    """Cache a SIC-derived GICS sector for every SEC company. Pulled once.
+
+    Without a paid sector feed (FMP), Stage-2 sector-neutral scoring would
+    silently collapse to universe-neutral. SIC is near-static, so we fetch it
+    once per CIK (skipping ones already mapped), map SIC -> GICS bucket, and
+    cache it. Unmappable SICs are stored with sector=None -- honest, not forced.
+    Returns the number of newly mapped names.
+    """
+    reference = await sec_edgar.fetch_company_tickers()
+    with session_scope() as session:
+        done = repository.sector_map_ciks(session)
+    todo = [
+        r for r in reference
+        if r.get("cik") and str(r["cik"]) not in done
+    ]
+    if limit:
+        todo = todo[:limit]
+    _update_state(
+        phase="running", source="sec_sic", unit="companies",
+        units_total=len(todo), units_done=0, rows=0, last_error=None,
+    )
+    log.info("backfill_sectors_start", companies=len(todo), already_mapped=len(done))
+    if not todo:
+        _update_state(phase="done")
+        return 0
+
+    client = sec_edgar.make_client(concurrency=concurrency)
+
+    async def one(row: dict[str, Any]) -> dict[str, Any] | None:
+        sic, desc = await sec_edgar.fetch_sic(client, row["cik"])
+        return {
+            "ticker": str(row["ticker"]).upper(),
+            "cik": str(row["cik"]),
+            "sic": sic,
+            "sic_description": desc,
+            "sector": sic_map.sic_to_gics(sic),
+        }
+
+    total = 0
+    batch_size = 500
+    async with client:
+        for i in range(0, len(todo), batch_size):
+            chunk = todo[i : i + batch_size]
+            results = await gather_bounded([one(r) for r in chunk], concurrency)
+            rows = [r for r in results if isinstance(r, dict)]
+            if rows:
+                with session_scope() as session:
+                    repository.save_sector_map(session, rows)
+                total += len(rows)
+            _update_state(units_done=min(i + batch_size, len(todo)), rows=total)
+            log.info("backfill_sectors_progress", done=total, total=len(todo))
+
+    _update_state(phase="done")
+    log.info("backfill_sectors_complete", mapped=total)
+    return total
+
+
 async def backfill_fundamentals(
     as_of: dt.date | None = None, limit: int | None = None, concurrency: int = 8
 ) -> int:
@@ -279,8 +338,12 @@ def main() -> None:
         help="also backfill SEC XBRL as-reported fundamentals",
     )
     parser.add_argument(
+        "--sectors", action="store_true",
+        help="cache the SIC->GICS sector map (pull once, near-static)",
+    )
+    parser.add_argument(
         "--limit", type=int, default=None,
-        help="cap the number of companies for the fundamentals pass",
+        help="cap the number of companies for the fundamentals/sector pass",
     )
     parser.add_argument("--skip-bars", action="store_true")
     args = parser.parse_args()
@@ -291,6 +354,8 @@ def main() -> None:
     async def run() -> None:
         if not args.skip_bars:
             await backfill_bars(args.days)
+        if args.sectors:
+            await backfill_sectors(limit=args.limit)
         if args.fundamentals:
             await backfill_fundamentals(limit=args.limit)
 

@@ -24,6 +24,7 @@ from src.storage.models import (
     NewsAggregate,
     ReportArtifact,
     RunLog,
+    SectorMap,
     StageResult,
     Thesis,
     UniverseSnapshot,
@@ -120,6 +121,26 @@ def replace_insider_transactions(
 
 def save_news(session: Session, rows: Sequence[dict[str, Any]]) -> int:
     return _upsert(session, NewsAggregate, list(rows), ["ticker", "as_of_date"])
+
+
+def save_sector_map(session: Session, rows: Sequence[dict[str, Any]]) -> int:
+    return _upsert(session, SectorMap, list(rows), ["ticker"])
+
+
+def get_sector_map(session: Session) -> dict[str, str]:
+    """{ticker -> sector} for every mapped name with a non-null sector."""
+    rows = session.execute(
+        select(SectorMap.ticker, SectorMap.sector).where(SectorMap.sector.isnot(None))
+    ).all()
+    return dict(rows)
+
+
+def sector_map_ciks(session: Session) -> set[str]:
+    """CIKs already mapped, so a sector backfill can skip them (pull once)."""
+    rows = session.execute(
+        select(SectorMap.cik).where(SectorMap.cik.isnot(None))
+    ).scalars()
+    return {str(c) for c in rows}
 
 
 def save_macro(session: Session, row: dict[str, Any]) -> None:

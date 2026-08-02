@@ -397,32 +397,35 @@ async def trigger_backfill(
     background: BackgroundTasks,
     days: int = Query(600, ge=1, le=2000),
     fundamentals: bool = False,
+    sectors: bool = False,
 ) -> RunResponse:
     """Load history so the funnel has something to screen. Curl-triggerable so no
     shell is needed. Returns immediately; the load runs in the background.
 
     Open by design -- no token needed; single-flighted by `_backfill_lock`.
-    `days` price sessions of bars (~500 Polygon calls). `fundamentals=true` also
-    pulls SEC XBRL as-reported fundamentals, which is slow (can take hours for the
-    full universe) -- do it after the bars load succeeds, not on the first call.
+    `days` price sessions of bars. `fundamentals=true` also pulls SEC XBRL
+    as-reported fundamentals (slow). `sectors=true` caches the SIC->GICS sector
+    map (once, near-static) so sector-neutral scoring works without FMP.
     """
     if _backfill_lock.locked():
         return RunResponse(accepted=False, detail="A backfill is already running.")
-    background.add_task(_backfill_bg, days, fundamentals)
+    background.add_task(_backfill_bg, days, fundamentals, sectors)
     return RunResponse(
         accepted=True,
         detail=(
             f"Backfill queued: {days} sessions of bars"
+            + (" + SIC sector map" if sectors else "")
             + (" + SEC fundamentals (slow)" if fundamentals else "")
             + ". Watch GET /status for progress."
         ),
     )
 
 
-async def _backfill_bg(days: int, fundamentals: bool) -> None:
+async def _backfill_bg(days: int, fundamentals: bool, sectors: bool = False) -> None:
     from src.backfill import (
         backfill_bars,
         backfill_fundamentals,
+        backfill_sectors,
         record_backfill_error,
     )
 
@@ -430,6 +433,9 @@ async def _backfill_bg(days: int, fundamentals: bool) -> None:
         try:
             n = await backfill_bars(days)
             log.info("backfill_bars_done", rows=n)
+            if sectors:
+                sm = await backfill_sectors()
+                log.info("backfill_sectors_done", mapped=sm)
             if fundamentals:
                 m = await backfill_fundamentals()
                 log.info("backfill_fundamentals_done", rows=m)
