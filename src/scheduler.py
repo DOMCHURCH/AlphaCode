@@ -44,6 +44,24 @@ async def daily_job() -> None:
     log.info("daily_job_complete", returncode=rc)
 
 
+async def orphan_sweep_job() -> None:
+    """Periodic sweep to mark runs with no progress as failed, every 10 minutes.
+
+    Prevents hung runs from blocking subsequent runs via the single-flight lock.
+    Runs independently of the daily job so it catches hangs immediately.
+    """
+    from src.storage import repository
+    from src.storage.db import session_scope
+
+    try:
+        with session_scope() as session:
+            marked = repository.mark_orphaned_runs_failed(session)
+            if marked:
+                log.warning("orphan_sweep_marked_failed", count=marked)
+    except Exception as exc:  # noqa: BLE001 - never block on orphan sweep
+        log.error("orphan_sweep_failed", error=str(exc)[:200])
+
+
 def build_scheduler():
     """Build (but do not start) the daily-funnel scheduler.
 
@@ -52,6 +70,7 @@ def build_scheduler():
     """
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.cron import CronTrigger
+    from apscheduler.triggers.interval import IntervalTrigger
 
     s = get_settings()
     scheduler = AsyncIOScheduler(timezone=s.run_timezone)
@@ -65,6 +84,16 @@ def build_scheduler():
         max_instances=1,
         misfire_grace_time=3600,
         coalesce=True,
+    )
+    # Orphan sweep: every 10 minutes, detect and mark hung runs as failed.
+    # Prevents a single hung run from blocking all subsequent runs via the
+    # single-flight lock. Runs independently of daily_job so it catches hangs
+    # immediately, even outside trading hours.
+    scheduler.add_job(
+        orphan_sweep_job,
+        IntervalTrigger(minutes=10),
+        id="orphan_sweep",
+        max_instances=1,
     )
     return scheduler
 

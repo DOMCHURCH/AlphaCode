@@ -522,6 +522,7 @@ def stage_progress(session: Session, run_id: str) -> list[dict[str, Any]]:
 
     Read straight off the checkpoints the pipeline writes as it advances, so the
     front-end can show "Stage 3: 400 -> 100" while the funnel is still running.
+    Includes created_at timestamp so staleness detection can measure checkpoint age.
     """
     rows = session.execute(
         select(StageResult)
@@ -536,6 +537,7 @@ def stage_progress(session: Session, run_id: str) -> list[dict[str, Any]]:
             "duration_s": r.duration_s,
             "api_calls": r.api_calls,
             "rss_mb": (r.payload or {}).get("rss_mb"),
+            "created_at": r.created_at,
         }
         for r in rows
     ]
@@ -549,22 +551,48 @@ def latest_run(session: Session) -> RunLog | None:
 
 
 def mark_orphaned_runs_failed(session: Session) -> int:
-    """Fail any run still marked `running` -- the process that ran it is gone.
+    """Fail any run still marked `running` with no recent progress.
 
     A run executes in-process; a container restart (redeploy or OOM) kills it
     without calling finish_run, leaving RunLog stuck at "running" forever. That
     ghost then shows up in /status.current_run and the site polls it endlessly.
-    Called once at startup (single-service: any live run would be in THIS
-    process, so anything "running" at boot is orphaned).
+    Also marks runs that have been "running" for >10 minutes with no stage
+    checkpoint as stalled/hung, releasing the single-flight lock.
+    Called at startup and every 10 minutes via the orphan sweep job.
     """
-    orphans = session.execute(
+    stale_threshold = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=10)
+
+    # Find all running runs
+    running = session.execute(
         select(RunLog).where(RunLog.status == "running")
     ).scalars().all()
-    for r in orphans:
-        r.status = "failed"
-        r.error = (r.error or "interrupted by a process restart (redeploy or OOM)")[:2000]
-        r.finished_at = dt.datetime.now(dt.UTC)
-    return len(orphans)
+
+    marked = 0
+    for r in running:
+        # Check if this run is stale: either started >10 min ago, OR if it has
+        # a checkpoint, that checkpoint is >10 min old (indicating stuck in a stage).
+        is_old_start = r.started_at < stale_threshold
+
+        # Find the most recent checkpoint for this run
+        latest_checkpoint = session.execute(
+            select(StageResult)
+            .where(StageResult.run_id == r.run_id)
+            .order_by(StageResult.created_at.desc())
+            .limit(1)
+        ).scalar_one_or_none()
+
+        is_stale_checkpoint = (
+            latest_checkpoint and latest_checkpoint.created_at < stale_threshold
+        )
+
+        if is_old_start or is_stale_checkpoint:
+            r.status = "failed"
+            reason = "no progress for 10+ minutes (hung stage or process crash)"
+            r.error = (r.error or reason)[:2000]
+            r.finished_at = dt.datetime.now(dt.UTC)
+            marked += 1
+
+    return marked
 
 
 def fail_run_if_running(session: Session, run_id: str, error: str) -> bool:

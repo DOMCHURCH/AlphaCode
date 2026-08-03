@@ -30,6 +30,7 @@ from src.config.factor_weights import (
     mode_config,
 )
 from src.config.settings import get_settings
+from src.core.stage_timeout import StageTimeout, enforce_stage_timeout
 from src.factors import composite, trend
 from src.ingest.rate_limiter import get_rate_limiter
 from src.llm import deep_dive, triage
@@ -435,10 +436,29 @@ async def run_pipeline(
                     # would silently zero a whole table. The _stage wrapper's write
                     # ledger catches that: it aborts if a table attempted >100 and
                     # wrote 0.
-                    st3 = await s3.run_stage3(
-                        session, factor_scores, tr.survivors, universe, as_of, macro,
-                        take=s.stage3_take,
-                    )
+                    try:
+                        st3 = await enforce_stage_timeout(
+                            s3.run_stage3(
+                                session, factor_scores, tr.survivors, universe, as_of, macro,
+                                take=s.stage3_take,
+                            ),
+                            stage=3,
+                            stage_name="catalysts",
+                            timeout_s=s.stage3_timeout_s or 300,
+                        )
+                    except StageTimeout as exc:
+                        log.error(
+                            "stage3_timeout",
+                            stage=exc.stage,
+                            stage_name=exc.stage_name,
+                            elapsed_s=exc.elapsed_s,
+                            timeout_s=exc.timeout_s,
+                        )
+                        raise DataQualityError(
+                            f"Stage {exc.stage} {exc.stage_name} timed out after "
+                            f"{exc.elapsed_s:.0f}s (limit: {exc.timeout_s}s). "
+                            f"Check SEC/Finnhub/GDELT for stalls."
+                        ) from exc
                 box["exit"] = len(st3.selected)
                 box["api_calls"] = st3.api_calls
                 funnel["Stage 3 catalysts"] = len(st3.selected)
@@ -485,10 +505,29 @@ async def run_pipeline(
                             )
                             for t in st3.selected.index
                         ]
-                        tri = await triage.run_triage(
-                            packets, st3.selected, take=s.stage4_take,
-                            model_info=model_info.get(s.llm_triage_model),
-                        )
+                        try:
+                            tri = await enforce_stage_timeout(
+                                triage.run_triage(
+                                    packets, st3.selected, take=s.stage4_take,
+                                    model_info=model_info.get(s.llm_triage_model),
+                                ),
+                                stage=4,
+                                stage_name="llm_triage",
+                                timeout_s=s.llm_triage_timeout_s or 600,
+                            )
+                        except StageTimeout as exc:
+                            log.error(
+                                "stage4_timeout",
+                                stage=exc.stage,
+                                stage_name=exc.stage_name,
+                                elapsed_s=exc.elapsed_s,
+                                timeout_s=exc.timeout_s,
+                            )
+                            raise DataQualityError(
+                                f"Stage {exc.stage} {exc.stage_name} timed out after "
+                                f"{exc.elapsed_s:.0f}s (limit: {exc.timeout_s}s). "
+                                f"LLM model may be unreachable or overloaded."
+                            ) from exc
                         cost.record("triage", tri.usage)
                         triage_df = tri.verdicts
                         selected_25 = tri.selected
@@ -521,12 +560,31 @@ async def run_pipeline(
                             if t in st3.selected.index
                         ]
                         take = min(s.stage5_take, macro.final_count(s.stage5_take))
-                        dd = await deep_dive.run_deep_dive(
-                            deep_packets,
-                            sectors=sectors.to_dict(),
-                            take=take,
-                            model_info=model_info.get(s.llm_deep_model),
-                        )
+                        try:
+                            dd = await enforce_stage_timeout(
+                                deep_dive.run_deep_dive(
+                                    deep_packets,
+                                    sectors=sectors.to_dict(),
+                                    take=take,
+                                    model_info=model_info.get(s.llm_deep_model),
+                                ),
+                                stage=5,
+                                stage_name="llm_deep_dive",
+                                timeout_s=s.llm_deep_dive_timeout_s or 900,
+                            )
+                        except StageTimeout as exc:
+                            log.error(
+                                "stage5_timeout",
+                                stage=exc.stage,
+                                stage_name=exc.stage_name,
+                                elapsed_s=exc.elapsed_s,
+                                timeout_s=exc.timeout_s,
+                            )
+                            raise DataQualityError(
+                                f"Stage {exc.stage} {exc.stage_name} timed out after "
+                                f"{exc.elapsed_s:.0f}s (limit: {exc.timeout_s}s). "
+                                f"LLM model may be unreachable or overloaded."
+                            ) from exc
                         cost.record("deep_dive", dd.usage)
                         dives = dd.final
                         box["exit"] = len(dives)

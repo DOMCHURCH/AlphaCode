@@ -53,6 +53,8 @@ class Settings(BaseSettings):
         default="deepseek/deepseek-chat", alias="LLM_DEEP_MODEL"
     )
     llm_temperature: float = Field(default=0.2, alias="LLM_TEMPERATURE")
+    llm_triage_timeout_s: int = Field(default=600, alias="LLM_TRIAGE_TIMEOUT_S")
+    llm_deep_dive_timeout_s: int = Field(default=900, alias="LLM_DEEP_DIVE_TIMEOUT_S")
     llm_verify_models_on_startup: bool = Field(
         default=True, alias="LLM_VERIFY_MODELS_ON_STARTUP"
     )
@@ -67,6 +69,7 @@ class Settings(BaseSettings):
     # approximate and Stage 3 still narrows to ~100.
     stage2_take: int = Field(default=200, alias="STAGE2_TAKE")
     stage3_take: int = Field(default=100, alias="STAGE3_TAKE")
+    stage3_timeout_s: int = Field(default=300, alias="STAGE3_TIMEOUT_S")
     stage4_take: int = Field(default=25, alias="STAGE4_TAKE")
     stage5_take: int = Field(default=10, alias="STAGE5_TAKE")
     max_per_sector: int = Field(default=3, alias="MAX_PER_SECTOR")

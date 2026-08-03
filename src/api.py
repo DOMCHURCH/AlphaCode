@@ -672,7 +672,11 @@ _TOTAL_STAGES = len(_STAGE_STEPS)
 
 
 def _current_run_progress(session: Any) -> dict[str, Any] | None:
-    """Live stage progress for the in-flight run, or None when idle."""
+    """Live stage progress for the in-flight run, or None when idle.
+
+    Includes elapsed_s and stalled flag so ops can detect hung runs:
+    a run is considered stalled if running for >10 min with no stage progress.
+    """
     run = repository.latest_running_run(session)
     if run is None:
         return None
@@ -681,10 +685,27 @@ def _current_run_progress(session: Any) -> dict[str, Any] | None:
     # The pipeline checkpoints a stage *after* it completes, so the stage
     # actively being worked is the one after the highest checkpoint.
     active = min(reached + 1, _TOTAL_STAGES - 1)
+
+    # Calculate elapsed time and staleness: >10 min with no stage progress
+    elapsed_s = None
+    stalled = False
+    if run.started_at:
+        elapsed_s = (dt.datetime.utcnow() - run.started_at).total_seconds()
+        # A run is stalled if it's been running >10 min and hasn't progressed
+        # to the next stage in that time (indicated by no stage checkpoints
+        # in the last 600s). This catches asyncio hangs and other blocking ops.
+        if elapsed_s > 600 and stages:
+            last_checkpoint = max((s["created_at"] for s in stages), default=None)
+            if last_checkpoint:
+                checkpoint_age_s = (dt.datetime.utcnow() - last_checkpoint).total_seconds()
+                stalled = checkpoint_age_s > 600
+
     return {
         "run_id": run.run_id,
         "as_of": run.as_of_date.isoformat(),
         "started_at": run.started_at.isoformat() if run.started_at else None,
+        "elapsed_s": round(elapsed_s, 0) if elapsed_s else None,
+        "stalled": stalled,
         "active_stage": active,
         "active_label": _STAGE_STEPS[active]["label"],
         "stages_total": _TOTAL_STAGES,
