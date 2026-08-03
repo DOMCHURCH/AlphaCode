@@ -12,3 +12,4 @@ reports/
 htmlcov/
 *.egg-info/
 .DS_Store
+.sec-cache/
