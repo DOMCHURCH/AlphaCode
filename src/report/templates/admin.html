@@ -69,7 +69,21 @@
     <div id="verify" class="rows"><div class="loading">—</div></div>
   </section>
 
-  <!-- 5. RAW FACTS — settle a disputed figure against the file -->
+  <!-- 5. UNIVERSE CHECK — is the parse right across the whole file -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Whole-universe check</h2>
+      <button id="universeBtn" class="mini">Run</button>
+    </div>
+    <p class="hint">Five companies is an anecdote. This runs A = L + E over
+      every ticker with enough data, buckets the drift, names the worst 50,
+      flags assets moving more than 10&times; between quarters, and breaks it
+      down by sector — a sector failing systematically is a tag problem for that
+      filer class, not noise.</p>
+    <div id="universe" class="rows"><div class="loading">—</div></div>
+  </section>
+
+  <!-- 6. RAW FACTS — settle a disputed figure against the file -->
   <section class="card">
     <div class="card-head">
       <h2>Raw num.txt facts</h2>
@@ -90,7 +104,7 @@
     <div id="rawFacts" class="rows"><div class="loading">not run this session</div></div>
   </section>
 
-  <!-- 6. RELOAD — wipe and rebuild the table -->
+  <!-- 7. RELOAD — wipe and rebuild the table -->
   <section class="card">
     <div class="card-head">
       <h2>Reload fundamentals</h2>
@@ -104,7 +118,7 @@
     <div id="reload" class="rows"><div class="loading">not run this session</div></div>
   </section>
 
-  <!-- 7. EXTRACTION — what the consolidated filter did -->
+  <!-- 8. EXTRACTION — what the consolidated filter did -->
   <section class="card">
     <div class="card-head"><h2>XBRL extraction</h2></div>
     <p class="hint">From the last fundamentals load. Structural drops are
@@ -114,14 +128,14 @@
     <div id="extraction" class="rows"><div class="loading">no load this session</div></div>
   </section>
 
-  <!-- 8. CONFIG -->
+  <!-- 9. CONFIG -->
   <section class="card">
     <div class="card-head"><h2>Config</h2></div>
     <p class="hint">Presence only — secret values are never shown.</p>
     <div id="config" class="rows"><div class="loading">loading…</div></div>
   </section>
 
-  <!-- 9. RECENT LOGS -->
+  <!-- 10. RECENT LOGS -->
   <section class="card">
     <div class="card-head"><h2>Recent logs</h2>
       <div class="filters" id="logfilters">
@@ -134,7 +148,7 @@
     <div id="logs" class="logs"><div class="loading">loading…</div></div>
   </section>
 
-  <!-- 10. ACTIONS -->
+  <!-- 11. ACTIONS -->
   <section class="card">
     <div class="card-head"><h2>Backfill — one data source at a time</h2></div>
     <p class="hint">Each button loads only its own kind. Tapping a kind shows

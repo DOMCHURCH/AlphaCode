@@ -499,3 +499,29 @@ def test_backfill_is_rate_limited(client, monkeypatch):
     assert client.post("/backfill?kind=bars").status_code == 200
     assert client.post("/backfill?kind=bars").status_code == 429
     get_settings.cache_clear()
+
+
+# --------------------------------------------------------------- universe check
+def test_universe_check_endpoint_reports_the_distribution(client):
+    _seed_fundamentals([
+        _fund("OK1", "total_assets", 1_000.0),
+        _fund("OK1", "total_liabilities", 700.0),
+        _fund("OK1", "total_equity", 300.0),
+        _fund("BAD1", "total_assets", 1_000.0),
+        _fund("BAD1", "total_liabilities", 700.0),
+        _fund("BAD1", "total_equity", 100.0),
+    ])
+    body = client.get("/admin/universe-check").json()
+
+    assert body["identity"]["checkable"] == 2
+    assert body["identity"]["buckets"]["within_1pct"] == 1
+    assert body["identity"]["buckets"]["over_10pct"] == 1
+    assert body["worst"][0]["ticker"] == "BAD1"
+    assert "by_sector" in body
+
+
+def test_universe_check_survives_an_empty_table(client):
+    body = client.get("/admin/universe-check").json()
+    assert body["tickers_in_table"] == 0
+    assert body["identity"]["checkable"] == 0
+    assert body["identity"]["pass_rate_pct"] == 0.0

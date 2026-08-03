@@ -120,8 +120,19 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
 
         # A = L + E, reported totals only -- never a sum of parts standing in
         # for a total the filing did not state.
+        #
+        # Balances against TOTAL equity including noncontrolling interests when
+        # the filer reports it: `Assets` is consolidated, parent-only
+        # StockholdersEquity is not, and using the latter leaves the NCI behind
+        # as drift that looks like a parser bug but is an apples-to-oranges
+        # comparison.
         tl_cell = bs.liabilities["total_liabilities"]
-        te_cell = bs.equity["shareholders_equity"]
+        incl_cell = bs.equity["total_equity_incl_nci"]
+        parent_cell = bs.equity["shareholders_equity"]
+        te_cell = incl_cell if not incl_cell.missing else parent_cell
+        equity_basis = (
+            "total_equity_incl_nci" if not incl_cell.missing else "total_equity"
+        )
         identity: dict[str, Any]
         if total_assets and not tl_cell.missing and not te_cell.missing:
             rhs = tl_cell.value + te_cell.value
@@ -130,9 +141,16 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
                 "checkable": True,
                 "assets": total_assets,
                 "liabilities_plus_equity": rhs,
+                "equity_basis": equity_basis,
                 "drift_pct": round(drift, 2),
                 "balanced": drift < 1.0,
             }
+            nci_cell = bs.equity["minority_interest"]
+            if equity_basis == "total_equity" and not nci_cell.missing and drift > 1.0:
+                closed = abs(total_assets - (rhs + nci_cell.value)) / total_assets * 100
+                if closed <= 1.0:
+                    identity["explained_by"] = "noncontrolling_interest"
+                    identity["drift_pct_with_nci"] = round(closed, 2)
         else:
             identity = {
                 "checkable": False,

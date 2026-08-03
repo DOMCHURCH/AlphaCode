@@ -38,8 +38,12 @@ BALANCE_SHEET_CONCEPTS = {
     "current_liabilities": "current_liabilities",
     "long_term_debt": "long_term_debt",
     "accounts_payable": "accounts_payable",
-    # Equity
+    # Equity. Parent-only and NCI-inclusive are both carried: the first is
+    # what "shareholders' equity" means to a reader, the second is what the
+    # accounting identity balances against.
     "shareholders_equity": "total_equity",
+    "total_equity_incl_nci": "total_equity_incl_nci",
+    "minority_interest": "minority_interest",
 }
 
 
@@ -148,7 +152,9 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
             "total_liabilities", "current_liabilities",
             "long_term_debt", "accounts_payable",
         ]
-        equity_concepts = ["shareholders_equity"]
+        equity_concepts = [
+            "shareholders_equity", "total_equity_incl_nci", "minority_interest",
+        ]
 
         for concept in asset_concepts:
             metric = BALANCE_SHEET_CONCEPTS.get(concept)

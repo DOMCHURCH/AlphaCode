@@ -8,6 +8,7 @@ let LOG_LEVEL = "";     // "", info, warning, error
 let TIMER = null;
 let BALANCE = null;     // last /admin/balance-sheet payload, for the copy blob
 let VERIFY = null;      // last /admin/verify payload, for the copy blob
+let UNIVERSE = null;    // last /admin/universe-check payload, for the copy blob
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) =>
@@ -468,6 +469,81 @@ async function testBalanceSheet() {
   btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
 }
 
+async function runUniverseCheck() {
+  const btn = $("universeBtn"), div = $("universe");
+  const label = btn.textContent;
+  btn.disabled = true; btn.classList.add("busy"); btn.textContent = "running…";
+  div.innerHTML = `<div class="loading">checking every ticker…</div>`;
+  try {
+    const r = await fetch("/admin/universe-check", { cache: "no-store" });
+    const d = await r.json();
+    UNIVERSE = d;
+    if (d.error) {
+      div.innerHTML = `<div class="err-note">${esc(d.error)}</div>` +
+        (d.traceback ? `<pre class="tb">${esc(d.traceback)}</pre>` : "");
+      btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+      return;
+    }
+
+    const id = d.identity || {}, b = id.buckets || {};
+    let out = "";
+    const rate = id.pass_rate_pct;
+    const kind = rate >= 95 ? "ok" : rate >= 80 ? "warn" : "bad";
+    out += row("Identity pass rate", pill(rate + "%", kind),
+      `${fmtNum(b.within_1pct)} of ${fmtNum(id.checkable)} checkable within 1%`);
+    out += row("within 1%", fmtNum(b.within_1pct));
+    out += row("1–5%", fmtNum(b["1_to_5pct"]));
+    out += row("5–10%", fmtNum(b["5_to_10pct"]));
+    out += row("over 10%", fmtNum(b.over_10pct));
+    out += row("Not checkable", fmtNum(id.not_checkable),
+      "no reported total liabilities or equity for the latest period");
+    out += row("Balanced vs equity incl. NCI", fmtNum(id.equity_basis_incl_nci),
+      "filers reporting the NCI-inclusive total");
+    if (id.explained_by_nci)
+      out += row("Drift explained by NCI", fmtNum(id.explained_by_nci),
+        "closes to within 1% once noncontrolling interests are added");
+
+    const sec = d.by_sector || [];
+    if (sec.length) {
+      out += row("", "<strong>By sector</strong> — worst first");
+      for (const s2 of sec) {
+        const sk = s2.pass_rate_pct == null ? "mute"
+          : s2.pass_rate_pct >= 95 ? "ok" : s2.pass_rate_pct >= 80 ? "warn" : "bad";
+        out += row(s2.sector,
+          pill(s2.pass_rate_pct == null ? "n/a" : s2.pass_rate_pct + "%", sk),
+          `${fmtNum(s2.checkable)} checkable · ${esc(s2.verdict)}`);
+      }
+    }
+
+    if ((d.scale_jumps || []).length) {
+      out += row("", `<strong>Scale jumps</strong> — ${fmtNum(d.scale_jumps_total)} total`);
+      for (const j of d.scale_jumps) {
+        out += `<div class="row indent"><div class="k">${esc(j.ticker)}` +
+          `<span class="sub">${esc(j.from_period)} → ${esc(j.to_period)}</span></div>` +
+          `<div class="v">${fmtUSD(j.from_assets)} → ${fmtUSD(j.to_assets)} ` +
+          pill(j.ratio + "×", "bad") + `</div></div>`;
+      }
+    }
+
+    if ((d.worst || []).length) {
+      out += row("", `<strong>Worst by drift</strong> — ${fmtNum(d.worst_total)} over 1%`);
+      for (const w of d.worst) {
+        const note = w.explained_by
+          ? ` · NCI closes it to ${w.drift_pct_with_nci}%` : "";
+        out += `<div class="row indent"><div class="k">${esc(w.ticker)}` +
+          `<span class="sub">${esc(w.sector)} · ${esc(w.period_end)} · ` +
+          `${fmtUSD(w.total_assets)} vs ${fmtUSD(w.liabilities_plus_equity)}` +
+          `${esc(note)}</span></div>` +
+          `<div class="v">${pill(w.drift_pct + "%", w.explained_by ? "warn" : "bad")}</div></div>`;
+      }
+    }
+    div.innerHTML = out;
+  } catch (e) {
+    div.innerHTML = `<div class="err-note">Failed: ${esc(e.message)}</div>`;
+  }
+  btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+}
+
 // ---------------------------------------------------------------- verify + reload
 async function runVerify() {
   const btn = $("verifyBtn"), div = $("verify");
@@ -672,6 +748,28 @@ function buildCopyText(d) {
     push("");
   }
 
+  if (UNIVERSE && !UNIVERSE.error) {
+    const u = UNIVERSE, id = u.identity || {}, b = id.buckets || {};
+    push("WHOLE-UNIVERSE CHECK");
+    push(`  tickers in table: ${fmtNum(u.tickers_in_table)}`);
+    push(`  checkable: ${fmtNum(id.checkable)} · not checkable: ${fmtNum(id.not_checkable)}`);
+    push(`  within 1%: ${fmtNum(b.within_1pct)} (${id.pass_rate_pct}%)`);
+    push(`  1-5%: ${fmtNum(b["1_to_5pct"])} · 5-10%: ${fmtNum(b["5_to_10pct"])} · >10%: ${fmtNum(b.over_10pct)}`);
+    push(`  balanced vs equity incl NCI: ${fmtNum(id.equity_basis_incl_nci)}`);
+    push(`  drift explained by NCI: ${fmtNum(id.explained_by_nci)}`);
+    push("  BY SECTOR (worst first):");
+    for (const s2 of u.by_sector || [])
+      push(`    ${s2.sector}: ${s2.pass_rate_pct}% of ${fmtNum(s2.checkable)} — ${s2.verdict}`);
+    push(`  SCALE JUMPS (${fmtNum(u.scale_jumps_total)}):`);
+    for (const j of u.scale_jumps || [])
+      push(`    ${j.ticker} ${j.from_period}->${j.to_period} ${j.from_assets} -> ${j.to_assets} (${j.ratio}x)`);
+    push(`  WORST BY DRIFT (${fmtNum(u.worst_total)} over 1%):`);
+    for (const w of u.worst || [])
+      push(`    ${w.ticker} [${w.sector}] ${w.drift_pct}% A=${w.total_assets} L+E=${w.liabilities_plus_equity} basis=${w.equity_basis}` +
+        (w.explained_by ? ` NCI->${w.drift_pct_with_nci}%` : ""));
+    push("");
+  }
+
   push("CONFIG");
   for (const c of d.config || []) push(`  ${c.name}: ${c.status}${c.note ? " — " + c.note : ""}`);
   push("");
@@ -757,6 +855,7 @@ function init() {
   $("reconcileBtn").addEventListener("click", runReconcile);
   $("balanceSheetBtn").addEventListener("click", testBalanceSheet);
   $("verifyBtn").addEventListener("click", runVerify);
+  $("universeBtn").addEventListener("click", runUniverseCheck);
   $("reloadBtn").addEventListener("click", startReload);
   $("rawFactsBtn").addEventListener("click", startRawFacts);
   document.querySelectorAll(".act[data-action]").forEach((b) =>

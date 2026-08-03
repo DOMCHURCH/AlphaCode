@@ -463,6 +463,7 @@ def _admin_actions() -> dict[str, Any]:
     out["reload_fundamentals"] = dict(bf_act)
     out["raw_facts"] = dict(bf_act)
     out["verify"] = {"enabled": True, "reason": None}
+    out["universe_check"] = {"enabled": True, "reason": None}
     return out
 
 
@@ -605,6 +606,13 @@ def admin_balance_sheet(
 
             total_assets = val(bs.assets, "total_assets")
             total_equity = val(bs.equity, "shareholders_equity")
+            # The identity balances against TOTAL equity incl. noncontrolling
+            # interests where reported; `Assets` is consolidated and the
+            # parent-only figure is not.
+            equity_incl_nci = val(bs.equity, "total_equity_incl_nci")
+            equity_for_identity = (
+                equity_incl_nci if equity_incl_nci is not None else total_equity
+            )
             total_liabilities = val(bs.liabilities, "total_liabilities")
             current_liabilities = val(bs.liabilities, "current_liabilities")
             long_term_debt = val(bs.liabilities, "long_term_debt")
@@ -621,6 +629,11 @@ def admin_balance_sheet(
                 "current_liabilities": current_liabilities,
                 "long_term_debt": long_term_debt,
                 "total_equity": total_equity,
+                "total_equity_incl_nci": equity_incl_nci,
+                "equity_basis": (
+                    "total_equity_incl_nci" if equity_incl_nci is not None
+                    else "total_equity"
+                ),
                 "basis": identity_basis,
                 "diff_pct": None,
                 "balanced": False,
@@ -633,11 +646,13 @@ def admin_balance_sheet(
                     f"total_assets is {total_assets:,.0f}; a balance sheet cannot "
                     "have zero or negative total assets"
                 )
-            elif liab_for_identity is None or total_equity is None:
-                missing_side = "total_liabilities" if liab_for_identity is None else "total_equity"
+            elif liab_for_identity is None or equity_for_identity is None:
+                missing_side = (
+                    "total_liabilities" if liab_for_identity is None else "total_equity"
+                )
                 check["error"] = f"{missing_side} missing — cannot check the identity"
             else:
-                rhs = liab_for_identity + total_equity
+                rhs = liab_for_identity + equity_for_identity
                 diff = abs(total_assets - rhs) / total_assets * 100
                 check["liabilities_plus_equity"] = rhs
                 check["diff_pct"] = round(diff, 2)
@@ -766,6 +781,29 @@ async def _reload_bg(quarters: int) -> None:
             log.exception("admin_reload_failed", error=str(exc))
 
 
+@app.get("/admin/universe-check")
+def admin_universe_check() -> dict[str, Any]:
+    """Run the accounting identity over EVERY ticker, not just the five.
+
+    The five-company check catches a parser reading the wrong fact. This catches
+    whether the parse is right across the whole file: the drift distribution,
+    the worst offenders by name and number, period-on-period scale errors that
+    no per-period check can see, and a per-sector breakdown -- because a failure
+    concentrated in banks or REITs is a structural tag problem for that filer
+    class, not noise.
+
+    Read-only; a few seconds of DB work, no network.
+    """
+    from src.company.universe_check import run_universe_check
+
+    try:
+        return run_universe_check()
+    except Exception as exc:  # noqa: BLE001 - show the error, never a blank page
+        import traceback
+
+        return {"error": str(exc)[:300], "traceback": traceback.format_exc()[:2000]}
+
+
 @app.post("/admin/raw-facts", response_model=RunResponse)
 async def admin_raw_facts(
     background: BackgroundTasks,
@@ -850,6 +888,7 @@ def api_index() -> JSONResponse:
             "endpoints": [
                 "/health", "/status", "/reconcile",
                 "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
+                "/admin/universe-check",
                 "POST /backfill", "POST /admin/reload-fundamentals",
                 "POST /admin/raw-facts",
             ],

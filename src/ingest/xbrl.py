@@ -84,7 +84,27 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept("current_assets", ("AssetsCurrent",), INSTANT),
     Concept("total_liabilities", ("Liabilities",), INSTANT),
     Concept("current_liabilities", ("LiabilitiesCurrent",), INSTANT),
+    # Parent-only shareholders' equity -- what "shareholders' equity" normally
+    # means, and what a reader expects to see.
     Concept("total_equity", ("StockholdersEquity",), INSTANT),
+    # TOTAL equity, including the portion attributable to noncontrolling
+    # interests. This is the figure the accounting identity actually balances
+    # against: `Assets` is consolidated and includes the assets of partly-owned
+    # subsidiaries, while `StockholdersEquity` excludes the outside investors'
+    # share of them. For any filer with NCI, A - L - StockholdersEquity leaves
+    # exactly the NCI behind, which reads as identity drift and is not.
+    # Stored alongside rather than instead of the parent figure: they answer
+    # different questions and neither substitutes for the other.
+    Concept(
+        "total_equity_incl_nci",
+        ("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest",),
+        INSTANT,
+    ),
+    Concept(
+        "minority_interest",
+        ("MinorityInterest", "StockholdersEquityAttributableToNoncontrollingInterest"),
+        INSTANT,
+    ),
     Concept("cash", ("CashAndCashEquivalentsAtCarryingValue",), INSTANT),
     Concept("receivables", ("AccountsReceivableNetCurrent",), INSTANT),
     Concept("inventory", ("InventoryNet",), INSTANT),
@@ -482,8 +502,18 @@ def validate_facts(
             # Rule: assets ~= liabilities + equity. Flag, do not drop -- the
             # identity can legitimately miss by a hair on rounding, and when it
             # misses badly we want the numbers visible while we work out why.
+            #
+            # Balance against TOTAL equity (including noncontrolling interests)
+            # when the filer reports it. `Assets` is consolidated; parent-only
+            # StockholdersEquity is not, so using it leaves the NCI as phantom
+            # drift on every company that has any.
             liabilities = metrics.get("total_liabilities")
-            equity = metrics.get("total_equity")
+            equity = metrics.get("total_equity_incl_nci") or metrics.get("total_equity")
+            equity_basis = (
+                "total_equity_incl_nci"
+                if metrics.get("total_equity_incl_nci") is not None
+                else "total_equity"
+            )
             if liabilities is not None and equity is not None:
                 rhs = liabilities["value"] + equity["value"]
                 drift = abs(av - rhs) / av
@@ -494,8 +524,17 @@ def validate_facts(
                         "rule": "balance_identity_drift",
                         "assets": av,
                         "liabilities_plus_equity": rhs,
+                        "equity_basis": equity_basis,
                         "drift_pct": round(drift * 100, 2),
                     }
+                    # An NCI-sized gap on the parent-only figure is the known
+                    # cause, so name it rather than leaving it as mystery drift.
+                    nci = metrics.get("minority_interest")
+                    if equity_basis == "total_equity" and nci is not None:
+                        closed = abs(av - (rhs + nci["value"])) / av
+                        if closed <= BALANCE_TOLERANCE:
+                            flag["explained_by"] = "noncontrolling_interest"
+                            flag["drift_pct_with_nci"] = round(closed * 100, 2)
                     report.flags.append(flag)
                     log.warning("xbrl_balance_identity_drift", **flag)
 
