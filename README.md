@@ -1,26 +1,69 @@
-# Daily Equity Alpha Funnel
+# Company Data Service
 
-Screens ~6,000 liquid US equities every morning and outputs a ranked top-10 with
-scores out of 100, written theses, and charts.
+SEC as-reported fundamentals for ~6,000 US companies, with price bars and a
+sector map alongside. **Descriptive only** — it makes no predictions, produces no
+scores, and ranks nothing.
 
-The architecture is a **cascading funnel**. Each stage costs more per name than
-the last and cuts the universe hard, so cost and latency scale with the narrow
-end rather than the wide end.
+The ranking funnel that used to live here is gone. What is left is the data
+plane: load SEC's quarterly Financial Statement Data Sets, extract the
+consolidated facts correctly, validate them before they are stored, and serve
+them.
 
 ```
-Stage 0  Universe build      ~10,000 -> 6,000    bulk API, 1 call
-Stage 1  Trend gate           6,000  -> 1,200    vectorised, 0 API calls
-Stage 2  Multi-factor score   1,200  ->   400    bulk fundamentals, cached
-Stage 3  Catalyst + flow        400  ->   100    per-ticker API, parallel
-Stage 4  LLM triage             100  ->    25    4 batched LLM calls
-Stage 5  LLM deep dive           25  ->    10    25 LLM calls
-Stage 6  Report + charts         10  ->    10    render HTML/PDF
+SEC quarterly ZIP  ──▶  extract (consolidated + right fact type)
+                          │
+                          ├── validate (reject what cannot be true)
+                          │
+                          └──▶  Postgres  ──▶  JSON API + /admin
 ```
 
-**No LLM call happens before Stage 4.** Stages 0-3 are deterministic
-pandas/numpy and produce a defensible ranked list on their own. That is what
-keeps the token bill under $1/day, and it means the model is an enhancement to
-the funnel rather than a single point of failure for it.
+---
+
+## The extraction is the whole product
+
+SEC's `num.txt` carries the same XBRL tag many times per period at different
+dimensional levels — consolidated, by segment, by geography, by legal entity —
+and both *instant* facts (balance sheet, a point in time) and *duration* facts
+(income and cash flow, over a period).
+
+A parser that takes the first matching row produces numbers that look real and
+are wrong. That is what the previous one did. For JPMorgan's 2025 fiscal year it
+stored:
+
+| Metric | Stored | Actual | What it actually grabbed |
+|---|---|---|---|
+| Total assets | $641.19B | **$4,424.90B** | `segments=Geographical=EMEA` |
+| Equity | −$1.43B | **$362.44B** | `segments=EquityComponents=AccumulatedGainLossNetCashFlowHedgeParent` |
+
+`Assets` appeared 23 times in that filing; exactly one row was consolidated. The
+old parser could not have filtered these even in principle — it read only
+`[adsh, tag, ddate, qtrs, uom, value]` out of `num.txt`, so `coreg` and
+`segments`, the columns carrying the dimensional breakdown, were never in memory.
+
+**Rule one — select the right fact** (`src/ingest/xbrl.py`):
+
+- Consolidated only: `coreg` empty **and** `segments` empty.
+- Balance-sheet items are instants: `qtrs == 0`. A nonzero `qtrs` on `Assets` is
+  a *change* over a period, not a balance — a likely source of negative totals.
+- Income and cash-flow items are durations: `qtrs` in `{1, 4}`.
+- Money facts must be `uom == USD`.
+
+**Rule two — validate before storing.** Rejected rows are logged with ticker,
+tag, value and the rule that caught them, and are never written:
+
+- Total assets must be positive. Zero or negative rejects the whole
+  company-period; that filing's fact selection cannot be trusted.
+- No component (cash, receivables, inventory, PPE, goodwill…) may exceed total
+  assets.
+- Assets ≈ liabilities + equity within 1% — **flagged**, not dropped, so a
+  drifting identity stays visible instead of being silently deleted.
+- A value >100× its own prior period is flagged as a units/scale problem.
+- If validation rejects >20% of company-periods (over a meaningful sample), the
+  load **fails** rather than writing partial data.
+
+`tests/test_xbrl.py` encodes the real row shapes from a `num.txt` dump, so the
+tests assert against the actual dimensional layout rather than an assumed one.
+Every test there fails against the old extractor.
 
 ---
 
@@ -29,20 +72,26 @@ the funnel rather than a single point of failure for it.
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install -r requirements-dev.txt
-cp .env.example .env          # fill in the API keys
+cp .env.example .env          # SEC_USER_AGENT is the only required variable
 
-python -m src.migrate                    # create the schema
-python -m src.backfill --days 600        # Stage 1 needs 400 sessions of bars
-python -m src.backfill --fundamentals --skip-bars   # SEC XBRL, slow, run once
+python -m src.migrate                              # create the schema
+python -m src.backfill --days 600                  # price bars
+python -m src.backfill --fundamentals              # SEC quarterly datasets
 
-python -c "import asyncio; from src.pipeline import run_pipeline; asyncio.run(run_pipeline())"
-uvicorn src.api:app --reload             # then open /report/latest/html
+uvicorn src.api:app --reload                       # then open /admin
 ```
 
-Run the pipeline without spending tokens while you are still wiring things up:
+To wipe and reload fundamentals with a full extraction report and a check of the
+five verification companies:
 
-```python
-asyncio.run(run_pipeline(skip_llm=True))
+```bash
+python3 scripts/reload_fundamentals.py --wipe --quarters 7
+```
+
+To inspect raw `num.txt` rows for a company — the tool that found the bug:
+
+```bash
+python3 scripts/dump_jpm_raw_facts.py --year 2026 --quarter 1 --ticker JPM
 ```
 
 ---
@@ -52,217 +101,92 @@ asyncio.run(run_pipeline(skip_llm=True))
 ```
 src/
   ingest/      one module per data source, all behind one rate limiter
-  universe/    stage 0
-  factors/     stages 1-2  (trend gate, cross-sectional math, composite)
-  catalysts/   stage 3      (SEC events, GDELT news, FRED macro, risk screen)
-  llm/         stages 4-5   (packets, schemas, triage, deep dive, cost)
-  report/      stage 6      (plotly charts + jinja template)
+                 xbrl.py         the extraction filter + validation
+                 sec_datasets.py the quarterly ZIP downloader/parser
+  universe/    the SEC company list -> the ticker universe
+  company/     balance-sheet query layer (point-in-time)
   storage/     models, point-in-time accessors, repository, cache
-  validation/  IC tracking, factor decay, purged CV, null benchmark
-  config/      settings, factor weights, rate limits
-  pipeline.py  orchestrator
+  config/      settings, rate limits
+  report/      /admin page assets
   api.py       FastAPI
-  scheduler.py APScheduler worker
+  backfill.py  the loaders
+scripts/       operational tools (raw dump, reload+verify)
 tests/
 migrations/
 ```
 
 ---
 
-## Data sources
+## Endpoints
 
-Each source has exactly one job. Nothing is duplicated.
-
-| Source | Job |
+| Endpoint | What it does |
 |---|---|
-| **Polygon** | All OHLCV, universe reference data, options snapshots. Grouped-daily returns every US ticker in one call — the backbone. |
-| **FMP** | Bulk fundamentals, ratios, sector/industry mapping, earnings calendar. Bulk endpoints only, never a per-ticker loop. |
-| **Finnhub** | Estimate revisions, recommendation trends, earnings surprises, insider transactions. Stage 3 only, once the universe is under 400. |
-| **SEC EDGAR** | Ground-truth filings and as-reported XBRL. The source of truth for point-in-time fundamentals. |
-| **Yahoo** | Fallback and reconciliation only. Every call is wrapped; a failure degrades to "unknown", never to a hard error. |
-| **FRED** | Macro regime state. Drives sector tilts and risk appetite, never individual names. |
-| **GDELT 2.0** | News volume, tone trajectory, and event themes at scale. |
+| `GET /health` | liveness + DB state |
+| `GET /status` | row counts, backfill progress |
+| `GET /admin` | the phone-first break-glass page |
+| `GET /admin.json` | everything that page renders, in one payload |
+| `GET /admin/balance-sheet?tickers=…` | per-concept values, the A = L + E check, and coverage |
+| `GET /reconcile` | symbology / coverage / split-adjustment / recency |
+| `POST /backfill?kind=…` | `bars` \| `sectors` \| `fundamentals` \| `earnings` |
 
-Rate limiting is one token bucket per source, configured in
-`src/config/rate_limits.py`. It runs in-process by default; set `REDIS_URL` to
-share buckets across processes (optional). There is no `time.sleep()` anywhere
-in the codebase; every request goes through `RateLimiter.acquire()`.
+`/admin` is the only UI. It found every bug in this project, which is why it is
+kept — but it is an admin surface, not the product.
 
 ---
 
 ## Point-in-time correctness
 
-This is the part that separates a real system from a toy, so it is worth being
-explicit about.
-
 A company with a fiscal quarter ending 2025-09-30 may not file its 10-Q until
-2025-11-08. Using that data on 2025-10-01 is lookahead bias and makes every
-backtest result meaningless.
+2025-11-08. Using that data on 2025-10-01 is lookahead bias.
 
-- Every fundamental datapoint stores `period_end`, `filing_date` (the SEC
-  `filed` field), and `ingested_at`.
+- Every fundamental datapoint stores `period_end`, `filing_date` (the SEC `filed`
+  field), and `ingested_at`.
 - Every read goes through `get_fundamentals(session, ticker, as_of)`, which
   enforces `filing_date + 2 business days <= as_of`. Nothing else queries the
   `fundamentals` table.
-- **Restatements** resolve to what was actually known: on a date before an
-  amendment was filed, you get the original figure; after, the restated one.
-  SEC as-reported beats a vendor's restated figure on a filing-date tie.
+- **Restatements** resolve to what was actually known: before an amendment was
+  filed you get the original figure; after, the restated one. Within a single
+  load the earliest `filing_date` wins — as first reported.
 - Fundamentals are never forward-filled across a reporting gap, and missing
-  values are never imputed with the universe mean — they stay missing and are
-  reported in the completeness table.
-- The **universe snapshot is persisted every single day**, including names that
-  have since delisted. Screening today's live tickers against 2023 prices is a
-  fantasy.
+  values are never imputed. **Missing is missing and says so.**
+- The universe snapshot is persisted every day, including names that have since
+  delisted.
 
-`tests/test_pit.py` asserts all of this. It sweeps every date in the month
-before a filing and fails if any of them can see the data.
+`tests/test_pit.py` asserts all of this. It sweeps every date in the month before
+a filing and fails if any of them can see the data.
 
 ---
 
-## The factor math
+## Data sources
 
-For every raw factor, in order:
-
-1. **Winsorize** at the 1st/99th percentile. One bad datapoint creates a fake
-   40-sigma outlier that otherwise dominates the composite.
-2. **Z-score within sector.** Without this, the top-10 is just whichever sector
-   is currently hot or cheap.
-3. **Missing data scores z=0** (sector-neutral), and `data_completeness` is
-   tracked per ticker and shown in the report appendix.
-4. **Composite** = weighted sum of category z-scores, then rank
-   cross-sectionally.
-
-Category weights (`src/config/factor_weights.py`): momentum 0.30, quality 0.25,
-estimate revisions 0.20, PEAD 0.15, value 0.10.
-
-Two details that are load-bearing:
-
-- **12-1 momentum skips the last month.** Short-term reversal contaminates raw
-  12-month momentum. `test_momentum_12_1_skips_the_last_month` plants a violent
-  recent move and asserts the factor does not see it.
-- **Accruals and rising leverage are sign-flipped** (`NEGATIVE_FACTORS`) rather
-  than given negative weights, so the weight table stays readable.
-
----
-
-## LLM discipline
-
-- The model never does arithmetic. Everything is computed in Python; the model
-  interprets.
-- It never receives raw price arrays, raw filings, or raw article text. Triage
-  packets are under 200 tokens per ticker; deep-dive packets carry computed
-  statistics, an 8-quarter table, and headlines with tone scores.
-- The system block is prompt-cached, so its field definitions are paid for once
-  rather than once per batch.
-- Stage 5 outputs each rubric subscore **separately** and the total is
-  recomputed in Python from the parts. A holistic number from the model is
-  discarded.
-- `invalidation` is mandatory and must be checkable tomorrow — a price level, a
-  named moving average, a numeric threshold, or a date. "If the thesis breaks"
-  is a validation error and gets retried. A thesis without a falsification
-  condition is a story, not an analysis.
-- On a schema violation, triage retries once with the parse error appended and
-  then **falls back to the deterministic Stage 3 rank** for that batch.
-- The model string is verified against `GET /api/v1/models` at startup and fails
-  loudly with the available DeepSeek options if it does not resolve.
-
-The final list caps at **3 names per GICS sector**. If that leaves fewer than 10
-names, it ships fewer — relaxing the cap under pressure defeats its purpose.
-
----
-
-## Validation
-
-> A screener that has never been measured is a random number generator with good
-> typography.
-
-`GET /validation` returns:
-
-- **Information Coefficient** — Spearman rank correlation of score vs forward
-  1d/5d/21d return, computed per date and averaged (pooling would let one wide
-  day dominate). Sustained 21-day IC above 0.03 is a real signal; below 0.02 is
-  dead weight.
-- **Factor decay** — IC per factor category, with a verdict on each.
-- **Turnover** — healthy is roughly 20-40%/day for a daily-rebalanced momentum
-  system. Complete daily turnover means the signal is noise.
-- **Benchmark against the null** — the top-10's forward returns vs an
-  equal-weight random 10 drawn from the Stage-1 survivors, and vs SPY. If the
-  funnel cannot beat a random draw from the trend-filtered pool, then Stages 2-5
-  are adding nothing and only the trend gate matters. The verdict says so in
-  those words.
-
-`purged_kfold` implements purged k-fold CV with an embargo equal to the holding
-horizon. Standard k-fold leaks on financial time series because adjacent samples
-overlap in time.
-
-Weights are re-fit **quarterly**, not daily. The factor-decay output deliberately
-does not auto-update `factor_weights.py` — daily refitting overfits to noise.
-
----
-
-## Railway deployment
-
-One service + one plugin (see `DEPLOY.md` for the click-path):
-
-1. **service** — `railway.toml`, `uvicorn src.api:app`. Serves the reports/JSON
-   and, with `ENABLE_SCHEDULER=true`, runs the 06:00 America/New_York weekday
-   funnel in-process (holiday-guarded with `pandas_market_calendars`).
-2. **Postgres** plugin — the database.
-
-Redis is optional (in-process cache/rate-limiter by default). To split the cron
-into its own service later, point a second service at `railway.worker.toml`.
-`nixpacks.toml` installs cairo/pango for weasyprint; the schema migrates itself
-at startup.
-
-Operational guarantees built in:
-
-- Structured JSON logging (`structlog`). Every stage logs entry count, exit
-  count, duration, and API calls made.
-- **Checkpoint after every stage** to Postgres. If Stage 4 fails you resume from
-  the Stage 3 output instead of re-running the whole funnel.
-- **Cost tracker** logs tokens in/out and USD per run and alerts past
-  `MAX_RUN_COST_USD`.
-- **Data-quality gates**: the run aborts if the universe is under 4,000 names or
-  any stage drops more than 95% of its input, rather than shipping a bad report.
-- Target runtime is under 12 minutes; a longer run raises a warning in the
-  report.
-
-### Endpoints
-
-| Endpoint | Purpose |
+| Source | Job |
 |---|---|
-| `GET /health` | liveness + latest run status |
-| `GET /reports` | run history |
-| `GET /report/{date}` | JSON: names, scores, theses |
-| `GET /report/{date}/html` | the rendered report (`latest` works as a date) |
-| `GET /report/{date}/pdf` | PDF |
-| `GET /ticker/{symbol}/history` | bars, scores, and past theses |
-| `GET /validation` | IC, factor decay, turnover, null benchmark |
-| `POST /run` | manual trigger (`?skip_llm=true` to run Stages 0-3 only) |
+| **SEC EDGAR** | The universe seed, and as-reported XBRL via the quarterly Financial Statement Data Sets. The source of truth. |
+| **Stooq** | Keyless bulk daily bars — the whole market in one download. |
+| **Polygon** | Optional. Faster whole-market bars when `POLYGON_API_KEY` is set and `POLYGON_TIER=paid`. |
+| **FMP** | Optional. Market caps, GICS sectors, batch EOD. |
+
+Rate limiting is one token bucket per source (`src/config/rate_limits.py`),
+in-process by default. There is no `time.sleep()` anywhere; every request goes
+through `RateLimiter.acquire()`.
+
+---
+
+## Types
+
+Every value leaving the parser is coerced to a real, finite float or `None`
+before anything touches it. pandas `NaN` is a `float`, passes an
+`isinstance(x, float)` check, survives arithmetic as `NaN`, and lands in the DB
+as a null-that-isn't. It has bitten this codebase repeatedly, so it is rejected
+once, at the parser boundary, rather than defended against downstream forever.
 
 ---
 
 ## Tests
 
 ```bash
-pytest                      # 173 tests
-pytest tests/test_pit.py    # the lookahead-bias suite specifically
+python -m pytest          # 191 tests
 ```
 
-The suite covers point-in-time enforcement and restatement handling, trend-gate
-correctness, winsorization and sector neutrality, the layoff company-vs-sector
-distinction, macro regime classification, LLM schema enforcement and token
-budgets, the sector cap, IC and purged CV, report portability, and an end-to-end
-run of Stages 0-3 with every external API stubbed.
-
----
-
-## What this is
-
-A research and idea-generation tool. It surfaces candidates for a human to
-evaluate. The scores are the output of a heuristic pipeline plus a language
-model's interpretation, **not a prediction**. Every thesis ships with an explicit
-invalidation condition specifically so that it can be checked and thrown out.
-
-Nothing here is investment advice. The validation layer exists because the honest
-default assumption is that any new signal is worthless until measured.
+No network. The SEC datasets are exercised against synthetic ZIPs built to the
+documented schema, with the extraction fixtures taken from a real dump.

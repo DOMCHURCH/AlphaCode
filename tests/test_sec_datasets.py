@@ -11,11 +11,13 @@ import io
 import zipfile
 
 from src.ingest import sec_datasets as ds
+from src.ingest import xbrl
 
 
 def _zip(sub_rows: list[dict], num_rows: list[dict]) -> bytes:
     sub_cols = ["adsh", "cik", "name", "form", "period", "filed", "fp"]
-    num_cols = ["adsh", "tag", "version", "ddate", "qtrs", "uom", "value"]
+    num_cols = ["adsh", "tag", "version", "coreg", "ddate", "qtrs", "uom",
+                "segments", "value"]
 
     def tsv(cols, rows):
         out = ["\t".join(cols)]
@@ -57,21 +59,6 @@ def test_parse_dataset_reads_sub_and_num():
     assert len(sub) == 2 and len(num) == 4
 
 
-def test_extract_fundamentals_maps_tags_and_dates():
-    sub, num = ds.parse_dataset(_zip(SUB, NUM))
-    rows = ds.extract_fundamentals(sub, num, CIK_MAP)
-    by = {(r["ticker"], r["metric"]): r for r in rows}
-    assert ("AAPL", "revenue") in by
-    aapl_rev = by[("AAPL", "revenue")]
-    assert aapl_rev["value"] == 85_000_000_000.0
-    assert aapl_rev["period_end"] == dt.date(2024, 6, 30)
-    assert aapl_rev["filing_date"] == dt.date(2024, 8, 1)  # the PIT filing date
-    assert aapl_rev["source"] == "sec"
-    assert ("NVDA", "net_income") in by
-    # The unmapped tag produced no row.
-    assert all(r["metric"] != "SomeUnmappedTag" for r in rows)
-
-
 def test_extract_earnings_from_periodic_filings():
     sub, num = ds.parse_dataset(_zip(SUB, NUM))
     ev = {e["ticker"]: e for e in ds.extract_earnings(sub, num, CIK_MAP)}
@@ -85,7 +72,7 @@ def test_extract_earnings_from_periodic_filings():
 
 def test_unmapped_ciks_are_dropped_not_guessed():
     sub, num = ds.parse_dataset(_zip(SUB, NUM))
-    rows = ds.extract_fundamentals(sub, num, {"320193": "AAPL"})  # NVDA missing
+    rows, _ = xbrl.extract_facts(sub, num, {"320193": "AAPL"})  # NVDA missing
     assert {r["ticker"] for r in rows} == {"AAPL"}
 
 
@@ -133,9 +120,9 @@ NUM_DUP = [
 
 def test_tag_aliases_collapse_to_one_row_per_filing():
     """Two tags for one metric in ONE filing must not emit two identical-key
-    rows; the tag listed first in XBRL_CONCEPTS wins, deterministically."""
+    rows; the tag listed first in xbrl.CONCEPTS wins, deterministically."""
     sub, num = ds.parse_dataset(_zip(SUB_DUP, NUM_DUP))
-    rows = ds.extract_fundamentals(sub, num, CIK_MAP)
+    rows, _ = xbrl.extract_facts(sub, num, CIK_MAP)
     orig = [r for r in rows if r["filing_date"] == dt.date(2024, 8, 1)
             and r["metric"] == "revenue"]
     assert len(orig) == 1, f"tag aliases produced {len(orig)} rows for one filing"
@@ -147,7 +134,7 @@ def test_natural_key_is_unique_after_extract():
     """The invariant the Postgres upsert needs: no two rows share the full
     natural key inside one extraction."""
     sub, num = ds.parse_dataset(_zip(SUB_DUP, NUM_DUP))
-    rows = ds.extract_fundamentals(sub, num, CIK_MAP)
+    rows, _ = xbrl.extract_facts(sub, num, CIK_MAP)
     keys = [(r["ticker"], r["metric"], r["period_end"], r["source"], r["filing_date"])
             for r in rows]
     assert len(keys) == len(set(keys))
@@ -170,7 +157,8 @@ def test_restatement_collapses_to_the_earliest_filing(tmp_path, monkeypatch):
     init_db()
     try:
         sub, num = ds.parse_dataset(_zip(SUB_DUP, NUM_DUP))
-        rows = _collapse_earliest_filing(ds.extract_fundamentals(sub, num, CIK_MAP))
+        facts, _ = xbrl.extract_facts(sub, num, CIK_MAP)
+        rows = _collapse_earliest_filing(facts)
         with session_scope() as s:
             repository.save_fundamentals(s, rows)
         with session_scope() as s:

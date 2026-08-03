@@ -13,7 +13,6 @@ import datetime as dt
 import pytest
 from sqlalchemy import select
 
-from src import pipeline
 from src.storage import repository
 from src.storage.models import FilingEvent
 
@@ -90,23 +89,6 @@ def test_upsert_records_zero_written_when_the_execute_fails():
     stats = repository.get_write_ledger()["filing_events"]
     assert stats["attempted"] == 150 and stats["written"] == 0
     assert "filing_events" in repository.assert_writes(min_attempts=100)
-
-
-def test_pipeline_aborts_when_a_stage_writes_nothing_it_tried():
-    """>100 attempted, 0 written -> DataQualityError, not a warning-and-continue."""
-    repository.reset_write_ledger()
-    repository._record_write("filing_events", 150, 0)
-    with pytest.raises(pipeline.DataQualityError, match="silently failing"):
-        pipeline._check_stage_writes("Stage 3 catalysts")
-
-
-def test_pipeline_does_not_abort_when_writes_landed():
-    repository.reset_write_ledger()
-    repository._record_write("filing_events", 150, 150)
-    # A small attempt that wrote 0 is NOT an abort (could be a genuinely empty
-    # result), only a bulk zero is.
-    repository._record_write("news_aggregates", 5, 0)
-    assert pipeline._check_stage_writes("Stage 3 catalysts")  # returns stats, no raise
 
 
 # ---------------------------------------------------------------------------

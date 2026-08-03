@@ -30,11 +30,10 @@ from src.config.settings import get_settings
 
 _configured = False
 
-# In-memory ring of the most recent structured log lines, so /diagnostics can
-# show "last 200 lines" without shipping a log aggregator or making the user
-# open Railway. Two writers feed it: this process's own structlog (via the
-# processor below) and the out-of-process pipeline child (its stdout lines are
-# forwarded here by src/runner.py). Bounded, so it can never grow unbounded.
+# In-memory ring of the most recent structured log lines, so /admin can show
+# "last 200 lines" without shipping a log aggregator or making the user open
+# Railway. Fed by this process's own structlog via the processor below.
+# Bounded, so it can never grow unbounded.
 _LOG_RING: deque[dict[str, Any]] = deque(maxlen=400)
 
 

@@ -1,0 +1,505 @@
+/* Admin page. One fetch of /admin.json drives every section and the "Copy
+   everything" blob. Auto-refreshes every 10s only while a backfill is active;
+   otherwise it's manual (Refresh). Read-only except the action buttons. */
+"use strict";
+
+let LATEST = null;      // last payload, for copy + client-side log filtering
+let LOG_LEVEL = "";     // "", info, warning, error
+let TIMER = null;
+let BALANCE = null;     // last /admin/balance-sheet payload, for the copy blob
+
+const $ = (id) => document.getElementById(id);
+const esc = (s) =>
+  String(s == null ? "" : s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+function fmtNum(n) {
+  return n == null ? "—" : Number(n).toLocaleString("en-US");
+}
+
+// Money at balance-sheet scale is unreadable as raw digits on a phone.
+function fmtUSD(n) {
+  if (n == null) return "—";
+  const v = Number(n);
+  const a = Math.abs(v);
+  if (a >= 1e12) return (v / 1e12).toFixed(2) + "T";
+  if (a >= 1e9) return (v / 1e9).toFixed(1) + "B";
+  if (a >= 1e6) return (v / 1e6).toFixed(1) + "M";
+  return v.toLocaleString("en-US");
+}
+
+// ---------------------------------------------------------------- load + render
+async function load() {
+  if (TIMER) { clearTimeout(TIMER); TIMER = null; }
+  try {
+    const r = await fetch("/admin.json", { cache: "no-store" });
+    if (!r.ok) throw new Error("HTTP " + r.status);
+    LATEST = await r.json();
+    render(LATEST);
+  } catch (e) {
+    $("verdict").className = "verdict v-error";
+    $("verdict").querySelector(".v-head").textContent = "Admin unreachable";
+    $("verdict").querySelector(".v-detail").textContent =
+      "Could not load /admin.json (" + e.message + "). The API itself may be down.";
+    $("verdict").querySelector(".v-action").textContent = "Retry in a moment.";
+    TIMER = setTimeout(load, 10000);
+    return;
+  }
+  if (LATEST.backfill_running) TIMER = setTimeout(load, 10000);
+}
+
+function render(d) {
+  renderVerdict(d.verdict);
+  renderHealth(d.data_health || {});
+  renderExtraction(d.extraction || {});
+  renderConfig(d.config || []);
+  renderLogs(d.logs || []);
+  renderActions(d.actions || {});
+  renderBackfillResults((d.data_health || {}).backfill || {});
+  const t = d.generated_at ? new Date(d.generated_at).toLocaleString() : "—";
+  $("stamp").textContent = "updated " + t +
+    (LATEST.backfill_running ? " · backfill active (auto-refresh 10s)" : " · idle");
+}
+
+function renderVerdict(v) {
+  v = v || { level: "warn", headline: "No verdict", detail: "", action: "" };
+  const lvl = v.level === "error" ? "v-error" : v.level === "warn" ? "v-warn" : "v-ok";
+  const s = $("verdict");
+  s.className = "verdict " + lvl;
+  s.querySelector(".v-head").textContent = v.headline || "—";
+  s.querySelector(".v-detail").textContent = v.detail || "";
+  const a = s.querySelector(".v-action");
+  a.textContent = v.action || "";
+  a.style.display = v.action ? "" : "none";
+}
+
+function row(k, v, sub) {
+  return `<div class="row"><div class="k">${esc(k)}${sub ? `<span class="sub">${esc(sub)}</span>` : ""}</div>` +
+    `<div class="v">${v}</div></div>`;
+}
+function pill(text, kind) { return `<span class="pill ${kind}">${esc(text)}</span>`; }
+function statline(k, v, sub) {
+  return `<div class="statrow"><div class="k">${esc(k)}</div><div class="vwide">${esc(v)}</div>` +
+    (sub ? `<div class="sub">${esc(sub)}</div>` : "") + `</div>`;
+}
+
+function renderHealth(h) {
+  if (h.error) {
+    $("health").innerHTML = `<div class="err-note">Database unreachable: ${esc(h.error)}</div>`;
+    return;
+  }
+  const bf = h.backfill || {}, cov = h.coverage || {}, rec = h.recency || {},
+    hist = h.history || {}, adj = h.adjustment || {};
+  let out = "";
+
+  // Adjustment — split-targeted: the denominator is names that ACTUALLY split.
+  const sm = adj.summary || {};
+  const src = adj.splits_source ? ` · via ${adj.splits_source}` : "";
+  if (adj.status === "unadjusted") {
+    out += row("Price adjustment", pill("unadjusted", "bad"),
+      "Splits read as crashes and split names look deleted.");
+  } else if (adj.status === "adjusted") {
+    out += row("Price adjustment", pill("adjusted", "ok"), `${adj.checked || 0} split names tested${src}`);
+  } else if (adj.status === "inconclusive") {
+    out += row("Price adjustment", pill("inconclusive", "warn"), `${adj.checked || 0} tested — no clean signal${src}`);
+  } else {
+    out += row("Price adjustment", pill("not checked", "mute"), "tap “Check now”");
+  }
+  const counts = (x) => `${x.adjusted || 0} adj · ${x.unadjusted || 0} un · ${x.inconclusive || 0} incon · ${x.no_data || 0} n/a`;
+  if (adj.checked)
+    out += statline(`Split-targeted (${adj.checked})`, counts(sm),
+      "names with a known split in the window — this is the real rate");
+
+  // Backfill source.
+  const avail = (bf.sources_available || []).join(", ") || "—";
+  const phasePill = bf.phase === "error" ? pill("error", "bad")
+    : bf.phase === "done" ? pill("done", "ok")
+      : bf.phase === "running" ? pill("running", "warn") : pill(bf.phase || "idle", "mute");
+  out += row("Backfill source", `${esc(bf.source || "—")} ${phasePill}`, "available: " + avail);
+  if (bf.last_error) out += row("Backfill error", `<span style="color:var(--red)">${esc(bf.last_error)}</span>`);
+
+  // Sector map.
+  const sm2 = h.sector_map || {};
+  if (sm2.error) {
+    out += row("Sector map", `<span style="color:var(--red)">${esc(sm2.error)}</span>`);
+  } else if ((sm2.total || 0) === 0) {
+    out += row("Sector map", pill("empty", "bad"), "SIC backfill has not run");
+  } else {
+    const ratio = sm2.mapped_ratio != null ? `${(sm2.mapped_ratio * 100).toFixed(0)}%` : "—";
+    const kind = sm2.mapped_ratio >= 0.6 ? "ok" : sm2.mapped_ratio > 0 ? "warn" : "bad";
+    out += statline(`Sector map (${fmtNum(sm2.total)} cached)`,
+      `${fmtNum(sm2.mapped)} mapped · ${fmtNum(sm2.unmapped)} unmapped · ${ratio}`);
+  }
+
+  // Fundamentals — is the table empty (backfill not run) or thin?
+  const fu = h.fundamentals || {};
+  if (fu.error) {
+    out += row("Fundamentals", `<span style="color:var(--red)">${esc(fu.error)}</span>`);
+  } else if ((fu.rows || 0) === 0) {
+    out += row("Fundamentals", pill("empty", "bad"),
+      "SEC XBRL backfill has not populated the table");
+  } else {
+    const uc = fu.universe_coverage != null ? `${(fu.universe_coverage * 100).toFixed(0)}%` : "—";
+    out += statline(`Fundamentals (${fmtNum(fu.rows)} rows)`,
+      `${fmtNum(fu.distinct_tickers)} tickers · ${fmtNum(fu.universe_with_fundamentals)}/${fmtNum(fu.universe_total)} of universe · ${uc}`,
+      `latest filing ${fu.latest_filing_date || "—"}`);
+  }
+
+  out += row("Tickers loaded", fmtNum(cov.tickers_loaded));
+  if (cov.sec_universe != null)
+    out += row("Vs SEC universe", `${fmtNum(cov.joined_with_sec)} / ${fmtNum(cov.sec_universe)}`,
+      cov.join_rate != null ? `join rate ${(cov.join_rate * 100).toFixed(1)}%` : "");
+
+  const stale = rec.staleness_days;
+  const stalePill = stale == null ? pill("no data", "mute")
+    : stale > 5 ? pill(stale + "d old", "bad") : stale > 2 ? pill(stale + "d old", "warn") : pill(stale + "d old", "ok");
+  out += row("Latest bar", `${esc(rec.latest_bar_date || "—")} ${stalePill}`);
+  out += row("Trading days loaded", fmtNum(hist.loaded));
+
+  for (const [k, v] of Object.entries(h.errors || {}))
+    out += row(esc(k) + " unreachable", `<span style="color:var(--red)">${esc(v)}</span>`);
+
+  if (h.reconcile_checked_at)
+    out += row("Data checked", esc(new Date(h.reconcile_checked_at).toLocaleString()));
+
+  $("health").innerHTML = out;
+}
+
+// What the consolidated filter did, per quarter. Structural drops are supposed
+// to be large; validation rejections are the ones that matter.
+function renderExtraction(ex) {
+  const quarters = Object.keys(ex).sort().reverse();
+  if (!quarters.length) {
+    $("extraction").innerHTML =
+      `<div class="loading">no fundamentals load this session</div>`;
+    return;
+  }
+  let out = "";
+  for (const q of quarters) {
+    const r = ex[q] || {};
+    out += row(q, `${fmtNum(r.kept)} kept`, `of ${fmtNum(r.tag_matched)} tag matches`);
+    out += statline("  dropped",
+      `${fmtNum(r.dropped_dimensional)} dimensional · ${fmtNum(r.dropped_wrong_qtrs)} wrong qtrs ` +
+      `(${fmtNum(r.dropped_ytd_cumulative)} YTD cumulative) · ` +
+      `${fmtNum(r.dropped_non_usd)} non-USD · ${fmtNum(r.dropped_alias_duplicate)} alias dupes`,
+      "structural — expected to be large");
+    const hist = r.duration_qtrs_seen || {};
+    if (Object.keys(hist).length) {
+      out += statline("  duration qtrs seen",
+        Object.entries(hist).map(([k, v]) => `qtrs=${k}: ${fmtNum(v)}`).join(" · "),
+        "what filers actually report; we keep 1 and 4 only");
+    }
+    const rate = r.reject_rate != null ? (r.reject_rate * 100).toFixed(2) + "%" : "—";
+    const kind = (r.reject_rate || 0) > 0.05 ? "bad" : (r.reject_rate || 0) > 0 ? "warn" : "ok";
+    out += row("  validation", pill(rate, kind),
+      `${fmtNum(r.rejected_periods)} of ${fmtNum(r.validated_periods)} company-periods rejected`);
+    for (const rej of (r.rejections || []).slice(0, 8)) {
+      out += `<div class="stage fail"><div class="st-name">${esc(rej.ticker)} ${esc(rej.metric)}</div>` +
+        `<div class="st-err">${esc(rej.rule)} — value ${esc(fmtUSD(rej.value))} @ ${esc(rej.period_end)}</div></div>`;
+    }
+    for (const fl of (r.flags || []).slice(0, 8)) {
+      out += `<div class="stage"><div class="st-name">${esc(fl.ticker)} ${esc(fl.rule)}</div>` +
+        `<div class="st-nums">${esc(JSON.stringify(fl))}</div></div>`;
+    }
+  }
+  $("extraction").innerHTML = out;
+}
+
+function renderConfig(cfg) {
+  const kind = { present: "ok", info: "mute", missing: "bad", invalid: "bad" };
+  $("config").innerHTML = cfg.map((c) =>
+    row(c.name, pill(c.status, kind[c.status] || "mute"), c.note)).join("");
+}
+
+function renderLogs(logs) {
+  const filtered = filterLogs(logs, LOG_LEVEL);
+  if (!filtered.length) {
+    $("logs").innerHTML = `<div class="loading" style="padding:10px 2px">no log lines${LOG_LEVEL ? " at this level" : " captured yet"}.</div>`;
+    return;
+  }
+  $("logs").innerHTML = filtered.map((e) => {
+    const lv = (e.level || "info").toLowerCase();
+    const fields = e.fields && Object.keys(e.fields).length
+      ? " " + Object.entries(e.fields).map(([k, v]) => `${k}=${v}`).join(" ") : "";
+    const ts = e.ts ? esc(String(e.ts).slice(11, 19)) : "";
+    return `<span class="logline ${lv}"><span class="lv">${esc(lv)}</span> ${ts} ` +
+      `<span class="ev">${esc(e.event)}</span><span class="fl">${esc(fields)}</span></span>`;
+  }).join("");
+}
+
+function filterLogs(logs, level) {
+  const order = { debug: 10, info: 20, warning: 30, warn: 30, error: 40, critical: 50 };
+  const floor = order[level] || 0;
+  return logs.filter((e) => (order[(e.level || "info").toLowerCase()] || 20) >= floor);
+}
+
+function renderBackfillResults(bf) {
+  const results = bf.results || {};
+  document.querySelectorAll(".bf-result").forEach((el) => {
+    const kind = el.dataset.kind;
+    const r = results[kind];
+    if (!r) {
+      el.textContent = "not run this session";
+      el.className = "bf-result mute";
+      return;
+    }
+    const when = r.at ? new Date(r.at).toLocaleTimeString() : "";
+    if (r.error) {
+      el.innerHTML = `<span class="bf-bad">failed</span> ${esc(r.error)}` +
+        (when ? `<span class="bf-when">${esc(when)}</span>` : "");
+      el.className = "bf-result bad";
+    } else {
+      el.innerHTML = `<span class="bf-ok">${fmtNum(r.rows)} rows</span>` +
+        (when ? `<span class="bf-when">${esc(when)}</span>` : "");
+      el.className = "bf-result ok";
+    }
+  });
+}
+
+function renderActions(a) {
+  document.querySelectorAll(".act").forEach((btn) => {
+    const cfg = a[btn.dataset.action] || { enabled: true };
+    const label = btn.dataset.label || (btn.dataset.label = btn.textContent.trim());
+    btn.disabled = !cfg.enabled;
+    btn.innerHTML = esc(label) + (cfg.reason ? `<span class="why">${esc(cfg.reason)}</span>` : "");
+  });
+}
+
+// ---------------------------------------------------------------- balance sheet
+async function testBalanceSheet() {
+  const btn = $("balanceSheetBtn"), div = $("balanceSheet");
+  const label = btn.textContent;
+  btn.disabled = true; btn.classList.add("busy"); btn.textContent = "checking…";
+  div.innerHTML = `<div class="loading">reading…</div>`;
+  try {
+    const r = await fetch("/admin/balance-sheet?tickers=JPM,AAL,MSFT,WMT,FCX",
+      { cache: "no-store" });
+    const data = await r.json();
+    BALANCE = data;
+    if (data.error) {
+      div.innerHTML = `<div class="err-note">${esc(data.error)}</div>` +
+        (data.traceback ? `<pre class="tb">${esc(data.traceback)}</pre>` : "");
+      return;
+    }
+
+    let html = "";
+    const cov = data.coverage || {};
+    html += row("Tickers renderable", fmtNum(cov.tickers_renderable),
+      `of ${fmtNum(cov.tickers_with_any_fundamentals)} with any fundamentals`);
+
+    html += row("", "<strong>Coverage by concept</strong>");
+    for (const [concept, info] of Object.entries(cov.by_concept || {})) {
+      const kind = info.coverage_pct >= 60 ? "ok" : info.coverage_pct > 0 ? "warn" : "bad";
+      html += row(concept, pill(info.coverage_pct + "%", kind),
+        `${fmtNum(info.tickers_with_data)} tickers`);
+    }
+
+    html += row("", "<strong>Verification companies</strong>");
+    for (const [ticker, s] of Object.entries(data.company_sheets || {})) {
+      if (!s.found) { html += row(ticker, pill("no data", "bad")); continue; }
+      html += row(ticker, esc(s.company_name || "—"),
+        `${esc(s.period_end)} · filed ${esc(s.filing_date)}`);
+      const groups = [["assets", s.assets], ["liabilities", s.liabilities], ["equity", s.equity]];
+      for (const [gname, g] of groups) {
+        for (const [name, v] of Object.entries(g || {})) {
+          const shown = v.missing
+            ? `<span class="pill mute">missing</span>`
+            : fmtUSD(v.value) + (v.restated ? ' <span class="pill warn">restated</span>' : "");
+          html += `<div class="row indent"><div class="k">${esc(name)}</div><div class="v">${shown}</div></div>`;
+        }
+      }
+      const bc = s.balance_check || {};
+      if (bc.error) {
+        html += `<div class="stage fail"><div class="st-err">${esc(bc.error)}</div></div>`;
+      } else {
+        const ok = bc.balanced;
+        html += `<div class="row indent"><div class="k"><strong>A = L + E</strong>` +
+          `<span class="sub">${fmtUSD(bc.total_assets)} vs ${fmtUSD(bc.liabilities_plus_equity)}</span></div>` +
+          `<div class="v">${pill((ok ? "✓ " : "✗ ") + bc.diff_pct + "%", ok ? "ok" : "bad")}</div></div>`;
+      }
+      for (const issue of s.data_quality_issues || []) {
+        html += `<div class="stage fail"><div class="st-err">${esc(issue)}</div></div>`;
+      }
+    }
+    div.innerHTML = html;
+  } catch (e) {
+    div.innerHTML = `<div class="err-note">Failed: ${esc(e.message)}</div>`;
+  }
+  btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+}
+
+// ---------------------------------------------------------------- copy everything
+function buildCopyText(d) {
+  const L = [];
+  const push = (s) => L.push(s == null ? "" : s);
+  const v = d.verdict || {};
+  push("COMPANY DATA — ADMIN");
+  push("generated: " + (d.generated_at || "—"));
+  push("");
+  push(`VERDICT [${(v.level || "?").toUpperCase()}]: ${v.headline || "—"}`);
+  if (v.detail) push("  " + v.detail);
+  if (v.action) push("  → " + v.action);
+  push("");
+
+  const h = d.data_health || {};
+  push("DATA HEALTH");
+  if (h.error) {
+    push("  DATABASE UNREACHABLE: " + h.error);
+  } else {
+    const bf = h.backfill || {}, cov = h.coverage || {}, rec = h.recency || {},
+      hist = h.history || {}, adj = h.adjustment || {}, sm = adj.summary || {};
+    push(`  Price adjustment: ${adj.status || "unchecked"}`);
+    if (adj.checked)
+      push(`    tested ${adj.checked}: adj ${sm.adjusted || 0}, unadj ${sm.unadjusted || 0}, ` +
+        `incon ${sm.inconclusive || 0}, no-data ${sm.no_data || 0}`);
+    push(`  Backfill source: ${bf.source || "—"} [${bf.phase || "idle"}]`);
+    if (bf.last_error) push("    error: " + bf.last_error);
+    const fu = h.fundamentals || {};
+    if (fu.error) push(`  Fundamentals: ERROR ${fu.error}`);
+    else if ((fu.rows || 0) === 0) push("  Fundamentals: EMPTY");
+    else push(`  Fundamentals: ${fmtNum(fu.rows)} rows, ${fmtNum(fu.distinct_tickers)} tickers, latest ${fu.latest_filing_date || "—"}`);
+    push(`  Tickers loaded: ${fmtNum(cov.tickers_loaded)}`);
+    push(`  Latest bar: ${rec.latest_bar_date || "—"} (${rec.staleness_days == null ? "?" : rec.staleness_days + "d"} stale)`);
+    push(`  Trading days: ${fmtNum(hist.loaded)}`);
+    for (const [k, val] of Object.entries(h.errors || {})) push(`  ${k} unreachable: ${val}`);
+  }
+  push("");
+
+  push("XBRL EXTRACTION");
+  const ex = d.extraction || {};
+  const qs = Object.keys(ex).sort().reverse();
+  if (!qs.length) push("  no fundamentals load this session");
+  for (const q of qs) {
+    const r = ex[q] || {};
+    push(`  ${q}: kept ${fmtNum(r.kept)} of ${fmtNum(r.tag_matched)} tag matches`);
+    push(`    dropped: ${fmtNum(r.dropped_dimensional)} dimensional, ${fmtNum(r.dropped_wrong_qtrs)} wrong-qtrs ` +
+      `(${fmtNum(r.dropped_ytd_cumulative)} YTD-cumulative), ` +
+      `${fmtNum(r.dropped_non_usd)} non-USD, ${fmtNum(r.dropped_alias_duplicate)} alias-dupes`);
+    const hist = r.duration_qtrs_seen || {};
+    if (Object.keys(hist).length)
+      push(`    duration qtrs seen: ${Object.entries(hist).map(([k, v]) => `${k}=${v}`).join(", ")}`);
+    push(`    validation: ${fmtNum(r.rejected_periods)}/${fmtNum(r.validated_periods)} periods rejected (${((r.reject_rate || 0) * 100).toFixed(2)}%)`);
+    for (const rej of (r.rejections || []).slice(0, 20))
+      push(`      REJECT ${rej.ticker} ${rej.metric} ${rej.rule} value=${rej.value} @${rej.period_end}`);
+    for (const fl of (r.flags || []).slice(0, 20))
+      push(`      FLAG ${JSON.stringify(fl)}`);
+  }
+  push("");
+
+  if (BALANCE && !BALANCE.error) {
+    push("BALANCE SHEET CHECK");
+    const cov = BALANCE.coverage || {};
+    push(`  renderable: ${fmtNum(cov.tickers_renderable)} of ${fmtNum(cov.tickers_with_any_fundamentals)}`);
+    for (const [c, i] of Object.entries(cov.by_concept || {}))
+      push(`    ${c}: ${fmtNum(i.tickers_with_data)} (${i.coverage_pct}%)`);
+    for (const [t, s] of Object.entries(BALANCE.company_sheets || {})) {
+      if (!s.found) { push(`  ${t}: NO DATA`); continue; }
+      push(`  ${t} ${s.company_name || ""} — ${s.period_end} filed ${s.filing_date}`);
+      for (const g of ["assets", "liabilities", "equity"])
+        for (const [n, val] of Object.entries(s[g] || {}))
+          push(`    ${n}: ${val.missing ? "MISSING" : val.value}`);
+      const bc = s.balance_check || {};
+      push(`    A=L+E: ${bc.error ? "ERROR " + bc.error : (bc.balanced ? "OK" : "OFF") + " " + bc.diff_pct + "%"}`);
+      for (const issue of s.data_quality_issues || []) push(`    ISSUE: ${issue}`);
+    }
+    push("");
+  }
+
+  push("CONFIG");
+  for (const c of d.config || []) push(`  ${c.name}: ${c.status}${c.note ? " — " + c.note : ""}`);
+  push("");
+
+  const logs = filterLogs(d.logs || [], LOG_LEVEL);
+  push(`RECENT LOGS (${logs.length}${LOG_LEVEL ? ", " + LOG_LEVEL + "+" : ""})`);
+  for (const e of logs) {
+    const fields = e.fields && Object.keys(e.fields).length
+      ? " " + Object.entries(e.fields).map(([k, val]) => `${k}=${val}`).join(" ") : "";
+    push(`  [${(e.level || "info").toUpperCase()}] ${e.ts || ""} ${e.event}${fields}`);
+  }
+  return L.join("\n");
+}
+
+async function copyEverything() {
+  if (!LATEST) return;
+  const text = buildCopyText(LATEST);
+  let ok = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    ok = true;
+  } catch (e) {
+    const ta = document.createElement("textarea");
+    ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
+    document.body.appendChild(ta); ta.focus(); ta.select();
+    try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
+    document.body.removeChild(ta);
+  }
+  const btn = $("copyBtn"), msg = $("copyMsg");
+  btn.classList.toggle("done", ok);
+  btn.textContent = ok ? "✓ Copied" : "📋 Copy everything";
+  msg.hidden = false;
+  msg.textContent = ok ? "Full admin state copied — paste into chat." :
+    "Couldn't access the clipboard. Long-press to select the page instead.";
+  setTimeout(() => { btn.classList.remove("done"); btn.textContent = "📋 Copy everything"; msg.hidden = true; }, 4000);
+}
+
+// ---------------------------------------------------------------- actions
+async function postAction(action) {
+  const map = {
+    backfill_bars: "/backfill?kind=bars&days=600",
+    backfill_sectors: "/backfill?kind=sectors",
+    backfill_fundamentals: "/backfill?kind=fundamentals",
+    backfill_earnings: "/backfill?kind=earnings",
+  };
+  const url = map[action];
+  const msg = $("actionMsg");
+  if (!url) { msg.textContent = "Unknown action: " + action; return; }
+  msg.textContent = "sending…";
+  try {
+    const r = await fetch(url, { method: "POST" });
+    const body = await r.json().catch(() => ({}));
+    msg.textContent = r.status === 429
+      ? "Rate limited — " + (body.detail || "try again later.")
+      : body.detail || (body.accepted ? "Accepted." : "Done.");
+  } catch (e) {
+    msg.textContent = "Failed: " + e.message;
+  }
+  setTimeout(load, 800);
+}
+
+async function runReconcile() {
+  const btn = $("reconcileBtn");
+  const label = btn.textContent;
+  btn.disabled = true; btn.classList.add("busy"); btn.textContent = "checking…";
+  try {
+    const r = await fetch("/reconcile?sample=15", { cache: "no-store" });
+    if (r.status === 429) {
+      const b = await r.json().catch(() => ({}));
+      $("actionMsg").textContent = "Rate limited — " + (b.detail || "try again later.");
+    }
+  } catch (e) {
+    $("actionMsg").textContent = "Check failed: " + e.message;
+  }
+  btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+  await load();
+}
+
+// ---------------------------------------------------------------- wire up
+function init() {
+  $("copyBtn").addEventListener("click", copyEverything);
+  $("refreshBtn").addEventListener("click", load);
+  $("reconcileBtn").addEventListener("click", runReconcile);
+  $("balanceSheetBtn").addEventListener("click", testBalanceSheet);
+  document.querySelectorAll(".act").forEach((b) =>
+    b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));
+  $("logfilters").addEventListener("click", (e) => {
+    const chip = e.target.closest(".chip");
+    if (!chip) return;
+    LOG_LEVEL = chip.dataset.level;
+    document.querySelectorAll("#logfilters .chip").forEach((c) => c.classList.toggle("on", c === chip));
+    if (LATEST) renderLogs(LATEST.logs || []);
+  });
+  load();
+}
+
+if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);
+else init();

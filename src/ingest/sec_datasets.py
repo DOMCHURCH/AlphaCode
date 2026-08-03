@@ -32,7 +32,7 @@ import pandas as pd
 import structlog
 
 from src.config.settings import get_settings
-from src.ingest.sec_edgar import XBRL_CONCEPTS
+from src.ingest.xbrl import DIMENSION_COLUMNS, is_consolidated
 
 log = structlog.get_logger(__name__)
 
@@ -40,18 +40,7 @@ DATASET_URL = (
     "https://www.sec.gov/files/dera/data/financial-statement-data-sets/{year}q{q}.zip"
 )
 
-# Invert the metric->tags map to tag->metric for the num.txt scan.
-_TAG_TO_METRIC: dict[str, str] = {
-    tag: metric for metric, tags in XBRL_CONCEPTS.items() for tag in tags
-}
-# Several tags map to ONE metric (revenue has 3 aliases). A filing that reports
-# two of them yields two rows with an identical natural key -- the duplicate that
-# aborts a Postgres upsert. The alias tuples in XBRL_CONCEPTS are already in
-# preference order (modern tag first), so rank by position and keep the best.
-_TAG_RANK: dict[str, int] = {
-    tag: i for _m, tags in XBRL_CONCEPTS.items() for i, tag in enumerate(tags)
-}
-_EPS_TAGS = frozenset(XBRL_CONCEPTS["eps"])
+_EPS_TAGS = frozenset({"EarningsPerShareDiluted"})
 # Periodic reports carry an earnings event (filing date + period end).
 _PERIODIC_FORMS = frozenset({"10-K", "10-Q", "10-K/A", "10-Q/A"})
 
@@ -97,7 +86,9 @@ async def download_dataset(year: int, quarter: int, *, timeout: float = 300.0) -
     return data
 
 
-def _read_member(zbytes: bytes, name: str, usecols: list[str]) -> pd.DataFrame:
+def _read_member(
+    zbytes: bytes, name: str, usecols: list[str], optional: tuple[str, ...] = ()
+) -> pd.DataFrame:
     with zipfile.ZipFile(io.BytesIO(zbytes)) as z:
         if name not in z.namelist():
             raise RuntimeError(f"SEC dataset ZIP missing {name}; members={z.namelist()[:6]}")
@@ -108,79 +99,38 @@ def _read_member(zbytes: bytes, name: str, usecols: list[str]) -> pd.DataFrame:
     missing = set(usecols) - set(have)
     if missing:
         raise RuntimeError(f"SEC {name} missing expected columns {sorted(missing)}")
+    # Optional columns vary by dataset vintage (`segments` appears ~2021). Carry
+    # them when present rather than failing the load.
+    have += [c for c in optional if c in df.columns]
     return df[have]
 
 
 def parse_dataset(zbytes: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Return (sub, num) DataFrames from a Financial Statement Data Set ZIP."""
+    """Return (sub, num) DataFrames from a Financial Statement Data Set ZIP.
+
+    num.txt MUST carry the dimensional columns. Reading only
+    [adsh, tag, ddate, qtrs, uom, value] -- as this did until the rebuild -- makes
+    it impossible to tell a consolidated fact from a segment or equity-component
+    one, which is precisely how JPM's EMEA assets became JPM's total assets.
+    """
     if not zipfile.is_zipfile(io.BytesIO(zbytes)):
         raise RuntimeError(
             f"SEC dataset is not a valid ZIP ({len(zbytes)} bytes) -- moved URL, "
             f"throttle, or an HTML error page."
         )
     sub = _read_member(zbytes, "sub.txt", ["adsh", "cik", "form", "period", "filed", "fp"])
-    num = _read_member(zbytes, "num.txt", ["adsh", "tag", "ddate", "qtrs", "uom", "value"])
+    num = _read_member(
+        zbytes,
+        "num.txt",
+        ["adsh", "tag", "ddate", "qtrs", "uom", "value"],
+        optional=DIMENSION_COLUMNS,
+    )
+    if not any(c in num.columns for c in DIMENSION_COLUMNS):
+        raise RuntimeError(
+            f"SEC num.txt carries none of {list(DIMENSION_COLUMNS)}; dimensional "
+            f"facts cannot be distinguished from consolidated ones."
+        )
     return sub, num
-
-
-def extract_fundamentals(
-    sub: pd.DataFrame, num: pd.DataFrame, cik_to_ticker: Mapping[str, str]
-) -> list[dict[str, Any]]:
-    """Map (num x sub) into `fundamentals` rows for our mapped metrics.
-
-    period_end = num.ddate, filing_date = sub.filed (the honest PIT pair). Multiple
-    filings for the same period are all emitted; the PIT accessor picks the latest
-    visible one. qtrs in {0,1,4}: instant (balance-sheet) + quarterly + annual
-    flows -- the factor layer takes the trailing quarters it needs.
-    """
-    if num.empty or sub.empty:
-        return []
-    facts = num[num["tag"].isin(_TAG_TO_METRIC)].copy()
-    if facts.empty:
-        return []
-    facts = facts[facts["qtrs"].isin(["0", "1", "4"])]
-    sub_meta = sub.set_index("adsh")[["cik", "filed", "fp"]]
-    # (ticker, metric, period_end, filing_date) -> (tag_rank, row); best alias wins.
-    best: dict[tuple[Any, ...], tuple[int, dict[str, Any]]] = {}
-    for r in facts.itertuples(index=False):
-        meta = sub_meta.loc[r.adsh] if r.adsh in sub_meta.index else None
-        if meta is None:
-            continue
-        cik = str(meta["cik"]).lstrip("0") or "0"
-        ticker = cik_to_ticker.get(cik) or cik_to_ticker.get(str(meta["cik"]))
-        if not ticker:
-            continue
-        period_end = _to_date(r.ddate)
-        filing_date = _to_date(meta["filed"])
-        if period_end is None or filing_date is None:
-            continue
-        try:
-            value = float(r.value)
-        except (TypeError, ValueError):
-            continue
-        metric = _TAG_TO_METRIC[r.tag]
-        row = {
-            "ticker": ticker,
-            "metric": metric,
-            "value": value,
-            "period_end": period_end,
-            "fiscal_period": str(meta["fp"] or "")[:8] or None,
-            "filing_date": filing_date,
-            "source": "sec",
-            "restated": False,
-        }
-        # Collapse tag aliases here, where the tag is still known: one row per
-        # (ticker, metric, period_end, filing_date), preferring the tag listed
-        # first in XBRL_CONCEPTS. Without this a filing reporting both `Revenues`
-        # and `RevenueFromContractWithCustomerExcludingAssessedTax` emits two rows
-        # with an identical natural key, which aborts the whole upsert batch.
-        key = (ticker, metric, period_end, filing_date)
-        rank = _TAG_RANK.get(r.tag, 99)
-        prev = best.get(key)
-        if prev is None or rank < prev[0]:
-            best[key] = (rank, row)
-    out = [row for _rank, row in best.values()]
-    return out
 
 
 def extract_earnings(
@@ -198,11 +148,15 @@ def extract_earnings(
     periodic = sub[sub["form"].isin(_PERIODIC_FORMS)].copy()
     if periodic.empty:
         return []
-    # Diluted EPS fact per filing (prefer the value matching the report period).
+    # Diluted EPS fact per filing. Same dimensional discipline as the fundamentals
+    # extractor: EPS is also reported per segment and per class of stock, so
+    # taking the first row would pick an arbitrary one of those.
     eps_by_adsh: dict[str, float] = {}
     if not num.empty:
         eps = num[num["tag"].isin(_EPS_TAGS)]
         for r in eps.itertuples(index=False):
+            if not is_consolidated(r):
+                continue
             try:
                 eps_by_adsh.setdefault(r.adsh, float(r.value))
             except (TypeError, ValueError):

@@ -1,20 +1,20 @@
-"""SEC EDGAR: ground-truth filings.
+"""SEC EDGAR: the company universe, SIC sectors, and filing metadata.
 
 Free, no key, but two hard constraints:
   1. You MUST send a descriptive User-Agent with a contact email or you get a
      403. `SEC_USER_AGENT` env var, enforced at client construction.
   2. Max 10 req/sec. The shared token bucket is configured at 8/s.
 
-This is also the source of truth for point-in-time fundamentals: the `filed`
-field on a submission is the date a number actually became public, and the
-XBRL companyconcept endpoint returns as-reported (not restated) figures.
+The `filed` field on a submission is the date a number actually became public,
+which is what makes point-in-time reads honest.
+
+Fundamentals do NOT come from here -- they come from the bulk quarterly datasets
+via `src/ingest/sec_datasets.py` and `src/ingest/xbrl.py`.
 """
 
 from __future__ import annotations
 
 import datetime as dt
-import re
-from collections.abc import Iterable
 from typing import Any
 
 import structlog
@@ -27,7 +27,7 @@ log = structlog.get_logger(__name__)
 SUBMISSIONS_URL = "https://data.sec.gov"
 WWW_URL = "https://www.sec.gov"
 
-# Forms we care about, and how Stage 3 reads them.
+# Filing forms, used to pick periodic reports out of a submissions payload.
 POSITIVE_FORMS = {"SC 13D", "SC 13D/A"}
 DILUTION_FORMS = {"S-1", "S-1/A", "S-3", "S-3/A", "424B5", "424B3", "424B4"}
 EVENT_FORMS = {"8-K", "8-K/A"}
@@ -231,187 +231,9 @@ def latest_periodic_filing_dates(payload: dict[str, Any]) -> dict[dt.date, dt.da
     return out
 
 
-# ---------------------------------------------------------------------------
-# XBRL as-reported facts -- the PIT source of truth
-# ---------------------------------------------------------------------------
-XBRL_CONCEPTS: dict[str, tuple[str, ...]] = {
-    "revenue": (
-        "RevenueFromContractWithCustomerExcludingAssessedTax",
-        "Revenues",
-        "SalesRevenueNet",
-    ),
-    "cogs": ("CostOfGoodsAndServicesSold", "CostOfRevenue"),
-    "gross_profit": ("GrossProfit",),
-    "net_income": ("NetIncomeLoss",),
-    "operating_income": ("OperatingIncomeLoss",),
-    "total_assets": ("Assets",),
-    "total_equity": ("StockholdersEquity",),
-    "cash": ("CashAndCashEquivalentsAtCarryingValue",),
-    "operating_cash_flow": ("NetCashProvidedByUsedInOperatingActivities",),
-    "capex": ("PaymentsToAcquirePropertyPlantAndEquipment",),
-    "long_term_debt": ("LongTermDebtNoncurrent", "LongTermDebt"),
-    "current_assets": ("AssetsCurrent",),
-    "current_liabilities": ("LiabilitiesCurrent",),
-    "shares_diluted": ("WeightedAverageNumberOfDilutedSharesOutstanding",),
-    "eps": ("EarningsPerShareDiluted",),
-    "income_tax": ("IncomeTaxExpenseBenefit",),
-    "pretax_income": (
-        "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
-    ),
-    # Balance sheet components — for detailed breakdowns
-    "goodwill": ("Goodwill",),
-    "intangibles": (
-        "IntangibleAssetsNetExcludingGoodwill",
-        "IntangibleAssetsNet",
-    ),
-    "inventory": ("InventoryNet",),
-    "receivables": ("AccountsReceivableNetCurrent",),
-    "property_plant_equipment": ("PropertyPlantAndEquipmentNet",),
-    "short_term_investments": ("ShortTermInvestments",),
-    "accounts_payable": ("AccountsPayableCurrent",),
-    "short_term_debt": ("ShortTermBorrowings",),
-    "other_assets": ("OtherAssets",),
-    "other_liabilities": ("OtherLiabilities",),
-    "total_liabilities": ("Liabilities",),
-}
-
-
-async def fetch_company_concept(
-    client: APIClient, cik: str | int, concept: str, taxonomy: str = "us-gaap"
-) -> dict[str, Any]:
-    try:
-        return await client.get_json(
-            f"/api/xbrl/companyconcept/CIK{pad_cik(cik)}/{taxonomy}/{concept}.json"
-        )
-    except Exception as exc:  # noqa: BLE001 - a missing concept is normal
-        log.debug("xbrl_concept_missing", cik=str(cik), concept=concept, error=str(exc))
-        return {}
-
-
-def parse_company_concept(
-    payload: dict[str, Any], ticker: str, metric: str
-) -> list[dict[str, Any]]:
-    """Turn a companyconcept payload into PIT `fundamentals` rows.
-
-    Every unit entry carries `end` (period_end) and `filed` (filing_date). We
-    keep both, which is exactly what makes the backtest honest. `frame` presence
-    distinguishes original from amended; we keep all versions and let the PIT
-    accessor pick the latest one visible at query time.
-    """
-    units = (payload or {}).get("units") or {}
-    rows: list[dict[str, Any]] = []
-    for unit_entries in units.values():
-        for e in unit_entries:
-            try:
-                period_end = dt.date.fromisoformat(str(e.get("end"))[:10])
-                filed = dt.date.fromisoformat(str(e.get("filed"))[:10])
-            except (TypeError, ValueError):
-                continue
-            val = e.get("val")
-            if val is None:
-                continue
-            rows.append(
-                {
-                    "ticker": ticker,
-                    "metric": metric,
-                    "value": float(val),
-                    "period_end": period_end,
-                    "fiscal_period": e.get("fp"),
-                    "filing_date": filed,
-                    "source": "sec",
-                    "restated": bool(e.get("form", "").endswith("/A")),
-                }
-            )
-    return rows
-
-
-async def fetch_pit_fundamentals(
-    client: APIClient, ticker: str, cik: str | int, metrics: Iterable[str] | None = None
-) -> list[dict[str, Any]]:
-    """As-reported fundamentals with true filing dates, for one company."""
-    wanted = list(metrics) if metrics else list(XBRL_CONCEPTS)
-    rows: list[dict[str, Any]] = []
-    for metric in wanted:
-        for concept in XBRL_CONCEPTS.get(metric, ()):
-            payload = await fetch_company_concept(client, cik, concept)
-            parsed = parse_company_concept(payload, ticker, metric)
-            if parsed:
-                rows.extend(parsed)
-                break  # first concept that resolves wins
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# Form 4 parsing
-# ---------------------------------------------------------------------------
-_TAG = re.compile(r"<([A-Za-z0-9_]+)>([^<]*)</\1>")
-
-
-def parse_form4_xml(xml: str, ticker: str) -> list[dict[str, Any]]:
-    """Minimal Form 4 extractor.
-
-    Deliberately regex-based rather than a full XML parse: EDGAR ships a mix of
-    well-formed and legacy documents, and we only need five fields. Anything we
-    cannot parse is skipped, never guessed.
-    """
-    if not xml:
-        return []
-    person = _first(_TAG.findall(xml), "rptOwnerName")
-    is_director = _first(_TAG.findall(xml), "isDirector") in {"1", "true"}
-    is_officer = _first(_TAG.findall(xml), "isOfficer") in {"1", "true"}
-    title = _first(_TAG.findall(xml), "officerTitle") or ""
-    role = "other"
-    if is_officer:
-        low = title.lower()
-        if "chief executive" in low or "ceo" in low:
-            role = "ceo"
-        elif "chief financial" in low or "cfo" in low:
-            role = "cfo"
-        else:
-            role = "officer"
-    elif is_director:
-        role = "director"
-
-    out: list[dict[str, Any]] = []
-    for block in re.findall(
-        r"<nonDerivativeTransaction>(.*?)</nonDerivativeTransaction>", xml, re.S
-    ):
-        pairs = _TAG.findall(block)
-        code = _first(pairs, "transactionCode")
-        date_s = _first(pairs, "transactionDate")
-        shares = _num(_first(pairs, "transactionShares"))
-        price = _num(_first(pairs, "transactionPricePerShare"))
-        if not code or not date_s:
-            continue
-        try:
-            tdate = dt.date.fromisoformat(date_s[:10])
-        except ValueError:
-            continue
-        out.append(
-            {
-                "ticker": ticker,
-                "person": person,
-                "role": role,
-                "transaction_code": code,
-                "shares": shares,
-                "price": price,
-                "value_usd": (shares * price) if shares and price else None,
-                "transaction_date": tdate,
-                "source": "sec",
-            }
-        )
-    return out
-
-
-def _first(pairs: list[tuple[str, str]], tag: str) -> str | None:
-    for k, v in pairs:
-        if k == tag and v.strip():
-            return v.strip()
-    return None
-
-
-def _num(v: str | None) -> float | None:
-    try:
-        return float(v) if v is not None else None
-    except ValueError:
-        return None
+# NOTE: the XBRL tag->metric map and the per-CIK companyconcept crawl that used
+# to live here are gone, along with the Form 4 parser the deleted catalyst stage
+# needed. Fundamentals now come from the bulk quarterly datasets, and the ONLY
+# tag->metric mapping in this codebase is `src/ingest/xbrl.CONCEPTS`. Two
+# competing concept maps is how the extraction drifted wrong in the first place;
+# there must not be a second one.

@@ -24,26 +24,22 @@ log = structlog.get_logger(__name__)
 # Map from display names to fundamentals table metric names.
 # Focus on metrics that actually populate from SEC XBRL backfill.
 BALANCE_SHEET_CONCEPTS = {
-    # Assets — totals that populate
+    # Assets
     "total_assets": "total_assets",
     "current_assets": "current_assets",
     "cash": "cash",
-    # Liabilities — totals that populate
-    "current_liabilities": "current_liabilities",
-    "long_term_debt": "long_term_debt",
-    # Equity
-    "shareholders_equity": "total_equity",
-    # Components (pending wider XBRL concept map + backfill)
-    "short_term_investments": "short_term_investments",
     "receivables": "receivables",
     "inventory": "inventory",
-    "property_plant_equipment": "ppe",
+    "property_plant_equipment": "property_plant_equipment",
     "goodwill": "goodwill",
     "intangibles": "intangibles",
-    "other_assets": "other_assets",
-    "short_term_debt": "short_term_debt",
+    # Liabilities
+    "total_liabilities": "total_liabilities",
+    "current_liabilities": "current_liabilities",
+    "long_term_debt": "long_term_debt",
     "accounts_payable": "accounts_payable",
-    "other_liabilities": "other_liabilities",
+    # Equity
+    "shareholders_equity": "total_equity",
 }
 
 
@@ -145,13 +141,12 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
 
         # Asset concepts
         asset_concepts = [
-            "total_assets", "current_assets", "cash",
-            "short_term_investments", "receivables", "inventory",
-            "property_plant_equipment", "goodwill", "intangibles", "other_assets",
+            "total_assets", "current_assets", "cash", "receivables",
+            "inventory", "property_plant_equipment", "goodwill", "intangibles",
         ]
         liability_concepts = [
-            "current_liabilities", "long_term_debt",
-            "short_term_debt", "accounts_payable", "other_liabilities",
+            "total_liabilities", "current_liabilities",
+            "long_term_debt", "accounts_payable",
         ]
         equity_concepts = ["shareholders_equity"]
 

@@ -1,18 +1,13 @@
-# weasyprint needs cairo/pango/gdk-pixbuf at runtime, and libffi to build.
-# Without these the PDF render silently degrades to HTML-only.
+# The PDF/report toolchain (weasyprint, and the cairo/pango/gdk-pixbuf stack it
+# needed at runtime) went with the report builder. What is left is a JSON API
+# over Postgres, so only the build toolchain remains.
 
 [phases.setup]
 nixPkgs = [
   "python311",
   "gcc",
   "pkg-config",
-  "cairo",
-  "pango",
-  "gdk-pixbuf",
   "libffi",
-  "glib",
-  "fontconfig",
-  "dejavu_fonts",
 ]
 
 [phases.install]
@@ -24,7 +19,7 @@ cmds = [
 
 # No DB step at build time: DATABASE_URL is a runtime/plugin variable that may
 # not be resolved during the build, so migrating here could hit a throwaway
-# SQLite instead of Postgres. Both services run init_db() (tables + indexes) at
+# SQLite instead of Postgres. The API runs init_db() (tables + indexes) at
 # startup against the real database, so the schema migrates itself on deploy.
 # For an explicit one-off migration, run `python -m src.migrate` from a shell.
 

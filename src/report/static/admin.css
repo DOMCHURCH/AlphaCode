@@ -163,3 +163,12 @@ footer{color:var(--dim);font-size:12px;margin-top:8px;line-height:1.5}
 
 .err-note{border:2px solid var(--red);background:#F7DCDA;padding:10px 12px;font-family:var(--mono);
   font-size:12px;font-weight:700;color:var(--red);margin-top:8px}
+
+/* Balance-sheet line items sit under their company header. */
+.row.indent { padding-left: 18px; }
+.row.indent .k { font-size: .92em; }
+pre.tb {
+  font-size: .78em; overflow: auto; max-height: 220px;
+  background: rgba(22,19,16,.06); padding: 8px; border-radius: 4px;
+  white-space: pre-wrap; word-break: break-word;
+}

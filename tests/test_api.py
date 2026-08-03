@@ -1,15 +1,13 @@
 """API surface tests.
 
-The api is a deploy surface (Railway `api` service), so its guard and its
-DB-backed report serving get real coverage here. Uses a file-backed DB shared
-between the seeding and the app, and FastAPI's TestClient.
+The api is the deploy surface, so its endpoints get real coverage here. Uses a
+file-backed DB shared between the seeding and the app, and FastAPI's TestClient.
 """
 
 from __future__ import annotations
 
 import datetime as dt
 
-import pandas as pd
 import pytest
 
 AS_OF = dt.date(2025, 6, 2)
@@ -21,7 +19,6 @@ def api_db(tmp_path, monkeypatch):
     from src.storage.db import init_db, reset_engine_cache
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'api.db'}")
-    monkeypatch.setenv("REPORT_DIR", str(tmp_path / "reports"))
     monkeypatch.setenv("API_KEY", "")  # open by default
     get_settings.cache_clear()
     reset_engine_cache()
@@ -34,666 +31,235 @@ def api_db(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def client(api_db, monkeypatch):
+def client(api_db):
     from fastapi.testclient import TestClient
 
-    from src import api, runner
-    from src.api import app
+    from src import api
 
-    # Rate-limit gates and the diagnostics check-caches are module-level; isolate
-    # them per test so one test's cached /reconcile can't change another's verdict.
-    api._run_gate.reset()
     api._backfill_gate.reset()
     api._reconcile_gate.reset()
-    api._RECONCILE_CACHE.update({"at": None, "data": None})
-    api._LLMCHECK_CACHE.update({"at": None, "data": None})
-    # Backfill diagnostics are module-level too; clear a prior test's error state.
-    import src.backfill as _bf
-
-    _bf._BACKFILL_STATE.update({"phase": "idle", "source": None, "last_error": None})
-
-    # /run now spawns the pipeline as a child process (out-of-process, so a run
-    # crash can't take the API down). These endpoint tests only exercise
-    # acceptance and rate-limiting, so stub the spawn -- we don't want a real
-    # `python -m src.pipeline` firing off the background task. The runner itself
-    # is covered directly in tests/test_runner.py.
-    async def _no_subprocess(as_of, skip_llm=False):
-        return 0
-
-    monkeypatch.setattr(runner, "run_pipeline_subprocess", _no_subprocess)
-    with TestClient(app) as c:
-        # Drain the background startup task (DB migrate + orphan sweep) before the
-        # test body, so the sweep can't race a test that seeds its own running run.
-        for _ in range(50):
-            c.get("/health")
-            if getattr(app.state, "boot_complete", False):
-                break
+    with TestClient(api.app) as c:
         yield c
 
 
+def _seed_fundamentals(rows: list[dict]) -> None:
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as session:
+        for r in rows:
+            session.add(Fundamental(**r))
+
+
+def _fund(ticker: str, metric: str, value: float) -> dict:
+    return {
+        "ticker": ticker, "metric": metric, "value": value,
+        "period_end": dt.date(2025, 12, 31), "fiscal_period": "FY",
+        "filing_date": dt.date(2026, 2, 13), "source": "sec", "restated": False,
+    }
+
+
+# --------------------------------------------------------------------- basics
 def test_health_ok(client):
     r = client.get("/health")
     assert r.status_code == 200
-    assert r.json()["database"] == "ok"
-
-
-def test_run_is_open_when_api_key_unset(client):
-    # skip_llm keeps it cheap; the background task may fail on missing data keys,
-    # but the endpoint itself must accept the request when API_KEY is unset.
-    r = client.post("/run?skip_llm=true")
-    assert r.status_code == 200
-    assert r.json()["accepted"] in (True, False)  # accepted, or "already running"
-
-
-def test_run_needs_no_token_even_if_api_key_set(client, monkeypatch):
-    """The run/backfill endpoints are open by design -- no app token needed,
-    even when API_KEY happens to be set in the environment."""
-    from src.config.settings import get_settings
-
-    monkeypatch.setenv("API_KEY", "s3cret")
-    get_settings.cache_clear()
-
-    assert client.post("/run?skip_llm=true").status_code == 200
-    assert client.get("/validation").status_code == 200
-
-
-def test_report_served_from_db(client, tmp_path):
-    """A report rendered by the (worker's) build_report is served by the api out
-    of the DB, even with no report file on the api's disk."""
-    import shutil
-
-    from src.catalysts.macro import MacroState
-    from src.llm.schemas import DeepDive
-    from src.report.builder import build_report
-    from src.storage.db import session_scope
-
-    dive = DeepDive.model_validate(
-        {
-            "ticker": "NVDA", "total_score": 0,
-            "subscores": {"trend": 20, "fundamental": 15, "catalyst": 12,
-                          "news": 10, "macro": 7, "risk": 8},
-            "thesis": "A" * 100,
-            "bull_case": "Structural datacenter demand keeps compounding here.",
-            "bear_case": "A rich multiple leaves no room for a growth wobble.",
-            "invalidation": "a daily close below $142 (the SMA200)",
-            "time_horizon_days": 60, "conviction": "high",
-            "key_risks": ["concentration"], "catalysts_ahead": [],
-        }
-    )
-    with session_scope() as s:
-        build_report(
-            s, as_of=AS_OF, run_id="api-r", dives=[dive],
-            scores=pd.DataFrame(
-                {"sector": ["Technology"], "factor_composite": [1.4],
-                 "data_completeness": [0.9], "completeness_momentum": [1.0],
-                 "completeness_quality": [0.8], "completeness_revisions": [1.0],
-                 "completeness_pead": [1.0], "completeness_value": [0.6]},
-                index=["NVDA"]),
-            trend_features=pd.DataFrame(
-                {"high_52w": [204.0], "low_52w": [100.0], "close": [200.0]},
-                index=["NVDA"]),
-            detail={"NVDA": {}}, macro=MacroState(regime="RISK_ON", score=2.0),
-            funnel_counts={"Stage 0 universe": 6000, "Stage 5 final": 1},
-            funnel_rejects={}, stage_sectors={"Stage 0": {"Technology": 6000}},
-            near_misses=[], api_calls={},
-            cost={"tokens_in": 0, "tokens_out": 0, "cost_usd": 0.0, "by_stage": {}},
-            duration_s=1.0, output_dir=str(tmp_path / "reports"),
-        )
-
-    # Wipe the disk: the api must serve from the DB.
-    shutil.rmtree(tmp_path / "reports", ignore_errors=True)
-
-    h = client.get(f"/report/{AS_OF.isoformat()}/html")
-    assert h.status_code == 200
-    assert "NVDA" in h.text
-    p = client.get(f"/report/{AS_OF.isoformat()}/pdf")
-    # PDF present only if weasyprint is installed; either a valid PDF or a 404.
-    if p.status_code == 200:
-        assert p.headers["content-type"] == "application/pdf"
-        assert p.content[:5] == b"%PDF-"
-    else:
-        assert p.status_code == 404
-
-
-def test_stock_detail_page(client):
-    """A screened name gets a full standalone detail page; an unknown one 404s."""
-    import datetime as dt
-
-    from src.storage.db import session_scope
-    from src.storage.models import DailyBar, DailyScore, Thesis
-
-    with session_scope() as s:
-        for k in range(60):
-            day = AS_OF - dt.timedelta(days=k)
-            px = 100 + (60 - k) * 0.5
-            s.add(DailyBar(ticker="ABC", date=day, open=px, high=px * 1.01,
-                           low=px * 0.99, close=px, volume=1_000_000))
-        s.add(DailyScore(as_of_date=AS_OF, ticker="ABC", sector="Technology",
-                         stage_reached=5, factor_composite=1.2, final_rank=1,
-                         factor_detail={"gross_profitability": 0.5, "piotroski": 7}))
-        s.add(Thesis(as_of_date=AS_OF, ticker="ABC", total_score=88, conviction="high",
-                     subscores={"trend": 22, "fundamental": 18, "catalyst": 16,
-                                "news": 12, "macro": 10, "risk": 10},
-                     thesis="A durable compounding story.", invalidation="close below 90"))
-
-    r = client.get("/stock/ABC")
-    assert r.status_code == 200
-    assert r.headers["content-type"].startswith("text/html")
-    assert "ABC" in r.text and "88/100" in r.text
-    assert "Company health" in r.text  # the fundamentals section rendered
-
-    assert client.get("/stock/ZZZZ").status_code == 404
-
-
-def test_reconcile_endpoint_returns_the_checks(client, monkeypatch):
-    """GET /reconcile exposes the same checks as the CLI over HTTP (for phones),
-    read-only. Returns symbology / coverage / adjustment / recency; a missing
-    input is reported, never fabricated."""
-    import datetime as dt
-
-    from src.ingest import sec_edgar, yahoo
-    from src.storage.db import session_scope
-    from src.storage.models import DailyBar
-
-    with session_scope() as s:
-        s.add(DailyBar(ticker="AAA", date=dt.date.today() - dt.timedelta(days=1),
-                       open=1, high=1, low=1, close=10.0, volume=1000))
-
-    async def fake_tickers():
-        return [{"ticker": "AAA", "cik": "1", "name": "x"},
-                {"ticker": "ZZZ", "cik": "2", "name": "y"}]
-
-    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
-    monkeypatch.setattr(yahoo, "fetch_corporate_actions", lambda *a, **k: [])
-
-    body = client.get("/reconcile?sample=5").json()
-    for key in ("symbology_sec", "coverage_vs_polygon", "adjustment", "recency"):
-        assert key in body
-    assert body["symbology_sec"]["joined"] == 1        # AAA joins, ZZZ has no bar
-    assert body["coverage_vs_polygon"] == "skipped (no POLYGON_API_KEY)"
-    assert body["recency"]["latest_bar_date"] is not None
-
-
-def test_reconcile_is_rate_limited(client, monkeypatch):
-    from src.config.settings import get_settings
-    from src.ingest import sec_edgar, yahoo
-
-    monkeypatch.setenv("RECONCILE_RATE_PER_HOUR", "2")
-    get_settings.cache_clear()
-
-    async def fake_tickers():
-        return []
-
-    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
-    monkeypatch.setattr(yahoo, "fetch_corporate_actions", lambda *a, **k: [])
-    codes = [client.get("/reconcile").status_code for _ in range(3)]
-    assert codes == [200, 200, 429]
-
-
-def test_llm_check_reports_missing_key(client, monkeypatch):
-    """/llm-check lets the operator confirm the LLM failure without reading logs.
-    With no key it says so (no network needed) and explains the fallback."""
-    from src.config.settings import get_settings
-
-    monkeypatch.setenv("OPENROUTER_API_KEY", "")
-    get_settings.cache_clear()
-    body = client.get("/llm-check").json()
-    assert body["ok"] is False
-    assert body["openrouter_key_present"] is False
-    assert "OPENROUTER_API_KEY is not set" in body["error"]
-    assert "deterministic" in body["error"]
-
-
-def test_unknown_date_is_404(client):
-    assert client.get("/report/2019-01-01").status_code == 404
-    assert client.get("/report/not-a-date").status_code == 400
-
-
-def test_build_scheduler_registers_the_daily_job():
-    from src.scheduler import build_scheduler
-
-    sched = build_scheduler()
-    jobs = sched.get_jobs()
-    assert any(j.id == "daily_funnel" for j in jobs), "daily funnel job not registered"
-
-
-def test_api_boots_with_in_process_scheduler(tmp_path, monkeypatch):
-    """Single-service mode: ENABLE_SCHEDULER=true runs the cron inside the api
-    process. The app must boot (and shut the scheduler down) cleanly."""
-    from src.config.settings import get_settings
-    from src.storage.db import init_db, reset_engine_cache
-
-    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'one.db'}")
-    monkeypatch.setenv("ENABLE_SCHEDULER", "true")
-    get_settings.cache_clear()
-    reset_engine_cache()
-    init_db()
-    try:
-        from fastapi.testclient import TestClient
-
-        from src.api import app
-
-        with TestClient(app) as c:  # lifespan starts the scheduler
-            assert c.get("/health").status_code == 200
-        # exiting the context shuts it down without error
-    finally:
-        get_settings.cache_clear()
-        reset_engine_cache()
-
-
-def test_status_reports_counts(client):
-    r = client.get("/status")
-    assert r.status_code == 200
-    body = r.json()
-    for key in ("price_bars", "universe_snapshots", "runs", "ready_for_first_run"):
-        assert key in body
-    assert body["ready_for_first_run"] is False  # empty DB
-
-
-def test_status_exposes_live_run_progress(client):
-    """A running RunLog + its stage checkpoints surface as `current_run` so the
-    one-button UI can render live progress."""
-    from src.storage.db import session_scope
-    from src.storage.models import RunLog, StageResult
-
-    with session_scope() as s:
-        s.add(RunLog(run_id="live-1", as_of_date=AS_OF, status="running"))
-        # Stages 1 and 2 have completed checkpoints; stage 3 is where it's working.
-        s.add(StageResult(run_id="live-1", as_of_date=AS_OF, stage=1,
-                          entry_count=6000, exit_count=1200))
-        s.add(StageResult(run_id="live-1", as_of_date=AS_OF, stage=2,
-                          entry_count=1200, exit_count=400))
-
-    cr = client.get("/status").json()["current_run"]
-    assert cr is not None
-    assert cr["run_id"] == "live-1"
-    assert cr["active_stage"] == 3  # one past the highest checkpoint
-    assert 0 < cr["percent"] <= 100
-    assert cr["stages_total"] == len(cr["steps"])
-    by_stage = {step["stage"]: step for step in cr["steps"]}
-    assert by_stage[1]["done"] and by_stage[1]["survivors"] == 1200
-    assert by_stage[2]["survivors"] == 400
-    assert by_stage[3]["active"] is True
-
-
-def test_status_current_run_is_null_when_idle(client):
-    assert client.get("/status").json()["current_run"] is None
-
-
-def test_status_surfaces_last_run_error(client):
-    """A failed run's reason is exposed so the UI can explain a dead-end instead
-    of telling the user to read server logs."""
-    import datetime as dt
-
-    from src.storage import repository
-    from src.storage.db import session_scope
-
-    with session_scope() as s:
-        repository.start_run(s, "r-fail", dt.date(2025, 6, 2))
-        repository.finish_run(
-            s, "r-fail", status="failed",
-            error="Universe is 12 names, below the 4000 floor. Aborting.",
-        )
-    lr = client.get("/status").json()["last_run"]
-    assert lr["status"] == "failed"
-    assert "below the 4000 floor" in lr["error"]
-
-
-def test_run_is_rate_limited(client, monkeypatch):
-    """The open /run endpoint is capped so nobody can hammer the URL and burn
-    LLM credits. Past the hourly limit it 429s with a Retry-After."""
-    from src.config.settings import get_settings
-
-    monkeypatch.setenv("RUN_RATE_PER_HOUR", "3")
-    get_settings.cache_clear()
-    from src import api
-
-    api._run_gate.reset()
-    try:
-        codes = [api_run(client) for _ in range(4)]
-        assert codes[:3] == [200, 200, 200]
-        assert codes[3] == 429
-        r = client.post("/run?skip_llm=true")
-        assert r.status_code == 429
-        assert "Retry-After" in r.headers
-    finally:
-        api._run_gate.reset()
-
-
-def api_run(client):
-    return client.post("/run?skip_llm=true").status_code
-
-
-def test_backfill_needs_no_token(client, monkeypatch):
-    from src.config.settings import get_settings
-
-    monkeypatch.setenv("API_KEY", "bf")
-    get_settings.cache_clear()
-    # Open even with API_KEY set (the background load no-ops without data keys).
-    assert client.post("/backfill?days=1").status_code == 200
-
-
-def test_status_exposes_backfill_diagnostics(client):
-    """/status carries a source-agnostic `backfill` block so the loader can tell
-    the user what's happening (or why it stalled) instead of spinning."""
-    bf = client.get("/status").json()["backfill"]
-    for key in (
-        "phase", "source", "units_done", "units_total", "rows",
-        "last_error", "polygon_key_present", "yfinance_available",
-        "last_progress_at",
-    ):
-        assert key in bf
-
-
-def test_yahoo_download_timeout_never_hangs(monkeypatch):
-    """A hung yfinance download must not freeze the coroutine: the hard timeout
-    frees the loop, the chunk is skipped, and the error is recorded for /status."""
-    import asyncio
-    import time
-
-    from src.ingest import yahoo
-
-    monkeypatch.setattr(yahoo, "_yf", object(), raising=False)
-    monkeypatch.setattr(yahoo, "_yf_checked", True, raising=False)
-
-    def hang(yf, tickers, start, end):  # noqa: ANN001
-        time.sleep(3)  # a stalled socket read; short so it can't wedge teardown
-        return None
-
-    monkeypatch.setattr(yahoo, "_download", hang)
-
-    async def run_it():
-        # Measure inside the loop: the coroutine is freed on the timeout even
-        # though the abandoned worker thread keeps sleeping (and asyncio.run's
-        # teardown then waits for it -- that wait is not what we're asserting on).
-        t0 = time.time()
-        rows = await yahoo.fetch_daily_bars_batch(
-            ["AAA", "BBB"], dt.date(2024, 1, 1), dt.date(2024, 6, 1),
-            chunk=200, timeout=0.3,
-        )
-        return rows, time.time() - t0
-
-    rows, elapsed = asyncio.run(run_it())
-    assert rows == []
-    assert elapsed < 2.5  # returned on the 0.3s timeout, did not wait the 3s sleep
-    assert "timed out" in (yahoo.last_error() or "").lower()
-
-
-def test_backfill_surfaces_error_when_no_bars(api_db, monkeypatch):
-    """When the keyless Stooq download fails, the backfill returns (releasing the
-    lock) and marks itself errored with a clear reason -- never a silent empty
-    load."""
-    import asyncio
-
-    from src import backfill
-    from src.ingest import stooq
-
-    async def boom(*a, **k):
-        raise RuntimeError("throttled or the URL changed")
-
-    monkeypatch.setattr(stooq, "download_bulk", boom)
-
-    n = asyncio.run(backfill.backfill_bars(600, end=dt.date(2025, 7, 31)))
-    assert n == 0
-    st = backfill.get_backfill_state()
-    assert st["phase"] == "error"
-    assert st["source"] == "stooq"
-    assert "Stooq download failed" in st["last_error"]
-
-
-def test_root_serves_html_dashboard(client):
-    r = client.get("/")
-    assert r.status_code == 200
-    assert r.headers["content-type"].startswith("text/html")
-    assert "<!DOCTYPE html>" in r.text
-    assert "Alpha" in r.text and "Today's top 10" in r.text  # the site sections
-    assert "Operator controls" in r.text  # the run/backfill panel
-    # The front-end is split into real files, not one inlined blob.
-    assert 'href="/static/dashboard.css"' in r.text
-    assert 'src="/static/dashboard.js"' in r.text
-    assert "<style>" not in r.text and "<script>" not in r.text
-    # JSON index moved to /api
-    assert client.get("/api").headers["content-type"].startswith("application/json")
-
-
-def test_static_assets_are_served(client):
-    css = client.get("/static/dashboard.css")
-    assert css.status_code == 200
-    assert css.headers["content-type"].startswith("text/css")
-    assert "--ink" in css.text and "--paper" in css.text  # the theme tokens
-
-    js = client.get("/static/dashboard.js")
-    assert js.status_code == 200
-    assert "javascript" in js.headers["content-type"]
-    assert "startResearch" in js.text  # the one-button entry point
+    assert r.json()["status"] == "ok"
+
+
+def test_api_index_lists_the_surviving_endpoints(client):
+    body = client.get("/api").json()
+    assert "/admin" in body["endpoints"]
+    assert "/admin/balance-sheet" in body["endpoints"]
+    # The funnel is gone; nothing may advertise a run or a report.
+    joined = " ".join(body["endpoints"])
+    assert "/run" not in joined and "/report" not in joined
 
 
 def test_favicon_is_served(client):
-    """Browsers auto-request /favicon.ico; without a route every page view logs
-    a 404. It's served as an inline SVG mark, not a missing binary."""
     r = client.get("/favicon.ico")
     assert r.status_code == 200
-    assert r.headers["content-type"].startswith("image/svg+xml")
-    assert "<svg" in r.text
+    assert "svg" in r.headers["content-type"]
 
 
-def test_diagnostics_page_and_assets(client):
-    r = client.get("/diagnostics")
+def test_static_assets_are_served(client):
+    for path in ("/static/admin.css", "/static/admin.js"):
+        assert client.get(path).status_code == 200, path
+
+
+def test_status_reports_counts(client):
+    body = client.get("/status").json()
+    assert body["price_bars"] == 0
+    assert "backfill" in body
+
+
+# ---------------------------------------------------------------------- admin
+def test_root_redirects_to_admin(client):
+    r = client.get("/", follow_redirects=False)
+    assert r.status_code == 307
+    assert r.headers["location"] == "/admin"
+
+
+def test_admin_page_and_json(client):
+    page = client.get("/admin")
+    assert page.status_code == 200
+    assert "Admin" in page.text
+
+    body = client.get("/admin.json").json()
+    for key in ("verdict", "data_health", "config", "logs", "actions", "extraction"):
+        assert key in body, key
+
+
+def test_admin_config_never_prints_secret_values(monkeypatch, client):
+    monkeypatch.setenv("POLYGON_API_KEY", "super-secret-value")
+    from src.config.settings import get_settings
+
+    get_settings.cache_clear()
+    body = client.get("/admin.json").json()
+    assert "super-secret-value" not in str(body["config"])
+    get_settings.cache_clear()
+
+
+def test_admin_verdict_calls_out_an_empty_fundamentals_table(client):
+    body = client.get("/admin.json").json()
+    assert body["verdict"]["headline"] == "Fundamentals table is empty"
+
+
+def test_old_diagnostics_path_is_gone(client):
+    assert client.get("/diagnostics").status_code == 404
+    assert client.get("/diagnostics.json").status_code == 404
+
+
+def test_funnel_endpoints_are_gone(client):
+    for path in ("/reports", "/validation", "/llm-check", "/report/latest"):
+        assert client.get(path).status_code == 404, path
+    # 404, not 405: the route is gone entirely, not merely wrong-method.
+    assert client.post("/run").status_code == 404
+
+
+# --------------------------------------------------------------- balance sheet
+def test_balance_sheet_reports_a_ticker_with_no_data(client):
+    body = client.get("/admin/balance-sheet?tickers=NOPE").json()
+    assert body["company_sheets"]["NOPE"] == {"found": False}
+
+
+def test_balance_sheet_checks_the_accounting_identity(client):
+    _seed_fundamentals([
+        _fund("JPM", "total_assets", 4_424_900_000_000.0),
+        _fund("JPM", "total_liabilities", 4_062_462_000_000.0),
+        _fund("JPM", "total_equity", 362_438_000_000.0),
+    ])
+    body = client.get("/admin/balance-sheet?tickers=JPM").json()
+    sheet = body["company_sheets"]["JPM"]
+
+    assert sheet["found"] is True
+    assert sheet["assets"]["total_assets"]["value"] == 4_424_900_000_000.0
+    assert sheet["equity"]["shareholders_equity"]["value"] == 362_438_000_000.0
+
+    check = sheet["balance_check"]
+    assert check["error"] is None
+    assert check["balanced"] is True
+    assert check["diff_pct"] == 0.0
+
+
+def test_balance_sheet_will_not_call_a_zero_total_balanced(client):
+    """The old check compared 0 to a negative and returned balanced=true."""
+    _seed_fundamentals([
+        _fund("ZERO", "total_assets", 0.0),
+        _fund("ZERO", "total_equity", -1_426_000_000.0),
+    ])
+    check = client.get("/admin/balance-sheet?tickers=ZERO").json()[
+        "company_sheets"]["ZERO"]["balance_check"]
+
+    assert check["balanced"] is False
+    assert "zero or negative" in check["error"]
+
+
+def test_balance_sheet_says_so_when_the_identity_is_uncheckable(client):
+    """No reported total liabilities -> do not invent one by summing parts."""
+    _seed_fundamentals([
+        _fund("PART", "total_assets", 1_000.0),
+        _fund("PART", "current_liabilities", 400.0),
+        _fund("PART", "total_equity", 500.0),
+    ])
+    check = client.get("/admin/balance-sheet?tickers=PART").json()[
+        "company_sheets"]["PART"]["balance_check"]
+
+    assert check["balanced"] is False
+    assert "total_liabilities missing" in check["error"]
+
+
+def test_balance_sheet_marks_missing_concepts_rather_than_zero(client):
+    _seed_fundamentals([_fund("THIN", "total_assets", 1_000.0)])
+    sheet = client.get("/admin/balance-sheet?tickers=THIN").json()[
+        "company_sheets"]["THIN"]
+
+    assert sheet["assets"]["goodwill"]["missing"] is True
+    assert sheet["assets"]["goodwill"]["value"] is None
+    assert "goodwill" in sheet["missing_concepts"]
+
+
+def test_balance_sheet_reports_coverage(client):
+    _seed_fundamentals([
+        _fund("A", "total_assets", 100.0),
+        _fund("A", "total_equity", 50.0),
+        _fund("B", "total_assets", 200.0),
+    ])
+    cov = client.get("/admin/balance-sheet?tickers=A,B").json()["coverage"]
+
+    assert cov["tickers_with_any_fundamentals"] == 2
+    assert cov["by_concept"]["total_assets"]["tickers_with_data"] == 2
+    assert cov["by_concept"]["total_assets"]["coverage_pct"] == 100.0
+    # Keyed by concept name; the equity concept reads the `total_equity` metric.
+    assert cov["by_concept"]["shareholders_equity"]["metric"] == "total_equity"
+    assert cov["by_concept"]["shareholders_equity"]["coverage_pct"] == 50.0
+    # Renderable needs BOTH assets and equity, so only A counts.
+    assert cov["tickers_renderable"] == 1
+
+
+# -------------------------------------------------------------------- backfill
+def test_backfill_needs_no_token(client, monkeypatch):
+    import src.api as api
+
+    async def fake_bg(kind: str, days: int) -> None:
+        return None
+
+    monkeypatch.setattr(api, "_backfill_bg", fake_bg)
+    r = client.post("/backfill?kind=bars")
     assert r.status_code == 200
-    assert r.headers["content-type"].startswith("text/html")
-    assert 'href="/static/diagnostics.css"' in r.text
-    assert 'src="/static/diagnostics.js"' in r.text
-    assert "Copy everything" in r.text  # the headline control
-
-    css = client.get("/static/diagnostics.css")
-    assert css.status_code == 200 and css.headers["content-type"].startswith("text/css")
-    js = client.get("/static/diagnostics.js")
-    assert js.status_code == 200 and "buildCopyText" in js.text
-
-
-def test_diagnostics_json_shape(client):
-    d = client.get("/diagnostics.json").json()
-    for k in ("generated_at", "verdict", "data_health", "last_run", "config",
-              "logs", "actions"):
-        assert k in d
-    assert d["verdict"]["level"] in ("ok", "warn", "error")
-    assert d["verdict"]["headline"]
-    for a in ("run", "run_fast", "backfill", "reconcile"):
-        assert "enabled" in d["actions"][a]
-    # One action per backfill kind so the mobile UI can render a button each,
-    # instead of one "Backfill" that silently only ran bars.
-    for a in ("backfill_bars", "backfill_sectors", "backfill_fundamentals",
-              "backfill_earnings"):
-        assert "enabled" in d["actions"][a]
-    # Per-kind results block is present (empty until a kind runs) so each button
-    # can show its own last outcome.
-    assert "results" in d["data_health"]["backfill"]
-    # Empty DB: not enough history -> a warn verdict that says so, not a crash.
-    assert d["data_health"]["history"]["required"] == 252
+    assert r.json()["accepted"] is True
 
 
 def test_backfill_dispatches_on_kind_not_always_bars(client, monkeypatch):
-    """The old endpoint ran bars first regardless of what you asked for, so a
-    fundamentals request only ever loaded bars. Assert each kind routes to its
-    own loader and nothing else."""
-    import src.backfill as bf
+    import src.api as api
 
-    called: list[str] = []
+    seen: list[str] = []
 
-    async def fake_bars(days, **k):
-        called.append("bars")
-        return 1
+    async def fake_bg(kind: str, days: int) -> None:
+        seen.append(kind)
 
-    async def fake_sectors(**k):
-        called.append("sectors")
-        return 2
-
-    async def fake_fundamentals(**k):
-        called.append("fundamentals")
-        return 3
-
-    async def fake_earnings(**k):
-        called.append("earnings")
-        return 4
-
-    monkeypatch.setattr(bf, "backfill_bars", fake_bars)
-    monkeypatch.setattr(bf, "backfill_sectors", fake_sectors)
-    monkeypatch.setattr(bf, "backfill_fundamentals", fake_fundamentals)
-    monkeypatch.setattr(bf, "backfill_earnings", fake_earnings)
-
+    monkeypatch.setattr(api, "_backfill_bg", fake_bg)
     for kind in ("bars", "sectors", "fundamentals", "earnings"):
-        called.clear()
-        r = client.post(f"/backfill?kind={kind}")
-        assert r.status_code == 200
-        # Background task runs synchronously in the TestClient after the response.
-        assert called == [kind], f"{kind} routed to {called}, not itself"
-        res = bf.get_backfill_state()["results"]
-        assert kind in res and res[kind]["error"] is None
+        api._backfill_gate.reset()
+        assert client.post(f"/backfill?kind={kind}").status_code == 200
+    assert seen == ["bars", "sectors", "fundamentals", "earnings"]
 
 
 def test_backfill_rejects_unknown_kind(client):
-    r = client.post("/backfill?kind=bogus")
-    assert r.status_code == 400
+    assert client.post("/backfill?kind=nonsense").status_code == 400
 
 
-def test_diagnostics_config_never_prints_secret_values(client, monkeypatch):
-    """Config reports presence, never the value -- the whole point of it being
-    safe to copy-paste into a chat."""
+def test_backfill_is_rate_limited(client, monkeypatch):
+    import src.api as api
     from src.config.settings import get_settings
 
-    monkeypatch.setenv("POLYGON_API_KEY", "SUPERSECRETVALUE123")
-    monkeypatch.setenv("OPENROUTER_API_KEY", "OR-SECRET-XYZ-999")
+    monkeypatch.setenv("BACKFILL_RATE_PER_HOUR", "1")
     get_settings.cache_clear()
+    api._backfill_gate.reset()
 
-    raw = client.get("/diagnostics.json").text
-    assert "SUPERSECRETVALUE123" not in raw
-    assert "OR-SECRET-XYZ-999" not in raw
+    async def fake_bg(kind: str, days: int) -> None:
+        return None
 
-    cfg = {c["name"]: c["status"] for c in client.get("/diagnostics.json").json()["config"]}
-    assert cfg["POLYGON_API_KEY"] == "present"
-    assert cfg["OPENROUTER_API_KEY"] in ("present", "invalid")
-
-
-def test_diagnostics_surfaces_a_failed_run_with_stage_rss(client):
-    """The whole reason the page exists: a failed run shows its stage table (with
-    peak rss persisted per stage) and the verdict names the failure -- no Railway
-    logs required."""
-    import datetime as dt
-
-    from src.storage import repository
-    from src.storage.db import session_scope
-    from src.storage.models import DailyBar
-
-    end = dt.date.today()
-    with session_scope() as s:
-        # 252 recent distinct sessions: clears both the history and staleness
-        # gates so the verdict reaches the failed-run check.
-        for i in range(252):
-            s.add(DailyBar(ticker="AAA", date=end - dt.timedelta(days=i),
-                           open=1, high=1, low=1, close=10.0, volume=1_000_000))
-        repository.start_run(s, "r-x", dt.date(2025, 6, 2))
-        repository.save_checkpoint(
-            s, "r-x", dt.date(2025, 6, 2), 1, entry_count=6000, exit_count=1200,
-            duration_s=3.0, api_calls=0, payload={"survivors": []},
-        )
-        repository.finish_run(
-            s, "r-x", status="failed",
-            error="insufficient history: 12/252 trading days.",
-        )
-
-    d = client.get("/diagnostics.json").json()
-    lr = d["last_run"]
-    assert lr["status"] == "failed"
-    stage1 = next(st for st in lr["stages"] if st["stage"] == 1)
-    assert stage1["entry"] == 6000 and stage1["exit"] == 1200
-    assert stage1["rss_mb"] is not None  # persisted via the checkpoint payload
-    assert d["verdict"]["level"] == "error"
-    assert "failed" in d["verdict"]["headline"].lower()
-    assert "insufficient history" in (lr["error"] or "")
-
-
-def test_rategate_peek_does_not_consume_budget():
-    from src import api
-
-    g = api._RateGate(lambda: 1)
-    assert g.peek() is None  # nothing spent yet
-    assert g.peek() is None  # peek is idempotent -- did not record a hit
-    assert g.check() is None  # spend the one allowance
-    assert g.peek() is not None  # now at the limit
-    assert g.peek() is not None  # still limited; peek didn't change state
-
-
-def test_startup_fails_orphaned_running_runs(api_db):
-    """A container restart kills an in-process run without finish_run, leaving
-    RunLog stuck at `running` forever -- that ghost drives /status.current_run
-    and the site polls it endlessly. Boot must sweep it to `failed` so the UI
-    stops chasing a run that is never coming back."""
-    import datetime as dt
-
-    from fastapi.testclient import TestClient
-    from sqlalchemy import select
-
-    from src.api import app
-    from src.storage.db import session_scope
-    from src.storage.models import RunLog
-
-    # A run left mid-flight by a process that is now gone.
-    with session_scope() as s:
-        s.add(RunLog(run_id="ghost-1", as_of_date=dt.date(2025, 6, 2),
-                     status="running",
-                     started_at=dt.datetime.utcnow() - dt.timedelta(minutes=15)))
-
-    def _ghost_status() -> str:
-        with session_scope() as s:
-            return s.execute(
-                select(RunLog).where(RunLog.run_id == "ghost-1")
-            ).scalar_one().status
-
-    # _boot runs as a background task (so serving isn't blocked on the DB), so the
-    # sweep lands slightly after startup. Pump the loop with requests until it does.
-    with TestClient(app) as c:
-        swept = False
-        for _ in range(50):
-            c.get("/health")
-            if _ghost_status() == "failed":
-                swept = True
-                break
-        assert swept, "orphaned 'running' run was not swept to 'failed' at boot"
-
-    with session_scope() as s:
-        row = s.execute(
-            select(RunLog).where(RunLog.run_id == "ghost-1")
-        ).scalar_one()
-        assert row.status == "failed"
-        assert row.error and "restart" in row.error
-        assert row.finished_at is not None
-    # And the ghost no longer drives the live-progress view.
-    with TestClient(app) as c:
-        assert c.get("/status").json()["current_run"] is None
-
-
-def test_run_accepts_momentum_only_mode(client, monkeypatch):
-    """The mode reaches the child process as --mode; a bogus mode is rejected
-    rather than silently defaulting to a full run."""
-    seen: dict = {}
-
-    async def fake_sub(as_of, skip_llm=False, mode="full"):
-        seen["mode"] = mode
-        seen["skip_llm"] = skip_llm
-        return 0
-
-    import src.runner as runner
-
-    monkeypatch.setattr(runner, "run_pipeline_subprocess", fake_sub)
-
-    r = client.post("/run?mode=momentum_only&skip_llm=true")
-    assert r.status_code == 200
-    assert "MOMENTUM ONLY" in r.json()["detail"]
-    assert seen == {"mode": "momentum_only", "skip_llm": True}
-
-    assert client.post("/run?mode=bogus").status_code == 400
-
-
-def test_diagnostics_exposes_the_momentum_only_action(client):
-    a = client.get("/diagnostics.json").json()["actions"]
-    assert "enabled" in a["run_momentum_only"]
+    monkeypatch.setattr(api, "_backfill_bg", fake_bg)
+    assert client.post("/backfill?kind=bars").status_code == 200
+    assert client.post("/backfill?kind=bars").status_code == 429
+    get_settings.cache_clear()

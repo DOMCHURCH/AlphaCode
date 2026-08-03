@@ -25,7 +25,7 @@ import structlog
 from sqlalchemy import select
 
 from src.config.settings import get_settings
-from src.ingest import fmp, polygon, sec_datasets, sec_edgar, stooq
+from src.ingest import fmp, polygon, sec_datasets, sec_edgar, stooq, xbrl
 from src.ingest import sic as sic_map
 from src.ingest.base import PermanentAPIError, gather_bounded
 from src.logging_config import configure_logging
@@ -65,8 +65,19 @@ _BACKFILL_STATE: dict[str, Any] = {
 
 
 # Last completed result per kind (bars/sectors/fundamentals/earnings), so the
-# four /diagnostics buttons can each show their own outcome, not one shared line.
+# four /admin buttons can each show their own outcome, not one shared line.
 _BACKFILL_RESULTS: dict[str, dict[str, Any]] = {}
+
+# Per-quarter extraction report from the last fundamentals load: how many rows
+# the consolidated filter dropped and why, plus every validation rejection. This
+# is the evidence that the filter is doing its job, so it is surfaced on /admin
+# rather than only living in the logs.
+_LAST_EXTRACTION_REPORTS: dict[str, dict[str, Any]] = {}
+
+
+def get_extraction_reports() -> dict[str, dict[str, Any]]:
+    """Per-quarter XBRL extraction diagnostics from the last fundamentals load."""
+    return {k: dict(v) for k, v in _LAST_EXTRACTION_REPORTS.items()}
 
 
 def get_backfill_state() -> dict[str, Any]:
@@ -486,12 +497,19 @@ async def backfill_fundamentals(
         try:
             zbytes = await sec_datasets.download_dataset(year, q)
             sub, num = sec_datasets.parse_dataset(zbytes)
-            rows = sec_datasets.extract_fundamentals(sub, num, cik_map)
+            rows, report = xbrl.extract_and_validate(sub, num, cik_map)
+        except xbrl.ExtractionError as exc:
+            # The parser is wrong, not the quarter. Writing the surviving rows
+            # would leave the table half-right, which is worse than empty.
+            log.error("sec_dataset_extraction_invalid", year=year, quarter=q, error=str(exc))
+            _update_state(phase="error", last_error=f"{year}q{q}: {str(exc)[:300]}")
+            raise
         except Exception as exc:  # noqa: BLE001 - one bad quarter is survivable
             log.warning("sec_dataset_quarter_failed", year=year, quarter=q, error=str(exc)[:200])
             _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")
             continue
         loaded_quarters += 1
+        _LAST_EXTRACTION_REPORTS[f"{year}q{q}"] = report.as_dict()
         # Collapse across the WHOLE quarter BEFORE batching. save_fundamentals
         # dedupes too, but only within the batch it is handed -- duplicates split
         # across a 5000-row boundary would survive as two rows, and the later
