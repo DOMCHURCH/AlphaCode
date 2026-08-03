@@ -1238,6 +1238,163 @@ async def diagnostics_daily_index(days: int = Query(3, ge=1, le=10)) -> dict[str
         }
 
 
+@app.get("/diagnostics/balance-sheet")
+async def diagnostics_balance_sheet(tickers: str = Query("JPM,AAL,MSFT,WMT,FCX")) -> dict[str, Any]:
+    """Verify balance sheet query layer against production fundamentals data.
+
+    Returns:
+    - For each requested ticker: all balance sheet concepts with values, filing dates, and missing indicators
+    - Balance identity check (Assets ≈ Liabilities + Equity)
+    - Coverage stats: for each of the 14 concepts, what fraction of 6,251 tickers have it
+    - Count of tickers with sufficient data to render a complete balance sheet
+    """
+    from src.company.balancesheet import get_balance_sheet, BALANCE_SHEET_CONCEPTS
+    from sqlalchemy import text
+
+    try:
+        as_of = dt.date.today()
+        requested_tickers = [t.strip().upper() for t in tickers.split(",")]
+
+        with session_scope() as session:
+            # Fetch balance sheets for requested tickers
+            company_sheets = {}
+            for ticker in requested_tickers:
+                bs = get_balance_sheet(ticker, as_of=as_of)
+                if bs:
+                    # Calculate total assets and liabilities+equity
+                    total_assets = sum(
+                        v.value for v in bs.assets.values()
+                        if v.value is not None and not v.missing
+                    )
+                    total_liabilities = sum(
+                        v.value for v in bs.liabilities.values()
+                        if v.value is not None and not v.missing
+                    )
+                    total_equity = sum(
+                        v.value for v in bs.equity.values()
+                        if v.value is not None and not v.missing
+                    )
+
+                    # Check balance identity
+                    balance_diff_pct = 0.0
+                    if total_assets > 0:
+                        balance_diff_pct = abs(
+                            (total_assets - (total_liabilities + total_equity)) / total_assets * 100
+                        )
+
+                    company_sheets[ticker] = {
+                        "found": True,
+                        "period_end": bs.period_end.isoformat() if bs.period_end else None,
+                        "filing_date": bs.filing_date.isoformat() if bs.filing_date else None,
+                        "company_name": bs.company_name,
+                        "assets": {
+                            name: {
+                                "value": value.value,
+                                "period_end": value.period_end.isoformat() if value.period_end else None,
+                                "filing_date": value.filing_date.isoformat() if value.filing_date else None,
+                                "missing": value.missing,
+                                "restated": value.restated,
+                            }
+                            for name, value in bs.assets.items()
+                        },
+                        "liabilities": {
+                            name: {
+                                "value": value.value,
+                                "period_end": value.period_end.isoformat() if value.period_end else None,
+                                "filing_date": value.filing_date.isoformat() if value.filing_date else None,
+                                "missing": value.missing,
+                                "restated": value.restated,
+                            }
+                            for name, value in bs.liabilities.items()
+                        },
+                        "equity": {
+                            name: {
+                                "value": value.value,
+                                "period_end": value.period_end.isoformat() if value.period_end else None,
+                                "filing_date": value.filing_date.isoformat() if value.filing_date else None,
+                                "missing": value.missing,
+                                "restated": value.restated,
+                            }
+                            for name, value in bs.equity.items()
+                        },
+                        "totals": {
+                            "assets": total_assets,
+                            "liabilities": total_liabilities,
+                            "equity": total_equity,
+                        },
+                        "balance_check": {
+                            "assets": total_assets,
+                            "liabilities_plus_equity": total_liabilities + total_equity,
+                            "diff_pct": round(balance_diff_pct, 2),
+                            "balanced": balance_diff_pct < 1.0,
+                        },
+                    }
+                else:
+                    company_sheets[ticker] = {"found": False}
+
+            # Calculate coverage stats across all tickers
+            try:
+                result = session.execute(text("""
+                    SELECT metric, COUNT(DISTINCT ticker) as tickers_with_metric
+                    FROM fundamentals
+                    GROUP BY metric
+                """)).fetchall()
+
+                # Map metrics to concept names
+                metrics_by_concept = {}
+                for concept, metric in BALANCE_SHEET_CONCEPTS.items():
+                    if metric not in metrics_by_concept:
+                        metrics_by_concept[metric] = []
+                    metrics_by_concept[metric].append(concept)
+
+                coverage_stats = {}
+                for metric, tickers_with_metric in result:
+                    concepts = metrics_by_concept.get(metric, [])
+                    coverage_stats[metric] = {
+                        "concepts": concepts,
+                        "tickers_with_data": tickers_with_metric,
+                        "coverage_pct": round(100.0 * tickers_with_metric / 6251, 1),
+                    }
+
+                # Count tickers with renderable balance sheets
+                renderable_count = session.execute(text("""
+                    WITH assets_tickers AS (
+                        SELECT DISTINCT ticker FROM fundamentals
+                        WHERE metric IN ('total_assets', 'Assets')
+                    ),
+                    equity_tickers AS (
+                        SELECT DISTINCT ticker FROM fundamentals
+                        WHERE metric IN ('total_equity', 'StockholdersEquity')
+                    )
+                    SELECT COUNT(DISTINCT a.ticker)
+                    FROM assets_tickers a
+                    JOIN equity_tickers e ON a.ticker = e.ticker
+                """)).scalar() or 0
+
+            except Exception as e:
+                coverage_stats = {"error": str(e)[:200]}
+                renderable_count = 0
+
+        return {
+            "as_of": str(as_of),
+            "requested_tickers": requested_tickers,
+            "company_sheets": company_sheets,
+            "coverage": {
+                "by_metric": coverage_stats,
+                "tickers_renderable": renderable_count,
+                "total_tickers_in_universe": 6251,
+            },
+        }
+
+    except Exception as exc:  # noqa: BLE001 - show full error for debugging
+        import traceback
+
+        return {
+            "error": str(exc)[:300],
+            "traceback": traceback.format_exc()[:500],
+        }
+
+
 def _get_last_trading_days(as_of: dt.date, n: int) -> list[dt.date]:
     """Get the last N trading days (skip weekends)."""
     days = []

@@ -514,6 +514,83 @@ async function testDailyIndex() {
   btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
 }
 
+async function testBalanceSheet() {
+  const btn = $("balanceSheetBtn");
+  const div = $("balanceSheet");
+  const label = btn.textContent;
+  btn.disabled = true; btn.classList.add("busy"); btn.textContent = "testing…";
+  div.innerHTML = "<div class=\"loading\">fetching…</div>";
+  try {
+    const r = await fetch("/diagnostics/balance-sheet?tickers=JPM,AAL,MSFT,WMT,FCX", { cache: "no-store" });
+    const data = await r.json();
+    if (r.status !== 200) {
+      div.innerHTML = `<div class="err-note">${esc(data.error || "Unknown error")}</div>`;
+      if (data.detail) div.innerHTML += `<div class="err-note">${esc(data.detail)}</div>`;
+      return;
+    }
+    let html = "";
+    if (data.error) {
+      html += `<div class="err-note">${esc(data.error)}</div>`;
+      if (data.traceback) html += `<pre style="font-size:0.8em;overflow:auto;max-height:200px;background:#f5f5f5;padding:4px;">${esc(data.traceback)}</pre>`;
+    } else {
+      // Coverage stats
+      const cov = data.coverage || {};
+      html += row("Tickers renderable", fmtNum(cov.tickers_renderable) + " / " + fmtNum(cov.total_tickers_in_universe));
+
+      // Per-metric coverage
+      if (cov.by_metric && Object.keys(cov.by_metric).length > 0) {
+        html += row("", "<strong>Coverage by metric</strong>");
+        for (const [metric, info] of Object.entries(cov.by_metric).sort()) {
+          if (info.error) {
+            html += row(metric, `❌ ${esc(info.error)}`);
+          } else {
+            const concepts = (info.concepts || []).join(", ");
+            html += row(metric, fmtNum(info.tickers_with_data) + " tickers (" + info.coverage_pct + "%)",
+              concepts ? concepts : "");
+          }
+        }
+      }
+
+      // Company sheets
+      html += row("", "<strong>Sample companies</strong>");
+      const sheets = data.company_sheets || {};
+      for (const [ticker, sheet] of Object.entries(sheets)) {
+        if (!sheet.found) {
+          html += row(ticker, "NO DATA");
+          continue;
+        }
+        html += row(ticker, esc(sheet.company_name || "—"),
+          esc(sheet.period_end) + " (filed " + esc(sheet.filing_date) + ")");
+
+        // Balance sheet items
+        for (const [name, value] of Object.entries(sheet.assets || {})) {
+          const display = value.missing ? "[MISSING]" : fmtNum(value.value);
+          html += `<div class="row" style="padding-left:20px"><div class="k">${esc(name)}</div><div class="v">${display}</div></div>`;
+        }
+        html += `<div class="row" style="padding-left:20px;border-top:1px solid #ccc"><div class="k"><strong>Liabilities + Equity</strong></div></div>`;
+        for (const [name, value] of Object.entries(sheet.liabilities || {})) {
+          const display = value.missing ? "[MISSING]" : fmtNum(value.value);
+          html += `<div class="row" style="padding-left:20px"><div class="k">${esc(name)}</div><div class="v">${display}</div></div>`;
+        }
+        for (const [name, value] of Object.entries(sheet.equity || {})) {
+          const display = value.missing ? "[MISSING]" : fmtNum(value.value);
+          html += `<div class="row" style="padding-left:20px"><div class="k">${esc(name)}</div><div class="v">${display}</div></div>`;
+        }
+
+        // Balance check
+        const bc = sheet.balance_check || {};
+        const status = bc.balanced ? "✓" : "⚠️";
+        html += `<div class="row" style="padding-left:20px;border-top:1px solid #ccc"><div class="k"><strong>Balance check</strong></div>
+          <div class="v">${status} ${bc.diff_pct}% diff</div></div>`;
+      }
+    }
+    div.innerHTML = html || "<div class=\"loading\">—</div>";
+  } catch (e) {
+    div.innerHTML = `<div class="err-note">Failed: ${esc(e.message)}</div>`;
+  }
+  btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+}
+
 // ---------------------------------------------------------------- wire up
 function init() {
   $("copyBtn").addEventListener("click", copyEverything);
@@ -521,6 +598,7 @@ function init() {
   $("reconcileBtn").addEventListener("click", () => runCheck("reconcile"));
   $("llmBtn").addEventListener("click", () => runCheck("llm"));
   $("dailyIndexBtn").addEventListener("click", testDailyIndex);
+  $("balanceSheetBtn").addEventListener("click", testBalanceSheet);
   document.querySelectorAll(".act").forEach((b) =>
     b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));
   $("logfilters").addEventListener("click", (e) => {
