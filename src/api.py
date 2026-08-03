@@ -459,6 +459,9 @@ def _admin_actions() -> dict[str, Any]:
     for kind in _BACKFILL_KINDS:
         out[f"backfill_{kind}"] = dict(bf_act)
     out["backfill"] = dict(bf_act)
+    # Shares the backfill lock and gate: a reload IS a backfill, plus a wipe.
+    out["reload_fundamentals"] = dict(bf_act)
+    out["verify"] = {"enabled": True, "reason": None}
     return out
 
 
@@ -516,7 +519,7 @@ def _admin_verdict(health: dict[str, Any], db_ok: bool) -> dict[str, Any]:
 @app.get("/admin.json")
 def admin_json() -> dict[str, Any]:
     """Everything the /admin page renders, in one cheap payload."""
-    from src.backfill import get_extraction_reports
+    from src.backfill import get_extraction_reports, get_reload_state
     from src.logging_config import get_recent_logs
 
     db_ok = True
@@ -541,6 +544,7 @@ def admin_json() -> dict[str, Any]:
         "logs": get_recent_logs(limit=200),
         "actions": _admin_actions(),
         "extraction": get_extraction_reports(),
+        "reload": get_reload_state(),
         "backfill_running": _backfill_lock.locked(),
     }
 
@@ -706,6 +710,76 @@ def admin_balance_sheet(
         return {"error": str(exc)[:300], "traceback": traceback.format_exc()[:2000]}
 
 
+@app.post("/admin/reload-fundamentals", response_model=RunResponse)
+async def admin_reload_fundamentals(
+    background: BackgroundTasks,
+    confirm: bool = Query(
+        False,
+        description="Must be true. Guards an unauthenticated, irreversible wipe.",
+    ),
+    quarters: int = Query(7, ge=1, le=20),
+) -> RunResponse:
+    """Wipe the fundamentals table and reload it through the rebuilt extractor.
+
+    Runs in the background; poll `/admin.json` -> `reload` for progress, or
+    `/admin` for the rendered version. On completion the payload carries the
+    per-quarter extraction report and the five-company verification.
+
+    `confirm=true` is required. This endpoint is open and deletes every
+    fundamentals row, so a stray tap, a prefetch, or a crawler must not be able
+    to trigger it.
+    """
+    if not confirm:
+        raise HTTPException(
+            400,
+            "Refusing to wipe without confirm=true. This deletes every "
+            "fundamentals row and cannot be undone.",
+        )
+    _enforce_rate(_backfill_gate, "backfills")
+    if _backfill_lock.locked():
+        return RunResponse(
+            accepted=False, detail="A backfill or reload is already running."
+        )
+    background.add_task(_reload_bg, quarters)
+    return RunResponse(
+        accepted=True,
+        detail=f"Reload queued: wipe, then {quarters} quarters, then verify. "
+               "Watch /admin for progress.",
+    )
+
+
+async def _reload_bg(quarters: int) -> None:
+    from src.backfill import record_backfill_result, reload_fundamentals
+
+    async with _backfill_lock:
+        try:
+            out = await reload_fundamentals(quarters=quarters)
+            record_backfill_result("fundamentals", out["rows_written"])
+        except Exception as exc:  # noqa: BLE001 - state carries it to /admin
+            record_backfill_result("fundamentals", 0, error=str(exc))
+            log.exception("admin_reload_failed", error=str(exc))
+
+
+@app.get("/admin/verify")
+def admin_verify() -> dict[str, Any]:
+    """Check the five reference companies against their known figures.
+
+    Returns actual vs expected with a pass/fail per company, the A = L + E
+    identity where it is checkable, and per-concept coverage across every ticker
+    that has any fundamentals. Read-only; safe to hit any time.
+    """
+    from src.company.verify import concept_coverage, verify_companies
+
+    try:
+        result = verify_companies()
+        result["coverage"] = concept_coverage()
+        return result
+    except Exception as exc:  # noqa: BLE001 - show the error, never a blank page
+        import traceback
+
+        return {"error": str(exc)[:300], "traceback": traceback.format_exc()[:2000]}
+
+
 @app.get("/", response_class=HTMLResponse)
 def root() -> RedirectResponse:
     return RedirectResponse(url="/admin", status_code=307)
@@ -718,8 +792,8 @@ def api_index() -> JSONResponse:
             "service": "Company Data Service",
             "endpoints": [
                 "/health", "/status", "/reconcile",
-                "/admin", "/admin.json", "/admin/balance-sheet",
-                "POST /backfill",
+                "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
+                "POST /backfill", "POST /admin/reload-fundamentals",
             ],
             "disclaimer": (
                 "Descriptive data only. Makes no predictions and produces no scores."

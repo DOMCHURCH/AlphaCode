@@ -24,36 +24,9 @@ from pathlib import Path
 # the repo root, so `import src...` would fail. Fix that before importing src.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-# Expected consolidated figures for the five verification companies.
-#
-# JPM's two numbers are exact: they were read off the real num.txt dump for
-# period 2025-12-31, and are the consolidated rows the rebuilt filter must now
-# select. The rest are order-of-magnitude expectations -- they catch a parser
-# reading the wrong fact, not a small reporting difference.
-#
-# Note JPM total assets is $4.42T, not the ~$4.0T working estimate: the dump is
-# ground truth here, so it is what we check against.
-EXPECTED = {
-    "JPM": {
-        "total_assets": (4_424_900_000_000, "exact, from the num.txt dump"),
-        "total_equity": (362_438_000_000, "exact, from the num.txt dump"),
-    },
-    "AAL": {
-        # American Airlines genuinely runs a stockholders' deficit. The sign is
-        # the point: negative here is correct, and must not be "fixed".
-        "total_equity": (-3_900_000_000, "approx; negative is correct for AAL"),
-    },
-    "MSFT": {
-        "total_assets": (560_000_000_000, "approx"),
-        "total_equity": (300_000_000_000, "approx"),
-    },
-    "WMT": {"total_assets": (260_000_000_000, "approx")},
-    "FCX": {"total_assets": (55_000_000_000, "approx; must be positive")},
-}
-
-TOLERANCE = 0.10
-
-
+# Reference figures, tolerance, and the verification logic all live in
+# src/company/verify.py, shared with the GET /admin/verify endpoint so the two
+# cannot drift apart.
 def fmt(v: float | None) -> str:
     if v is None:
         return "—"
@@ -69,14 +42,9 @@ def fmt(v: float | None) -> str:
 
 def wipe() -> int:
     """Delete every fundamentals row. Returns how many were removed."""
-    from sqlalchemy import delete, func, select
+    from src.backfill import wipe_fundamentals
 
-    from src.storage.db import session_scope
-    from src.storage.models import Fundamental
-
-    with session_scope() as session:
-        before = session.execute(select(func.count()).select_from(Fundamental)).scalar_one()
-        session.execute(delete(Fundamental))
+    before = wipe_fundamentals()
     print(f"Deleted {before:,} fundamentals rows.")
     return before
 
@@ -124,89 +92,58 @@ async def reload(quarters: int) -> int:
 
 def verify() -> bool:
     """Check the five companies. Returns True only if every check passes."""
-    from src.company.balancesheet import get_balance_sheet
+    from src.company.verify import verify_companies
 
+    result = verify_companies()
     print("\n" + "=" * 78)
     print("VERIFICATION — actual vs expected")
     print("=" * 78)
 
-    all_ok = True
-    for ticker, checks in EXPECTED.items():
+    for ticker, c in result["companies"].items():
         print(f"\n{ticker}")
-        bs = get_balance_sheet(ticker)
-        if bs is None:
-            print("  NO DATA — the reload wrote nothing for this ticker")
-            all_ok = False
+        if not c["found"]:
+            print(f"  NO DATA — {c.get('reason', '')}")
             continue
-
-        print(f"  period {bs.period_end}  filed {bs.filing_date}")
-        actual = {
-            "total_assets": bs.assets["total_assets"],
-            "total_equity": bs.equity["shareholders_equity"],
-        }
-        for metric, (expected, note) in checks.items():
-            cell = actual[metric]
-            got = None if cell.missing else cell.value
-            if got is None:
-                print(f"  {metric:<14} MISSING           expected {fmt(expected)}  ({note})")
-                all_ok = False
+        print(f"  period {c['period_end']}  filed {c['filing_date']}")
+        for metric, m in c["metrics"].items():
+            if m["actual"] is None:
+                print(f"  {metric:<14} MISSING           "
+                      f"expected {fmt(m['expected'])}  ({m['basis']})")
                 continue
-            drift = abs(got - expected) / abs(expected)
-            ok = drift <= TOLERANCE
-            all_ok = all_ok and ok
-            print(f"  {metric:<14} {fmt(got):>14}   expected {fmt(expected):>14}   "
-                  f"{'OK' if ok else 'OFF'} {drift * 100:5.1f}%   ({note})")
-
-        ta = None if bs.assets["total_assets"].missing else bs.assets["total_assets"].value
-        if ta is not None and ta <= 0:
-            print(f"  IMPOSSIBLE: total assets is {fmt(ta)}")
-            all_ok = False
-
-        tl = bs.liabilities["total_liabilities"]
-        te = bs.equity["shareholders_equity"]
-        if ta and not tl.missing and not te.missing:
-            rhs = tl.value + te.value
-            drift = abs(ta - rhs) / ta * 100
-            print(f"  A = L + E      {fmt(ta)} vs {fmt(rhs)}   "
-                  f"{'OK' if drift < 1 else 'OFF'} {drift:.2f}%")
+            print(f"  {metric:<14} {fmt(m['actual']):>14}   "
+                  f"expected {fmt(m['expected']):>14}   "
+                  f"{'OK ' if m['passed'] else 'OFF'} {m['drift_pct']:5.1f}%   ({m['basis']})")
+        if c["impossible"]:
+            print(f"  IMPOSSIBLE: {c['impossible']}")
+        ident = c["identity"]
+        if ident["checkable"]:
+            print(f"  A = L + E      {fmt(ident['assets'])} vs "
+                  f"{fmt(ident['liabilities_plus_equity'])}   "
+                  f"{'OK ' if ident['balanced'] else 'OFF'} {ident['drift_pct']:.2f}%")
         else:
-            print("  A = L + E      not checkable (total_liabilities not reported)")
-
-        for issue in bs.data_quality_issues:
+            print(f"  A = L + E      not checkable ({ident['reason']})")
+        for issue in c["data_quality_issues"]:
             print(f"  ISSUE: {issue}")
 
     print("\n" + "=" * 78)
-    print("PASS — every company reconciles" if all_ok else
-          f"FAIL — at least one company is off by more than {TOLERANCE:.0%}. "
-          "The parser is still wrong. Do not build on these numbers.")
+    print(result["summary"])
     print("=" * 78)
-    return all_ok
+    return result["passed"]
 
 
 def coverage() -> None:
-    from sqlalchemy import func, select
+    from src.company.verify import concept_coverage
 
-    from src.company.balancesheet import BALANCE_SHEET_CONCEPTS
-    from src.storage.db import session_scope
-    from src.storage.models import Fundamental
-
-    with session_scope() as session:
-        total = session.execute(
-            select(func.count(func.distinct(Fundamental.ticker)))
-        ).scalar_one() or 0
-        rows = session.execute(
-            select(Fundamental.metric, func.count(func.distinct(Fundamental.ticker)))
-            .group_by(Fundamental.metric)
-        ).all()
-
-    have = dict(rows)
+    cov = concept_coverage()
+    total = cov["tickers_with_any_fundamentals"]
     print("\n" + "=" * 78)
     print(f"COVERAGE — {total:,} tickers have at least one fundamentals row")
     print("=" * 78)
-    for concept, metric in sorted(BALANCE_SHEET_CONCEPTS.items()):
-        n = have.get(metric, 0)
-        pct = 100.0 * n / total if total else 0.0
-        print(f"  {concept:<26} {n:>7,}  {pct:5.1f}%")
+    for concept, i in cov["by_concept"].items():
+        print(f"  {concept:<26} {i['tickers_with_data']:>7,}  {i['coverage_pct']:5.1f}%")
+    print(f"\n  renderable (assets AND equity): {cov['tickers_renderable']:,}")
+    if cov["unmapped_metrics"]:
+        print(f"  unmapped metrics in table: {', '.join(cov['unmapped_metrics'])}")
 
 
 def main() -> int:

@@ -56,7 +56,34 @@
     <div id="balanceSheet" class="rows"><div class="loading">—</div></div>
   </section>
 
-  <!-- 4. EXTRACTION — what the consolidated filter did -->
+  <!-- 4. VERIFY — does the extraction reconcile against known figures -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Verify five companies</h2>
+      <button id="verifyBtn" class="mini">Run check</button>
+    </div>
+    <p class="hint">JPM, MSFT, WMT, FCX, AAL against their known figures. JPM's
+      are exact — read off a real num.txt dump. The rest are order-of-magnitude,
+      enough to catch a parser reading the wrong fact. Anything off by more than
+      10% is a failure.</p>
+    <div id="verify" class="rows"><div class="loading">—</div></div>
+  </section>
+
+  <!-- 5. RELOAD — wipe and rebuild the table -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Reload fundamentals</h2>
+      <button id="reloadBtn" class="act danger">Wipe &amp; reload</button>
+    </div>
+    <p class="hint"><strong>Deletes every fundamentals row</strong>, then reloads
+      seven quarters through the rebuilt extractor and verifies. The old rows
+      cannot be repaired in place — once the tag and its dimensions are
+      discarded, a wrong number looks exactly like a right one. Takes several
+      minutes; progress appears below and the page auto-refreshes while it runs.</p>
+    <div id="reload" class="rows"><div class="loading">not run this session</div></div>
+  </section>
+
+  <!-- 6. EXTRACTION — what the consolidated filter did -->
   <section class="card">
     <div class="card-head"><h2>XBRL extraction</h2></div>
     <p class="hint">From the last fundamentals load. Structural drops are
@@ -66,14 +93,14 @@
     <div id="extraction" class="rows"><div class="loading">no load this session</div></div>
   </section>
 
-  <!-- 5. CONFIG -->
+  <!-- 7. CONFIG -->
   <section class="card">
     <div class="card-head"><h2>Config</h2></div>
     <p class="hint">Presence only — secret values are never shown.</p>
     <div id="config" class="rows"><div class="loading">loading…</div></div>
   </section>
 
-  <!-- 6. RECENT LOGS -->
+  <!-- 8. RECENT LOGS -->
   <section class="card">
     <div class="card-head"><h2>Recent logs</h2>
       <div class="filters" id="logfilters">
@@ -86,7 +113,7 @@
     <div id="logs" class="logs"><div class="loading">loading…</div></div>
   </section>
 
-  <!-- 7. ACTIONS -->
+  <!-- 9. ACTIONS -->
   <section class="card">
     <div class="card-head"><h2>Backfill — one data source at a time</h2></div>
     <p class="hint">Each button loads only its own kind. Tapping a kind shows

@@ -172,3 +172,12 @@ pre.tb {
   background: rgba(22,19,16,.06); padding: 8px; border-radius: 4px;
   white-space: pre-wrap; word-break: break-word;
 }
+
+/* The wipe button is destructive and unauthenticated — it should not look like
+   the ordinary backfill buttons sitting next to it. */
+.act.danger {
+  background: var(--red, #E1362C);
+  color: #fff;
+  border-color: var(--red, #E1362C);
+}
+.act.danger:disabled { opacity: .5; }

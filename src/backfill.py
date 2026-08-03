@@ -80,6 +80,100 @@ def get_extraction_reports() -> dict[str, dict[str, Any]]:
     return {k: dict(v) for k, v in _LAST_EXTRACTION_REPORTS.items()}
 
 
+# A full reload (wipe + reload + verify) driven from /admin. Tracked separately
+# from _BACKFILL_STATE so the page can say "wiping", "loading", "verifying"
+# rather than only "running", and so the wipe count survives to the report.
+_RELOAD_STATE: dict[str, Any] = {
+    "phase": "idle",          # idle | wiping | loading | verifying | done | error
+    "started_at": None,
+    "finished_at": None,
+    "rows_deleted": None,
+    "rows_written": None,
+    "quarters_requested": None,
+    "last_error": None,
+    "verification": None,
+}
+
+
+def get_reload_state() -> dict[str, Any]:
+    """Live state of the /admin full-reload job."""
+    return dict(_RELOAD_STATE)
+
+
+def _update_reload(**kw: Any) -> None:
+    _RELOAD_STATE.update(kw)
+
+
+def wipe_fundamentals() -> int:
+    """Delete every fundamentals row. Returns how many were removed.
+
+    The old parser's rows cannot be repaired in place: once the tag and its
+    dimensions are discarded, a wrong number is indistinguishable from a right
+    one. So a reload starts from empty rather than upserting on top.
+    """
+    from sqlalchemy import delete, func, select
+
+    from src.storage.models import Fundamental
+
+    with session_scope() as session:
+        before = session.execute(
+            select(func.count()).select_from(Fundamental)
+        ).scalar_one()
+        session.execute(delete(Fundamental))
+    log.warning("fundamentals_wiped", rows_deleted=before)
+    return before
+
+
+async def reload_fundamentals(quarters: int = 7) -> dict[str, Any]:
+    """Wipe the fundamentals table, reload it, then verify the five companies.
+
+    Returns the full report: rows deleted/written, the per-quarter extraction
+    diagnostics, and the verification result.
+    """
+    from src.company.verify import concept_coverage, verify_companies
+
+    _RELOAD_STATE.update(
+        phase="wiping", started_at=dt.datetime.now(dt.UTC).isoformat(),
+        finished_at=None, rows_deleted=None, rows_written=None,
+        quarters_requested=quarters, last_error=None, verification=None,
+    )
+    _LAST_EXTRACTION_REPORTS.clear()
+
+    try:
+        deleted = await asyncio.to_thread(wipe_fundamentals)
+        _update_reload(phase="loading", rows_deleted=deleted)
+
+        written = await backfill_fundamentals(quarters=quarters)
+        _update_reload(phase="verifying", rows_written=written)
+
+        verification = await asyncio.to_thread(verify_companies)
+        coverage = await asyncio.to_thread(concept_coverage)
+        verification["coverage"] = coverage
+
+        _update_reload(
+            phase="done", verification=verification,
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        log.info(
+            "fundamentals_reload_complete", rows_deleted=deleted,
+            rows_written=written, verification_passed=verification["passed"],
+        )
+    except Exception as exc:  # noqa: BLE001 - reported on /admin, never crashes
+        _update_reload(
+            phase="error", last_error=str(exc)[:500],
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        log.exception("fundamentals_reload_failed", error=str(exc)[:300])
+        raise
+
+    return {
+        "rows_deleted": deleted,
+        "rows_written": written,
+        "extraction": get_extraction_reports(),
+        "verification": verification,
+    }
+
+
 def get_backfill_state() -> dict[str, Any]:
     """A copy of the live backfill diagnostics + per-kind last results, for /status."""
     out = dict(_BACKFILL_STATE)

@@ -216,6 +216,127 @@ def test_balance_sheet_reports_coverage(client):
     assert cov["tickers_renderable"] == 1
 
 
+# ---------------------------------------------------------------------- verify
+def _seed_reference_company() -> None:
+    """JPM at its real consolidated figures, so verification should pass."""
+    _seed_fundamentals([
+        _fund("JPM", "total_assets", 4_424_900_000_000.0),
+        _fund("JPM", "total_liabilities", 4_062_462_000_000.0),
+        _fund("JPM", "total_equity", 362_438_000_000.0),
+    ])
+
+
+def test_verify_fails_loudly_on_an_empty_table(client):
+    body = client.get("/admin/verify").json()
+    assert body["passed"] is False
+    assert "FAIL" in body["summary"]
+    assert body["companies"]["JPM"]["found"] is False
+
+
+def test_verify_passes_on_the_real_jpm_figures(client):
+    _seed_reference_company()
+    jpm = client.get("/admin/verify").json()["companies"]["JPM"]
+
+    assert jpm["passed"] is True
+    assert jpm["metrics"]["total_assets"]["actual"] == 4_424_900_000_000.0
+    assert jpm["metrics"]["total_assets"]["drift_pct"] == 0.0
+    assert jpm["metrics"]["total_equity"]["actual"] == 362_438_000_000.0
+    assert jpm["identity"]["checkable"] is True
+    assert jpm["identity"]["balanced"] is True
+
+
+def test_verify_fails_on_the_old_wrong_jpm_figures(client):
+    """The exact numbers the old parser stored must not pass."""
+    _seed_fundamentals([
+        _fund("JPM", "total_assets", 641_190_000_000.0),   # EMEA segment
+        _fund("JPM", "total_equity", -1_426_000_000.0),    # hedge component
+    ])
+    jpm = client.get("/admin/verify").json()["companies"]["JPM"]
+
+    assert jpm["passed"] is False
+    assert jpm["metrics"]["total_assets"]["passed"] is False
+    assert jpm["metrics"]["total_equity"]["passed"] is False
+
+
+def test_verify_flags_an_impossible_total(client):
+    _seed_fundamentals([_fund("FCX", "total_assets", -20_400_000_000.0)])
+    fcx = client.get("/admin/verify").json()["companies"]["FCX"]
+
+    assert fcx["passed"] is False
+    assert "total assets is" in fcx["impossible"]
+
+
+def test_verify_accepts_aals_genuinely_negative_equity(client):
+    """A stockholders' deficit is correct for AAL and must not be 'fixed'."""
+    _seed_fundamentals([_fund("AAL", "total_equity", -3_900_000_000.0)])
+    aal = client.get("/admin/verify").json()["companies"]["AAL"]
+
+    assert aal["passed"] is True
+    assert aal["metrics"]["total_equity"]["actual"] < 0
+
+
+def test_verify_reports_coverage(client):
+    _seed_reference_company()
+    cov = client.get("/admin/verify").json()["coverage"]
+
+    assert cov["tickers_with_any_fundamentals"] == 1
+    assert cov["tickers_renderable"] == 1
+    assert cov["by_concept"]["total_assets"]["coverage_pct"] == 100.0
+    assert cov["by_concept"]["goodwill"]["coverage_pct"] == 0.0
+
+
+# ---------------------------------------------------------------------- reload
+def test_reload_refuses_without_confirm(client):
+    """An open endpoint that deletes every row must not fire on a stray tap."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+    from sqlalchemy import func, select
+
+    _seed_reference_company()
+    r = client.post("/admin/reload-fundamentals")
+
+    assert r.status_code == 400
+    assert "confirm=true" in r.json()["detail"]
+    with session_scope() as s:
+        still_there = s.execute(select(func.count()).select_from(Fundamental)).scalar_one()
+    assert still_there == 3, "a refused reload must not have deleted anything"
+
+
+def test_reload_accepts_with_confirm(client, monkeypatch):
+    import src.api as api
+
+    seen: list[int] = []
+
+    async def fake_bg(quarters: int) -> None:
+        seen.append(quarters)
+
+    monkeypatch.setattr(api, "_reload_bg", fake_bg)
+    r = client.post("/admin/reload-fundamentals?confirm=true&quarters=7")
+
+    assert r.status_code == 200
+    assert r.json()["accepted"] is True
+    assert seen == [7]
+
+
+def test_reload_state_is_exposed_for_progress(client):
+    body = client.get("/admin.json").json()
+    assert body["reload"]["phase"] == "idle"
+
+
+def test_wipe_empties_the_table(client):
+    from src.backfill import wipe_fundamentals
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+    from sqlalchemy import func, select
+
+    _seed_reference_company()
+    deleted = wipe_fundamentals()
+
+    assert deleted == 3
+    with session_scope() as s:
+        assert s.execute(select(func.count()).select_from(Fundamental)).scalar_one() == 0
+
+
 # -------------------------------------------------------------------- backfill
 def test_backfill_needs_no_token(client, monkeypatch):
     import src.api as api

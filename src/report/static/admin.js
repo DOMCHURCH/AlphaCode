@@ -7,6 +7,7 @@ let LATEST = null;      // last payload, for copy + client-side log filtering
 let LOG_LEVEL = "";     // "", info, warning, error
 let TIMER = null;
 let BALANCE = null;     // last /admin/balance-sheet payload, for the copy blob
+let VERIFY = null;      // last /admin/verify payload, for the copy blob
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) =>
@@ -45,12 +46,17 @@ async function load() {
     TIMER = setTimeout(load, 10000);
     return;
   }
-  if (LATEST.backfill_running) TIMER = setTimeout(load, 10000);
+  // Keep polling while a reload is mid-flight, not just while the lock is held:
+  // the wipe and verify phases run outside the backfill loop's own state.
+  const reloading = ["wiping", "loading", "verifying"].includes(
+    (LATEST.reload || {}).phase);
+  if (LATEST.backfill_running || reloading) TIMER = setTimeout(load, 10000);
 }
 
 function render(d) {
   renderVerdict(d.verdict);
   renderHealth(d.data_health || {});
+  renderReload(d.reload || {});
   renderExtraction(d.extraction || {});
   renderConfig(d.config || []);
   renderLogs(d.logs || []);
@@ -165,6 +171,81 @@ function renderHealth(h) {
   $("health").innerHTML = out;
 }
 
+// Shared by the verify panel and the reload panel's embedded verification.
+function verifyHtml(v) {
+  let out = "";
+  const ok = v.passed;
+  out += row("Result", pill(ok ? "PASS" : "FAIL", ok ? "ok" : "bad"), v.summary);
+
+  for (const [ticker, c] of Object.entries(v.companies || {})) {
+    if (!c.found) {
+      out += row(ticker, pill("no data", "bad"), c.reason || "");
+      continue;
+    }
+    out += row(ticker, pill(c.passed ? "pass" : "fail", c.passed ? "ok" : "bad"),
+      `${esc(c.company_name || "")} · ${esc(c.period_end)} · filed ${esc(c.filing_date)}`);
+
+    for (const [metric, m] of Object.entries(c.metrics || {})) {
+      const shown = m.actual == null
+        ? `<span class="pill mute">missing</span>`
+        : `${fmtUSD(m.actual)} <span class="sub">vs ${fmtUSD(m.expected)}` +
+          (m.drift_pct != null ? ` · ${m.drift_pct}% off` : "") + `</span>`;
+      out += `<div class="row indent"><div class="k">${esc(metric)}` +
+        `<span class="sub">${esc(m.basis)}</span></div>` +
+        `<div class="v">${shown} ${pill(m.passed ? "✓" : "✗", m.passed ? "ok" : "bad")}</div></div>`;
+    }
+
+    const id = c.identity || {};
+    if (id.checkable) {
+      out += `<div class="row indent"><div class="k"><strong>A = L + E</strong>` +
+        `<span class="sub">${fmtUSD(id.assets)} vs ${fmtUSD(id.liabilities_plus_equity)}</span></div>` +
+        `<div class="v">${pill((id.balanced ? "✓ " : "✗ ") + id.drift_pct + "%", id.balanced ? "ok" : "bad")}</div></div>`;
+    } else {
+      out += `<div class="row indent"><div class="k">A = L + E</div>` +
+        `<div class="v"><span class="pill mute">not checkable</span></div></div>`;
+    }
+    if (c.impossible)
+      out += `<div class="stage fail"><div class="st-err">IMPOSSIBLE: ${esc(c.impossible)}</div></div>`;
+    for (const issue of c.data_quality_issues || [])
+      out += `<div class="stage fail"><div class="st-err">${esc(issue)}</div></div>`;
+  }
+
+  const cov = v.coverage || {};
+  if (cov.by_concept) {
+    out += row("", "<strong>Coverage by concept</strong>");
+    out += row("Tickers renderable", fmtNum(cov.tickers_renderable),
+      `of ${fmtNum(cov.tickers_with_any_fundamentals)} with any fundamentals`);
+    for (const [concept, i] of Object.entries(cov.by_concept)) {
+      const kind = i.coverage_pct >= 60 ? "ok" : i.coverage_pct > 0 ? "warn" : "bad";
+      out += row(concept, pill(i.coverage_pct + "%", kind),
+        `${fmtNum(i.tickers_with_data)} tickers`);
+    }
+    if ((cov.unmapped_metrics || []).length)
+      out += row("Unmapped metrics", esc(cov.unmapped_metrics.join(", ")),
+        "present in the table, read by no balance-sheet concept");
+  }
+  return out;
+}
+
+// Live state of the wipe/reload/verify job.
+function renderReload(r) {
+  const el = $("reload");
+  if (!r.phase || r.phase === "idle") {
+    el.innerHTML = `<div class="loading">not run this session</div>`;
+    return;
+  }
+  const kind = r.phase === "done" ? "ok" : r.phase === "error" ? "bad" : "warn";
+  let out = row("Phase", pill(r.phase, kind),
+    r.started_at ? "started " + new Date(r.started_at).toLocaleTimeString() : "");
+  if (r.rows_deleted != null) out += row("Rows deleted", fmtNum(r.rows_deleted));
+  if (r.rows_written != null) out += row("Rows written", fmtNum(r.rows_written));
+  if (r.quarters_requested != null) out += row("Quarters", fmtNum(r.quarters_requested));
+  if (r.last_error)
+    out += `<div class="err-note">${esc(r.last_error)}</div>`;
+  if (r.verification) out += verifyHtml(r.verification);
+  el.innerHTML = out;
+}
+
 // What the consolidated filter did, per quarter. Structural drops are supposed
 // to be large; validation rejections are the ones that matter.
 function renderExtraction(ex) {
@@ -257,7 +338,7 @@ function renderBackfillResults(bf) {
 }
 
 function renderActions(a) {
-  document.querySelectorAll(".act").forEach((btn) => {
+  document.querySelectorAll(".act[data-action]").forEach((btn) => {
     const cfg = a[btn.dataset.action] || { enabled: true };
     const label = btn.dataset.label || (btn.dataset.label = btn.textContent.trim());
     btn.disabled = !cfg.enabled;
@@ -326,6 +407,51 @@ async function testBalanceSheet() {
     div.innerHTML = `<div class="err-note">Failed: ${esc(e.message)}</div>`;
   }
   btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+}
+
+// ---------------------------------------------------------------- verify + reload
+async function runVerify() {
+  const btn = $("verifyBtn"), div = $("verify");
+  const label = btn.textContent;
+  btn.disabled = true; btn.classList.add("busy"); btn.textContent = "checking…";
+  div.innerHTML = `<div class="loading">reading…</div>`;
+  try {
+    const r = await fetch("/admin/verify", { cache: "no-store" });
+    const data = await r.json();
+    VERIFY = data;
+    div.innerHTML = data.error
+      ? `<div class="err-note">${esc(data.error)}</div>` +
+        (data.traceback ? `<pre class="tb">${esc(data.traceback)}</pre>` : "")
+      : verifyHtml(data);
+  } catch (e) {
+    div.innerHTML = `<div class="err-note">Failed: ${esc(e.message)}</div>`;
+  }
+  btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+}
+
+async function startReload() {
+  // This deletes every fundamentals row and cannot be undone, so it asks first
+  // and the endpoint independently requires confirm=true.
+  const ok = window.confirm(
+    "Delete EVERY fundamentals row, then reload 7 quarters?\n\n" +
+    "This cannot be undone. It takes several minutes.");
+  if (!ok) return;
+
+  const btn = $("reloadBtn"), msg = $("actionMsg");
+  btn.disabled = true;
+  msg.textContent = "starting reload…";
+  try {
+    const r = await fetch("/admin/reload-fundamentals?confirm=true&quarters=7",
+      { method: "POST" });
+    const body = await r.json().catch(() => ({}));
+    msg.textContent = r.status === 429
+      ? "Rate limited — " + (body.detail || "try again later.")
+      : (body.detail || (body.accepted ? "Accepted." : "Done."));
+  } catch (e) {
+    msg.textContent = "Failed: " + e.message;
+  }
+  btn.disabled = false;
+  setTimeout(load, 800);
 }
 
 // ---------------------------------------------------------------- copy everything
@@ -401,6 +527,40 @@ function buildCopyText(d) {
       const bc = s.balance_check || {};
       push(`    A=L+E: ${bc.error ? "ERROR " + bc.error : (bc.balanced ? "OK" : "OFF") + " " + bc.diff_pct + "%"}`);
       for (const issue of s.data_quality_issues || []) push(`    ISSUE: ${issue}`);
+    }
+    push("");
+  }
+
+  const rl = d.reload || {};
+  if (rl.phase && rl.phase !== "idle") {
+    push("RELOAD");
+    push(`  phase: ${rl.phase}`);
+    if (rl.rows_deleted != null) push(`  rows deleted: ${fmtNum(rl.rows_deleted)}`);
+    if (rl.rows_written != null) push(`  rows written: ${fmtNum(rl.rows_written)}`);
+    if (rl.last_error) push(`  ERROR: ${rl.last_error}`);
+    push("");
+  }
+
+  const V = VERIFY || rl.verification;
+  if (V && !V.error) {
+    push("VERIFICATION");
+    push(`  ${V.summary}`);
+    for (const [t, c] of Object.entries(V.companies || {})) {
+      if (!c.found) { push(`  ${t}: NO DATA (${c.reason || ""})`); continue; }
+      push(`  ${t} [${c.passed ? "PASS" : "FAIL"}] ${c.period_end} filed ${c.filing_date}`);
+      for (const [m, x] of Object.entries(c.metrics || {}))
+        push(`    ${m}: actual=${x.actual} expected=${x.expected} drift=${x.drift_pct}% ${x.passed ? "OK" : "OFF"}`);
+      const id = c.identity || {};
+      push(`    A=L+E: ${id.checkable ? (id.balanced ? "OK " : "OFF ") + id.drift_pct + "%" : "not checkable"}`);
+      if (c.impossible) push(`    IMPOSSIBLE: ${c.impossible}`);
+    }
+    const cov = V.coverage || {};
+    if (cov.by_concept) {
+      push(`  renderable: ${fmtNum(cov.tickers_renderable)} of ${fmtNum(cov.tickers_with_any_fundamentals)}`);
+      for (const [c, i] of Object.entries(cov.by_concept))
+        push(`    ${c}: ${fmtNum(i.tickers_with_data)} (${i.coverage_pct}%)`);
+      if ((cov.unmapped_metrics || []).length)
+        push(`    unmapped metrics: ${cov.unmapped_metrics.join(", ")}`);
     }
     push("");
   }
@@ -489,7 +649,9 @@ function init() {
   $("refreshBtn").addEventListener("click", load);
   $("reconcileBtn").addEventListener("click", runReconcile);
   $("balanceSheetBtn").addEventListener("click", testBalanceSheet);
-  document.querySelectorAll(".act").forEach((b) =>
+  $("verifyBtn").addEventListener("click", runVerify);
+  $("reloadBtn").addEventListener("click", startReload);
+  document.querySelectorAll(".act[data-action]").forEach((b) =>
     b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));
   $("logfilters").addEventListener("click", (e) => {
     const chip = e.target.closest(".chip");
