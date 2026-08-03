@@ -181,3 +181,12 @@ pre.tb {
   border-color: var(--red, #E1362C);
 }
 .act.danger:disabled { opacity: .5; }
+
+/* Raw-facts query inputs: small, wrapping, thumb-friendly on a phone. */
+.rawform { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
+.rawform input {
+  font: inherit; font-size: .86em; padding: 6px 8px;
+  border: 1px solid rgba(22,19,16,.28); border-radius: 4px;
+  background: transparent; color: inherit; min-width: 0; flex: 1 1 auto;
+}
+.rawform input[type="number"] { max-width: 84px; }

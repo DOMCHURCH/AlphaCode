@@ -48,15 +48,17 @@ async function load() {
   }
   // Keep polling while a reload is mid-flight, not just while the lock is held:
   // the wipe and verify phases run outside the backfill loop's own state.
-  const reloading = ["wiping", "loading", "verifying"].includes(
-    (LATEST.reload || {}).phase);
-  if (LATEST.backfill_running || reloading) TIMER = setTimeout(load, 10000);
+  const busyPhases = ["wiping", "loading", "verifying", "downloading", "parsing"];
+  const reloading = busyPhases.includes((LATEST.reload || {}).phase);
+  const dumping = busyPhases.includes((LATEST.raw_facts || {}).phase);
+  if (LATEST.backfill_running || reloading || dumping) TIMER = setTimeout(load, 10000);
 }
 
 function render(d) {
   renderVerdict(d.verdict);
   renderHealth(d.data_health || {});
   renderReload(d.reload || {});
+  renderRawFacts(d.raw_facts || {});
   renderExtraction(d.extraction || {});
   renderConfig(d.config || []);
   renderLogs(d.logs || []);
@@ -246,6 +248,57 @@ function renderReload(r) {
   el.innerHTML = out;
 }
 
+// The raw num.txt dump: the evidence a disputed figure gets settled against.
+function renderRawFacts(rf) {
+  const el = $("rawFacts");
+  if (!rf.phase || rf.phase === "idle") {
+    el.innerHTML = `<div class="loading">not run this session</div>`;
+    return;
+  }
+  const kind = rf.phase === "done" ? "ok" : rf.phase === "error" ? "bad" : "warn";
+  const req = rf.request || {};
+  let out = row("Phase", pill(rf.phase, kind),
+    `${esc(req.ticker || "")} ${esc((req.tags || []).join(", "))} · ${esc(req.dataset || "")}` +
+    (req.ddate ? ` · ddate ${esc(req.ddate)}` : ""));
+  if (rf.last_error) out += `<div class="err-note">${esc(rf.last_error)}</div>`;
+
+  const res = rf.result;
+  if (res) {
+    if (res.error) {
+      out += `<div class="err-note">${esc(res.error)}</div>`;
+    } else {
+      out += row("Submissions", fmtNum((res.submissions || []).length),
+        (res.submissions || []).map((x) => `${x.form} ${x.period}`).join(" · "));
+      for (const [tag, t] of Object.entries(res.by_tag || {})) {
+        out += row(tag, `${fmtNum(t.row_count)} rows`,
+          t.note || `${(t.consolidated_instant || []).length} consolidated instant`);
+        for (const c of t.consolidated_instant || []) {
+          out += `<div class="row indent"><div class="k">consolidated` +
+            `<span class="sub">ddate ${esc(c.ddate)} · qtrs ${esc(c.qtrs)} · ${esc(c.uom)}</span></div>` +
+            `<div class="v"><strong>${fmtUSD(Number(c.value))}</strong>` +
+            `<span class="sub">${esc(c.value)}</span></div></div>`;
+        }
+        if (t.row_count && !t.filter_selects_exactly_one) {
+          out += `<div class="stage fail"><div class="st-err">Filter selected ` +
+            `${(t.consolidated_instant || []).length} rows, expected exactly 1 ` +
+            `per (ddate, uom). Narrow with a ddate, or the filter is wrong.</div></div>`;
+        }
+        const vary = t.varying_columns || {};
+        if (Object.keys(vary).length) {
+          out += statline("  columns that vary",
+            Object.keys(vary).join(", "),
+            "this is what separates consolidated from dimensional");
+          for (const dc of t.dimension_columns_present || []) {
+            if (vary[dc])
+              out += statline(`  ${dc}`, vary[dc].map((v) => v || "(empty)").join(" | "));
+          }
+        }
+      }
+    }
+  }
+  el.innerHTML = out;
+}
+
 // What the consolidated filter did, per quarter. Structural drops are supposed
 // to be large; validation rejections are the ones that matter.
 function renderExtraction(ex) {
@@ -277,6 +330,12 @@ function renderExtraction(ex) {
     for (const rej of (r.rejections || []).slice(0, 8)) {
       out += `<div class="stage fail"><div class="st-name">${esc(rej.ticker)} ${esc(rej.metric)}</div>` +
         `<div class="st-err">${esc(rej.rule)} — value ${esc(fmtUSD(rej.value))} @ ${esc(rej.period_end)}</div></div>`;
+    }
+    const un = r.top_unmapped_tags || [];
+    if (un.length) {
+      out += statline("  top unmapped tags",
+        un.slice(0, 12).map((u) => `${u.tag} (${fmtNum(u.count)})`).join(" · "),
+        "consolidated tags no concept reads — a synonym here explains thin coverage");
     }
     for (const fl of (r.flags || []).slice(0, 8)) {
       out += `<div class="stage"><div class="st-name">${esc(fl.ticker)} ${esc(fl.rule)}</div>` +
@@ -454,6 +513,30 @@ async function startReload() {
   setTimeout(load, 800);
 }
 
+async function startRawFacts() {
+  const btn = $("rawFactsBtn"), msg = $("actionMsg");
+  const q = new URLSearchParams({
+    ticker: $("rawTicker").value.trim() || "MSFT",
+    tags: $("rawTags").value.trim() || "Assets,StockholdersEquity",
+    year: $("rawYear").value || "2026",
+    quarter: $("rawQuarter").value || "1",
+    ddate: $("rawDdate").value.trim(),
+  });
+  btn.disabled = true;
+  msg.textContent = "starting dump… (downloads ~100MB, takes a minute)";
+  try {
+    const r = await fetch("/admin/raw-facts?" + q.toString(), { method: "POST" });
+    const body = await r.json().catch(() => ({}));
+    msg.textContent = r.status === 429
+      ? "Rate limited — " + (body.detail || "try again later.")
+      : (body.detail || (body.accepted ? "Accepted." : "Done."));
+  } catch (e) {
+    msg.textContent = "Failed: " + e.message;
+  }
+  btn.disabled = false;
+  setTimeout(load, 800);
+}
+
 // ---------------------------------------------------------------- copy everything
 function buildCopyText(d) {
   const L = [];
@@ -509,6 +592,8 @@ function buildCopyText(d) {
       push(`      REJECT ${rej.ticker} ${rej.metric} ${rej.rule} value=${rej.value} @${rej.period_end}`);
     for (const fl of (r.flags || []).slice(0, 20))
       push(`      FLAG ${JSON.stringify(fl)}`);
+    for (const u of (r.top_unmapped_tags || []).slice(0, 40))
+      push(`      UNMAPPED ${u.tag} ${u.count}`);
   }
   push("");
 
@@ -562,6 +647,28 @@ function buildCopyText(d) {
       if ((cov.unmapped_metrics || []).length)
         push(`    unmapped metrics: ${cov.unmapped_metrics.join(", ")}`);
     }
+    push("");
+  }
+
+  const rf = d.raw_facts || {};
+  if (rf.result && !rf.result.error) {
+    const res = rf.result;
+    push("RAW num.txt FACTS");
+    push(`  ${res.ticker} CIK ${res.cik} ${res.dataset}` +
+      (res.ddate_filter ? ` ddate=${res.ddate_filter}` : ""));
+    push(`  columns: ${(res.num_columns || []).join(", ")}`);
+    for (const s2 of res.submissions || [])
+      push(`  submission: ${s2.form} period=${s2.period} filed=${s2.filed} adsh=${s2.adsh}`);
+    for (const [tag, t] of Object.entries(res.by_tag || {})) {
+      push(`  ${tag}: ${t.row_count} rows`);
+      for (const c of t.consolidated_instant || [])
+        push(`    CONSOLIDATED ddate=${c.ddate} qtrs=${c.qtrs} ${c.uom} value=${c.value}`);
+      for (const [col, vals] of Object.entries(t.varying_columns || {}))
+        push(`    varies: ${col} -> ${vals.map((v) => v || "(empty)").join(" | ")}`);
+    }
+    push("");
+  } else if (rf.phase && rf.phase !== "idle") {
+    push(`RAW num.txt FACTS: ${rf.phase}${rf.last_error ? " — " + rf.last_error : ""}`);
     push("");
   }
 
@@ -651,6 +758,7 @@ function init() {
   $("balanceSheetBtn").addEventListener("click", testBalanceSheet);
   $("verifyBtn").addEventListener("click", runVerify);
   $("reloadBtn").addEventListener("click", startReload);
+  $("rawFactsBtn").addEventListener("click", startRawFacts);
   document.querySelectorAll(".act[data-action]").forEach((b) =>
     b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));
   $("logfilters").addEventListener("click", (e) => {

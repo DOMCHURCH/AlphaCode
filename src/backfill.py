@@ -100,6 +100,69 @@ def get_reload_state() -> dict[str, Any]:
     return dict(_RELOAD_STATE)
 
 
+# Result of the last raw num.txt dump requested from /admin. A dump downloads a
+# ~100MB ZIP, so it runs as a background job and parks its output here rather
+# than risking an HTTP timeout mid-download.
+_RAW_FACTS_STATE: dict[str, Any] = {
+    "phase": "idle",        # idle | downloading | parsing | done | error
+    "request": None,
+    "started_at": None,
+    "finished_at": None,
+    "last_error": None,
+    "result": None,
+}
+
+
+def get_raw_facts_state() -> dict[str, Any]:
+    """Live state + last result of the /admin raw-facts dump."""
+    return dict(_RAW_FACTS_STATE)
+
+
+async def run_raw_facts_dump(
+    ticker: str,
+    year: int,
+    quarter: int,
+    tags: tuple[str, ...],
+    ddate: str | None = None,
+    cik: str | None = None,
+) -> dict[str, Any]:
+    """Download one quarterly ZIP and dump a company's rows for `tags`."""
+    from src.ingest import raw_facts
+
+    req = {
+        "ticker": ticker.upper(), "dataset": f"{year}q{quarter}",
+        "tags": list(tags), "ddate": ddate, "cik": cik,
+    }
+    _RAW_FACTS_STATE.update(
+        phase="downloading", request=req, result=None, last_error=None,
+        started_at=dt.datetime.now(dt.UTC).isoformat(), finished_at=None,
+    )
+    try:
+        zbytes = await download_dataset_for_dump(year, quarter)
+        _RAW_FACTS_STATE["phase"] = "parsing"
+        result = await asyncio.to_thread(
+            raw_facts.dump_company_facts, zbytes, ticker, tags, ddate, cik
+        )
+        result["dataset"] = f"{year}q{quarter}"
+        _RAW_FACTS_STATE.update(
+            phase="done", result=result,
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        return result
+    except Exception as exc:  # noqa: BLE001 - surfaced on /admin
+        _RAW_FACTS_STATE.update(
+            phase="error", last_error=str(exc)[:500],
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        log.exception("raw_facts_dump_failed", error=str(exc)[:300])
+        raise
+
+
+async def download_dataset_for_dump(year: int, quarter: int) -> bytes:
+    """Indirection so tests can stub the download without touching the loader."""
+    return await sec_datasets.download_dataset(year, quarter)
+
+
 def _update_reload(**kw: Any) -> None:
     _RELOAD_STATE.update(kw)
 

@@ -34,10 +34,22 @@ def api_db(tmp_path, monkeypatch):
 def client(api_db):
     from fastapi.testclient import TestClient
 
-    from src import api
+    from src import api, backfill
 
     api._backfill_gate.reset()
     api._reconcile_gate.reset()
+    # The reload/dump state is deliberately process-global (one service, one
+    # job at a time), so it survives between tests unless reset here.
+    backfill._RELOAD_STATE.update(
+        phase="idle", started_at=None, finished_at=None, rows_deleted=None,
+        rows_written=None, quarters_requested=None, last_error=None,
+        verification=None,
+    )
+    backfill._RAW_FACTS_STATE.update(
+        phase="idle", request=None, started_at=None, finished_at=None,
+        last_error=None, result=None,
+    )
+    backfill._LAST_EXTRACTION_REPORTS.clear()
     with TestClient(api.app) as c:
         yield c
 
@@ -335,6 +347,109 @@ def test_wipe_empties_the_table(client):
     assert deleted == 3
     with session_scope() as s:
         assert s.execute(select(func.count()).select_from(Fundamental)).scalar_one() == 0
+
+
+# -------------------------------------------------------------------- raw facts
+def _msft_zip() -> bytes:
+    """A quarter carrying MSFT's Assets/Equity, with dimensional decoys."""
+    import io
+    import zipfile
+
+    sub_cols = ["adsh", "cik", "name", "form", "period", "filed", "fp"]
+    num_cols = ["adsh", "tag", "version", "coreg", "ddate", "qtrs", "uom",
+                "segments", "value"]
+
+    def tsv(cols, rows):
+        return "\n".join(
+            ["\t".join(cols)]
+            + ["\t".join(str(r.get(c, "")) for c in cols) for r in rows]
+        )
+
+    def num(**kw):
+        r = {c: "" for c in num_cols}
+        r.update(adsh="m1", version="us-gaap/2025", ddate="20251231", uom="USD")
+        r.update(kw)
+        return r
+
+    sub = [{"adsh": "m1", "cik": "0000789019", "name": "MICROSOFT CORP",
+            "form": "10-Q", "period": "20251231", "filed": "20260128", "fp": "Q2"}]
+    nums = [
+        num(tag="Assets", qtrs="0", segments="BusinessSegments=Azure", value="200000000000"),
+        num(tag="Assets", qtrs="0", value="665300000000"),
+        num(tag="StockholdersEquity", qtrs="0",
+            segments="EquityComponents=CommonStockMember", value="100000000000"),
+        num(tag="StockholdersEquity", qtrs="0", value="390875000000"),
+    ]
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("sub.txt", tsv(sub_cols, sub))
+        z.writestr("num.txt", tsv(num_cols, nums))
+    return buf.getvalue()
+
+
+def test_raw_facts_dump_isolates_the_consolidated_row(client, monkeypatch):
+    """The dump must show exactly one consolidated instant per tag."""
+    import src.backfill as bf
+
+    async def fake_download(year, quarter):
+        return _msft_zip()
+
+    monkeypatch.setattr(bf, "download_dataset_for_dump", fake_download)
+
+    import asyncio
+    result = asyncio.run(
+        bf.run_raw_facts_dump("MSFT", 2026, 1, ("Assets", "StockholdersEquity"), "20251231")
+    )
+
+    assets = result["by_tag"]["Assets"]
+    assert assets["row_count"] == 2
+    assert assets["filter_selects_exactly_one"] is True
+    assert assets["consolidated_instant"][0]["value"] == "665300000000"
+    # The column that separates them is named explicitly.
+    assert "segments" in assets["varying_columns"]
+
+    equity = result["by_tag"]["StockholdersEquity"]
+    assert equity["filter_selects_exactly_one"] is True
+    assert equity["consolidated_instant"][0]["value"] == "390875000000"
+
+
+def test_raw_facts_reports_a_missing_company_clearly(client, monkeypatch):
+    import asyncio
+
+    import src.backfill as bf
+
+    async def fake_download(year, quarter):
+        return _msft_zip()
+
+    monkeypatch.setattr(bf, "download_dataset_for_dump", fake_download)
+    result = asyncio.run(bf.run_raw_facts_dump("JPM", 2026, 1, ("Assets",), None))
+    assert "No submissions" in result["error"]
+
+
+def test_raw_facts_endpoint_accepts_and_backgrounds(client, monkeypatch):
+    import src.api as api
+
+    seen: list[tuple] = []
+
+    async def fake_bg(ticker, year, quarter, tags, ddate, cik):
+        seen.append((ticker, year, quarter, tags, ddate))
+
+    monkeypatch.setattr(api, "_raw_facts_bg", fake_bg)
+    r = client.post(
+        "/admin/raw-facts?ticker=MSFT&year=2026&quarter=1"
+        "&tags=Assets,StockholdersEquity&ddate=20251231"
+    )
+    assert r.status_code == 200
+    assert r.json()["accepted"] is True
+    assert seen == [("MSFT", 2026, 1, ("Assets", "StockholdersEquity"), "20251231")]
+
+
+def test_raw_facts_rejects_empty_tags(client):
+    assert client.post("/admin/raw-facts?tags=").status_code == 400
+
+
+def test_raw_facts_state_is_exposed(client):
+    assert client.get("/admin.json").json()["raw_facts"]["phase"] == "idle"
 
 
 # -------------------------------------------------------------------- backfill

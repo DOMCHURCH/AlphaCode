@@ -181,6 +181,20 @@ class ExtractionReport:
     rejected_periods: int = 0
     rejections: list[dict[str, Any]] = field(default_factory=list)
     flags: list[dict[str, Any]] = field(default_factory=list)
+    # Consolidated tags present in num.txt that NO concept maps. A low coverage
+    # number is otherwise ambiguous -- "few companies report this" and "we are
+    # reading the wrong tag for it" look identical. This census distinguishes
+    # them: if a synonym of a thin concept shows up here in volume, the map has
+    # a gap; if nothing relevant appears, the thinness is genuine.
+    unmapped_tags: dict[str, int] = field(default_factory=dict)
+
+    def top_unmapped(self, n: int = 40) -> list[dict[str, Any]]:
+        return [
+            {"tag": t, "count": c}
+            for t, c in sorted(
+                self.unmapped_tags.items(), key=lambda kv: -kv[1]
+            )[:n]
+        ]
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -202,6 +216,7 @@ class ExtractionReport:
             ),
             "rejections": self.rejections[:200],
             "flags": self.flags[:200],
+            "top_unmapped_tags": self.top_unmapped(),
         }
 
 
@@ -265,6 +280,28 @@ def _qtrs_ok(qtrs: str, kind: str) -> bool:
     return qtrs in DURATION_QTRS
 
 
+def _census_unmapped(unmapped: pd.DataFrame, report: ExtractionReport) -> None:
+    """Count consolidated tags no concept reads, so thin coverage is diagnosable.
+
+    Without this, a concept sitting at 31% coverage is ambiguous: either most
+    filers genuinely do not report it, or they report it under a tag we do not
+    map. Those need opposite fixes, and guessing between them is how a mapping
+    gap gets rationalised as "that's just the data".
+    """
+    if unmapped.empty:
+        return
+    consolidated = unmapped
+    for col in DIMENSION_COLUMNS:
+        if col in consolidated.columns:
+            vals = consolidated[col].fillna("").astype(str).str.strip()
+            consolidated = consolidated[vals == ""]
+    if consolidated.empty:
+        return
+    counts = consolidated["tag"].value_counts()
+    for tag, n in counts.items():
+        report.unmapped_tags[str(tag)] = report.unmapped_tags.get(str(tag), 0) + int(n)
+
+
 def extract_facts(
     sub: pd.DataFrame,
     num: pd.DataFrame,
@@ -295,7 +332,14 @@ def extract_facts(
             "original bug."
         )
 
-    facts = num[num["tag"].isin(_TAG_TO_CONCEPT)]
+    mapped = num["tag"].isin(_TAG_TO_CONCEPT)
+
+    # Census the consolidated tags we do NOT map, before discarding them. Only
+    # consolidated instants are counted: dimensional rows would swamp the tally
+    # with segment breakdowns of tags we already read.
+    _census_unmapped(num[~mapped], report)
+
+    facts = num[mapped]
     report.tag_matched = len(facts)
     if facts.empty:
         return [], report

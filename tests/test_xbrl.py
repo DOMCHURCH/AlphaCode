@@ -424,6 +424,48 @@ def test_rate_check_needs_a_real_denominator():
     assert [r["ticker"] for r in kept] == ["GOOD"]
 
 
+# --------------------------------------------------- unmapped-tag census
+def test_unmapped_consolidated_tags_are_counted():
+    """Thin coverage is ambiguous without this.
+
+    A concept at 31% could mean "few filers report it" or "they report it under
+    a tag we don't map". Those need opposite fixes, so the tags we discard are
+    counted rather than silently dropped.
+    """
+    num = _df(
+        [
+            _num(tag="Assets", qtrs="0", value=str(JPM_ASSETS)),
+            _num(tag="LongTermDebtCurrent", qtrs="0", value="500"),
+            _num(tag="LongTermDebtCurrent", qtrs="0", value="600"),
+            _num(tag="SomethingNobodyReads", qtrs="0", value="1"),
+        ],
+        NUM_COLS,
+    )
+    _rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+
+    assert report.unmapped_tags["LongTermDebtCurrent"] == 2
+    assert report.unmapped_tags["SomethingNobodyReads"] == 1
+    # A tag we DO map must never appear in the census.
+    assert "Assets" not in report.unmapped_tags
+
+    top = report.top_unmapped()
+    assert top[0] == {"tag": "LongTermDebtCurrent", "count": 2}
+
+
+def test_census_ignores_dimensional_rows():
+    """Segment breakdowns would swamp the tally and misrepresent the gap."""
+    num = _df(
+        [
+            _num(tag="UnmappedThing", qtrs="0", segments="Geographical=EMEA", value="1"),
+            _num(tag="UnmappedThing", qtrs="0", coreg="SUB", value="2"),
+            _num(tag="UnmappedThing", qtrs="0", value="3"),
+        ],
+        NUM_COLS,
+    )
+    _rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    assert report.unmapped_tags == {"UnmappedThing": 1}
+
+
 # --------------------------------------------------------------- end to end
 def test_extract_and_validate_produces_the_real_jpm_numbers():
     """The whole path against the dump's row shapes."""

@@ -69,7 +69,28 @@
     <div id="verify" class="rows"><div class="loading">—</div></div>
   </section>
 
-  <!-- 5. RELOAD — wipe and rebuild the table -->
+  <!-- 5. RAW FACTS — settle a disputed figure against the file -->
+  <section class="card">
+    <div class="card-head">
+      <h2>Raw num.txt facts</h2>
+      <button id="rawFactsBtn" class="mini">Dump</button>
+    </div>
+    <p class="hint">Every row carrying a tag, which columns differ across them,
+      and what the consolidated-instant filter selects. This is the check that
+      settled the JPM bug. <strong>A reference figure is only ever corrected
+      against this</strong> — never against the parser's own output, which is
+      how a wrong number gets blessed.</p>
+    <div class="rawform">
+      <input id="rawTicker" type="text" value="MSFT" size="6" aria-label="ticker">
+      <input id="rawTags" type="text" value="Assets,StockholdersEquity" aria-label="tags">
+      <input id="rawYear" type="number" value="2026" min="2009" max="2100" aria-label="year">
+      <input id="rawQuarter" type="number" value="1" min="1" max="4" aria-label="quarter">
+      <input id="rawDdate" type="text" value="20251231" size="9" aria-label="period end">
+    </div>
+    <div id="rawFacts" class="rows"><div class="loading">not run this session</div></div>
+  </section>
+
+  <!-- 6. RELOAD — wipe and rebuild the table -->
   <section class="card">
     <div class="card-head">
       <h2>Reload fundamentals</h2>
@@ -83,7 +104,7 @@
     <div id="reload" class="rows"><div class="loading">not run this session</div></div>
   </section>
 
-  <!-- 6. EXTRACTION — what the consolidated filter did -->
+  <!-- 7. EXTRACTION — what the consolidated filter did -->
   <section class="card">
     <div class="card-head"><h2>XBRL extraction</h2></div>
     <p class="hint">From the last fundamentals load. Structural drops are
@@ -93,14 +114,14 @@
     <div id="extraction" class="rows"><div class="loading">no load this session</div></div>
   </section>
 
-  <!-- 7. CONFIG -->
+  <!-- 8. CONFIG -->
   <section class="card">
     <div class="card-head"><h2>Config</h2></div>
     <p class="hint">Presence only — secret values are never shown.</p>
     <div id="config" class="rows"><div class="loading">loading…</div></div>
   </section>
 
-  <!-- 8. RECENT LOGS -->
+  <!-- 9. RECENT LOGS -->
   <section class="card">
     <div class="card-head"><h2>Recent logs</h2>
       <div class="filters" id="logfilters">
@@ -113,7 +134,7 @@
     <div id="logs" class="logs"><div class="loading">loading…</div></div>
   </section>
 
-  <!-- 9. ACTIONS -->
+  <!-- 10. ACTIONS -->
   <section class="card">
     <div class="card-head"><h2>Backfill — one data source at a time</h2></div>
     <p class="hint">Each button loads only its own kind. Tapping a kind shows

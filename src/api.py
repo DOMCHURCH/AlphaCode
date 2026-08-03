@@ -461,6 +461,7 @@ def _admin_actions() -> dict[str, Any]:
     out["backfill"] = dict(bf_act)
     # Shares the backfill lock and gate: a reload IS a backfill, plus a wipe.
     out["reload_fundamentals"] = dict(bf_act)
+    out["raw_facts"] = dict(bf_act)
     out["verify"] = {"enabled": True, "reason": None}
     return out
 
@@ -519,7 +520,11 @@ def _admin_verdict(health: dict[str, Any], db_ok: bool) -> dict[str, Any]:
 @app.get("/admin.json")
 def admin_json() -> dict[str, Any]:
     """Everything the /admin page renders, in one cheap payload."""
-    from src.backfill import get_extraction_reports, get_reload_state
+    from src.backfill import (
+        get_extraction_reports,
+        get_raw_facts_state,
+        get_reload_state,
+    )
     from src.logging_config import get_recent_logs
 
     db_ok = True
@@ -545,6 +550,7 @@ def admin_json() -> dict[str, Any]:
         "actions": _admin_actions(),
         "extraction": get_extraction_reports(),
         "reload": get_reload_state(),
+        "raw_facts": get_raw_facts_state(),
         "backfill_running": _backfill_lock.locked(),
     }
 
@@ -760,6 +766,57 @@ async def _reload_bg(quarters: int) -> None:
             log.exception("admin_reload_failed", error=str(exc))
 
 
+@app.post("/admin/raw-facts", response_model=RunResponse)
+async def admin_raw_facts(
+    background: BackgroundTasks,
+    ticker: str = Query("MSFT"),
+    year: int = Query(2026, ge=2009, le=2100),
+    quarter: int = Query(1, ge=1, le=4),
+    tags: str = Query("Assets,StockholdersEquity"),
+    ddate: str = Query("", description="YYYYMMDD period end, blank for all"),
+    cik: str = Query("", description="override the CIK lookup"),
+) -> RunResponse:
+    """Dump raw num.txt rows for one company, to settle a disputed figure.
+
+    This is the check that resolved the JPM bug, as an endpoint. It shows every
+    column of every row carrying a tag, which columns differ across them, and
+    what the consolidated-instant filter selects. A reference figure is only
+    ever corrected against this -- never against the parser's own output.
+
+    Downloads a ~100MB ZIP, so it runs in the background; poll `/admin.json` ->
+    `raw_facts`.
+    """
+    tag_tuple = tuple(t.strip() for t in tags.split(",") if t.strip())
+    if not tag_tuple:
+        raise HTTPException(400, "tags must name at least one XBRL tag")
+    _enforce_rate(_backfill_gate, "backfills")
+    if _backfill_lock.locked():
+        return RunResponse(
+            accepted=False, detail="A backfill or reload is already running."
+        )
+    background.add_task(
+        _raw_facts_bg, ticker, year, quarter, tag_tuple, ddate or None, cik or None
+    )
+    return RunResponse(
+        accepted=True,
+        detail=f"Dumping {ticker} {list(tag_tuple)} from {year}q{quarter}. "
+               "Watch /admin for the result.",
+    )
+
+
+async def _raw_facts_bg(
+    ticker: str, year: int, quarter: int,
+    tags: tuple[str, ...], ddate: str | None, cik: str | None,
+) -> None:
+    from src.backfill import run_raw_facts_dump
+
+    async with _backfill_lock:
+        try:
+            await run_raw_facts_dump(ticker, year, quarter, tags, ddate, cik)
+        except Exception as exc:  # noqa: BLE001 - state carries it to /admin
+            log.exception("admin_raw_facts_failed", error=str(exc))
+
+
 @app.get("/admin/verify")
 def admin_verify() -> dict[str, Any]:
     """Check the five reference companies against their known figures.
@@ -794,6 +851,7 @@ def api_index() -> JSONResponse:
                 "/health", "/status", "/reconcile",
                 "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
                 "POST /backfill", "POST /admin/reload-fundamentals",
+                "POST /admin/raw-facts",
             ],
             "disclaimer": (
                 "Descriptive data only. Makes no predictions and produces no scores."
