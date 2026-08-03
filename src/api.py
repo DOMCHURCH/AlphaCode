@@ -655,7 +655,7 @@ async def _backfill_bg(kind: str, days: int) -> None:
 # the one-button UI can render a progress bar from the raw checkpoints.
 _STAGE_STEPS: list[dict[str, Any]] = [
     {"stage": 0, "label": "Building the universe", "target": 6000},
-    {"stage": 1, "label": "Trend gate — is it going up right now?", "target": 1200},
+    {"stage": 1, "label": "Recent filings — SEC daily index", "target": 400},
     {"stage": 2, "label": "Multi-factor scoring", "target": 400},
     {"stage": 3, "label": "Catalysts & news", "target": 100},
     {"stage": 4, "label": "LLM triage", "target": 25},

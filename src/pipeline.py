@@ -31,7 +31,7 @@ from src.config.factor_weights import (
 )
 from src.config.settings import get_settings
 from src.core.stage_timeout import StageTimeout, enforce_stage_timeout
-from src.factors import composite, trend
+from src.factors import composite, event_gate, trend
 from src.ingest.rate_limiter import get_rate_limiter
 from src.llm import deep_dive, triage
 from src.llm.client import verify_configured_models
@@ -310,62 +310,47 @@ async def run_pipeline(
             tickers = universe["ticker"].tolist()
             sectors = universe.set_index("ticker")["sector"]
 
-            # Hard block: the trend gate is only honest with a full year of
-            # history (200-day SMA + its slope, 52-week high, 12-month return).
-            # On less, we do NOT run degraded -- we stop and surface the
-            # shortfall so the operator/UI knows to finish the backfill first.
-            depth = _history_depth(session, as_of)
-            need = s.min_history_days
-            if depth < need:
-                raise DataQualityError(
-                    f"insufficient history: {depth}/{need} trading days. "
-                    f"The trend gate needs a full year; finish the backfill "
-                    f"before running (not running degraded)."
-                )
+            # Stage 1: Event-driven filtering (recent SEC filings)
+            # Replaces the momentum-based trend gate with filing activity detection.
+            # No history requirement: filings are published daily regardless of history depth.
+            with _stage("event_gate", 1, len(tickers), timings) as box:
+                try:
+                    eg = await event_gate.run_event_gate(
+                        session, tickers, universe, as_of
+                    )
+                except Exception as exc:
+                    error_msg = str(exc)
+                    # Check if it's a network/parsing error we should surface
+                    if "403" in error_msg or "URL" in error_msg or "parse" in error_msg.lower():
+                        raise DataQualityError(
+                            f"Stage 1 event gate failed — likely daily index URL or format issue. "
+                            f"Error: {error_msg[:300]}. Check /diagnostics/daily-index to verify "
+                            f"the SEC endpoint is reachable and returns parseable data."
+                        )
+                    raise
 
-            # ---------------- Stage 1: trend gate ------------------------
-            with _stage("trend_gate", 1, len(tickers), timings) as box:
-                # Split the stage timing into DB-load vs compute. The vectorised
-                # trend/residual-momentum math benchmarks at ~0.1s; if Stage 1
-                # takes seconds it is the Postgres panel read (600d x ~5k tickers),
-                # not the compute. Logging both settles which is which on deploy
-                # instead of guessing that "vectorisation isn't running".
-                _t_load = time.perf_counter()
-                panels = trend.load_panels(session, tickers, as_of)
-                _load_s = round(time.perf_counter() - _t_load, 2)
-                _t_comp = time.perf_counter()
-                tr = trend.run_trend_gate(
-                    panels["close"], panels["high"], panels["low"], panels["volume"],
-                    sectors=sectors,
-                )
-                _compute_s = round(time.perf_counter() - _t_comp, 2)
-                log.info(
-                    "stage1_timing_split",
-                    panel_load_s=_load_s,
-                    compute_s=_compute_s,
-                    tickers=len(tickers),
-                    panel_rows=int(panels["close"].shape[0] * panels["close"].shape[1])
-                    if not panels["close"].empty else 0,
-                )
-                box["exit"] = len(tr.survivors)
-                funnel["Stage 1 trend"] = len(tr.survivors)
-                funnel_rejects["Stage 1 trend"] = tr.reject_counts
+                box["exit"] = len(eg.survivors)
+                funnel["Stage 1 recent_filings"] = len(eg.survivors)
+                funnel_rejects["Stage 1 recent_filings"] = eg.reject_counts
                 stage_sectors["Stage 1"] = _sector_counts_from_index(
-                    tr.survivors.index, sectors
+                    eg.survivors, sectors
                 )
                 repository.save_checkpoint(
                     session, run_id, as_of, 1, entry_count=len(tickers),
-                    exit_count=len(tr.survivors), duration_s=timings[-1].duration_s
+                    exit_count=len(eg.survivors), duration_s=timings[-1].duration_s
                     if timings else 0.0, api_calls=0,
-                    payload={"survivors": list(tr.survivors.index), "regime": tr.regime},
-                    rejected=tr.reject_counts,
+                    payload={"survivors": list(eg.survivors), "regime": eg.regime},
+                    rejected=eg.reject_counts,
                 )
-            _check_drop("1 trend", len(tickers), len(tr.survivors), warnings)
-            if tr.regime == "RISK_OFF":
+
+            _check_drop("1 recent_filings", len(tickers), len(eg.survivors), warnings)
+            if eg.regime == "ALERT":
                 warnings.append(
-                    "REGIME: RISK_OFF — fewer than 300 names passed the strict "
-                    "trend gate; the RS threshold was relaxed to 50."
+                    "ALERT: Fewer than 200 recent filings found across the universe "
+                    "(last 3 trading days). The funnel may be thin."
                 )
+
+            tr = eg  # Rename for compatibility with downstream Stage 2
 
             # ---------------- Stage 2: multi-factor composite ------------
             with _stage("factor_composite", 2, len(tr.survivors), timings) as box:
