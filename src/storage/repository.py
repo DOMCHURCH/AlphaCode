@@ -560,7 +560,7 @@ def mark_orphaned_runs_failed(session: Session) -> int:
     checkpoint as stalled/hung, releasing the single-flight lock.
     Called at startup and every 10 minutes via the orphan sweep job.
     """
-    stale_threshold = dt.datetime.now(dt.UTC) - dt.timedelta(minutes=10)
+    stale_threshold = dt.datetime.utcnow() - dt.timedelta(minutes=10)
 
     # Find all running runs
     running = session.execute(
@@ -587,9 +587,9 @@ def mark_orphaned_runs_failed(session: Session) -> int:
 
         if is_old_start or is_stale_checkpoint:
             r.status = "failed"
-            reason = "no progress for 10+ minutes (hung stage or process crash)"
+            reason = "no progress for 10+ minutes (likely process restart or hung stage)"
             r.error = (r.error or reason)[:2000]
-            r.finished_at = dt.datetime.now(dt.UTC)
+            r.finished_at = dt.datetime.utcnow()
             marked += 1
 
     return marked

@@ -640,7 +640,8 @@ def test_startup_fails_orphaned_running_runs(api_db):
     # A run left mid-flight by a process that is now gone.
     with session_scope() as s:
         s.add(RunLog(run_id="ghost-1", as_of_date=dt.date(2025, 6, 2),
-                     status="running"))
+                     status="running",
+                     started_at=dt.datetime.utcnow() - dt.timedelta(minutes=15)))
 
     def _ghost_status() -> str:
         with session_scope() as s:
