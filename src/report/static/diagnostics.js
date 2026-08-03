@@ -461,12 +461,66 @@ async function runCheck(kind) {
   await load();
 }
 
+async function testDailyIndex() {
+  const btn = $("dailyIndexBtn");
+  const div = $("dailyIndex");
+  const label = btn.textContent;
+  btn.disabled = true; btn.classList.add("busy"); btn.textContent = "testing…";
+  div.innerHTML = "<div class=\"loading\">fetching…</div>";
+  try {
+    const r = await fetch("/diagnostics/daily-index?days=3", { cache: "no-store" });
+    const data = await r.json();
+    if (r.status !== 200) {
+      div.innerHTML = `<div class="err-note">${esc(data.error || "Unknown error")}</div>`;
+      if (data.detail) div.innerHTML += `<div class="err-note">${esc(data.detail)}</div>`;
+      return;
+    }
+    let html = "";
+    if (data.error) {
+      html += `<div class="err-note">${esc(data.error)}</div>`;
+      if (data.traceback) html += `<pre style="font-size:0.8em;overflow:auto;max-height:200px;background:#f5f5f5;padding:4px;">${esc(data.traceback)}</pre>`;
+    } else {
+      // Summary row
+      const s = data.summary || {};
+      html += row("Filings (all days)", fmtNum(s.total_filings_all_days));
+      html += row("After form filter", fmtNum(s.total_after_form_filter));
+      html += row("In universe", fmtNum(s.total_in_universe) + " / " + fmtNum(s.universe_size));
+
+      // Per-day details
+      html += row("", "<strong>Per-day breakdown</strong>");
+      const pd = data.per_day || {};
+      for (const [date, details] of Object.entries(pd).sort().reverse()) {
+        let dayStatus = "";
+        if (details.error) {
+          dayStatus = `❌ ${esc(details.error)}`;
+        } else {
+          dayStatus = `${details.in_universe} in universe / ${details.after_form_filter} tracked / ${details.total_filings} total`;
+        }
+        html += row(date, dayStatus, details.successful_path ? `✓ ${details.successful_path.split("/").pop()}` : "");
+      }
+
+      // Sample
+      if (data.sample_10 && data.sample_10.length > 0) {
+        html += row("", "<strong>Sample filings (universe)</strong>");
+        for (const f of data.sample_10) {
+          html += row(`${esc(f.ticker)} ${esc(f.form)}`, `${esc(f.company_name)}`, esc(f.filing_date));
+        }
+      }
+    }
+    div.innerHTML = html || "<div class=\"loading\">—</div>";
+  } catch (e) {
+    div.innerHTML = `<div class="err-note">Failed: ${esc(e.message)}</div>`;
+  }
+  btn.classList.remove("busy"); btn.textContent = label; btn.disabled = false;
+}
+
 // ---------------------------------------------------------------- wire up
 function init() {
   $("copyBtn").addEventListener("click", copyEverything);
   $("refreshBtn").addEventListener("click", load);
   $("reconcileBtn").addEventListener("click", () => runCheck("reconcile"));
   $("llmBtn").addEventListener("click", () => runCheck("llm"));
+  $("dailyIndexBtn").addEventListener("click", testDailyIndex);
   document.querySelectorAll(".act").forEach((b) =>
     b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));
   $("logfilters").addEventListener("click", (e) => {
