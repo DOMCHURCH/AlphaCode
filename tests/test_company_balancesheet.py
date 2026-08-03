@@ -19,12 +19,29 @@ def test_balancesheet_query():
 
     # First, check what metrics are actually populated
     with session_scope() as session:
-        result = session.execute(text("""
-            SELECT metric, COUNT(DISTINCT ticker) as tickers, COUNT(*) as rows
-            FROM fundamentals
-            GROUP BY metric
-            ORDER BY metric
-        """)).fetchall()
+        # Check if fundamentals table exists
+        try:
+            result = session.execute(text("""
+                SELECT metric, COUNT(DISTINCT ticker) as tickers, COUNT(*) as rows
+                FROM fundamentals
+                GROUP BY metric
+                ORDER BY metric
+            """)).fetchall()
+        except Exception as e:
+            if "no such table" in str(e).lower():
+                print("\n" + "="*80)
+                print("FUNDAMENTALS TABLE POPULATION")
+                print("="*80)
+                print("ERROR: fundamentals table does not exist. Database schema not initialized.")
+                print("\nTo initialize the schema, run migrations:")
+                print("  python -m alembic upgrade head")
+                print("\nThen populate fundamentals with SEC quarterly loader:")
+                print("  POST /backfill?fundamentals=true")
+                print("\nOr in code:")
+                print("  from src.backfill import backfill_pit_fundamentals")
+                print("  backfill_pit_fundamentals(session)")
+                return
+            raise
 
         print("\n" + "="*80)
         print("FUNDAMENTALS TABLE POPULATION")
