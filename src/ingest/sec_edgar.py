@@ -258,6 +258,21 @@ XBRL_CONCEPTS: dict[str, tuple[str, ...]] = {
     "pretax_income": (
         "IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
     ),
+    # Balance sheet components — for detailed breakdowns
+    "goodwill": ("Goodwill",),
+    "intangibles": (
+        "IntangibleAssetsNetExcludingGoodwill",
+        "IntangibleAssetsNet",
+    ),
+    "inventory": ("InventoryNet",),
+    "receivables": ("AccountsReceivableNetCurrent",),
+    "property_plant_equipment": ("PropertyPlantAndEquipmentNet",),
+    "short_term_investments": ("ShortTermInvestments",),
+    "accounts_payable": ("AccountsPayableCurrent",),
+    "short_term_debt": ("ShortTermBorrowings",),
+    "other_assets": ("OtherAssets",),
+    "other_liabilities": ("OtherLiabilities",),
+    "total_liabilities": ("Liabilities",),
 }
 
 

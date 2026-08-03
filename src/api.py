@@ -1261,26 +1261,33 @@ async def diagnostics_balance_sheet(tickers: str = Query("JPM,AAL,MSFT,WMT,FCX")
             for ticker in requested_tickers:
                 bs = get_balance_sheet(ticker, as_of=as_of)
                 if bs:
-                    # Calculate total assets and liabilities+equity
-                    total_assets = sum(
-                        v.value for v in bs.assets.values()
-                        if v.value is not None and not v.missing
-                    )
-                    total_liabilities = sum(
-                        v.value for v in bs.liabilities.values()
-                        if v.value is not None and not v.missing
-                    )
-                    total_equity = sum(
-                        v.value for v in bs.equity.values()
-                        if v.value is not None and not v.missing
-                    )
+                    # Use total_assets and total_equity directly from the query layer
+                    total_assets_val = bs.assets.get("total_assets")
+                    total_equity_val = bs.equity.get("shareholders_equity")
+                    current_liab_val = bs.liabilities.get("current_liabilities")
+                    long_term_debt_val = bs.liabilities.get("long_term_debt")
 
-                    # Check balance identity
-                    balance_diff_pct = 0.0
-                    if total_assets > 0:
-                        balance_diff_pct = abs(
-                            (total_assets - (total_liabilities + total_equity)) / total_assets * 100
-                        )
+                    total_assets = total_assets_val.value if (total_assets_val and total_assets_val.value is not None and not total_assets_val.missing) else None
+                    total_equity = total_equity_val.value if (total_equity_val and total_equity_val.value is not None and not total_equity_val.missing) else None
+                    current_liab = current_liab_val.value if (current_liab_val and current_liab_val.value is not None and not current_liab_val.missing) else None
+                    long_debt = long_term_debt_val.value if (long_term_debt_val and long_term_debt_val.value is not None and not long_term_debt_val.missing) else None
+
+                    # Balance identity: Assets should equal Liabilities + Equity
+                    balance_diff_pct = None
+                    balanced = False
+                    balance_error = None
+
+                    if total_assets is not None and total_assets != 0:
+                        total_liab_equity = (current_liab or 0) + (long_debt or 0) + (total_equity or 0)
+                        if total_liab_equity != 0:
+                            balance_diff_pct = abs((total_assets - total_liab_equity) / total_assets * 100)
+                            balanced = balance_diff_pct < 1.0
+                        else:
+                            balance_error = "Liabilities + Equity sum to zero (data quality issue)"
+                    elif total_assets == 0:
+                        balance_error = "Total assets is zero (not a valid balance sheet)"
+                    elif total_assets is not None and total_assets < 0:
+                        balance_error = f"Total assets is negative: ${total_assets:,.0f}"
 
                     company_sheets[ticker] = {
                         "found": True,
@@ -1317,17 +1324,16 @@ async def diagnostics_balance_sheet(tickers: str = Query("JPM,AAL,MSFT,WMT,FCX")
                             }
                             for name, value in bs.equity.items()
                         },
-                        "totals": {
-                            "assets": total_assets,
-                            "liabilities": total_liabilities,
-                            "equity": total_equity,
-                        },
                         "balance_check": {
-                            "assets": total_assets,
-                            "liabilities_plus_equity": total_liabilities + total_equity,
-                            "diff_pct": round(balance_diff_pct, 2),
-                            "balanced": balance_diff_pct < 1.0,
+                            "total_assets": total_assets,
+                            "total_equity": total_equity,
+                            "current_liabilities": current_liab,
+                            "long_term_debt": long_debt,
+                            "diff_pct": round(balance_diff_pct, 2) if balance_diff_pct is not None else None,
+                            "balanced": balanced,
+                            "error": balance_error,
                         },
+                        "data_quality_issues": bs.data_quality_issues,
                     }
                 else:
                     company_sheets[ticker] = {"found": False}

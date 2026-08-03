@@ -2,6 +2,10 @@
 
 Given a ticker, returns the most recent balance sheet data with point-in-time
 correctness, highlighting missing concepts and data quality.
+
+Data strategy: Use totals that actually populate (total_assets, total_equity,
+etc.) rather than trying to sum components. Component concepts (goodwill,
+inventory, receivables, PPE) can be added when they're backfilled.
 """
 
 from __future__ import annotations
@@ -17,10 +21,19 @@ from src.storage.db import session_scope
 log = structlog.get_logger(__name__)
 
 
-# Map from display names to fundamentals table metric names
+# Map from display names to fundamentals table metric names.
+# Focus on metrics that actually populate from SEC XBRL backfill.
 BALANCE_SHEET_CONCEPTS = {
-    # Assets
+    # Assets — totals that populate
+    "total_assets": "total_assets",
+    "current_assets": "current_assets",
     "cash": "cash",
+    # Liabilities — totals that populate
+    "current_liabilities": "current_liabilities",
+    "long_term_debt": "long_term_debt",
+    # Equity
+    "shareholders_equity": "total_equity",
+    # Components (pending wider XBRL concept map + backfill)
     "short_term_investments": "short_term_investments",
     "receivables": "receivables",
     "inventory": "inventory",
@@ -28,17 +41,9 @@ BALANCE_SHEET_CONCEPTS = {
     "goodwill": "goodwill",
     "intangibles": "intangibles",
     "other_assets": "other_assets",
-    "current_assets": "current_assets",
-    "total_assets": "total_assets",
-    # Liabilities
     "short_term_debt": "short_term_debt",
     "accounts_payable": "accounts_payable",
-    "current_liabilities": "current_liabilities",
-    "long_term_debt": "long_term_debt",
     "other_liabilities": "other_liabilities",
-    "total_liabilities": "total_liabilities",
-    # Equity
-    "shareholders_equity": "total_equity",
 }
 
 
@@ -64,6 +69,7 @@ class BalanceSheet:
     liabilities: dict[str, BalanceSheetValue]
     equity: dict[str, BalanceSheetValue]
     missing_concepts: list[str]
+    data_quality_issues: list[str]  # e.g., negative equity, zero assets
 
 
 def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet | None:
@@ -125,7 +131,7 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
         most_recent_period = max(by_period.keys())
         period_data = {f.metric: f for f in by_period[most_recent_period]}
 
-        # Get period end and filing date
+        # Get period end and filing date from any concept in the period
         sample = period_data[next(iter(period_data))]
         period_end = sample.period_end
         filing_date = sample.filing_date
@@ -135,13 +141,17 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
         liabilities = {}
         equity = {}
         missing = []
+        quality_issues = []
 
+        # Asset concepts
         asset_concepts = [
-            "cash", "short_term_investments", "receivables", "inventory",
+            "total_assets", "current_assets", "cash",
+            "short_term_investments", "receivables", "inventory",
             "property_plant_equipment", "goodwill", "intangibles", "other_assets",
         ]
         liability_concepts = [
-            "short_term_debt", "accounts_payable", "long_term_debt", "other_liabilities",
+            "current_liabilities", "long_term_debt",
+            "short_term_debt", "accounts_payable", "other_liabilities",
         ]
         equity_concepts = ["shareholders_equity"]
 
@@ -196,6 +206,20 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
                     restated=f.restated,
                 )
 
+        # Validate data quality
+        total_assets = assets.get("total_assets")
+        shareholders_equity = equity.get("shareholders_equity")
+
+        if total_assets and total_assets.value is not None:
+            if total_assets.value == 0:
+                quality_issues.append("total_assets is zero (likely segment or quarterly change, not balance)")
+            elif total_assets.value < 0:
+                quality_issues.append(f"total_assets is negative (${total_assets.value:,.0f})")
+
+        if shareholders_equity and shareholders_equity.value is not None:
+            if shareholders_equity.value < 0:
+                quality_issues.append(f"shareholders_equity is negative (${shareholders_equity.value:,.0f}) — may be quarterly change or sign error")
+
         return BalanceSheet(
             ticker=ticker.upper(),
             company_name=company_name,
@@ -205,4 +229,5 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
             liabilities=liabilities,
             equity=equity,
             missing_concepts=missing,
+            data_quality_issues=quality_issues,
         )
