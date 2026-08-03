@@ -25,6 +25,7 @@ from sqlalchemy import select
 
 from src.config.factor_weights import MODE_FULL, MODE_LABEL, MODE_MOMENTUM_ONLY
 from src.config.settings import get_settings
+from src.ingest.sec_edgar import TRACKED_FORMS
 from src.logging_config import configure_logging
 from src.storage import repository
 from src.storage.db import init_db, session_scope
@@ -1141,6 +1142,111 @@ def diagnostics_page() -> HTMLResponse:
         return HTMLResponse(
             "<h1>Diagnostics</h1><p>See <a href='/diagnostics.json'>/diagnostics.json</a>.</p>"
         )
+
+
+@app.get("/diagnostics/daily-index")
+async def diagnostics_daily_index(days: int = Query(3, ge=1, le=10)) -> dict[str, Any]:
+    """Fetch and parse SEC daily index for the last N trading days.
+
+    Returns:
+        - Per-day diagnostics: URL attempted, HTTP status, file size, parsed counts
+        - Universe intersection: count and sample of 10 filings
+        - On failure: raw response and error details for debugging
+    """
+    from src.ingest.sec_daily_index import make_client, extract_daily_index_filings
+    from src.storage.pit import get_universe
+
+    s = get_settings()
+    if not s.sec_user_agent or "@" not in s.sec_user_agent:
+        return {
+            "error": "SEC_USER_AGENT not configured",
+            "detail": "Set SEC_USER_AGENT=Name@email.com",
+        }
+
+    try:
+        # Get universe for ticker->CIK mapping
+        with session_scope() as session:
+            as_of = dt.date.today()
+            universe = get_universe(session, as_of)
+
+        if universe.empty:
+            return {"error": "Universe is empty", "detail": "Run backfill first"}
+
+        ticker_cik_map = {row["ticker"]: row.get("cik") for _, row in universe.iterrows()}
+        liquid_tickers = set(universe["ticker"].tolist())
+
+        # Fetch daily index for the last N trading days
+        client = make_client()
+        results_by_day = {}
+        all_filings = []
+
+        async with client:
+            trading_days = _get_last_trading_days(as_of, days)
+            for date in trading_days:
+                filings, diag = await extract_daily_index_filings(
+                    client, date, ticker_cik_map, TRACKED_FORMS
+                )
+                results_by_day[str(date)] = diag
+                all_filings.extend(filings)
+
+        # Summarize per-day results
+        per_day = {}
+        for date, diag in results_by_day.items():
+            per_day[date] = {
+                "urls_tried": diag.get("urls_tried", []),
+                "successful_path": diag.get("successful_path"),
+                "status_code": diag.get("status_code"),
+                "raw_bytes": diag.get("raw_bytes", 0),
+                "total_lines": diag.get("total_lines", 0),
+                "total_filings": diag.get("total_filings_in_index", 0),
+                "after_form_filter": diag.get("filings_after_form_filter", 0),
+                "in_universe": diag.get("filings_in_universe", 0),
+                "error": diag.get("error"),
+            }
+
+        # Sample 10 from universe filings
+        sample = [
+            {
+                "ticker": f["ticker"],
+                "cik": f["cik"],
+                "form": f["form"],
+                "filing_date": f["filing_date"].isoformat(),
+                "company_name": f["company_name"][:50],
+            }
+            for f in all_filings[:10]
+        ]
+
+        return {
+            "as_of": str(as_of),
+            "days_requested": days,
+            "per_day": per_day,
+            "summary": {
+                "total_filings_all_days": sum(d.get("total_filings", 0) for d in results_by_day.values()),
+                "total_after_form_filter": sum(d.get("filings_after_form_filter", 0) for d in results_by_day.values()),
+                "total_in_universe": len(all_filings),
+                "universe_size": len(liquid_tickers),
+            },
+            "sample_10": sample,
+        }
+
+    except Exception as exc:  # noqa: BLE001 - show full error for debugging
+        import traceback
+
+        return {
+            "error": str(exc)[:300],
+            "traceback": traceback.format_exc()[:500],
+        }
+
+
+def _get_last_trading_days(as_of: dt.date, n: int) -> list[dt.date]:
+    """Get the last N trading days (skip weekends)."""
+    days = []
+    d = as_of
+    while len(days) < n:
+        if d.weekday() < 5:  # Monday=0, Friday=4
+            days.append(d)
+        d = d - dt.timedelta(days=1)
+    return sorted(days)
 
 
 _DASHBOARD = Path(__file__).parent / "report" / "templates" / "dashboard.html"

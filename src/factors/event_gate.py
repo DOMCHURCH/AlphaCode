@@ -66,7 +66,7 @@ async def run_event_gate(
         # Get last 3 trading days
         trading_days = _get_last_trading_days(as_of, 3)
         for date in trading_days:
-            filings = await extract_daily_index_filings(
+            filings, diag = await extract_daily_index_filings(
                 client, date, ticker_cik_map, TRACKED_FORMS
             )
             for f in filings:

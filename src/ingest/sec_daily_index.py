@@ -5,10 +5,12 @@ weight than querying per-company submissions and gives us filings as they are
 published, not as the historical submissions API presents them (which sorts by
 filing_date, not accession order).
 
-Access pattern:
-  https://www.sec.gov/Archives/edgar/daily-index/{year}/Q{quarter}/company.0.txt
+Access patterns (one per date):
+  https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{n}/company.{YYYYMMDD}.idx
+  https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{n}/form.{YYYYMMDD}.idx
+  https://www.sec.gov/Archives/edgar/daily-index/{year}/QTR{n}/master.{YYYYMMDD}.idx
 
-The .txt is tab-separated with a header row, then one row per filing.
+The .idx files are pipe-separated with a header row, then one row per filing.
 """
 
 from __future__ import annotations
@@ -48,56 +50,84 @@ def make_client(concurrency: int = 2) -> APIClient:
     )
 
 
-async def fetch_daily_index(client: APIClient, date: dt.date) -> list[dict[str, Any]]:
+async def fetch_daily_index(client: APIClient, date: dt.date) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Fetch all filings for one trading day from the SEC daily index.
 
-    Returns rows from the daily index file, which is tab-separated with fields:
-    CIK, Company Name, Form Type, Date Filed, Filename, and others.
+    Tries multiple file formats (company.idx, form.idx, master.idx) in order.
+    Returns rows from the daily index file, which is pipe-separated with fields:
+    CIK, Company Name, Form Type, Date Filed, Accession Number, and others.
 
-    The SEC publishes one file per day; it covers all filings for that day.
+    Returns:
+        Tuple of (rows, diagnostics) where diagnostics contains the URL and HTTP
+        status for debugging.
     """
     year = date.year
     quarter = (date.month - 1) // 3 + 1
-    path = f"/Archives/edgar/daily-index/{year}/Q{quarter}/company.0.txt"
+    date_str = date.strftime("%Y%m%d")
 
-    try:
-        text = await client.get_json(path, expect_json=False)
-    except Exception as exc:
-        log.warning(
-            "daily_index_fetch_failed",
-            date=str(date),
-            year=year,
-            quarter=quarter,
-            error=str(exc)[:200],
-        )
-        return []
+    # Try multiple file variants
+    file_variants = [
+        f"/Archives/edgar/daily-index/{year}/QTR{quarter}/company.{date_str}.idx",
+        f"/Archives/edgar/daily-index/{year}/QTR{quarter}/form.{date_str}.idx",
+        f"/Archives/edgar/daily-index/{year}/QTR{quarter}/master.{date_str}.idx",
+    ]
 
-    if not text or len(text.strip().split("\n")) < 2:
-        log.debug("daily_index_empty", date=str(date), path=path)
-        return []
+    diag = {
+        "date": str(date),
+        "urls_tried": file_variants,
+        "raw_bytes": 0,
+        "total_lines": 0,
+        "status_code": None,
+        "error": None,
+    }
 
-    # Parse tab-separated file: skip header, extract columns
-    lines = text.strip().split("\n")
-    if len(lines) < 2:
-        return []
-
-    # Expected header: CIK|Company Name|Form Type|Date Filed|Filename
-    header = lines[0].split("|")
-    rows = []
-    for line in lines[1:]:
-        parts = line.split("|")
-        if len(parts) < 5:
+    for path in file_variants:
+        try:
+            text = await client.get_json(path, expect_json=False)
+            diag["raw_bytes"] = len(text.encode()) if text else 0
+            diag["status_code"] = 200
+        except Exception as exc:
+            diag["error"] = str(exc)[:200]
+            log.debug(
+                "daily_index_fetch_failed",
+                date=str(date),
+                path=path,
+                error=str(exc)[:200],
+            )
             continue
-        rows.append({
-            "cik": parts[0].strip(),
-            "company_name": parts[1].strip(),
-            "form_type": parts[2].strip(),
-            "date_filed": parts[3].strip(),
-            "filename": parts[4].strip() if len(parts) > 4 else None,
-        })
 
-    log.info("daily_index_loaded", date=str(date), rows=len(rows))
-    return rows
+        if not text or len(text.strip().split("\n")) < 2:
+            log.debug("daily_index_empty", date=str(date), path=path)
+            diag["error"] = "Empty or too short response"
+            continue
+
+        # Parse pipe-separated file: skip header, extract columns
+        lines = text.strip().split("\n")
+        diag["total_lines"] = len(lines)
+        if len(lines) < 2:
+            continue
+
+        # Expected header: CIK|Company Name|Form Type|Date Filed|Accession Number|...
+        rows = []
+        for line in lines[1:]:
+            parts = line.split("|")
+            if len(parts) < 5:
+                continue
+            rows.append({
+                "cik": parts[0].strip(),
+                "company_name": parts[1].strip(),
+                "form_type": parts[2].strip(),
+                "date_filed": parts[3].strip(),
+                "accession": parts[4].strip() if len(parts) > 4 else None,
+            })
+
+        log.info("daily_index_loaded", date=str(date), rows=len(rows), path=path)
+        diag["successful_path"] = path
+        return rows, diag
+
+    # All variants failed
+    log.warning("daily_index_all_formats_failed", date=str(date))
+    return [], diag
 
 
 async def extract_daily_index_filings(
@@ -105,23 +135,35 @@ async def extract_daily_index_filings(
     date: dt.date,
     ticker_to_cik: dict[str, str],
     tracked_forms: set[str],
-) -> list[dict[str, Any]]:
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Extract filings for tickers in our universe from the daily index.
 
     Maps CIK to ticker, filters to tracked forms (8-K, 10-Q, etc), and
     returns enriched filing events ready for Stage 1 ranking.
+
+    Returns:
+        Tuple of (filings, diagnostics) where diagnostics includes parse results.
     """
-    raw_filings = await fetch_daily_index(client, date)
+    raw_filings, diag = await fetch_daily_index(client, date)
     cik_to_ticker = {v.lower(): k for k, v in ticker_to_cik.items()}
+
+    diag["total_filings_in_index"] = len(raw_filings)
+    diag["filings_after_form_filter"] = 0
+    diag["filings_in_universe"] = 0
 
     filings = []
     for row in raw_filings:
         cik = row["cik"].strip().lstrip("0") or None
-        if not cik or cik not in cik_to_ticker:
+        if not cik:
             continue
 
         form = (row["form_type"] or "").strip()
         if form not in tracked_forms:
+            continue
+
+        diag["filings_after_form_filter"] += 1
+
+        if cik not in cik_to_ticker:
             continue
 
         ticker = cik_to_ticker[cik]
@@ -130,13 +172,14 @@ async def extract_daily_index_filings(
         except (ValueError, TypeError):
             continue
 
+        diag["filings_in_universe"] += 1
         filings.append({
             "ticker": ticker,
             "cik": cik,
             "form": form,
             "filing_date": filed,
             "company_name": row["company_name"],
-            "accession": row["filename"][:32] if row["filename"] else None,
+            "accession": row["accession"],
         })
 
-    return filings
+    return filings, diag
