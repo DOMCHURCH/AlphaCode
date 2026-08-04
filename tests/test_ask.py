@@ -219,6 +219,23 @@ def test_the_context_names_what_the_filer_did_not_break_out(db):
     assert "remainder" in ctx
 
 
+def test_every_suggestion_is_answerable_from_the_context(db):
+    """A chip that reliably returns "that isn't in the filing data" reads as a
+    broken feature, not a working guardrail.
+
+    The model is sent ONE company, so anything asking it to compare, rank or
+    look at another period can never be answered -- and must not be offered.
+    """
+    from src.llm.ask import suggested_questions
+
+    for q in suggested_questions():
+        low = q.lower()
+        for word in ("compare", "versus", " vs ", "typical", "average", "peer",
+                     "sector", "industry", "last year", "next", "should i",
+                     "better", "worse"):
+            assert word not in low, f"{q!r} cannot be answered from one company"
+
+
 def test_the_system_prompt_forbids_the_four_things(db):
     from src.llm.ask import SYSTEM_PROMPT
 

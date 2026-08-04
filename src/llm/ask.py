@@ -43,10 +43,13 @@ The figures are as reported to the SEC for one period. "Other" lines are \
 remainders: the total minus the components the filer broke out separately, not \
 an estimate of anything."""
 
-# What the reader is looking at, in the order they read it.
+# Every suggestion must be answerable FROM THE CONTEXT ABOVE. A chip that
+# reliably returns "that isn't in the filing data" reads as a broken feature
+# rather than a working guardrail -- which is why there is no sector-comparison
+# chip here: the model is sent one company, so it could never answer one.
 _SUGGESTED = (
     "Why is so much of this in 'other'?",
-    "How does this compare to a typical company in this sector?",
+    "What is this company mostly made of?",
     "What does negative equity mean?",
 )
 
