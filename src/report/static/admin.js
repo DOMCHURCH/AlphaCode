@@ -999,7 +999,43 @@ async function runReconcile() {
 }
 
 // ---------------------------------------------------------------- wire up
+// ---------------------------------------------------------------- code gate
+const GATE_CODE = "473";
+
+// Unlocking also starts the page. Without this the poll would run behind the
+// gate, hitting /admin.json every 10s for a page nobody is looking at.
+function unlock() {
+  try { sessionStorage.setItem("admin-gate", "ok"); } catch (e) { /* private mode */ }
+  document.documentElement.classList.remove("locked");
+  boot();
+}
+
+function initGate() {
+  const input = $("gateInput"), msg = $("gateMsg");
+  if (!input) return;
+  input.addEventListener("input", () => {
+    // Digits only, however they arrive — typed, pasted or autofilled.
+    input.value = input.value.replace(/\D/g, "").slice(0, 3);
+    input.classList.remove("wrong");
+    msg.textContent = "";
+    if (input.value.length < 3) return;
+    if (input.value === GATE_CODE) { unlock(); return; }
+    input.classList.add("wrong");
+    msg.textContent = "Not that one.";
+    // Clear so the next attempt starts from empty rather than needing a
+    // backspace on a phone keypad.
+    setTimeout(() => { input.value = ""; input.focus(); }, 550);
+  });
+  input.focus();
+}
+
 function init() {
+  initGate();
+  if (document.documentElement.classList.contains("locked")) return;
+  boot();
+}
+
+function boot() {
   $("copyBtn").addEventListener("click", copyEverything);
   $("refreshBtn").addEventListener("click", load);
   $("reconcileBtn").addEventListener("click", runReconcile);

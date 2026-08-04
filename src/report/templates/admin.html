@@ -9,8 +9,38 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;500;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/admin.css">
+<script>
+/* Runs before anything paints, so the page never flashes into view and then
+   hides itself. sessionStorage, so the code is asked once per browser session
+   and not once per navigation.
+
+   This is a speed bump on the front door, not a lock: the code is in the
+   client and /admin.json answers without it. The controls that actually
+   matter are server-side -- confirm=true on the destructive endpoint and the
+   rate limits on every POST. */
+(function () {
+  try {
+    if (sessionStorage.getItem("admin-gate") !== "ok") {
+      document.documentElement.classList.add("locked");
+    }
+  } catch (e) {
+    document.documentElement.classList.add("locked");
+  }
+})();
+</script>
 </head>
 <body>
+
+<div id="gate">
+  <div class="gate-card">
+    <span class="dot"></span>
+    <h1>Admin</h1>
+    <p>Enter the code to continue.</p>
+    <input id="gateInput" type="text" inputmode="numeric" pattern="[0-9]*"
+      maxlength="3" autocomplete="off" aria-label="Access code" autofocus>
+    <div class="gate-msg" id="gateMsg" role="status"></div>
+  </div>
+</div>
 
 <nav><div class="wrap nav">
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>

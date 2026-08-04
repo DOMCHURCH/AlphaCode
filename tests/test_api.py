@@ -126,6 +126,74 @@ def test_admin_page_and_json(client):
         assert key in body, key
 
 
+def test_the_code_gate_hides_the_page_before_it_paints(client):
+    """The class is set by an inline script in <head>, not by admin.js.
+
+    Deferred, the page would render fully and then hide itself -- a flash of
+    the whole admin surface, which is the one thing a gate must not do.
+    """
+    page = client.get("/admin").text
+    head = page.split("</head>", 1)[0]
+
+    assert 'classList.add("locked")' in head, "the gate must run before paint"
+    assert "sessionStorage" in head
+    assert 'id="gate"' in page and 'id="gateInput"' in page
+
+    css = client.get("/static/admin.css").text
+    assert "html.locked body > nav,html.locked body > main{display:none}" in css
+
+
+def test_the_gate_asks_once_per_session_and_takes_only_digits(client):
+    js = client.get("/static/admin.js").text
+
+    assert 'GATE_CODE = "473"' in js
+    assert 'sessionStorage.setItem("admin-gate", "ok")' in js
+    assert 'replace(/\\D/g, "")' in js, "digits only, however they arrive"
+    # Unlocking must also start the poller, or /admin.json would be fetched
+    # every 10s behind a gate nobody has opened.
+    assert "boot();" in js
+
+
+def test_the_gate_is_a_speed_bump_not_authentication(client):
+    """Recorded deliberately, so nobody later mistakes it for access control.
+
+    The code lives in the client and /admin.json answers without it. The
+    controls that actually stop damage are server-side, and this asserts the
+    important one is still there.
+    """
+    assert client.get("/admin").status_code == 200
+    assert client.get("/admin.json").status_code == 200
+
+    refused = client.post("/admin/reload-fundamentals")
+    assert refused.status_code == 400
+    assert "confirm=true" in refused.json()["detail"]
+
+
+def test_admin_keeps_status_colour_and_nothing_else(client):
+    """The reader-facing rule is "the only colour is data". On /admin the
+    STATUS is the data, so blue/yellow/red stay -- on pills, the verdict and
+    the destructive button, and nowhere else."""
+    css = client.get("/static/admin.css").text
+    chrome, status = css.split("/* STATUS ONLY, from here down. */", 1)
+
+    for token in ("--red:", "--blue:", "--yellow:"):
+        assert token not in chrome, f"{token} must sit below the status marker"
+
+    for rule, hue in (
+        (".pill.ok{", "--blue"), (".pill.warn{", "--yellow"),
+        (".pill.bad{", "--red"), (".act.danger{", "--red"),
+        (".v-error::before{", "--red"),
+    ):
+        block = css.split(rule, 1)[1].split("}", 1)[0]
+        assert hue in block, f"{rule} lost its status colour"
+
+    # The ordinary controls are ink and grey, like every other page.
+    for rule in (".copy{", ".mini{", ".chipbtn{", ".card{"):
+        block = css.split(rule, 1)[1].split("}", 1)[0]
+        for hue in ("--red", "--blue", "--yellow"):
+            assert hue not in block, f"{rule} must not use {hue}"
+
+
 def test_admin_config_never_prints_secret_values(monkeypatch, client):
     monkeypatch.setenv("POLYGON_API_KEY", "super-secret-value")
     from src.config.settings import get_settings

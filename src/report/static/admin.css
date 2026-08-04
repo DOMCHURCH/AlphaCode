@@ -1,201 +1,280 @@
-/* Alpha Funnel — Diagnostics. Same "Bauhaus broadsheet" world as the dashboard:
-   warm paper ground, hard ink rules, offset shadows, Jost + Space Mono. The
-   primary triad is used FUNCTIONALLY as status colour: blue = ok, yellow = warn,
-   red = error. Mobile-first, single column, nothing scrolls sideways. */
+/* Admin — the same soft-surface world as /company, with one deliberate
+   exception.
+   ---------------------------------------------------------------------------
+   On the reader-facing pages the rule is "the only colour is data", and the
+   chrome stays monochrome so the drawing has a monopoly on it. That rule holds
+   here too -- it just resolves differently, because on this page THE STATUS IS
+   THE DATA. Blue means ok, yellow means look, red means broken. Those three
+   are the numbers of this page, so they keep their saturation, and everything
+   that is not a status stays grey: cards, buttons, inputs, rules, chips.
+
+   The destructive control keeps a full red fill on purpose. It replaces every
+   fundamentals row, and it must never read as one of the backfill buttons
+   sitting beside it.
+
+   Mobile-first, single column, nothing scrolls sideways. */
 :root{
-  --paper:#F3EFE4; --paper2:#EAE3D3; --card:#FBFAF4;
-  --ink:#161310; --ink2:#544c40; --dim:#8b8272;
-  --red:#E1362C; --blue:#2340BE; --yellow:#F3C218;
+  --bg:#E7EBF2; --hi:#FFFFFF; --lo:#BFC7D6;
+  --well:#E2E7EF;
+  --ink:#22262F; --ink2:#5A6273; --dim:#98A0AF;
+
   --disp:"Jost",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"Space Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  --sh:4px 4px 0 var(--ink);
+
+  --r1:12px; --r2:18px; --r3:26px;
+  --up:7px 7px 15px var(--lo), -7px -7px 15px var(--hi);
+  --up-sm:4px 4px 9px var(--lo), -4px -4px 9px var(--hi);
+  --in:inset 5px 5px 10px var(--lo), inset -5px -5px 10px var(--hi);
+  --in-sm:inset 3px 3px 6px var(--lo), inset -3px -3px 6px var(--hi);
+
+  /* STATUS ONLY, from here down. */
+  --red:#E1362C; --blue:#2340BE; --yellow:#F3C218;
+  --amber-ink:#7A5E00;   /* readable warn text; the yellow itself is not */
+  --red-wash:#F6E2E0; --yellow-wash:#F5EEDA; --blue-wash:#E2E6F6;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);
-  font:16px/1.5 var(--disp);-webkit-font-smoothing:antialiased;color-scheme:light;
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.55 var(--disp);-webkit-font-smoothing:antialiased;color-scheme:light;
   overflow-x:hidden}
-a{color:var(--blue);text-decoration:none}a:hover{text-decoration:underline}
-h2{font-weight:800;letter-spacing:-.01em;margin:0;font-size:15px;text-transform:uppercase}
+a{color:var(--ink);text-decoration:none}
+a:hover{text-decoration:underline}
+h2{font-weight:600;letter-spacing:-.015em;margin:0;font-size:18px}
 [hidden]{display:none!important}
-.wrap{max-width:720px;margin:0 auto;padding:0 16px}
+.wrap{max-width:720px;margin:0 auto;padding:0 18px}
 
-/* nav */
-nav{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:2px solid var(--ink)}
-.nav{display:flex;align-items:center;gap:12px;height:56px}
-.brand{font-weight:800;font-size:16px;letter-spacing:-.02em;display:flex;align-items:center;gap:9px;text-transform:uppercase;color:var(--ink);white-space:nowrap}
+/* ---- code gate ---- */
+/* `locked` is set by an inline script in <head>, before anything paints, so
+   the page never flashes into view and then hides itself. */
+html.locked body > nav,html.locked body > main{display:none}
+#gate{display:none}
+html.locked #gate{display:flex}
+#gate{position:fixed;inset:0;z-index:200;background:var(--bg);
+  align-items:center;justify-content:center;padding:24px}
+.gate-card{width:100%;max-width:330px;background:var(--bg);border-radius:var(--r3);
+  box-shadow:var(--up);padding:34px 28px;text-align:center}
+/* .dot is a span; in the nav flex centres it, here it has to be told. */
+.gate-card .dot{display:block;margin:0 auto 18px}
+.gate-card h1{font-size:21px;font-weight:600;letter-spacing:-.02em;margin:0 0 6px}
+.gate-card p{font-size:14px;color:var(--ink2);margin:0 0 22px;line-height:1.5}
+#gateInput{width:100%;font:700 34px/1 var(--mono);letter-spacing:.34em;
+  text-align:center;text-indent:.34em;color:var(--ink);background:var(--well);
+  border:0;border-radius:var(--r2);box-shadow:var(--in);padding:20px 12px;
+  -webkit-appearance:none;-moz-appearance:textfield}
+#gateInput::-webkit-outer-spin-button,#gateInput::-webkit-inner-spin-button{
+  -webkit-appearance:none;margin:0}
+#gateInput:focus{outline:0;box-shadow:var(--in),0 0 0 2px var(--ink)}
+#gateInput.wrong{box-shadow:var(--in),0 0 0 2px var(--red);color:var(--red)}
+.gate-msg{font-family:var(--mono);font-size:12px;color:var(--red);
+  margin-top:14px;min-height:16px}
+
+/* ---- nav ---- */
+/* A raised shelf. Without the old 2px rule, content would otherwise scroll
+   under an opaque bar with no edge to say where the bar ends. */
+nav{position:sticky;top:0;z-index:50;background:var(--bg);
+  box-shadow:0 6px 14px -10px var(--lo)}
+.nav{display:flex;align-items:center;gap:12px;height:64px}
+.brand{font-weight:600;font-size:16px;letter-spacing:.01em;display:flex;
+  align-items:center;gap:10px;color:var(--ink);white-space:nowrap}
 .brand:hover{text-decoration:none}
-.dot{width:20px;height:20px;background:
-  conic-gradient(var(--blue) 0 25%,var(--yellow) 0 50%,var(--ink) 0 75%,var(--red) 0)}
-.tag{font-family:var(--mono);font-size:11px;font-weight:700;padding:3px 9px;border:2px solid var(--ink);
-  text-transform:uppercase;letter-spacing:.06em;background:var(--yellow)}
+.dot{width:22px;height:22px;flex:none;border-radius:7px;box-shadow:var(--up-sm);
+  background:conic-gradient(var(--blue) 0 25%,var(--yellow) 0 50%,
+    var(--bg) 0 75%,var(--red) 0)}
+.tag{font-size:11px;font-weight:500;letter-spacing:.02em;color:var(--ink2);
+  padding:6px 13px;border-radius:999px;box-shadow:var(--in-sm);background:var(--well)}
 .nav .spacer{flex:1}
-.nav .link{color:var(--ink2);font-size:13px;font-weight:600;text-transform:uppercase;letter-spacing:.03em;white-space:nowrap}
-/* On a phone the brand + pill + link won't all fit a single row; the pill is
-   redundant (the page is unmistakably the diagnostics page) so drop it there. */
+.nav .link{color:var(--ink2);font-size:13px;font-weight:500;white-space:nowrap;
+  padding:8px 14px;border-radius:999px}
+.nav .link:hover{color:var(--ink);box-shadow:var(--up-sm);text-decoration:none}
 @media(max-width:440px){.tag{display:none}}
 
-main{padding:16px 0 60px}
+main{padding:6px 0 72px}
 
-/* copy bar — the hero control */
-.copybar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 18px}
-.copy{flex:1;min-width:200px;background:var(--blue);color:var(--paper);border:2px solid var(--ink);
-  padding:18px 20px;font:800 18px/1 var(--disp);text-transform:uppercase;letter-spacing:.01em;
-  cursor:pointer;box-shadow:var(--sh);transition:transform .1s,box-shadow .1s}
-.copy:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink);text-decoration:none}
-.copy:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
-.copy.done{background:var(--ink)}
-.mini{background:var(--card);color:var(--ink);border:2px solid var(--ink);padding:11px 14px;
-  font:700 13px/1 var(--disp);text-transform:uppercase;letter-spacing:.03em;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
-.mini:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
-.mini:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
-.mini[disabled]{opacity:.45;cursor:default;transform:none;box-shadow:2px 2px 0 var(--ink)}
-.mini.busy{background:var(--yellow)}
+/* ---- copy bar: the one tap that matters ---- */
+.copybar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:4px 0 20px}
+.copy{flex:1;min-width:200px;background:var(--ink);color:var(--bg);border:0;
+  border-radius:999px;padding:18px 22px;font:600 16px/1 var(--disp);
+  letter-spacing:.01em;cursor:pointer;box-shadow:var(--up-sm);
+  transition:box-shadow .18s,transform .18s}
+.copy:hover{box-shadow:var(--up);text-decoration:none}
+.copy:active{transform:translateY(1px)}
+.copy.done{background:var(--blue)}
+.mini{background:var(--bg);color:var(--ink2);border:0;border-radius:999px;
+  padding:12px 17px;font:500 13px/1 var(--disp);cursor:pointer;
+  box-shadow:var(--up-sm);transition:box-shadow .18s,color .18s}
+.mini:hover{color:var(--ink);box-shadow:var(--up)}
+.mini[disabled]{opacity:.5;cursor:default;box-shadow:var(--in-sm)}
+.mini.busy{box-shadow:var(--in-sm);color:var(--amber-ink)}
 .stamp{font-family:var(--mono);font-size:11px;color:var(--ink2);width:100%}
-.copymsg{font-family:var(--mono);font-size:12px;font-weight:700;padding:8px 12px;border:2px solid var(--ink);
-  background:var(--yellow);margin-bottom:14px}
+.copymsg{font-family:var(--mono);font-size:12px;padding:12px 15px;
+  border-radius:var(--r1);background:var(--well);box-shadow:var(--in-sm);
+  margin-bottom:16px;color:var(--ink)}
+.copy:focus-visible,.mini:focus-visible,.act:focus-visible,.chip:focus-visible,
+.chipbtn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 
-/* verdict banner — largest thing on the page */
-.verdict{border:2px solid var(--ink);box-shadow:var(--sh);padding:22px 20px;margin-bottom:20px;position:relative}
-.verdict::before{content:"";position:absolute;left:0;top:0;bottom:0;width:12px;background:var(--ink)}
-.verdict .v-head{font-size:clamp(24px,6.4vw,34px);line-height:1.02;font-weight:800;letter-spacing:-.02em;
-  text-transform:uppercase;text-wrap:balance;padding-left:8px}
-.verdict .v-detail{color:var(--ink2);font-size:15px;margin-top:10px;padding-left:8px}
-.verdict .v-action{font-family:var(--mono);font-size:13px;font-weight:700;margin-top:12px;padding-left:8px}
+/* ---- verdict: the biggest thing on the page ---- */
+/* Raised, with the status carried by a stripe down the edge and a wash behind
+   the type. Loud enough to read at arm's length, soft enough to belong here. */
+.verdict{border-radius:var(--r3);box-shadow:var(--up);padding:26px 24px;
+  margin-bottom:24px;position:relative;overflow:hidden;background:var(--bg)}
+.verdict::before{content:"";position:absolute;left:0;top:0;bottom:0;width:10px}
+.verdict .v-head{font-size:clamp(23px,6.2vw,32px);line-height:1.05;font-weight:600;
+  letter-spacing:-.028em;text-wrap:balance;padding-left:12px}
+.verdict .v-detail{color:var(--ink2);font-size:15px;margin-top:11px;padding-left:12px}
+.verdict .v-action{font-family:var(--mono);font-size:13px;font-weight:700;
+  margin-top:14px;padding-left:12px}
 .verdict .v-action::before{content:"→ "}
-.v-ok{background:var(--card)}.v-ok::before{background:var(--blue)}
+.v-ok{background:var(--blue-wash)}.v-ok::before{background:var(--blue)}
 .v-ok .v-action{color:var(--blue)}
-.v-warn{background:#FBF1CE}.v-warn::before{background:var(--yellow)}
-.v-warn .v-action{color:#8a6d00}
-.v-error{background:#F7DCDA}.v-error::before{background:var(--red)}
+.v-warn{background:var(--yellow-wash)}.v-warn::before{background:var(--yellow)}
+.v-warn .v-action{color:var(--amber-ink)}
+.v-error{background:var(--red-wash)}.v-error::before{background:var(--red)}
 .v-error .v-head{color:var(--red)}.v-error .v-action{color:var(--red)}
 
-/* cards */
-.card{border:2px solid var(--ink);background:var(--card);box-shadow:var(--sh);padding:16px;margin-bottom:18px}
+/* ---- cards ---- */
+/* scroll-margin keeps a card clear of the sticky nav when it is scrolled to. */
+.card{border-radius:var(--r2);background:var(--bg);box-shadow:var(--up);
+  padding:20px;margin-bottom:18px;scroll-margin-top:80px}
 .card-head{display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap}
 .card-head h2{flex:1;min-width:110px}
 .card-head .meta{font-family:var(--mono);font-size:11px;color:var(--ink2)}
-.hint{font-size:12px;color:var(--dim);margin:-4px 0 12px}
-.loading{font-family:var(--mono);font-size:13px;color:var(--dim);padding:8px 0}
+.hint{font-size:13px;color:var(--ink2);margin:0 0 14px;line-height:1.5}
+.loading{font-family:var(--mono);font-size:13px;color:var(--dim);padding:10px 0}
 
-/* stacked "rows" — a table that never overflows on a phone */
-.rows{display:flex;flex-direction:column;gap:0;border-top:2px solid var(--ink)}
-.row{display:flex;align-items:baseline;gap:12px;padding:10px 2px;border-bottom:1px solid rgba(22,19,16,.18)}
-.row .k{font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.02em;flex:1;min-width:0}
-.row .v{font-family:var(--mono);font-size:13px;text-align:right;word-break:break-word}
-.row .sub{display:block;font-family:var(--disp);font-size:12px;font-weight:400;color:var(--ink2);
-  text-transform:none;letter-spacing:0;margin-top:3px}
-/* stacked label/value, for values too long to sit beside their label */
-.statrow{padding:10px 2px;border-bottom:1px solid rgba(22,19,16,.18)}
-.statrow .k{font-weight:700;font-size:13px;text-transform:uppercase;letter-spacing:.02em}
-.statrow .vwide{font-family:var(--mono);font-size:13px;margin-top:4px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
-.statrow .sub{display:block;font-size:12px;font-weight:400;color:var(--ink2);margin-top:3px}
-.pill{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;padding:2px 8px;border:1.5px solid var(--ink);text-transform:uppercase}
-.pill.ok{background:var(--blue);color:var(--paper)}
+/* ---- rows: a table that never overflows a phone ---- */
+/* Separators are engraved rather than drawn: a hairline of highlight over a
+   hairline of shadow, the same light every surface here uses. */
+.rows{display:flex;flex-direction:column;gap:0}
+.row,.statrow{border-bottom:1px solid var(--hi);box-shadow:0 1px 0 var(--lo)}
+.row:last-child,.statrow:last-child{border-bottom:0;box-shadow:none}
+.row{display:flex;align-items:baseline;gap:12px;padding:12px 2px}
+.row .k{font-weight:500;font-size:13.5px;flex:1;min-width:0}
+.row .v{font-family:var(--mono);font-size:13px;text-align:right;
+  word-break:break-word;font-variant-numeric:tabular-nums}
+.row .sub{display:block;font-family:var(--disp);font-size:12px;font-weight:400;
+  color:var(--ink2);letter-spacing:0;margin-top:4px;line-height:1.45}
+.statrow{padding:12px 2px}
+.statrow .k{font-weight:500;font-size:13.5px}
+.statrow .vwide{font-family:var(--mono);font-size:13px;margin-top:5px;
+  overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.statrow .sub{display:block;font-size:12px;font-weight:400;color:var(--ink2);margin-top:4px}
+.pill{display:inline-block;font-family:var(--mono);font-size:11px;font-weight:700;
+  padding:4px 11px;border-radius:999px;letter-spacing:.02em}
+.pill.ok{background:var(--blue);color:#fff}
 .pill.warn{background:var(--yellow);color:var(--ink)}
-.pill.bad{background:var(--red);color:var(--paper)}
-.pill.mute{background:var(--paper2);color:var(--ink2)}
+.pill.bad{background:var(--red);color:#fff}
+.pill.mute{background:var(--well);color:var(--ink2);box-shadow:var(--in-sm)}
 
-/* progress bar (trading days) */
-.bar{height:16px;border:2px solid var(--ink);background:var(--paper2);position:relative;margin-top:6px;width:100%}
-.bar > i{display:block;height:100%;background:var(--blue)}
-.bar.full > i{background:var(--blue)}
+/* ---- progress bar ---- */
+.bar{height:16px;border-radius:999px;background:var(--well);box-shadow:var(--in-sm);
+  position:relative;margin-top:8px;width:100%;overflow:hidden}
+.bar > i{display:block;height:100%;border-radius:999px;background:var(--blue)}
 .bar.warn > i{background:var(--yellow)}
 
-/* last-run stages as stacked cards */
-.stage{border:1px solid rgba(22,19,16,.2);padding:9px 10px;margin-top:8px;background:var(--paper)}
-.stage.fail{border:2px solid var(--red);background:#F7DCDA}
-/* Stack name over numbers: the label and the "in/out/rss" line are each too wide
-   to share a row on a phone without forcing horizontal scroll. */
+/* ---- stages ---- */
+.stage{border-radius:var(--r1);padding:12px 13px;margin-top:10px;
+  background:var(--well);box-shadow:var(--in-sm)}
+.stage.fail{background:var(--red-wash)}
 .stage .st-top{display:block}
-.stage .st-name{display:block;font-weight:700;font-size:13px;overflow-wrap:anywhere}
-.stage .st-nums{display:block;margin-top:4px;font-family:var(--mono);font-size:12px;
+.stage .st-name{display:block;font-weight:600;font-size:13.5px;overflow-wrap:anywhere}
+.stage .st-nums{display:block;margin-top:5px;font-family:var(--mono);font-size:12px;
   color:var(--ink2);overflow-wrap:anywhere}
-.stage .st-err{font-family:var(--mono);font-size:12px;color:var(--red);margin-top:6px;word-break:break-word;font-weight:700}
-.detail-head{font:700 12px/1 var(--mono);text-transform:uppercase;letter-spacing:.06em;color:var(--red);margin:14px 0 2px}
+.stage .st-err{font-family:var(--mono);font-size:12px;color:var(--red);margin-top:7px;
+  word-break:break-word;font-weight:700}
+.detail-head{font:700 11.5px/1 var(--mono);letter-spacing:.05em;color:var(--red);
+  margin:16px 0 2px;text-transform:uppercase}
 
-/* logs */
-.filters{display:flex;gap:6px;flex-wrap:wrap}
-.chip{font:700 11px/1 var(--mono);text-transform:uppercase;padding:6px 9px;border:2px solid var(--ink);
-  background:var(--card);cursor:pointer}
-.chip.on{background:var(--ink);color:var(--paper)}
-.logs{border-top:2px solid var(--ink);font-family:var(--mono);font-size:12px;line-height:1.45;
-  max-height:340px;overflow-y:auto;overflow-x:hidden}
-.logline{display:block;padding:6px 2px;border-bottom:1px solid rgba(22,19,16,.12);word-break:break-word;white-space:pre-wrap}
-.logline .lv{font-weight:700;text-transform:uppercase}
-.logline.error{background:#F7DCDA}.logline.error .lv{color:var(--red)}
-.logline.warning .lv,.logline.warn .lv{color:#8a6d00}
+/* ---- logs ---- */
+.filters{display:flex;gap:7px;flex-wrap:wrap}
+.chip{font:500 12px/1 var(--disp);padding:9px 14px;border:0;border-radius:999px;
+  background:var(--bg);color:var(--ink2);cursor:pointer;box-shadow:var(--up-sm);
+  transition:box-shadow .18s,color .18s}
+.chip:hover{color:var(--ink)}
+.chip.on{background:var(--ink);color:var(--bg)}
+.logs{font-family:var(--mono);font-size:12px;line-height:1.5;max-height:340px;
+  overflow-y:auto;overflow-x:hidden;border-radius:var(--r1);background:var(--well);
+  box-shadow:var(--in-sm);padding:6px 12px}
+.logline{display:block;padding:7px 0;border-bottom:1px solid rgba(34,38,47,.09);
+  word-break:break-word;white-space:pre-wrap}
+.logline:last-child{border-bottom:0}
+.logline .lv{font-weight:700}
+.logline.error{color:var(--red)}
+.logline.warning .lv,.logline.warn .lv{color:var(--amber-ink)}
 .logline .ev{font-weight:700}
 .logline .fl{color:var(--ink2)}
 
-/* actions */
+/* ---- actions ---- */
 .actions{display:flex;flex-direction:column;gap:10px}
-.act{width:100%;background:var(--ink);color:var(--paper);border:2px solid var(--ink);padding:15px;
-  font:800 15px/1 var(--disp);text-transform:uppercase;letter-spacing:.02em;cursor:pointer;box-shadow:var(--sh)}
-.act:hover{transform:translate(-2px,-2px);box-shadow:6px 6px 0 var(--ink);text-decoration:none}
-.act:active{transform:translate(2px,2px);box-shadow:2px 2px 0 var(--ink)}
-.act[disabled]{background:var(--paper2);color:var(--dim);cursor:default;transform:none;box-shadow:var(--sh);opacity:.85}
-.act .why{display:block;font:400 11px/1.3 var(--mono);text-transform:none;letter-spacing:0;margin-top:5px;color:var(--red)}
+.act{width:100%;background:var(--ink);color:var(--bg);border:0;border-radius:999px;
+  padding:16px;font:600 15px/1 var(--disp);letter-spacing:.01em;cursor:pointer;
+  box-shadow:var(--up-sm);transition:box-shadow .18s,transform .18s}
+.act:hover{box-shadow:var(--up);text-decoration:none}
+.act:active{transform:translateY(1px)}
+.act[disabled]{background:var(--well);color:var(--dim);cursor:default;
+  box-shadow:var(--in-sm);transform:none}
+.act .why{display:block;font:400 11px/1.35 var(--mono);letter-spacing:0;
+  margin-top:6px;color:#FFB3AE}
 .act[disabled] .why{color:var(--ink2)}
-.actionmsg{font-family:var(--mono);font-size:12px;margin-top:10px;min-height:16px}
+.actionmsg{font-family:var(--mono);font-size:12px;margin-top:12px;min-height:16px;
+  color:var(--ink2)}
 
-/* Partial-data mode: loud, and never the same styling as a normal action. */
-.act-partial{background:var(--paper);color:var(--ink);border:2px dashed var(--ink)}
-.act-partial:hover{background:var(--yellow)}
+/* THE destructive control. It replaces every fundamentals row, so it keeps a
+   full red fill -- it must never read as one of the backfill buttons beside it. */
+.act.danger{background:var(--red);color:#fff}
+.act.danger:disabled{opacity:.5}
+
+.act-partial{background:var(--bg);color:var(--ink);box-shadow:var(--in-sm)}
+.act-partial:hover{box-shadow:var(--in)}
 .hint-partial{margin:8px 0 0}
-.modebanner{border:2px solid var(--red);background:#F7DCDA;color:var(--red);
-  font:700 11px/1.4 var(--mono);text-transform:uppercase;letter-spacing:.03em;
-  padding:8px 10px;margin:0 0 10px}
+.modebanner{border-radius:var(--r1);background:var(--red-wash);color:var(--red);
+  font:700 11.5px/1.5 var(--mono);letter-spacing:.02em;padding:11px 13px;
+  margin:0 0 12px}
 
-.bf-head{font:800 13px/1 var(--disp);text-transform:uppercase;letter-spacing:.04em;
-  margin:18px 0 6px;color:var(--ink)}
-.bf-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
-.bf-cell{display:flex;flex-direction:column;gap:6px}
-.bf .act,.act.bf{font-size:14px;padding:13px}
-.bf-result{font:400 11px/1.35 var(--mono);word-break:break-word;min-height:15px}
+/* ---- backfill grid ---- */
+.bf-head{font:600 13.5px/1 var(--disp);letter-spacing:.01em;margin:20px 0 8px;
+  color:var(--ink)}
+.bf-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.bf-cell{display:flex;flex-direction:column;gap:7px}
+.bf .act,.act.bf{font-size:14px;padding:14px}
+.bf-result{font:400 11px/1.4 var(--mono);word-break:break-word;min-height:15px;
+  color:var(--ink2);padding:0 4px}
 .bf-result.mute{color:var(--dim)}
 .bf-result.ok .bf-ok{color:var(--blue);font-weight:700}
 .bf-result.bad{color:var(--red)}
-.bf-result .bf-bad{font-weight:700;text-transform:uppercase}
-.bf-result .bf-when{display:block;color:var(--dim);margin-top:2px}
-@media (max-width:380px){.bf-grid{grid-template-columns:1fr}}
+.bf-result .bf-bad{font-weight:700}
+.bf-result .bf-when{display:block;color:var(--dim);margin-top:3px}
+@media(max-width:380px){.bf-grid{grid-template-columns:1fr}}
 
-footer{color:var(--dim);font-size:12px;margin-top:8px;line-height:1.5}
+footer{color:var(--ink2);font-size:12.5px;margin-top:14px;line-height:1.6;padding:0 2px}
 
-.err-note{border:2px solid var(--red);background:#F7DCDA;padding:10px 12px;font-family:var(--mono);
-  font-size:12px;font-weight:700;color:var(--red);margin-top:8px}
+.err-note{border-radius:var(--r1);background:var(--red-wash);padding:13px 15px;
+  font-family:var(--mono);font-size:12px;font-weight:700;color:var(--red);
+  margin-top:10px;line-height:1.5}
 
 /* Balance-sheet line items sit under their company header. */
-.row.indent { padding-left: 18px; }
-.row.indent .k { font-size: .92em; }
-pre.tb {
-  font-size: .78em; overflow: auto; max-height: 220px;
-  background: rgba(22,19,16,.06); padding: 8px; border-radius: 4px;
-  white-space: pre-wrap; word-break: break-word;
+.row.indent{padding-left:18px}
+.row.indent .k{font-size:.92em}
+pre.tb{font-size:.78em;overflow:auto;max-height:220px;background:var(--well);
+  box-shadow:var(--in-sm);padding:12px;border-radius:var(--r1);
+  white-space:pre-wrap;word-break:break-word}
+
+/* ---- raw-facts form ---- */
+.rawform{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.rawform input{font:inherit;font-size:.86em;padding:11px 14px;border:0;
+  border-radius:999px;background:var(--well);box-shadow:var(--in-sm);
+  color:inherit;min-width:0;flex:1 1 auto;-webkit-appearance:none}
+.rawform input:focus{outline:0;box-shadow:var(--in-sm),0 0 0 2px var(--ink)}
+.rawform input[type="number"]{max-width:92px}
+
+/* A seven-tag question is unusable typed on a phone. */
+.presets{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
+.chipbtn{font-family:var(--mono);font-size:11px;font-weight:700;border:0;
+  border-radius:999px;background:var(--bg);color:var(--ink2);padding:10px 14px;
+  cursor:pointer;box-shadow:var(--up-sm);transition:box-shadow .18s,color .18s}
+.chipbtn:hover{color:var(--ink);box-shadow:var(--up)}
+
+@media(max-width:359px){
+  .wrap{padding:0 14px}
+  .card{padding:17px 16px}
+  .verdict{padding:22px 18px}
 }
-
-/* The wipe button is destructive and unauthenticated — it should not look like
-   the ordinary backfill buttons sitting next to it. */
-.act.danger {
-  background: var(--red, #E1362C);
-  color: #fff;
-  border-color: var(--red, #E1362C);
-}
-.act.danger:disabled { opacity: .5; }
-
-/* Raw-facts query inputs: small, wrapping, thumb-friendly on a phone. */
-.rawform { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 10px; }
-.rawform input {
-  font: inherit; font-size: .86em; padding: 6px 8px;
-  border: 1px solid rgba(22,19,16,.28); border-radius: 4px;
-  background: transparent; color: inherit; min-width: 0; flex: 1 1 auto;
-}
-.rawform input[type="number"] { max-width: 84px; }
-
-
-/* Raw-facts presets: a seven-tag question is unusable typed on a phone. */
-.presets{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
-.chipbtn{font-family:var(--mono);font-size:11px;font-weight:700;
-  border:2px solid var(--ink);background:var(--paper2);color:var(--ink);
-  padding:6px 9px;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
-.chipbtn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
-.chipbtn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
