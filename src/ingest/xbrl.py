@@ -76,6 +76,11 @@ class Concept:
     metric: str
     tags: tuple[str, ...]
     kind: str
+    # Unit of measure this concept is reported in. Almost everything is a plain
+    # USD amount, but per-share figures are USD/shares -- and a blanket
+    # USD-only filter drops those silently, which looks exactly like "no filer
+    # reports EPS".
+    uom: str = "USD"
 
 
 CONCEPTS: tuple[Concept, ...] = (
@@ -84,6 +89,11 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept("current_assets", ("AssetsCurrent",), INSTANT),
     Concept("total_liabilities", ("Liabilities",), INSTANT),
     Concept("current_liabilities", ("LiabilitiesCurrent",), INSTANT),
+    # The filer's OWN stated right-hand side of the balance sheet. Thousands
+    # report this directly, and where they do it beats reconstructing L + E
+    # from separate tags: it is the total as filed, so it cannot disagree with
+    # itself over which equity figure to include or what belongs in liabilities.
+    Concept("liabilities_and_equity", ("LiabilitiesAndStockholdersEquity",), INSTANT),
     # Parent-only shareholders' equity -- what "shareholders' equity" normally
     # means, and what a reader expects to see.
     Concept("total_equity", ("StockholdersEquity",), INSTANT),
@@ -136,6 +146,23 @@ CONCEPTS: tuple[Concept, ...] = (
     ),
     Concept("capex", ("PaymentsToAcquirePropertyPlantAndEquipment",), DURATION),
     Concept("cogs", ("CostOfRevenue", "CostOfGoodsAndServicesSold"), DURATION),
+    Concept("gross_profit", ("GrossProfit",), DURATION),
+    Concept("income_tax", ("IncomeTaxExpenseBenefit",), DURATION),
+    Concept("stock_compensation", ("ShareBasedCompensation",), DURATION),
+    Concept(
+        "depreciation_amortization",
+        ("DepreciationDepletionAndAmortization",),
+        DURATION,
+    ),
+    # Per-share, so USD/shares rather than USD.
+    Concept("eps_diluted", ("EarningsPerShareDiluted",), DURATION, uom="USD/shares"),
+    # --- More balance-sheet instants ---
+    Concept(
+        "retained_earnings", ("RetainedEarningsAccumulatedDeficit",), INSTANT
+    ),
+    Concept(
+        "operating_lease_rou_asset", ("OperatingLeaseRightOfUseAsset",), INSTANT
+    ),
 )
 
 _TAG_TO_CONCEPT: dict[str, Concept] = {
@@ -387,9 +414,10 @@ def extract_facts(
                 report.dropped_ytd_cumulative += 1
             continue
 
-        # Every concept here is a money amount. A fact denominated in anything
-        # else is not comparable and must not be silently stored as USD.
-        if _cell(r, "uom").upper() != "USD":
+        # A fact in an unexpected unit is not comparable and must not be stored
+        # as if it were. Checked per concept: per-share figures are USD/shares,
+        # and a blanket USD-only test would drop every EPS fact silently.
+        if _cell(r, "uom").upper() != concept.uom.upper():
             report.dropped_non_usd += 1
             continue
 
@@ -507,6 +535,10 @@ def validate_facts(
             # when the filer reports it. `Assets` is consolidated; parent-only
             # StockholdersEquity is not, so using it leaves the NCI as phantom
             # drift on every company that has any.
+            # Prefer the filer's own stated total where they report it: a
+            # reconstruction of L + E can only ever be as good as our choice of
+            # which equity tag to add, and this has none of that ambiguity.
+            stated = metrics.get("liabilities_and_equity")
             liabilities = metrics.get("total_liabilities")
             equity = metrics.get("total_equity_incl_nci") or metrics.get("total_equity")
             equity_basis = (
@@ -514,7 +546,23 @@ def validate_facts(
                 if metrics.get("total_equity_incl_nci") is not None
                 else "total_equity"
             )
-            if liabilities is not None and equity is not None:
+            if stated is not None:
+                rhs = stated["value"]
+                equity_basis = "liabilities_and_equity"
+                drift = abs(av - rhs) / av
+                if drift > BALANCE_TOLERANCE:
+                    flag = {
+                        "ticker": ticker,
+                        "period_end": str(period_end),
+                        "rule": "balance_identity_drift",
+                        "assets": av,
+                        "liabilities_plus_equity": rhs,
+                        "equity_basis": equity_basis,
+                        "drift_pct": round(drift * 100, 2),
+                    }
+                    report.flags.append(flag)
+                    log.warning("xbrl_balance_identity_drift", **flag)
+            elif liabilities is not None and equity is not None:
                 rhs = liabilities["value"] + equity["value"]
                 drift = abs(av - rhs) / av
                 if drift > BALANCE_TOLERANCE:

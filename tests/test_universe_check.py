@@ -212,3 +212,78 @@ def test_worst_list_is_capped_and_totalled(db):
     r = run_universe_check()
     assert r["worst_total"] == WORST_N + 20
     assert len(r["worst"]) == WORST_N
+
+
+# ------------------------------------------------- the filer's own stated total
+def test_stated_total_is_preferred_over_reconstructing_l_plus_e(db):
+    """LiabilitiesAndStockholdersEquity is the filer's own right-hand side.
+
+    Thousands report it directly. Where present it beats our reconstruction,
+    which can only ever be as good as our choice of which equity tag to add.
+    """
+    _seed([
+        ("STATED", "total_assets", 1_000.0, Q4),
+        # A reconstruction from these would read 7% off...
+        ("STATED", "total_liabilities", 700.0, Q4),
+        ("STATED", "total_equity", 230.0, Q4),
+        # ...but the filer states the total, and it balances.
+        ("STATED", "liabilities_and_equity", 1_000.0, Q4),
+    ])
+    r = run_universe_check()
+
+    assert r["identity"]["buckets"]["within_1pct"] == 1
+    assert r["identity"]["basis_counts"]["liabilities_and_equity"] == 1
+    st = r["stated_total"]
+    assert st["used"] == 1
+    assert st["comparable"] == 1
+    assert st["moved_into_1pct"] == 1
+    # And it reports what the reconstruction WOULD have scored, so the value of
+    # the mapping is measured rather than asserted.
+    assert st["buckets_if_reconstructed"]["5_to_10pct"] == 1
+
+
+def test_stated_total_absent_falls_back_to_reconstruction(db):
+    _seed(_balanced("NOSTATED", 1_000.0))
+    r = run_universe_check()
+    assert r["identity"]["basis_counts"]["total_equity"] == 1
+    assert r["stated_total"]["used"] == 0
+    assert r["stated_total"]["comparable"] == 0
+
+
+# ------------------------------------------------------------ size of failures
+def test_over_10pct_bucket_is_broken_down_by_company_size(db):
+    """A shell company failing by 70,000% on $17k of assets is noise.
+
+    Reporting the size profile separates "microcap garbage" from "the parser is
+    wrong about real companies", which the raw count cannot distinguish.
+    """
+    rows: list[tuple] = []
+    # Three tiny shells, wildly off.
+    for i, assets in enumerate((17_000.0, 250_000.0, 4_000_000.0)):
+        t = f"SHELL{i}"
+        rows += [
+            (t, "total_assets", assets, Q4),
+            (t, "total_liabilities", assets * 50, Q4),
+            (t, "total_equity", 0.0, Q4),
+        ]
+    # One real company, also off.
+    rows += [
+        ("BIGCO", "total_assets", 5_000_000_000.0, Q4),
+        ("BIGCO", "total_liabilities", 3_000_000_000.0, Q4),
+        ("BIGCO", "total_equity", 500_000_000.0, Q4),
+    ]
+    _seed(rows)
+    r = run_universe_check()
+
+    assert r["identity"]["buckets"]["over_10pct"] == 4
+    size = r["over_10pct_by_size"]
+    assert size["buckets"]["under_1m"] == 2
+    assert size["buckets"]["1m_to_10m"] == 1
+    assert size["buckets"]["over_100m"] == 1
+    assert size["under_10m"] == 3
+    assert size["under_10m_pct"] == 75.0
+
+    # The individual entries carry the band too, so the worst list is readable.
+    big = next(w for w in r["worst"] if w["ticker"] == "BIGCO")
+    assert big["microcap"] is False
+    assert big["size_band"] == "over_100m"

@@ -512,3 +512,58 @@ def test_parse_dataset_rejects_a_file_with_no_dimension_columns():
                                           "qtrs": "0", "uom": "USD", "value": "1"}]))
     with pytest.raises(RuntimeError, match="dimensional"):
         ds.parse_dataset(buf.getvalue())
+
+
+# ------------------------------------------------------------ per-concept units
+def test_eps_is_kept_despite_not_being_plain_usd():
+    """EPS is reported in USD/shares.
+
+    A blanket USD-only filter drops every EPS fact, which is indistinguishable
+    from "no filer reports EPS" -- so the unit is checked per concept.
+    """
+    num = _df(
+        [
+            _num(tag="EarningsPerShareDiluted", qtrs="1", uom="USD/shares", value="3.24"),
+            _num(tag="Assets", qtrs="0", value=str(JPM_ASSETS)),
+        ],
+        NUM_COLS,
+    )
+    rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    eps = [r for r in rows if r["metric"] == "eps_diluted"]
+    assert len(eps) == 1
+    assert eps[0]["value"] == 3.24
+    assert report.dropped_non_usd == 0
+
+
+def test_a_usd_eps_row_is_dropped_as_the_wrong_unit():
+    """The check is per concept in BOTH directions: a plain-USD EPS is wrong."""
+    num = _df([_num(tag="EarningsPerShareDiluted", qtrs="1", uom="USD", value="3.24")],
+              NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    assert rows == []
+    assert report.dropped_non_usd == 1
+
+
+def test_a_usd_shares_asset_row_is_dropped():
+    num = _df([_num(tag="Assets", qtrs="0", uom="USD/shares", value="1")], NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    assert rows == []
+    assert report.dropped_non_usd == 1
+
+
+def test_stated_total_is_extracted_and_used_for_the_identity():
+    """LiabilitiesAndStockholdersEquity: the filer's own right-hand side."""
+    num = _df(
+        [
+            _num(tag="Assets", qtrs="0", value="1000"),
+            _num(tag="LiabilitiesAndStockholdersEquity", qtrs="0", value="1000"),
+            _num(tag="Liabilities", qtrs="0", value="700"),
+            _num(tag="StockholdersEquity", qtrs="0", value="230"),
+        ],
+        NUM_COLS,
+    )
+    rows, report = xbrl.extract_and_validate(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    by_metric = {r["metric"]: r["value"] for r in rows}
+    assert by_metric["liabilities_and_equity"] == 1000.0
+    # L + E would read 7% off; the stated total balances, so no drift flag.
+    assert [f for f in report.flags if f["rule"] == "balance_identity_drift"] == []

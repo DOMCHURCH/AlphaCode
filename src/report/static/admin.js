@@ -193,9 +193,11 @@ function verifyHtml(v) {
         ? `<span class="pill mute">missing</span>`
         : `${fmtUSD(m.actual)} <span class="sub">vs ${fmtUSD(m.expected)}` +
           (m.drift_pct != null ? ` · ${m.drift_pct}% off` : "") + `</span>`;
+      const tag = m.passed ? pill("✓", "ok")
+        : m.confirmed ? pill("✗", "bad") : pill("? ref", "warn");
       out += `<div class="row indent"><div class="k">${esc(metric)}` +
-        `<span class="sub">${esc(m.basis)}</span></div>` +
-        `<div class="v">${shown} ${pill(m.passed ? "✓" : "✗", m.passed ? "ok" : "bad")}</div></div>`;
+        `<span class="sub">${esc(m.basis)}${m.verdict ? " — " + esc(m.verdict) : ""}</span></div>` +
+        `<div class="v">${shown} ${tag}</div></div>`;
     }
 
     const id = c.identity || {};
@@ -503,6 +505,34 @@ async function runUniverseCheck() {
       out += row("Drift explained by NCI", fmtNum(id.explained_by_nci),
         "closes to within 1% once noncontrolling interests are added");
 
+    const st = d.stated_total || {};
+    if (st.used != null) {
+      out += row("Filer's own stated total", fmtNum(st.used),
+        "used LiabilitiesAndStockholdersEquity instead of reconstructing L + E");
+      if (st.comparable) {
+        const nb = st.buckets_if_reconstructed || {};
+        out += row("  moved into 1% by it", fmtNum(st.moved_into_1pct),
+          `of ${fmtNum(st.comparable)} reporting both`);
+        out += statline("  if reconstructed instead",
+          `within 1%: ${fmtNum(nb.within_1pct)} · 1–5%: ${fmtNum(nb["1_to_5pct"])} · ` +
+          `5–10%: ${fmtNum(nb["5_to_10pct"])} · >10%: ${fmtNum(nb.over_10pct)}`,
+          "what L + E would have scored on the same companies");
+      }
+    }
+
+    const sz = d.over_10pct_by_size || {};
+    if (sz.buckets && b.over_10pct) {
+      out += statline("Over-10% failures by size",
+        `<$1M: ${fmtNum(sz.buckets.under_1m)} · $1–10M: ${fmtNum(sz.buckets["1m_to_10m"])} · ` +
+        `$10–100M: ${fmtNum(sz.buckets["10m_to_100m"])} · >$100M: ${fmtNum(sz.buckets.over_100m)}`,
+        `${sz.under_10m_pct}% of them are under $10M in assets`);
+      const microKind = sz.under_10m_pct >= 80 ? "ok" : sz.under_10m_pct >= 50 ? "warn" : "bad";
+      out += row("  verdict", pill(sz.under_10m_pct + "% microcap", microKind),
+        sz.under_10m_pct >= 80
+          ? "mostly shells — arithmetic on noise, not a parser problem"
+          : "a real share of these are substantial companies — worth reading");
+    }
+
     const sec = d.by_sector || [];
     if (sec.length) {
       out += row("", "<strong>By sector</strong> — worst first");
@@ -757,6 +787,18 @@ function buildCopyText(d) {
     push(`  1-5%: ${fmtNum(b["1_to_5pct"])} · 5-10%: ${fmtNum(b["5_to_10pct"])} · >10%: ${fmtNum(b.over_10pct)}`);
     push(`  balanced vs equity incl NCI: ${fmtNum(id.equity_basis_incl_nci)}`);
     push(`  drift explained by NCI: ${fmtNum(id.explained_by_nci)}`);
+    const st = u.stated_total || {};
+    push(`  stated total used: ${fmtNum(st.used)} of ${fmtNum(id.checkable)} checkable`);
+    if (st.comparable) {
+      const nb = st.buckets_if_reconstructed || {};
+      push(`    moved into 1%: ${fmtNum(st.moved_into_1pct)} of ${fmtNum(st.comparable)} reporting both`);
+      push(`    if reconstructed: within1=${fmtNum(nb.within_1pct)} 1-5=${fmtNum(nb["1_to_5pct"])} 5-10=${fmtNum(nb["5_to_10pct"])} >10=${fmtNum(nb.over_10pct)}`);
+    }
+    const sz = u.over_10pct_by_size || {};
+    if (sz.buckets)
+      push(`  over-10% by size: <1M=${fmtNum(sz.buckets.under_1m)} 1-10M=${fmtNum(sz.buckets["1m_to_10m"])} ` +
+        `10-100M=${fmtNum(sz.buckets["10m_to_100m"])} >100M=${fmtNum(sz.buckets.over_100m)} ` +
+        `(${sz.under_10m_pct}% under $10M)`);
     push("  BY SECTOR (worst first):");
     for (const s2 of u.by_sector || [])
       push(`    ${s2.sector}: ${s2.pass_rate_pct}% of ${fmtNum(s2.checkable)} — ${s2.verdict}`);

@@ -35,12 +35,31 @@ SCALE_JUMP_FACTOR = 10.0
 
 WORST_N = 50
 
+# Total-assets size bands for the failures. A shell company with $17k of assets
+# failing by 70,000% is arithmetic on noise, not evidence about the parser --
+# and lumping it in with a real large-cap failure hides the one that matters.
+SIZE_BUCKETS = (
+    ("under_1m", 0.0, 1e6),
+    ("1m_to_10m", 1e6, 1e7),
+    ("10m_to_100m", 1e7, 1e8),
+    ("over_100m", 1e8, float("inf")),
+)
+
+MICROCAP_CEILING = 1e7  # $10M
+
 
 def _bucket(drift_pct: float) -> str:
     for name, lo, hi in DRIFT_BUCKETS:
         if lo <= drift_pct < hi:
             return name
     return DRIFT_BUCKETS[-1][0]
+
+
+def _size_bucket(assets: float) -> str:
+    for name, lo, hi in SIZE_BUCKETS:
+        if lo <= assets < hi:
+            return name
+    return SIZE_BUCKETS[-1][0]
 
 
 def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
@@ -58,6 +77,7 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
         "total_equity",
         "total_equity_incl_nci",
         "minority_interest",
+        "liabilities_and_equity",
     )
 
     with session_scope() as session:
@@ -95,6 +115,13 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
         by_ticker[ticker][period_end][metric] = float(value)
 
     buckets = {name: 0 for name, _lo, _hi in DRIFT_BUCKETS}
+    # Same buckets under the reconstructed L + E, over the filers that report
+    # both, so the stated total's value is measured rather than claimed.
+    naive_buckets = {name: 0 for name, _lo, _hi in DRIFT_BUCKETS}
+    basis_counts: dict[str, int] = defaultdict(int)
+    size_buckets = {name: 0 for name, _lo, _hi in SIZE_BUCKETS}
+    closed_by_stated = 0
+    comparable = 0
     by_sector: dict[str, dict[str, int]] = defaultdict(
         lambda: {**{n: 0 for n, _l, _h in DRIFT_BUCKETS}, "checkable": 0,
                  "not_checkable": 0}
@@ -117,21 +144,50 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
         equity_incl = m.get("total_equity_incl_nci")
         equity_parent = m.get("total_equity")
         equity = equity_incl if equity_incl is not None else equity_parent
-        basis = "total_equity_incl_nci" if equity_incl is not None else "total_equity"
+        stated = m.get("liabilities_and_equity")
 
-        if not assets or assets <= 0 or liabilities is None or equity is None:
+        # Prefer the filer's own stated total. Reconstructing L + E is only as
+        # good as our choice of which equity tag to add; the stated figure has
+        # none of that ambiguity because it is the total as filed.
+        if stated is not None:
+            rhs: float | None = stated
+            basis = "liabilities_and_equity"
+        elif liabilities is not None and equity is not None:
+            rhs = liabilities + equity
+            basis = (
+                "total_equity_incl_nci" if equity_incl is not None else "total_equity"
+            )
+        else:
+            rhs = None
+            basis = "none"
+
+        if not assets or assets <= 0 or rhs is None:
             not_checkable += 1
             by_sector[sector]["not_checkable"] += 1
         else:
             checkable += 1
             by_sector[sector]["checkable"] += 1
+            basis_counts[basis] += 1
             if basis == "total_equity_incl_nci":
                 used_nci_basis += 1
-            rhs = liabilities + equity
             drift_pct = abs(assets - rhs) / assets * 100.0
             bucket = _bucket(drift_pct)
             buckets[bucket] += 1
             by_sector[sector][bucket] += 1
+
+            # What the stated total bought us: where a filer reports both, how
+            # would the reconstructed L + E have scored? That difference is the
+            # measured value of the mapping, not an assertion about it.
+            if stated is not None and liabilities is not None and equity is not None:
+                naive = liabilities + equity
+                naive_pct = abs(assets - naive) / assets * 100.0
+                naive_buckets[_bucket(naive_pct)] += 1
+                if naive_pct > 1.0 >= drift_pct:
+                    closed_by_stated += 1
+                comparable += 1
+
+            if drift_pct > 10.0:
+                size_buckets[_size_bucket(assets)] += 1
 
             entry: dict[str, Any] = {
                 "ticker": ticker,
@@ -143,11 +199,13 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
                 "equity_basis": basis,
                 "liabilities_plus_equity": rhs,
                 "drift_pct": round(drift_pct, 2),
+                "size_band": _size_bucket(assets),
+                "microcap": assets < MICROCAP_CEILING,
             }
             # Would the NCI close it? If so this is the known mapping gap, not
             # a mystery -- and saying so stops it being re-investigated.
             nci = m.get("minority_interest")
-            if basis == "total_equity" and nci is not None and drift_pct > 1.0:
+            if basis == "total_equity" and nci is not None and drift_pct > 1.0:  # noqa: SIM102
                 closed = abs(assets - (rhs + nci)) / assets * 100.0
                 if closed <= 1.0:
                     entry["explained_by"] = "noncontrolling_interest"
@@ -222,6 +280,27 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
             "pass_rate_pct": round(pass_rate * 100, 1),
             "equity_basis_incl_nci": used_nci_basis,
             "explained_by_nci": nci_explained,
+            "basis_counts": dict(basis_counts),
+        },
+        # The measured value of mapping LiabilitiesAndStockholdersEquity: over
+        # filers reporting both, how the reconstructed L + E would have scored.
+        "stated_total": {
+            "used": basis_counts.get("liabilities_and_equity", 0),
+            "comparable": comparable,
+            "moved_into_1pct": closed_by_stated,
+            "buckets_if_reconstructed": naive_buckets,
+        },
+        # Size profile of the >10% failures. If they are overwhelmingly tiny,
+        # the bucket is arithmetic on noise rather than a parser problem.
+        "over_10pct_by_size": {
+            "buckets": size_buckets,
+            "under_10m": size_buckets["under_1m"] + size_buckets["1m_to_10m"],
+            "under_10m_pct": round(
+                100.0
+                * (size_buckets["under_1m"] + size_buckets["1m_to_10m"])
+                / max(1, buckets["over_10pct"]),
+                1,
+            ),
         },
         "worst": worst[:WORST_N],
         "worst_total": len(worst),
@@ -234,5 +313,7 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
         pass_rate_pct=result["identity"]["pass_rate_pct"],
         over_10pct=buckets["over_10pct"], scale_jumps=len(scale_jumps),
         explained_by_nci=nci_explained,
+        stated_total_used=basis_counts.get("liabilities_and_equity", 0),
+        over_10pct_under_10m_pct=result["over_10pct_by_size"]["under_10m_pct"],
     )
     return result

@@ -35,6 +35,8 @@ BALANCE_SHEET_CONCEPTS = {
     "intangibles": "intangibles",
     # Liabilities
     "total_liabilities": "total_liabilities",
+    # The filer's own stated right-hand side, where they report it.
+    "liabilities_and_equity": "liabilities_and_equity",
     "current_liabilities": "current_liabilities",
     "long_term_debt": "long_term_debt",
     "accounts_payable": "accounts_payable",
@@ -149,7 +151,7 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
             "inventory", "property_plant_equipment", "goodwill", "intangibles",
         ]
         liability_concepts = [
-            "total_liabilities", "current_liabilities",
+            "total_liabilities", "liabilities_and_equity", "current_liabilities",
             "long_term_debt", "accounts_payable",
         ]
         equity_concepts = [

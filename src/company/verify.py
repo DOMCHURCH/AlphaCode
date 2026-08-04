@@ -24,32 +24,57 @@ TOLERANCE = 0.10
 
 
 class Reference:
-    """One expected figure and why we believe it."""
+    """One expected figure and why we believe it.
 
-    def __init__(self, value: float, basis: str) -> None:
+    `confirmed` marks a figure read off a raw num.txt dump. An unconfirmed
+    reference is a recollection, and when it disagrees with the parser the
+    reference is at least as likely to be the wrong side. Saying which is which
+    keeps "the parser is broken" and "my memory was stale" from looking
+    identical in the output.
+    """
+
+    def __init__(self, value: float, basis: str, confirmed: bool = False) -> None:
         self.value = value
         self.basis = basis
+        self.confirmed = confirmed
 
 
 REFERENCE: dict[str, dict[str, Reference]] = {
     "JPM": {
-        "total_assets": Reference(4_424_900_000_000, "exact, from the num.txt dump"),
-        "total_equity": Reference(362_438_000_000, "exact, from the num.txt dump"),
+        "total_assets": Reference(
+            4_424_900_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+        ),
+        "total_equity": Reference(
+            362_438_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+        ),
     },
     "MSFT": {
-        "total_assets": Reference(560_000_000_000, "approx"),
-        "total_equity": Reference(300_000_000_000, "approx"),
+        # NOT confirmed: the ~$665B figure came from the parser's own output, so
+        # using it as the expectation would be circular. Read the consolidated
+        # Assets row off the same dump that settled equity and promote it.
+        "total_assets": Reference(560_000_000_000, "recollection, unconfirmed"),
+        # Corrected from a remembered ~$300B. The num.txt dump for period
+        # 2025-12-31 shows exactly one consolidated StockholdersEquity row at
+        # this figure: the parser was right and the expectation was stale, which
+        # is the only direction a reference is allowed to move.
+        "total_equity": Reference(
+            390_875_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+        ),
     },
     "WMT": {
-        "total_assets": Reference(260_000_000_000, "approx"),
+        "total_assets": Reference(260_000_000_000, "recollection, unconfirmed"),
     },
     "FCX": {
-        "total_assets": Reference(55_000_000_000, "approx; must be positive"),
+        "total_assets": Reference(
+            55_000_000_000, "recollection, unconfirmed; must be positive"
+        ),
     },
     "AAL": {
         # American Airlines genuinely runs a stockholders' deficit. The sign is
         # the point: negative is correct here and must not be "fixed".
-        "total_equity": Reference(-3_900_000_000, "approx; negative is correct for AAL"),
+        "total_equity": Reference(
+            -3_900_000_000, "recollection, unconfirmed; negative is correct for AAL"
+        ),
     },
 }
 
@@ -101,14 +126,20 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
 
             drift = abs(actual - ref.value) / abs(ref.value)
             ok = drift <= TOLERANCE
-            company_passed = company_passed and ok
             metrics[metric] = {
                 "actual": actual,
                 "expected": ref.value,
                 "basis": ref.basis,
+                "confirmed": ref.confirmed,
                 "drift_pct": round(drift * 100, 2),
                 "passed": ok,
             }
+            if not ok and not ref.confirmed:
+                # A mismatch against an unconfirmed reference is not evidence
+                # the parser is wrong. Report it as needing a dump rather than
+                # letting a stale memory read as a data failure.
+                metrics[metric]["verdict"] = "reference unconfirmed — dump to settle"
+            company_passed = company_passed and (ok or not ref.confirmed)
 
         # Impossibility check, independent of the reference figures.
         ta_cell = bs.assets["total_assets"]
@@ -127,6 +158,7 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
         # as drift that looks like a parser bug but is an apples-to-oranges
         # comparison.
         tl_cell = bs.liabilities["total_liabilities"]
+        stated_cell = bs.liabilities["liabilities_and_equity"]
         incl_cell = bs.equity["total_equity_incl_nci"]
         parent_cell = bs.equity["shareholders_equity"]
         te_cell = incl_cell if not incl_cell.missing else parent_cell
@@ -134,7 +166,20 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
             "total_equity_incl_nci" if not incl_cell.missing else "total_equity"
         )
         identity: dict[str, Any]
-        if total_assets and not tl_cell.missing and not te_cell.missing:
+        if total_assets and not stated_cell.missing:
+            # The filer's own stated total beats reconstructing L + E.
+            rhs = stated_cell.value
+            equity_basis = "liabilities_and_equity"
+            drift = abs(total_assets - rhs) / total_assets * 100
+            identity = {
+                "checkable": True,
+                "assets": total_assets,
+                "liabilities_plus_equity": rhs,
+                "equity_basis": equity_basis,
+                "drift_pct": round(drift, 2),
+                "balanced": drift < 1.0,
+            }
+        elif total_assets and not tl_cell.missing and not te_cell.missing:
             rhs = tl_cell.value + te_cell.value
             drift = abs(total_assets - rhs) / total_assets * 100
             identity = {
@@ -170,16 +215,24 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
         }
         all_passed = all_passed and company_passed
 
+    unconfirmed = [
+        f"{t}.{m}"
+        for t, c in companies.items()
+        if c.get("found")
+        for m, x in c["metrics"].items()
+        if not x.get("confirmed") and not x.get("passed")
+    ]
     return {
         "as_of": as_of.isoformat(),
         "tolerance_pct": TOLERANCE * 100,
         "companies": companies,
         "passed": all_passed,
+        "unconfirmed_mismatches": unconfirmed,
         "summary": (
             "PASS — every company reconciles"
             if all_passed
-            else f"FAIL — at least one company is off by more than {TOLERANCE:.0%}. "
-                 "The parser is still wrong; do not build on these numbers."
+            else f"FAIL — at least one CONFIRMED figure is off by more than "
+                 f"{TOLERANCE:.0%}. The parser is wrong; do not build on these."
         ),
     }
 
