@@ -1,251 +1,282 @@
-/* Company page — same Bauhaus broadsheet world as /admin: warm paper ground,
-   hard ink rules, offset shadows, Jost + Space Mono.
+/* To Scale — soft-surface minimalism.
+   ---------------------------------------------------------------------------
+   One rule governs everything here: THE ONLY COLOUR ON THIS PAGE IS DATA.
 
-   The primary triad is used FUNCTIONALLY here too, re-pointed at the balance
-   sheet: blue is what the company owns, red is what it owes, yellow is the
-   residual left for its owners. Within a family, position in the stack is
-   carried by tint, so the top-level reading (blue vs red vs yellow) survives
-   at a glance and the detail rewards a second look.
+   The interface is a single sheet of soft grey. Nothing is outlined; things
+   are raised or pressed into that sheet by light alone -- a highlight from the
+   top-left, a shadow to the bottom-right. Cards, inputs, chips and buttons are
+   all the same material as the ground they sit on, so none of them compete
+   with the drawing.
+
+   That leaves blue, red and yellow doing nothing but carrying meaning: blue is
+   what the company owns, red is what it owes, yellow is the residual left for
+   its owners. Within a family, tint carries position in the stack. When the
+   only saturated pixels on a screen are the balance sheet, the balance sheet
+   is what you look at.
+
+   The usual failure of this style is contrast: soft everything, legible
+   nothing. So text stays near-black, the drawing keeps its full saturation,
+   and every focusable thing gets a real ring rather than a suggestion of one.
 
    Mobile-first, single column, nothing scrolls sideways. */
 :root{
-  --paper:#F3EFE4; --paper2:#EAE3D3; --card:#FBFAF4;
-  --ink:#161310; --ink2:#544c40; --dim:#8b8272;
-  --red:#E1362C; --blue:#2340BE; --yellow:#F3C218;
+  /* One ground, and the two lights that shape it. */
+  --bg:#E7EBF2; --hi:#FFFFFF; --lo:#BFC7D6;
+  --well:#E2E7EF;                       /* pressed surfaces read a shade cooler */
+  --ink:#22262F; --ink2:#5A6273; --dim:#98A0AF;
+
   --disp:"Jost",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"Space Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
-  --sh:4px 4px 0 var(--ink);
 
-  /* Assets: blue, liquid at the top and darkest, hardest-to-sell palest. */
+  --r1:12px; --r2:18px; --r3:26px;
+  /* Raised: lit from the top-left, as everything on this page is. */
+  --up:7px 7px 15px var(--lo), -7px -7px 15px var(--hi);
+  --up-sm:4px 4px 9px var(--lo), -4px -4px 9px var(--hi);
+  --up-lg:10px 10px 22px var(--lo), -10px -10px 22px var(--hi);
+  /* Pressed: the same light, inverted. */
+  --in:inset 5px 5px 10px var(--lo), inset -5px -5px 10px var(--hi);
+  --in-sm:inset 3px 3px 6px var(--lo), inset -3px -3px 6px var(--hi);
+
+  /* DATA ONLY, from here down. */
+  --red:#E1362C; --blue:#2340BE; --yellow:#F3C218;
   --a0:#1B3299; --a1:#2340BE; --a2:#4058C9; --a3:#6274D4;
   --a4:#8B99E2; --a5:#B2BCEE; --a6:#D3D8F6;
-  /* Claims: red, most senior darkest. */
   --l0:#B02218; --l1:#E1362C; --l2:#EC6157; --l3:#F49A93;
 }
 *{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);
-  font:16px/1.5 var(--disp);-webkit-font-smoothing:antialiased;color-scheme:light;
+body{margin:0;background:var(--bg);color:var(--ink);
+  font:16px/1.55 var(--disp);-webkit-font-smoothing:antialiased;color-scheme:light;
   overflow-x:hidden}
-a{color:var(--blue)}
-.wrap{max-width:720px;margin:0 auto;padding:0 16px}
+a{color:var(--ink)}
+.wrap{max-width:720px;margin:0 auto;padding:0 18px}
 
-nav{position:sticky;top:0;z-index:50;background:var(--paper);border-bottom:2px solid var(--ink)}
-.nav{display:flex;align-items:center;gap:12px;height:56px}
-.brand{font-weight:800;font-size:16px;letter-spacing:-.02em;display:flex;align-items:center;
-  gap:9px;text-transform:uppercase;color:var(--ink);text-decoration:none;white-space:nowrap}
-.dot{width:20px;height:20px;flex:none;background:
-  conic-gradient(var(--blue) 0 25%,var(--yellow) 0 50%,var(--ink) 0 75%,var(--red) 0)}
+/* ---- nav: a shelf, not a rule ---- */
+nav{position:sticky;top:0;z-index:50;background:var(--bg)}
+.nav{display:flex;align-items:center;gap:12px;height:64px}
+.brand{font-weight:600;font-size:16px;letter-spacing:.01em;display:flex;
+  align-items:center;gap:10px;color:var(--ink);text-decoration:none;white-space:nowrap}
+/* The mark is the drawing in miniature: owns, owed, left over. */
+.dot{width:22px;height:22px;flex:none;border-radius:7px;box-shadow:var(--up-sm);
+  background:conic-gradient(var(--blue) 0 25%,var(--yellow) 0 50%,
+    var(--bg) 0 75%,var(--red) 0)}
 .nav .spacer{flex:1}
+.navlink{font-size:13px;font-weight:500;color:var(--ink2);text-decoration:none;
+  padding:8px 14px;border-radius:999px;transition:box-shadow .18s,color .18s}
+.navlink:hover{color:var(--ink);box-shadow:var(--up-sm)}
+.navlink:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
 
-main{padding:18px 0 64px}
+main{padding:6px 0 72px}
 
-/* ---- header: the company, and how old the numbers are ---- */
-.chead{border:2px solid var(--ink);box-shadow:var(--sh);background:var(--card);
-  padding:18px 18px 16px;margin-bottom:22px;position:relative}
-.chead::before{content:"";position:absolute;left:0;top:0;bottom:0;width:12px;background:var(--blue)}
-.cticker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.1em;
-  color:var(--ink2);margin:0 0 2px 8px}
-.cname{font-size:clamp(26px,7.4vw,40px);line-height:1.02;font-weight:800;
-  letter-spacing:-.025em;margin:0 0 10px 8px}
-.cmeta{display:flex;flex-wrap:wrap;gap:6px;margin-left:8px}
-.chip{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.05em;
-  text-transform:uppercase;border:2px solid var(--ink);padding:3px 8px;background:var(--paper2)}
-.chip.filed{background:var(--yellow)}
+/* ---- panels: everything is the same sheet, raised ---- */
+.hero,.chead,.bs,.empty,.card{background:var(--bg);border-radius:var(--r2);
+  box-shadow:var(--up)}
+.hero{border-radius:var(--r3);padding:34px 26px 30px;margin-bottom:34px}
+.htitle{font-size:clamp(30px,8.6vw,44px);line-height:1.06;font-weight:600;
+  letter-spacing:-.03em;margin:0 0 14px;max-width:14ch}
+.hlede{font-size:16px;line-height:1.55;color:var(--ink2);margin:0 0 26px;max-width:38ch}
+
+/* ---- search: a slot pressed into the sheet ---- */
+.search{margin:0}
+.slabel{display:block;font-size:12px;font-weight:500;letter-spacing:.02em;
+  color:var(--dim);margin:0 0 9px 4px}
+.sfield{display:flex;align-items:center;gap:8px;background:var(--well);
+  border-radius:999px;box-shadow:var(--in);padding:7px 7px 7px 8px}
+.search input{flex:1;min-width:0;font:600 17px/1 var(--mono);color:var(--ink);
+  background:transparent;border:0;padding:12px 10px;letter-spacing:.04em;
+  text-transform:uppercase;-webkit-appearance:none}
+.search input::placeholder{color:var(--dim);font-weight:400;letter-spacing:.02em}
+.search input:focus{outline:0}
+/* The ring goes on the whole slot, so focus is visible on a soft surface
+   instead of being implied by a shadow nobody can see. */
+.sfield:focus-within{box-shadow:var(--in),0 0 0 2px var(--ink)}
+.search button{flex:none;font:600 14px/1 var(--disp);letter-spacing:.01em;
+  color:var(--bg);background:var(--ink);border:0;border-radius:999px;
+  padding:14px 22px;cursor:pointer;box-shadow:var(--up-sm);
+  transition:box-shadow .18s,transform .18s}
+.search button:hover{box-shadow:var(--up)}
+.search button:active{transform:translateY(1px);box-shadow:var(--up-sm)}
+.search button:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 
 /* ---- section furniture ---- */
-.sec{margin:0 0 26px}
-.sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:4px}
-.sec-head h2{font-size:15px;font-weight:800;text-transform:uppercase;letter-spacing:.01em;margin:0}
-.sec-sub{font-size:14px;color:var(--ink2);margin:0 0 14px;max-width:56ch}
+.sec{margin:0 0 30px}
+.sec-head{display:flex;align-items:baseline;gap:10px;margin-bottom:6px}
+.sec-head h2{font-size:19px;font-weight:600;letter-spacing:-.015em;margin:0}
+.sec-sub{font-size:14.5px;color:var(--ink2);margin:0 0 18px;max-width:56ch}
+
+/* ---- home cards ---- */
+.cards{display:grid;grid-template-columns:1fr;gap:14px}
+@media(min-width:540px){.cards{grid-template-columns:1fr 1fr}}
+.card{display:grid;grid-template-columns:1fr auto;grid-template-areas:
+  "head thumb" "fact thumb" "size thumb";
+  gap:2px 16px;align-items:start;text-decoration:none;color:var(--ink);
+  padding:20px 20px;transition:box-shadow .2s,transform .2s}
+.card:hover{box-shadow:var(--up-lg);transform:translateY(-2px)}
+.card:active{box-shadow:var(--up-sm);transform:translateY(0)}
+.card:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.chead2{grid-area:head;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.ctick{font-family:var(--mono);font-size:17px;font-weight:700;letter-spacing:.02em}
+.ckind{font-size:13px;color:var(--dim)}
+.cfact{grid-area:fact;font-size:14.5px;font-weight:500;line-height:1.35;margin-top:9px}
+.csize{grid-area:size;font-family:var(--mono);font-size:11.5px;color:var(--ink2);
+  margin-top:5px}
+/* Two columns, same rules as the full drawing, one third the height. */
+.thumb{grid-area:thumb;display:flex;gap:5px;align-items:flex-start}
+.mcol{display:block;width:28px;border-radius:7px;overflow:hidden;
+  background:var(--well);box-shadow:var(--in-sm)}
+.mband{display:block;border-bottom:1px solid rgba(255,255,255,.3)}
+.mband:last-child{border-bottom:0}
+.mband.rem{background-image:repeating-linear-gradient(45deg,
+  rgba(255,255,255,.4) 0 4px,transparent 4px 8px)}
+.munder{display:block;margin-top:3px;border-radius:7px;overflow:hidden}
+.card.bare{grid-template-columns:1fr;grid-template-areas:"head"}
+
+/* ---- company header ---- */
+.chead{padding:26px 24px 22px;margin-bottom:26px}
+.cticker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.12em;
+  color:var(--dim);margin:0 0 6px}
+.cname{font-size:clamp(26px,7vw,38px);line-height:1.06;font-weight:600;
+  letter-spacing:-.03em;margin:0 0 16px}
+.cmeta{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-size:11.5px;font-weight:500;letter-spacing:.01em;color:var(--ink2);
+  padding:7px 13px;border-radius:999px;box-shadow:var(--up-sm);background:var(--bg)}
+/* The filing date is the page's provenance, so it is pressed in rather than
+   raised -- stamped into the sheet, not sitting on it. */
+.chip.filed{box-shadow:var(--in-sm);background:var(--well);color:var(--ink)}
 
 /* ---- the drawing ---- */
 /* Two columns sharing a baseline and a scale. Equal height IS the accounting
    identity; it is not annotated because it does not need to be. */
-.bs{border:2px solid var(--ink);box-shadow:var(--sh);background:var(--card);padding:14px 14px 0}
-.bs-cols{display:grid;grid-template-columns:1fr 1fr;gap:10px;align-items:start}
+.bs{padding:22px 20px 0}
+/* Two rows: captions, then stacks. Both captions share one auto-height row, so
+   a caption that wraps lifts BOTH stacks equally and the shared baseline holds. */
+.bs-cols{display:grid;grid-template-columns:1fr 1fr;gap:9px 14px;align-items:start}
 .bs-col{min-width:0}
-.bs-cap{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.08em;
-  text-transform:uppercase;color:var(--ink2);margin-bottom:6px;display:flex;
-  justify-content:space-between;gap:6px}
-.bs-cap b{color:var(--ink);font-weight:700}
-.stack{position:relative;border:2px solid var(--ink);background:var(--paper2)}
-.band{position:relative;overflow:hidden;border-bottom:1.5px solid rgba(22,19,16,.45)}
+.bs-cap{min-width:0;font-size:11.5px;font-weight:500;color:var(--ink2);
+  display:flex;flex-direction:column;gap:2px;align-self:end}
+.bs-cap b{color:var(--ink);font-weight:700;font-family:var(--mono);font-size:12px;
+  overflow-wrap:anywhere}
+/* A well, so the stack sits IN the sheet. The drawing is the one thing on the
+   page allowed to be loud, and a pressed frame is what gives it permission. */
+.stack{position:relative;border-radius:var(--r1);overflow:hidden;
+  background:var(--well);box-shadow:var(--in-sm)}
+.band{position:relative;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.28)}
 .band:last-child{border-bottom:0}
-.band .bl{position:absolute;left:6px;right:6px;top:50%;transform:translateY(-50%);
-  font-size:11px;font-weight:700;line-height:1.15;color:#fff;
-  text-shadow:0 1px 0 rgba(0,0,0,.35);overflow:hidden}
-.band .bl .bv{display:block;font-family:var(--mono);font-size:10px;font-weight:400;opacity:.92}
-.band.pale .bl{color:var(--ink);text-shadow:none}
+.band .bl{position:absolute;left:9px;right:9px;top:50%;transform:translateY(-50%);
+  font-size:11.5px;font-weight:600;line-height:1.2;color:#fff;overflow:hidden}
+.band .bl .bn{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.band .bl .bv{display:block;font-family:var(--mono);font-size:10px;font-weight:400;
+  opacity:.9;margin-top:1px}
+.band.pale .bl{color:var(--ink)}
 /* Remainders are computed, not filed. The hatch says "this is the leftover",
    so it can never be mistaken for a line the company actually reported. */
 .band.rem{background-image:repeating-linear-gradient(45deg,
-  rgba(255,255,255,.34) 0 5px,transparent 5px 10px)}
+  rgba(255,255,255,.36) 0 5px,transparent 5px 10px)}
 .band.eq{background:var(--yellow)}
-.band.eq .bl{color:var(--ink);text-shadow:none}
+.band.eq .bl{color:var(--ink)}
 /* Negative equity hangs below the shared baseline: owing more than you own
    should look like it, not be quietly normalised away. */
 .band.neg{border-top:3px solid var(--yellow)}
-.band.neg .bl{color:var(--yellow);text-shadow:none}
-.band .bl.one{font-size:10px;line-height:1;white-space:nowrap;overflow:hidden;
+.band.neg .bl{color:var(--yellow)}
+.band .bl.one{font-size:10.5px;line-height:1;white-space:nowrap;overflow:hidden;
   text-overflow:ellipsis}
 .band .bl.one b{font-family:var(--mono);font-weight:700}
-.baseline{height:0;border-top:2px dashed var(--ink);margin:0 -14px;opacity:.5}
+.baseline{height:14px}
 
 /* ---- legend: every band, with the number ---- */
-.legend{margin:14px -14px 0;border-top:2px solid var(--ink)}
-.lrow{display:flex;align-items:flex-start;gap:9px;padding:8px 14px;
-  border-bottom:1px solid rgba(22,19,16,.16)}
-.lrow:last-child{border-bottom:0}
-.sw{width:14px;height:14px;flex:none;border:1.5px solid var(--ink);margin-top:2px}
+.legend{margin:20px 0 0;padding-top:4px}
+/* An engraved line, not a drawn one: the two legends are the two columns, and
+   the break between them has to be findable without adding a rule. */
+.legend+.legend{margin-top:16px;padding:16px 0 4px;
+  border-top:1px solid var(--hi);box-shadow:0 -1px 0 var(--lo)}
+.lrow{display:flex;align-items:flex-start;gap:12px;padding:9px 2px}
+.sw{width:16px;height:16px;flex:none;border-radius:5px;margin-top:2px;
+  box-shadow:0 1px 2px rgba(34,38,47,.18)}
 .sw.rem{background-image:repeating-linear-gradient(45deg,
-  rgba(255,255,255,.45) 0 4px,transparent 4px 8px)}
-.lk{flex:1;min-width:0;font-size:13.5px;font-weight:600;line-height:1.3}
-.lk .ln{display:block;font-size:11.5px;font-weight:400;color:var(--ink2);line-height:1.35;margin-top:2px}
-.lv{font-family:var(--mono);font-size:12.5px;font-weight:700;white-space:nowrap;text-align:right}
-.lv small{display:block;font-weight:400;color:var(--ink2);font-size:10.5px}
+  rgba(255,255,255,.5) 0 4px,transparent 4px 8px)}
+.lk{flex:1;min-width:0;font-size:14px;font-weight:500;line-height:1.35}
+.lk .ln{display:block;font-size:12px;font-weight:400;color:var(--ink2);
+  line-height:1.4;margin-top:3px}
+.lv{font-family:var(--mono);font-size:12.5px;font-weight:700;white-space:nowrap;
+  text-align:right}
+.lv small{display:block;font-weight:400;color:var(--ink2);font-size:10.5px;margin-top:2px}
 
-/* ---- missing: named, never imputed ---- */
-.missing{margin-top:14px;border:2px solid var(--ink);background:var(--paper2);padding:11px 13px}
-.missing h3{font-family:var(--mono);font-size:10.5px;font-weight:700;letter-spacing:.07em;
-  text-transform:uppercase;margin:0 0 6px;color:var(--ink2)}
-.missing p{margin:0;font-size:13px;line-height:1.45}
-.missing .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:8px}
-.missing .tags span{font-family:var(--mono);font-size:10.5px;border:1.5px solid var(--dim);
-  padding:2px 6px;color:var(--ink2);background:var(--card)}
-
-.derived{margin-top:14px;border:2px solid var(--ink);border-left-width:6px;
-  border-left-color:var(--blue);background:var(--card);padding:10px 12px;
-  font-size:13.5px;line-height:1.45}
-.note{border-left:6px solid var(--red);background:var(--card);border:2px solid var(--ink);
-  border-left-width:6px;padding:10px 12px;margin-top:14px;font-size:13.5px;line-height:1.45}
+/* ---- notices: pressed panels, never coloured ---- */
+/* These used to be colour-coded left borders. Colour is spoken for, so they
+   are set apart by depth and a small label instead. */
+.missing,.derived,.note,.caution{margin-top:18px;border-radius:var(--r1);
+  background:var(--well);box-shadow:var(--in-sm);padding:15px 17px;
+  font-size:13.5px;line-height:1.55;color:var(--ink2)}
+.missing h3{font-size:11.5px;font-weight:600;letter-spacing:.04em;
+  text-transform:uppercase;margin:0 0 8px;color:var(--dim)}
+.missing p{margin:0}
+.missing .tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
+.missing .tags span{font-size:11.5px;padding:5px 11px;border-radius:999px;
+  color:var(--ink2);background:var(--bg);box-shadow:var(--up-sm)}
+.caution strong{display:block;margin-bottom:5px;color:var(--ink);font-weight:600}
+.bs .missing,.bs .derived,.bs .note{margin-bottom:20px}
 
 /* ---- the description ---- */
-.shape{margin-top:22px;border-top:2px solid var(--ink);padding-top:14px}
-.shape p{margin:0 0 10px;font-size:15.5px;line-height:1.55;max-width:58ch}
+.shape{margin:26px 0 30px;padding:0 2px}
+.shape p{margin:0 0 14px;font-size:16.5px;line-height:1.65;max-width:56ch;
+  color:var(--ink)}
 .shape p:last-child{margin-bottom:0}
 
 /* ---- empty / error ---- */
-.empty{border:2px solid var(--ink);box-shadow:var(--sh);background:var(--card);padding:22px 20px}
-.empty h1{font-size:clamp(22px,6vw,30px);font-weight:800;letter-spacing:-.02em;margin:0 0 10px}
-.empty p{margin:0 0 14px;font-size:15px;line-height:1.5;max-width:54ch}
-.sugg{display:flex;flex-wrap:wrap;gap:8px}
-.sugg a{font-family:var(--mono);font-size:13px;font-weight:700;border:2px solid var(--ink);
-  padding:8px 12px;background:var(--card);box-shadow:2px 2px 0 var(--ink);
-  text-decoration:none;color:var(--ink)}
-.sugg a:hover,.sugg a:focus-visible{transform:translate(-1px,-1px);
-  box-shadow:3px 3px 0 var(--ink);outline:0}
-.sugg a:focus-visible{box-shadow:3px 3px 0 var(--blue)}
-.sugg a small{font-family:var(--disp);font-size:11.5px;font-weight:400;
-  color:var(--ink2);margin-left:4px}
+.empty{padding:32px 26px}
+.empty h1{font-size:clamp(23px,6.4vw,31px);font-weight:600;letter-spacing:-.025em;
+  margin:0 0 12px}
+.empty p{margin:0 0 18px;font-size:15.5px;line-height:1.6;color:var(--ink2);
+  max-width:52ch}
+.empty .search{margin:20px 0 0}
+.tryline{margin:22px 0 12px!important;font-size:14px;color:var(--dim)}
+.sugg{display:flex;flex-wrap:wrap;gap:10px}
+.sugg a{font-family:var(--mono);font-size:13px;font-weight:700;padding:11px 16px;
+  border-radius:999px;background:var(--bg);box-shadow:var(--up-sm);
+  text-decoration:none;color:var(--ink);transition:box-shadow .18s,transform .18s}
+.sugg a:hover{box-shadow:var(--up);transform:translateY(-1px)}
+.sugg a:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.sugg a small{font-family:var(--disp);font-size:12px;font-weight:400;
+  color:var(--dim);margin-left:6px}
 
-footer{margin-top:30px;border-top:2px solid var(--ink);padding-top:12px;
-  font-size:12px;color:var(--ink2);line-height:1.5}
-
-/* 320px: the drawing keeps its two columns (that IS the view), so the legend
-   goes full width and inline band labels drop to the legend below. */
-@media(max-width:359px){
-  .bs{padding:11px 11px 0}
-  .bs-cols{gap:7px}
-  .band .bl{font-size:10px;left:4px;right:4px}
-  .band .bl .bv{font-size:9px}
-  .lrow{padding:7px 11px}
-  .lk{font-size:12.5px}
-  .lv{font-size:11.5px}
-  .legend{margin:12px -11px 0}
-}
-@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-height:1.6}
 
 /* ---- View 3: the flow ---- */
 .bs.flow .stack{margin-top:2px}
 .band.keep{background:var(--yellow)}
-.band.keep .bl{color:var(--ink);text-shadow:none}
+.band.keep .bl{color:var(--ink)}
 /* A loss is not a smaller profit. Ink, not a paler yellow. */
 .band.keep.loss{background:var(--ink);border-top:3px solid var(--yellow)}
-.band.keep.loss .bl{color:var(--yellow);text-shadow:none}
+.band.keep.loss .bl{color:var(--yellow)}
 
 /* ---- View 2: company against countries ---- */
-/* Countries are drawn as outlined bars and the company as a solid one, so the
+/* Countries are drawn as empty wells and the company as a filled one, so the
    two never read as members of one ranked list. */
-.scale-rows{display:flex;flex-direction:column;gap:9px}
-.srow{display:grid;grid-template-columns:1fr;gap:3px}
-.sname{font-size:13px;font-weight:600;line-height:1.2}
-.sbar{display:block;height:18px;background:var(--paper2);border:1.5px solid var(--ink)}
-.sbar i{display:block;height:100%;background:
-  repeating-linear-gradient(45deg,var(--ink) 0 1.5px,transparent 1.5px 6px);
-  opacity:.55}
+.scale-rows{display:flex;flex-direction:column;gap:14px}
+.srow{display:grid;grid-template-columns:1fr;gap:5px}
+.sname{font-size:13.5px;font-weight:500;line-height:1.25;color:var(--ink2)}
+.sbar{display:block;height:20px;border-radius:999px;overflow:hidden;
+  background:var(--well);box-shadow:var(--in-sm)}
+.sbar i{display:block;height:100%;border-radius:999px;background:var(--dim);opacity:.4}
 .sval{font-family:var(--mono);font-size:11.5px;color:var(--ink2)}
-.srow.me .sname{font-weight:800}
-.srow.me .sbar{border-width:2.5px;box-shadow:2px 2px 0 var(--ink)}
+.srow.me .sname{font-weight:600;color:var(--ink)}
 .srow.me .sbar i{background:var(--blue);opacity:1}
 .srow.me .sval{color:var(--ink);font-weight:700}
+.prov{font-family:var(--mono);font-size:10.5px;color:var(--ink2);margin:14px 0 0;
+  line-height:1.6}
 
-/* ---- home: the front door ---- */
-/* The hero is the product, not a claim about it. Five thumbnails of five real
-   balance sheets carry the whole argument, so everything around them stays
-   quiet: one headline, one sentence, one input. */
-.navlink{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;
-  text-transform:uppercase;color:var(--ink2);text-decoration:none;
-  border-bottom:2px solid transparent;padding-bottom:2px}
-.navlink:hover,.navlink:focus-visible{color:var(--ink);border-bottom-color:var(--ink)}
-
-.hero{border:2px solid var(--ink);box-shadow:var(--sh);background:var(--card);
-  padding:22px 18px 20px;margin-bottom:26px;position:relative}
-/* The triad down the edge, in the same order the drawing uses it: owns, owed,
-   left over. It is the page's legend before there is anything to read. */
-.hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:12px;
-  background:linear-gradient(var(--blue) 0 40%,var(--red) 0 78%,var(--yellow) 0)}
-.htitle{font-size:clamp(27px,7.9vw,42px);line-height:.99;font-weight:800;
-  letter-spacing:-.035em;margin:0 0 11px 10px;text-transform:uppercase;
-  max-width:13ch}
-.hlede{font-size:15.5px;line-height:1.45;color:var(--ink2);margin:0 0 18px 10px;
-  max-width:40ch}
-
-.search{margin-left:10px}
-.slabel{display:block;font-family:var(--mono);font-size:10.5px;font-weight:700;
-  letter-spacing:.09em;text-transform:uppercase;color:var(--ink2);margin-bottom:5px}
-.sfield{display:flex;gap:0}
-.search input{flex:1;min-width:0;font:700 17px/1 var(--mono);color:var(--ink);
-  background:var(--paper);border:2px solid var(--ink);border-right:0;padding:13px 12px;
-  text-transform:uppercase;border-radius:0;-webkit-appearance:none}
-.search input::placeholder{color:var(--dim);font-weight:400}
-.search input:focus-visible{outline:0;background:#fff;box-shadow:inset 0 0 0 2px var(--blue)}
-.search button{flex:none;font:800 13px/1 var(--disp);letter-spacing:.04em;
-  text-transform:uppercase;color:var(--paper);background:var(--ink);
-  border:2px solid var(--ink);padding:13px 16px;cursor:pointer;border-radius:0}
-.search button:hover{background:var(--blue)}
-.search button:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
-
-.cards{display:grid;grid-template-columns:1fr;gap:10px}
-@media(min-width:520px){.cards{grid-template-columns:1fr 1fr}}
-.card{display:grid;grid-template-columns:1fr auto;grid-template-areas:
-  "head thumb" "fact thumb" "size thumb";
-  gap:2px 12px;align-items:start;text-decoration:none;color:var(--ink);
-  border:2px solid var(--ink);background:var(--card);box-shadow:2px 2px 0 var(--ink);
-  padding:12px 13px}
-.card:hover,.card:focus-visible{box-shadow:4px 4px 0 var(--ink);
-  transform:translate(-2px,-2px);outline:0}
-.card:focus-visible{background:#fff;box-shadow:4px 4px 0 var(--blue)}
-.chead2{grid-area:head;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
-.ctick{font-family:var(--mono);font-size:17px;font-weight:700;letter-spacing:.02em}
-.ckind{font-size:12.5px;color:var(--ink2)}
-.cfact{grid-area:fact;font-size:13.5px;font-weight:600;line-height:1.3;margin-top:6px}
-.csize{grid-area:size;font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:3px}
-/* Two columns, same rules as the full drawing, one third the height. */
-.thumb{grid-area:thumb;display:flex;gap:4px;align-items:flex-start}
-.mcol{display:block;width:26px;border:1.5px solid var(--ink);background:var(--paper2)}
-.mband{display:block;border-bottom:1px solid rgba(22,19,16,.4)}
-.mband:last-child{border-bottom:0}
-.mband.rem{background-image:repeating-linear-gradient(45deg,
-  rgba(255,255,255,.34) 0 4px,transparent 4px 8px)}
-.munder{display:block;border-top:2px dashed var(--ink)}
-.card.bare{grid-template-columns:1fr;grid-template-areas:"head"}
-
-.tryline{margin:16px 0 8px!important;font-size:13.5px;color:var(--ink2)}
-.empty .search{margin:16px 0 0}
-
-.caution{margin-top:14px;border:2px solid var(--ink);border-left-width:8px;
-  border-left-color:var(--yellow);background:var(--card);padding:11px 13px;
-  font-size:13.5px;line-height:1.5}
-.caution strong{display:block;margin-bottom:3px}
-.prov{font-family:var(--mono);font-size:10.5px;color:var(--ink2);margin:9px 0 0;
-  line-height:1.5}
+/* 320px: the drawing keeps its two columns (that IS the view), so labels get
+   tighter rather than the columns getting fewer. */
+@media(max-width:359px){
+  .wrap{padding:0 14px}
+  .hero{padding:28px 20px 26px}
+  .chead,.empty{padding:22px 18px}
+  .bs{padding:18px 16px 0}
+  .bs-cols{gap:10px}
+  .card{padding:17px 16px;gap:2px 12px}
+  .band .bl{font-size:10.5px;left:6px;right:6px}
+  .band .bl .bv{font-size:9px}
+  .lk{font-size:13px}
+  .lv{font-size:11.5px}
+  .search button{padding:14px 18px}
+}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

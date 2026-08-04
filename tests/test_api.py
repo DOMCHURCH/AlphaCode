@@ -682,6 +682,69 @@ def test_company_page_draws_negative_equity_below_the_baseline(client):
     assert "Liabilities exceed total assets" in text
 
 
+def test_the_two_columns_share_one_caption_row(client):
+    """Equal height IS the accounting identity, so the two stacks must start at
+    the same y by construction, not by luck.
+
+    Nested inside their columns the captions are independent, and "Owed & owned
+    $4.06T + $362.4B" wraps where "Owns $4.42T" does not -- which drops the
+    right-hand stack half a line and quietly breaks the one thing the drawing
+    asserts. As one shared grid row, a wrap lifts both stacks equally.
+    """
+    _seed_company("JPM", {
+        "total_assets": 4_424_900_000_000.0,
+        "total_liabilities": 4_062_462_000_000.0,
+        "total_equity": 362_438_000_000.0,
+        "cash": 469_000_000_000.0,
+    })
+
+    text = client.get("/company/JPM").text
+    cols = text.split('<div class="bs-cols">', 1)[1].split("</div>\n\n", 1)[0]
+    cap = cols.index('<div class="bs-cap">')
+    col = cols.index('<div class="bs-col">')
+
+    assert cols.count('<div class="bs-cap">') == 2
+    assert cols.count('<div class="bs-col">') == 2
+    assert cap < col, "both captions must precede both columns, as one grid row"
+    # And no caption may be nested inside a column, which is what re-introduces
+    # the independent wrap.
+    first_col = cols[col:]
+    assert '<div class="bs-cap">' not in first_col
+
+
+def test_a_band_label_is_never_taller_than_its_band(client):
+    """A full label is exactly two lines: the name on one, ellipsised, and the
+    value under it. Left to wrap, a two-word name makes it three lines and the
+    band clips it -- so what the reader sees would depend on word length."""
+    _seed_company("WMT", {
+        "total_assets": 260_800_000_000.0,
+        "total_liabilities": 176_000_000_000.0,
+        "total_equity": 84_800_000_000.0,
+        "property_plant_equipment": 118_600_000_000.0,
+    })
+
+    text = client.get("/company/WMT").text
+
+    assert '<span class="bn">' in text, "the name needs its own clamped line"
+    assert '<span class="bn">Property &amp; equipment</span>' in text
+
+
+def test_only_the_drawing_carries_colour(client):
+    """The interface is one sheet of grey; blue, red and yellow do nothing but
+    carry meaning. A chrome element painted in a data colour would read as a
+    balance-sheet quantity, so the palette variables belong to bands only."""
+    css = client.get("/static/company.css").text
+    chrome, data = css.split("/* DATA ONLY, from here down. */", 1)
+
+    for token in ("--red:", "--blue:", "--yellow:", "--a0:", "--l0:"):
+        assert token not in chrome, f"{token} must sit below the data marker"
+    # The buttons, chips, inputs and cards are all ink-and-grey.
+    for rule in (".search button{", ".chip{", ".navlink{", ".card:hover{"):
+        block = css.split(rule, 1)[1].split("}", 1)[0]
+        for hue in ("--red", "--blue", "--yellow", "--a1", "--l1"):
+            assert hue not in block, f"{rule} must not use {hue}"
+
+
 def test_company_page_escapes_the_ticker(client):
     r = client.get("/company/%3Cscript%3E")
     assert "<script>" not in r.text.replace(

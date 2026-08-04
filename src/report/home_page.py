@@ -118,7 +118,12 @@ def _shell(title: str, body: str) -> str:
 
 def search_form(value: str = "", autofocus: bool = False) -> str:
     """A plain GET form. No JavaScript: the page's one interaction must not
-    depend on a script arriving."""
+    depend on a script arriving.
+
+    Autofocus is reserved for the pages a reader reaches BY searching -- an
+    empty query, or a ticker with nothing behind it. On the home page it would
+    throw up the keyboard over the five drawings that are the reason to stay.
+    """
     af = " autofocus" if autofocus else ""
     return f"""
   <form class="search" action="/search" method="get" role="search">
@@ -168,7 +173,7 @@ def render_home(pairs: list[tuple[Suggestion, View1 | None]]) -> str:
     <h1 class="htitle">Every company drawn to scale</h1>
     <p class="hlede">Filed financial statements, drawn at true proportion.
       Nothing estimated, nothing predicted.</p>
-    {search_form(autofocus=True)}
+    {search_form()}
   </header>
   {gallery}
 

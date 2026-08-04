@@ -95,8 +95,12 @@ def _band(block: dict[str, Any], px_per_pct: float) -> str:
         # must not be what gets ellipsised. The legend carries the full name.
         label = f'<span class="bl one">Equity <b>{money(block["value"])}</b></span>'
     elif block["label_style"] == "full":
+        # The name gets its own line and is ellipsised there. Left to wrap, a
+        # two-word name turns a two-line label into a three-line one and the
+        # band clips it -- so the label the reader sees depends on how long the
+        # word happens to be, which is not a thing the drawing should encode.
         label = (
-            f'<span class="bl">{escape(block["label"])}'
+            f'<span class="bl"><span class="bn">{escape(block["label"])}</span>'
             f'<span class="bv">{money(block["value"])}</span></span>'
         )
     elif block["label_style"] == "compact":
@@ -318,14 +322,19 @@ def render_company_page(
     <p class="sec-sub">Both columns are the same height because they are the same
       money, counted twice: once by what it is, once by who it belongs to.</p>
 
+    <!-- The captions are their own grid row, shared by both columns, so the
+         two stacks start at the same y no matter how either caption wraps.
+         Nested inside the columns, "Owed & owned $4.06T + $362.4B" wraps where
+         "Owns $4.42T" does not, and the right column silently drops half a
+         line -- which breaks the one thing this drawing asserts. -->
     <div class="bs">
       <div class="bs-cols">
+        <div class="bs-cap"><span>Owns</span><b>{money(total)}</b></div>
+        <div class="bs-cap"><span>Owed &amp; owned</span><b>{liab_label} + {eq_label}</b></div>
         <div class="bs-col">
-          <div class="bs-cap"><span>Owns</span><b>{money(total)}</b></div>
           <div class="stack">{assets_html}</div>
         </div>
         <div class="bs-col">
-          <div class="bs-cap"><span>Owed &amp; owned</span><b>{liab_label} + {eq_label}</b></div>
           <div class="stack">{claims_html}</div>
           {f'<div class="baseline"></div><div class="stack">{below_html}</div>' if below_html else ""}
         </div>

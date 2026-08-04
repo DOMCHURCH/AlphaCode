@@ -146,14 +146,15 @@ if _STATIC_DIR.is_dir():
     app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 
-# A tiny Bauhaus mark, inlined as SVG so there's no binary asset to ship.
+# The mark is the drawing in miniature -- owns, owed, left over -- on the same
+# soft ground as the page. Inlined as SVG so there's no binary asset to ship.
 _FAVICON = (
     '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">'
-    '<rect width="32" height="32" fill="#F3EFE4"/>'
-    '<path d="M0 0H16A16 16 0 0 1 0 16Z" fill="#2340BE"/>'
-    '<circle cx="24" cy="8" r="7" fill="#F3C218"/>'
-    '<path d="M16 16H32V32Z" fill="#E1362C"/>'
-    '<rect x="0" y="19" width="13" height="13" fill="#161310"/>'
+    '<rect width="32" height="32" rx="9" fill="#E7EBF2"/>'
+    '<path d="M16 4A12 12 0 0 1 28 16H16Z" fill="#2340BE"/>'
+    '<path d="M28 16A12 12 0 0 1 16 28V16Z" fill="#F3C218"/>'
+    '<path d="M16 28A12 12 0 0 1 4 16H16Z" fill="#E1362C"/>'
+    '<path d="M4 16A12 12 0 0 1 16 4V16Z" fill="#CBD3E0"/>'
     "</svg>"
 )
 
