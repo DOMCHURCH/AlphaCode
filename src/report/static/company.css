@@ -150,3 +150,34 @@ footer{margin-top:30px;border-top:2px solid var(--ink);padding-top:12px;
   .legend{margin:12px -11px 0}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---- View 3: the flow ---- */
+.bs.flow .stack{margin-top:2px}
+.band.keep{background:var(--yellow)}
+.band.keep .bl{color:var(--ink);text-shadow:none}
+/* A loss is not a smaller profit. Ink, not a paler yellow. */
+.band.keep.loss{background:var(--ink);border-top:3px solid var(--yellow)}
+.band.keep.loss .bl{color:var(--yellow);text-shadow:none}
+
+/* ---- View 2: company against countries ---- */
+/* Countries are drawn as outlined bars and the company as a solid one, so the
+   two never read as members of one ranked list. */
+.scale-rows{display:flex;flex-direction:column;gap:9px}
+.srow{display:grid;grid-template-columns:1fr;gap:3px}
+.sname{font-size:13px;font-weight:600;line-height:1.2}
+.sbar{display:block;height:18px;background:var(--paper2);border:1.5px solid var(--ink)}
+.sbar i{display:block;height:100%;background:
+  repeating-linear-gradient(45deg,var(--ink) 0 1.5px,transparent 1.5px 6px);
+  opacity:.55}
+.sval{font-family:var(--mono);font-size:11.5px;color:var(--ink2)}
+.srow.me .sname{font-weight:800}
+.srow.me .sbar{border-width:2.5px;box-shadow:2px 2px 0 var(--ink)}
+.srow.me .sbar i{background:var(--blue);opacity:1}
+.srow.me .sval{color:var(--ink);font-weight:700}
+
+.caution{margin-top:14px;border:2px solid var(--ink);border-left-width:8px;
+  border-left-color:var(--yellow);background:var(--card);padding:11px 13px;
+  font-size:13.5px;line-height:1.5}
+.caution strong{display:block;margin-bottom:3px}
+.prov{font-family:var(--mono);font-size:10.5px;color:var(--ink2);margin:9px 0 0;
+  line-height:1.5}

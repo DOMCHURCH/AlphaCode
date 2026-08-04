@@ -11,6 +11,8 @@ from html import escape
 from typing import Any
 
 from src.company.view1 import View1, describe_shape
+from src.company.view2 import View2
+from src.company.view3 import View3, describe_flow
 
 SUGGESTED = (
     ("JPM", "a bank"),
@@ -109,7 +111,106 @@ def _legend_rows(blocks: list[dict[str, Any]], total: float) -> str:
     return "".join(out)
 
 
-def render_company_page(view: View1) -> str:
+def _flow_html(v3: View3 | None) -> str:
+    """View 3: revenue in at the top, out through costs, profit at the bottom."""
+    if v3 is None:
+        return ""
+    d = v3.as_dict()
+    rev = d["revenue"]
+    col_px = 260.0
+
+    bands = []
+    for i, st in enumerate(d["stages"]):
+        h = max(st["pct"] / 100.0 * col_px, 3.0)
+        tone = min(i, 3)
+        lab = ""
+        if h >= 26:
+            lab = (f'<span class="bl">{escape(st["label"])}'
+                   f'<span class="bv">{money(st["value"])} · {st["pct"]:.0f}%</span></span>')
+        elif h >= 13:
+            lab = (f'<span class="bl one">{escape(st["label"])} '
+                   f'<b>{st["pct"]:.0f}%</b></span>')
+        bands.append(
+            f'<div class="band" style="height:{h:.1f}px;'
+            f'background-color:var(--l{tone})">{lab}</div>'
+        )
+
+    keep = d["net_income"]
+    keep_pct = abs(keep) / rev * 100.0
+    keep_h = max(keep_pct / 100.0 * col_px, 14.0)
+    keep_cls = "band keep" + (" loss" if d["loss_making"] else "")
+    keep_lab = "Loss" if d["loss_making"] else "Profit kept"
+    bands.append(
+        f'<div class="{keep_cls}" style="height:{keep_h:.1f}px">'
+        f'<span class="bl one">{keep_lab} <b>{money(keep)}</b> '
+        f'· {d["margin_pct"]:.1f}%</span></div>'
+    )
+
+    rows = "".join(
+        f'<div class="lrow"><span class="sw" style="background-color:var(--l{min(i,3)})">'
+        f'</span><span class="lk">{escape(st["label"])}'
+        f'<span class="ln">{escape(st["caption"])}'
+        + (" · computed as a remainder" if st["derived"] else "")
+        + f'</span></span><span class="lv">{money(st["value"])}'
+        f'<small>{st["pct"]:.0f}%</small></span></div>'
+        for i, st in enumerate(d["stages"])
+    )
+
+    basis = ("the last four quarters" if d["period_basis"] == "ttm"
+             else "the year ended " + d["period_end"])
+    notes = "".join(f'<div class="note">{escape(n)}</div>' for n in d["notes"])
+    sentences = "".join(f"<p>{escape(s)}</p>" for s in describe_flow(v3))
+
+    return f"""
+  <section class="sec">
+    <div class="sec-head"><h2>Where the money goes</h2></div>
+    <p class="sec-sub">Every dollar of revenue over {escape(basis)}, and what
+      is left after each cost comes out.</p>
+    <div class="bs flow">
+      <div class="bs-cap"><span>Revenue in</span><b>{money(rev)}</b></div>
+      <div class="stack">{"".join(bands)}</div>
+      <div class="legend">{rows}</div>
+    </div>
+    {notes}
+    <div class="shape">{sentences}</div>
+  </section>"""
+
+
+def _scale_html(v2: View2 | None) -> str:
+    """View 2: the company against the economies nearest it in size."""
+    if v2 is None:
+        return ""
+    d = v2.as_dict()
+    rows = "".join(
+        f'<div class="srow{" me" if r["kind"] == "company" else ""}">'
+        f'<span class="sname">{escape(r["label"])}</span>'
+        f'<span class="sbar"><i style="width:{max(r["pct_of_max"], 1.2):.2f}%"></i></span>'
+        f'<span class="sval">{money(r["value"])}</span></div>'
+        for r in d["rows"]
+    )
+    basis = ("last four quarters" if d["period_basis"] == "ttm"
+             else "year ended " + d["period_end"])
+    return f"""
+  <section class="sec">
+    <div class="sec-head"><h2>The size of it</h2></div>
+    <p class="sec-sub">{escape(d["rank_note"])}</p>
+    <div class="bs scale">
+      <div class="scale-rows">{rows}</div>
+    </div>
+    <div class="caution">
+      <strong>These measure different things.</strong> A country's GDP is
+      everything it produced in a year. A company's revenue is what it sold.
+      They share a unit, not a meaning — this shows how big the number is, and
+      nothing more. A company is not "bigger than" a country.
+    </div>
+    <p class="prov">Company figure: {escape(basis)}. GDP:
+      {escape(d["gdp_source"] or "World Bank")}, {d["gdp_year"]}.</p>
+  </section>"""
+
+
+def render_company_page(
+    view: View1, flow: View3 | None = None, scale: View2 | None = None
+) -> str:
     d = view.as_dict()
     total = d["total_assets"]
 
@@ -228,6 +329,8 @@ def render_company_page(view: View1) -> str:
   </section>
 
   <section class="shape">{shape_html}</section>
+  {_flow_html(flow)}
+  {_scale_html(scale)}
 
   <footer>
     Every figure is as reported to the SEC for the quarter ended

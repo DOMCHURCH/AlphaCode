@@ -34,6 +34,27 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 PERIOD = dt.date(2025, 12, 31)
 FILED = dt.date(2026, 2, 13)
 
+# Annual (FY) income-statement figures, so views 2 and 3 have a twelve-month
+# basis without needing four seeded quarters. Illustrative, like everything else
+# in this file.
+INCOME: dict[str, dict[str, float]] = {
+    "JPM": {"revenue": 177_600_000_000, "cogs": 0,
+            "operating_income": 76_700_000_000, "income_tax": 16_400_000_000,
+            "net_income": 58_500_000_000},
+    "MSFT": {"revenue": 281_700_000_000, "cogs": 89_400_000_000,
+             "gross_profit": 192_300_000_000, "operating_income": 128_500_000_000,
+             "income_tax": 22_100_000_000, "net_income": 101_800_000_000},
+    "WMT": {"revenue": 680_900_000_000, "cogs": 511_300_000_000,
+            "gross_profit": 169_600_000_000, "operating_income": 29_300_000_000,
+            "income_tax": 6_200_000_000, "net_income": 19_400_000_000},
+    "AAL": {"revenue": 54_200_000_000, "cogs": 0,
+            "operating_income": 2_600_000_000, "income_tax": 250_000_000,
+            "net_income": 850_000_000},
+    "FCX": {"revenue": 25_500_000_000, "cogs": 18_100_000_000,
+            "gross_profit": 7_400_000_000, "operating_income": 5_600_000_000,
+            "income_tax": 1_700_000_000, "net_income": 1_900_000_000},
+}
+
 # metric -> value. Shapes chosen so the five archetypes are visibly different:
 # a bank is almost all financial assets with a sliver of equity; an airline is
 # planes and debt with negative equity; software is cash and goodwill, mostly
@@ -146,7 +167,8 @@ def main() -> int:
     rows = 0
     with session_scope() as s:
         for ticker, metrics in DEMO.items():
-            for metric, value in metrics.items():
+            merged = {**metrics, **{k: v for k, v in INCOME.get(ticker, {}).items() if v}}
+            for metric, value in merged.items():
                 s.add(Fundamental(
                     ticker=ticker, metric=metric, value=float(value),
                     period_end=PERIOD, fiscal_period="FY", filing_date=FILED,

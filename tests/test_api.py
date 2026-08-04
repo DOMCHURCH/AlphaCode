@@ -666,3 +666,33 @@ def test_company_page_escapes_the_ticker(client):
     assert "<script>" not in r.text.replace(
         '<script src="/static/admin.js" defer></script>', ""
     )
+
+
+def test_company_page_shows_the_gdp_caution_where_the_reader_will_see_it(client):
+    """The comparison is of magnitude only, and that must not be a footnote."""
+    _seed_company("WMT", {
+        "total_assets": 260_800_000_000.0,
+        "total_liabilities": 169_600_000_000.0,
+        "total_equity": 91_200_000_000.0,
+        "revenue": 680_900_000_000.0, "cogs": 511_300_000_000.0,
+        "gross_profit": 169_600_000_000.0, "operating_income": 29_300_000_000.0,
+        "income_tax": 6_200_000_000.0, "net_income": 19_400_000_000.0,
+    })
+    text = client.get("/company/WMT").text
+    assert "These measure different things" in text
+    assert 'not "bigger than" a country' in text
+    assert "World Bank" in text
+
+
+def test_company_page_skips_a_flow_it_cannot_draw(client):
+    """A balance sheet still renders when the income statement is incomplete."""
+    _seed_company("BANKY", {
+        "total_assets": 1_000_000_000.0,
+        "total_liabilities": 900_000_000.0,
+        "total_equity": 100_000_000.0,
+        "revenue": 500_000_000.0, "net_income": 160_000_000.0,
+    })
+    text = client.get("/company/BANKY").text
+    assert "What it owns" in text
+    assert "Where the money goes" not in text
+    assert "The size of it" not in text

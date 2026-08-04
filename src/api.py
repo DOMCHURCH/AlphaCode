@@ -785,6 +785,8 @@ async def _reload_bg(quarters: int) -> None:
 def company_page(ticker: str) -> HTMLResponse:
     """One ticker in, one page out. Two database reads, nothing that can hang."""
     from src.company.view1 import build_view1
+    from src.company.view2 import build_view2
+    from src.company.view3 import build_view3
     from src.report.company_page import render_company_page, render_not_found
 
     symbol = ticker.strip().upper()[:16]
@@ -810,7 +812,25 @@ def company_page(ticker: str) -> HTMLResponse:
             ),
             status_code=404,
         )
-    return HTMLResponse(render_company_page(view))
+
+    # Views 3 and 2 are independent of view 1 and of each other: a company whose
+    # income statement is incomplete still gets its balance sheet drawn. Each
+    # returns None rather than a partial picture, and a None is simply absent.
+    try:
+        flow = build_view3(symbol)
+    except Exception as exc:  # noqa: BLE001 - one view must not take the page
+        log.warning("view3_failed", ticker=symbol, error=str(exc)[:200])
+        flow = None
+    scale = None
+    if flow is not None:
+        try:
+            scale = build_view2(
+                symbol, flow.revenue, flow.period_basis, flow.period_end,
+                company_name=view.company_name,
+            )
+        except Exception as exc:  # noqa: BLE001
+            log.warning("view2_failed", ticker=symbol, error=str(exc)[:200])
+    return HTMLResponse(render_company_page(view, flow=flow, scale=scale))
 
 
 @app.get("/admin/universe-check")
