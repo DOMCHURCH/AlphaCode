@@ -98,7 +98,10 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
         ).scalar_one_or_none()
 
         if univ:
-            company_name = univ.company_name
+            # The column is `name`. Reading `company_name` here raised
+            # AttributeError for any ticker actually present in the universe
+            # table -- invisible in tests only because that table was empty.
+            company_name = univ.name
 
         # Get fundamentals for this ticker, most recent period first
         from src.storage.models import Fundamental

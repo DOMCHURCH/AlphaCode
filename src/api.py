@@ -781,6 +781,38 @@ async def _reload_bg(quarters: int) -> None:
             log.exception("admin_reload_failed", error=str(exc))
 
 
+@app.get("/company/{ticker}", response_class=HTMLResponse)
+def company_page(ticker: str) -> HTMLResponse:
+    """One ticker in, one page out. Two database reads, nothing that can hang."""
+    from src.company.view1 import build_view1
+    from src.report.company_page import render_company_page, render_not_found
+
+    symbol = ticker.strip().upper()[:16]
+    if not symbol.isalnum() and not symbol.replace(".", "").replace("-", "").isalnum():
+        return HTMLResponse(
+            render_not_found(symbol, "That does not look like a ticker symbol."),
+            status_code=404,
+        )
+    try:
+        view = build_view1(symbol)
+    except Exception as exc:  # noqa: BLE001 - a broken page must still say why
+        log.exception("company_page_failed", ticker=symbol, error=str(exc))
+        return HTMLResponse(
+            render_not_found(symbol, f"Something went wrong reading it: {exc}"),
+            status_code=500,
+        )
+    if view is None:
+        return HTMLResponse(
+            render_not_found(
+                symbol,
+                "There are no filed fundamentals for it in the database, or it "
+                "reports no total for assets — so there is nothing to draw to scale.",
+            ),
+            status_code=404,
+        )
+    return HTMLResponse(render_company_page(view))
+
+
 @app.get("/admin/universe-check")
 def admin_universe_check() -> dict[str, Any]:
     """Run the accounting identity over EVERY ticker, not just the five.

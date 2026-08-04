@@ -584,3 +584,85 @@ def test_a_confirmed_reference_mismatch_still_fails_the_run(client):
     assert body["companies"]["MSFT"]["passed"] is False
     assert body["passed"] is False
     assert body["companies"]["MSFT"]["metrics"]["total_assets"].get("verdict") is None
+
+
+# --------------------------------------------------------------- company page
+def _seed_company(ticker: str, metrics: dict) -> None:
+    _seed_fundamentals([_fund(ticker, m, v) for m, v in metrics.items()])
+
+
+def test_company_page_renders(client):
+    _seed_company("JPM", {
+        "total_assets": 4_424_900_000_000.0,
+        "cash": 1_570_000_000_000.0,
+        "total_liabilities": 4_062_462_000_000.0,
+        "total_equity": 362_438_000_000.0,
+    })
+    r = client.get("/company/JPM")
+    assert r.status_code == 200
+    assert "JPM" in r.text
+    # The figures and their provenance are both on the page.
+    assert "2025-12-31" in r.text and "2026-02-13" in r.text
+    assert "$4.42T" in r.text
+
+
+def test_company_page_is_lowercase_tolerant(client):
+    _seed_company("MSFT", {
+        "total_assets": 665_302_000_000.0, "total_liabilities": 274_427_000_000.0,
+        "total_equity": 390_875_000_000.0,
+    })
+    assert client.get("/company/msft").status_code == 200
+
+
+def test_company_page_says_so_when_there_is_nothing_to_draw(client):
+    r = client.get("/company/NOSUCH")
+    assert r.status_code == 404
+    assert "Nothing to draw" in r.text
+    # And points at tickers that do work rather than dead-ending.
+    for t in ("JPM", "AAL", "MSFT", "WMT", "FCX"):
+        assert f"/company/{t}" in r.text
+
+
+def test_company_page_never_shows_investment_language(client):
+    _seed_company("WMT", {
+        "total_assets": 260_800_000_000.0, "inventory": 56_400_000_000.0,
+        "property_plant_equipment": 118_600_000_000.0,
+        "total_liabilities": 169_600_000_000.0, "total_equity": 91_200_000_000.0,
+    })
+    text = client.get("/company/WMT").text.lower()
+    for word in ("buy", "sell", "undervalued", "outperform", "rating", "score",
+                 "forecast", "target price"):
+        assert word not in text, f"{word!r} must not appear on a company page"
+
+
+def test_company_page_names_missing_components(client):
+    _seed_company("BANKY", {
+        "total_assets": 1_000_000_000.0, "cash": 500_000_000.0,
+        "total_liabilities": 900_000_000.0, "total_equity": 100_000_000.0,
+    })
+    text = client.get("/company/BANKY").text
+    assert "Not reported separately" in text
+    assert "Inventory" in text
+    # Named, not zeroed.
+    assert "not estimated, and not set to zero" in text
+
+
+def test_company_page_draws_negative_equity_below_the_baseline(client):
+    _seed_company("AAL", {
+        "total_assets": 62_600_000_000.0,
+        "property_plant_equipment": 39_400_000_000.0,
+        "total_liabilities": 66_500_000_000.0,
+        "total_equity": -3_900_000_000.0,
+    })
+    text = client.get("/company/AAL").text
+    assert 'class="baseline"' in text
+    assert "band neg" in text
+    assert "-$3.9B" in text
+    assert "Liabilities exceed total assets" in text
+
+
+def test_company_page_escapes_the_ticker(client):
+    r = client.get("/company/%3Cscript%3E")
+    assert "<script>" not in r.text.replace(
+        '<script src="/static/admin.js" defer></script>', ""
+    )
