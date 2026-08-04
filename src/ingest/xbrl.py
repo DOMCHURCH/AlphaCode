@@ -132,12 +132,29 @@ CONCEPTS: tuple[Concept, ...] = (
     # It files no InventoryNet and no AccountsPayableCurrent, so against the
     # general component set it renders as one undifferentiated block -- which is
     # true but useless. These are the line items that make a bank legible.
-    Concept("loans", ("LoansAndLeasesReceivableNetReportedAmount",
-                      "NotesReceivableNet"), INSTANT),
+    # Confirmed against a real num.txt dump for JPM, period 2025-12-31:
+    # FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss
+    # returns one consolidated instant at $1,467,664,000,000 (33% of the balance
+    # sheet). It leads the tuple because it is the tag that actually fires.
+    #
+    # The rest returned zero rows for JPM and are kept anyway: an alias tuple
+    # costs nothing when a tag is absent, and a smaller bank on an older
+    # taxonomy may well use them. Absence for one filer is not absence for all.
+    Concept(
+        "loans",
+        ("FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss",
+         "LoansAndLeasesReceivableNetOfDeferredIncome",
+         "LoansAndLeasesReceivableNetReportedAmount",
+         "NotesReceivableNet"),
+        INSTANT,
+    ),
     Concept("trading_securities", ("TradingSecurities",), INSTANT),
+    # DebtSecuritiesAvailableForSaleExcludingAccruedInterest confirmed for JPM
+    # at $507,198,000,000 (11%). The older names follow as fallbacks.
     Concept(
         "investment_securities",
-        ("AvailableForSaleSecuritiesDebtSecurities",
+        ("DebtSecuritiesAvailableForSaleExcludingAccruedInterest",
+         "AvailableForSaleSecuritiesDebtSecurities",
          "HeldToMaturitySecurities",
          "MarketableSecurities"),
         INSTANT,

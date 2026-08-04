@@ -567,3 +567,66 @@ def test_stated_total_is_extracted_and_used_for_the_identity():
     assert by_metric["liabilities_and_equity"] == 1000.0
     # L + E would read 7% off; the stated total balances, so no drift flag.
     assert [f for f in report.flags if f["rule"] == "balance_identity_drift"] == []
+
+
+# ------------------------------------------------- dump-confirmed bank tags
+def test_the_confirmed_jpm_loan_tag_leads_its_alias_tuple():
+    """Confirmed against a real num.txt dump, JPM period 2025-12-31.
+
+    The tags that returned zero rows for JPM stay in the tuple: an absent tag
+    costs nothing, and a smaller bank on an older taxonomy may use them.
+    Absence for one filer is not absence for all.
+    """
+    loans = next(c for c in xbrl.CONCEPTS if c.metric == "loans")
+    assert loans.tags[0] == (
+        "FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss"
+    )
+    assert "LoansAndLeasesReceivableNetOfDeferredIncome" in loans.tags
+    assert "LoansAndLeasesReceivableNetReportedAmount" in loans.tags
+    assert loans.kind == xbrl.INSTANT
+
+
+def test_the_confirmed_jpm_securities_tag_leads_its_alias_tuple():
+    sec = next(c for c in xbrl.CONCEPTS if c.metric == "investment_securities")
+    assert sec.tags[0] == "DebtSecuritiesAvailableForSaleExcludingAccruedInterest"
+    assert "AvailableForSaleSecuritiesDebtSecurities" in sec.tags
+    assert "HeldToMaturitySecurities" in sec.tags
+
+
+def test_the_confirmed_tag_wins_when_a_filer_reports_two_aliases():
+    num = _df(
+        [
+            _num(tag="LoansAndLeasesReceivableNetReportedAmount", qtrs="0", value="999"),
+            _num(tag="FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss",
+                 qtrs="0", value="1467664000000"),
+            _num(tag="Assets", qtrs="0", value=str(JPM_ASSETS)),
+        ],
+        NUM_COLS,
+    )
+    rows, _ = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    loans = [r for r in rows if r["metric"] == "loans"]
+    assert len(loans) == 1
+    assert loans[0]["value"] == 1_467_664_000_000.0
+
+
+def test_the_second_round_candidate_tags_are_not_mapped_yet():
+    """They are dump candidates. Mapping before confirmation is the failure
+    this project keeps correcting."""
+    mapped = {t for c in xbrl.CONCEPTS for t in c.tags}
+    for tag in (
+        "DebtSecuritiesHeldToMaturityExcludingAccruedInterestAfterAllowanceForCreditLoss",
+        "TradingAssetsExcludingDebtAndEquitySecurities",
+        "FederalFundsSoldAndSecuritiesPurchasedUnderAgreementsToResell",
+        "SecuritiesBorrowed",
+        "DerivativeAssets",
+    ):
+        assert tag not in mapped, f"{tag} was mapped before the dump confirmed it"
+
+
+def test_no_tag_is_claimed_by_two_concepts():
+    """A tag resolving to two metrics would make extraction order-dependent."""
+    seen: dict[str, str] = {}
+    for c in xbrl.CONCEPTS:
+        for t in c.tags:
+            assert t not in seen, f"{t} claimed by both {seen[t]} and {c.metric}"
+            seen[t] = c.metric
