@@ -94,8 +94,10 @@ _RELOAD_STATE: dict[str, Any] = {
     "rows_deleted": None,
     "rows_written": None,
     "quarters_requested": None,
-    "quarters": None,         # the quarters this reload needs
+    "quarters": None,         # the quarters this reload asked for
     "staged": None,           # per-quarter download status, filled during fetch
+    "quarters_available": None,  # how many SEC has actually published
+    "unpublished": None,      # 404s -- expected for the newest quarter
     "quarters_loaded": None,
     "data_intact": None,      # True after an abort that touched nothing
     "last_error": None,
@@ -276,24 +278,30 @@ async def reload_fundamentals(quarters: int = 7) -> dict[str, Any]:
     afterwards that SEC was returning 429 on every quarter, which deleted
     1,231,927 rows and wrote none. So:
 
-      1. Download every quarter to the disk cache. Any failure aborts here,
-         before a single row has been touched.
+      1. Download every quarter to the disk cache. A 404 means SEC has not
+         published that quarter yet -- skipped, not fatal. Any other failure
+         aborts here, before a single row has been touched.
       2. Delete and reload inside one transaction, parsing from disk only.
       3. Verify.
+
+    Success is measured against the quarters that EXIST, not the quarters that
+    were asked for. `recent_quarters` walks back from today, so the newest one
+    is routinely a few weeks from being published; loading six of seven for
+    that reason is a complete reload, not a partial one.
 
     Returns the full report: rows deleted/written, the per-quarter extraction
     diagnostics, and the verification result.
     """
     from src.company.verify import concept_coverage, verify_companies
-    from src.ingest.sec_cache import prefetch_quarters
+    from src.ingest.sec_cache import available_quarters, prefetch_quarters
 
     qs = sec_datasets.recent_quarters(dt.date.today(), quarters)
     _RELOAD_STATE.update(
         phase="fetching", started_at=dt.datetime.now(dt.UTC).isoformat(),
         finished_at=None, rows_deleted=None, rows_written=None,
         quarters_requested=quarters, quarters=[f"{y}q{q}" for y, q in qs],
-        staged=[], quarters_loaded=0, data_intact=True, last_error=None,
-        verification=None,
+        staged=[], quarters_loaded=0, quarters_available=None,
+        unpublished=None, data_intact=True, last_error=None, verification=None,
     )
     _LAST_EXTRACTION_REPORTS.clear()
 
@@ -312,11 +320,32 @@ async def reload_fundamentals(quarters: int = 7) -> dict[str, Any]:
         log.error("fundamentals_reload_aborted_before_delete", error=str(exc)[:300])
         raise
 
+    have = available_quarters(staged)
+    unpublished = [s["quarter"] for s in staged if s["source"] == "unpublished"]
+    _update_reload(quarters_available=len(have), unpublished=unpublished)
+    if not have:
+        # Every quarter unpublished is not "nothing to do" -- it means the
+        # quarter arithmetic is wrong or the URL moved. Either way, do not wipe.
+        _update_reload(
+            phase="error", data_intact=True, rows_deleted=0,
+            last_error=f"none of the {len(qs)} requested quarters are published; "
+                       f"nothing was deleted",
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        raise RuntimeError(
+            f"no published quarter among {[f'{y}q{q}' for y, q in qs]}"
+        )
+    if unpublished:
+        log.info("fundamentals_reload_skipping_unpublished", quarters=unpublished,
+                 loading=len(have))
+
     # --- 2. swap, transactionally -------------------------------------------
     _update_reload(phase="replacing", data_intact=True)
     cik_map = await _cik_to_ticker()
     try:
-        deleted, written = await asyncio.to_thread(_replace_fundamentals, qs, cik_map)
+        deleted, written = await asyncio.to_thread(
+            _replace_fundamentals, have, cik_map
+        )
     except Exception as exc:  # noqa: BLE001 - the transaction rolled back
         _update_reload(
             phase="error", data_intact=True, rows_deleted=0,
@@ -347,11 +376,14 @@ async def reload_fundamentals(quarters: int = 7) -> dict[str, Any]:
     )
     log.info(
         "fundamentals_reload_complete", rows_deleted=deleted,
-        rows_written=written, verification_passed=verification["passed"],
+        rows_written=written, quarters_loaded=len(have),
+        unpublished=unpublished, verification_passed=verification["passed"],
     )
     return {
         "rows_deleted": deleted,
         "rows_written": written,
+        "quarters_loaded": len(have),
+        "unpublished": unpublished,
         "staged": staged,
         "extraction": get_extraction_reports(),
         "verification": verification,
@@ -771,6 +803,7 @@ async def backfill_fundamentals(
 
     total = 0
     loaded_quarters = 0
+    unpublished: list[str] = []
     for i, (year, q) in enumerate(qs):
         try:
             zbytes = await sec_datasets.download_dataset(year, q)
@@ -782,6 +815,12 @@ async def backfill_fundamentals(
             log.error("sec_dataset_extraction_invalid", year=year, quarter=q, error=str(exc))
             _update_state(phase="error", last_error=f"{year}q{q}: {str(exc)[:300]}")
             raise
+        except sec_cache.SECNotPublished:
+            # The newest requested quarter is routinely a few weeks out. Not an
+            # error, and not something `last_error` should be left holding.
+            log.info("sec_dataset_not_published", year=year, quarter=q)
+            unpublished.append(f"{year}q{q}")
+            continue
         except sec_cache.SECThrottled as exc:
             # Every remaining quarter would hit the same throttle and spend four
             # more retries doing it. Stop; what loaded already is upserted, and
@@ -818,7 +857,8 @@ async def backfill_fundamentals(
                       or "no SEC dataset quarter could be downloaded")
     else:
         _update_state(phase="done")
-    log.info("backfill_fundamentals_complete", rows=total, quarters_loaded=loaded_quarters)
+    log.info("backfill_fundamentals_complete", rows=total,
+             quarters_loaded=loaded_quarters, unpublished=unpublished)
     return total
 
 

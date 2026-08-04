@@ -255,13 +255,22 @@ function renderReload(r) {
 
   const staged = r.staged || [];
   const want = (r.quarters || []).length;
+  const MARK = { cache: "(cached)", network: "↓", unpublished: "not published yet" };
   if (want) {
     out += row("Downloaded", `${staged.length} / ${want}`,
-      staged.map((s) => `${s.quarter} ${s.source === "cache" ? "(cached)" : "↓"}`)
-        .join(" · ") || "—");
+      staged.map((s) => `${s.quarter} ${MARK[s.source] || s.source}`).join(" · ")
+        || "—");
   }
-  if (r.quarters_loaded != null && want)
-    out += row("Quarters loaded", `${r.quarters_loaded} / ${want}`);
+  // A quarter SEC hasn't published is not a shortfall, so the denominator for
+  // "loaded" is what EXISTS. Six of six is a complete reload even when seven
+  // were asked for.
+  const have = r.quarters_available;
+  if (r.quarters_loaded != null && have != null)
+    out += row("Quarters loaded", `${r.quarters_loaded} / ${have}`,
+      have < want ? `${want} requested` : "");
+  if ((r.unpublished || []).length)
+    out += row("Not published yet", pill(r.unpublished.join(", "), "mute"),
+      "SEC posts a quarter some weeks after quarter end — expected, not a failure");
   if (r.rows_deleted != null) out += row("Rows deleted", fmtNum(r.rows_deleted));
   if (r.rows_written != null) out += row("Rows written", fmtNum(r.rows_written));
   if (r.phase === "error" && r.data_intact)
@@ -779,7 +788,11 @@ function buildCopyText(d) {
     if ((rl.staged || []).length)
       push(`  downloaded: ${rl.staged.length}/${(rl.quarters || []).length} — ` +
            rl.staged.map((s) => `${s.quarter}:${s.source}`).join(" "));
-    if (rl.quarters_loaded != null) push(`  quarters loaded: ${rl.quarters_loaded}`);
+    if (rl.quarters_loaded != null)
+      push(`  quarters loaded: ${rl.quarters_loaded}/${rl.quarters_available} ` +
+           `(${(rl.quarters || []).length} requested)`);
+    if ((rl.unpublished || []).length)
+      push(`  not published yet: ${rl.unpublished.join(", ")}`);
     if (rl.phase === "error" && rl.data_intact) push(`  existing data: UNTOUCHED`);
     if (rl.rows_deleted != null) push(`  rows deleted: ${fmtNum(rl.rows_deleted)}`);
     if (rl.rows_written != null) push(`  rows written: ${fmtNum(rl.rows_written)}`);

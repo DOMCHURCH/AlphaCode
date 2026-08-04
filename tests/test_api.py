@@ -43,8 +43,8 @@ def client(api_db):
     backfill._RELOAD_STATE.update(
         phase="idle", started_at=None, finished_at=None, rows_deleted=None,
         rows_written=None, quarters_requested=None, quarters=None, staged=None,
-        quarters_loaded=None, data_intact=None, last_error=None,
-        verification=None,
+        quarters_loaded=None, quarters_available=None, unpublished=None,
+        data_intact=None, last_error=None, verification=None,
     )
     backfill._RAW_FACTS_STATE.update(
         phase="idle", request=None, started_at=None, finished_at=None,

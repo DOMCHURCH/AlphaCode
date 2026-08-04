@@ -151,6 +151,40 @@ def test_prefetch_is_all_or_nothing(cache, monkeypatch):
     assert calls == [(2026, 1), (2025, 4), (2025, 3)]
 
 
+def test_prefetch_skips_an_unpublished_quarter(cache, monkeypatch):
+    """404 is not 429. SEC publishes a quarter some weeks after quarter end, so
+    the newest one we ask for is routinely absent -- and must not block the six
+    that do exist."""
+    async def fake_fetch(year, quarter, *, timeout=300.0, use_cache=True):
+        if (year, quarter) == (2026, 2):
+            raise sec_cache.SECNotPublished("404")
+        return GOOD_ZIP
+
+    monkeypatch.setattr(sec_cache, "fetch_dataset", fake_fetch)
+    staged = asyncio.run(sec_cache.prefetch_quarters([(2026, 2), (2026, 1)]))
+
+    assert [s["source"] for s in staged] == ["unpublished", "network"]
+    assert sec_cache.available_quarters(staged) == [(2026, 1)]
+
+
+def test_a_404_is_not_retried(cache, monkeypatch):
+    """An unpublished quarter cannot become published by asking four times."""
+    slept = _stub_client(monkeypatch, [_Resp(404)])
+
+    with pytest.raises(sec_cache.SECNotPublished):
+        asyncio.run(sec_cache.fetch_dataset(2026, 2))
+
+    assert slept == [], "a 404 must not spend the retry budget"
+    assert not sec_cache.cache_path(2026, 2).exists()
+
+
+def test_404_and_429_are_different_types(cache):
+    """The whole point. One means skip, the other means stop -- and a caller
+    that cannot tell them apart has to pick one and be wrong half the time."""
+    assert not issubclass(sec_cache.SECNotPublished, sec_cache.SECThrottled)
+    assert not issubclass(sec_cache.SECThrottled, sec_cache.SECNotPublished)
+
+
 def test_prefetch_does_not_refetch_a_cached_quarter(cache, monkeypatch):
     """One cache, shared by the reload and the dump. This is the fix for the
     thing that earned the 429s: the same 100MB file downloaded twice."""
@@ -372,8 +406,86 @@ def test_a_successful_reload_replaces_the_table(db, cache, monkeypatch):
     state = backfill.get_reload_state()
     assert state["phase"] == "done"
     assert state["staged"] == [
-        {"quarter": "2026q1", "bytes": len(GOOD_ZIP), "source": "cache"}
+        {"quarter": "2026q1", "year": 2026, "q": 1,
+         "bytes": len(GOOD_ZIP), "source": "cache"}
     ]
+    assert state["unpublished"] == []
+
+
+def test_an_unpublished_newest_quarter_still_completes_the_reload(
+    db, cache, monkeypatch
+):
+    """2026q2 404s and always has -- it is a month past quarter end. The reload
+    must load the other six and call that done, not treat a quarter that does
+    not exist as a reason to keep the old data."""
+    from src import backfill
+
+    requested = [(2026, 2), (2026, 1), (2025, 4)]
+    fetched: list[tuple[int, int]] = []
+
+    async def fetch(year, quarter, *, timeout=300.0, use_cache=True):
+        fetched.append((year, quarter))
+        if (year, quarter) == (2026, 2):
+            raise sec_cache.SECNotPublished("2026q2 is not published yet (404)")
+        sec_cache.cache_path(year, quarter).write_bytes(GOOD_ZIP)
+        return GOOD_ZIP
+
+    _patch_reload(monkeypatch, fetch=fetch, quarters=requested)
+    _seed(3)
+
+    out = asyncio.run(backfill.reload_fundamentals(quarters=3))
+
+    assert fetched == requested, "the 404 must not stop the later quarters"
+    assert out["quarters_loaded"] == 2
+    assert out["unpublished"] == ["2026q2"]
+    assert out["rows_written"] > 0
+    assert {t for (t,) in _tickers()} == {"JPM"}
+
+    state = backfill.get_reload_state()
+    assert state["phase"] == "done", "6-of-7 for a 404 is a complete reload"
+    assert state["quarters_available"] == 2
+    assert state["quarters_requested"] == 3
+    assert state["last_error"] is None
+
+
+def test_every_quarter_unpublished_still_refuses_to_wipe(db, cache, monkeypatch):
+    """If NOTHING is published the quarter arithmetic or the URL is wrong. That
+    is not a reason to empty the table."""
+    from src import backfill
+
+    async def all_404(year, quarter, *, timeout=300.0, use_cache=True):
+        raise sec_cache.SECNotPublished("404")
+
+    _patch_reload(monkeypatch, fetch=all_404, quarters=[(2026, 2), (2026, 1)])
+    _seed(3)
+
+    with pytest.raises(RuntimeError, match="no published quarter"):
+        asyncio.run(backfill.reload_fundamentals(quarters=2))
+
+    assert _count() == 3
+    assert backfill.get_reload_state()["data_intact"] is True
+
+
+def test_a_429_after_a_404_still_aborts(db, cache, monkeypatch):
+    """Skipping the unpublished quarter must not soften what happens next. The
+    throttle still stops everything with the old rows in place."""
+    from src import backfill
+
+    async def fetch(year, quarter, *, timeout=300.0, use_cache=True):
+        if (year, quarter) == (2026, 2):
+            raise sec_cache.SECNotPublished("404")
+        raise sec_cache.SECThrottled("429")
+
+    _patch_reload(monkeypatch, fetch=fetch, quarters=[(2026, 2), (2026, 1)])
+    _seed(3)
+
+    with pytest.raises(sec_cache.SECThrottled):
+        asyncio.run(backfill.reload_fundamentals(quarters=2))
+
+    assert _count() == 3
+    state = backfill.get_reload_state()
+    assert state["data_intact"] is True
+    assert state["rows_deleted"] == 0
 
 
 def test_the_reload_downloads_before_it_deletes(db, cache, monkeypatch):

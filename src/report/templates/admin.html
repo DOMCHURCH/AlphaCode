@@ -130,8 +130,10 @@
     <p class="hint"><strong>Nothing is deleted until every quarter has
       downloaded</strong>, and the delete and the reload run in one transaction.
       If a download 429s or a quarter fails to parse, the existing table is left
-      exactly as it was. Takes several minutes; progress appears below and the
-      page auto-refreshes while it runs.</p>
+      exactly as it was. A quarter SEC hasn't published yet (404) is skipped —
+      the newest one usually is — and loading the rest counts as a full reload.
+      Takes several minutes; progress appears below and the page auto-refreshes
+      while it runs.</p>
     <div id="reload" class="rows"><div class="loading">not run this session</div></div>
   </section>
 

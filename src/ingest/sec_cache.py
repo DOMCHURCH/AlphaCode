@@ -59,6 +59,18 @@ class SECThrottled(RuntimeError):
     """SEC refused with 429 after every retry. The caller must not proceed."""
 
 
+class SECNotPublished(RuntimeError):
+    """404: that quarter's dataset does not exist yet.
+
+    Not a failure. A dataset publishes some weeks after quarter end, so the
+    newest quarter we ask for is routinely absent -- asking for seven quarters
+    and getting six is the normal state of the world, not a degraded one. This
+    is a separate type from SECThrottled precisely so a reload can tell "SEC
+    hasn't written this yet" from "SEC is refusing to talk to us", which are
+    opposite instructions: skip the first, stop dead on the second.
+    """
+
+
 def cache_dir() -> Path:
     d = Path(os.environ.get("SEC_CACHE_DIR", ".sec-cache"))
     d.mkdir(parents=True, exist_ok=True)
@@ -173,6 +185,14 @@ async def fetch_dataset(
             await asyncio.sleep(honoured)
             continue
 
+        if resp.status_code == 404:
+            # Deterministic -- retrying cannot make an unpublished quarter exist.
+            log.info("sec_dataset_not_published", year=year, quarter=quarter, url=url)
+            raise SECNotPublished(
+                f"{year}q{quarter} is not published yet (404). SEC posts a "
+                f"quarter's dataset some weeks after quarter end."
+            )
+
         if resp.status_code >= 400:
             raise RuntimeError(
                 f"SEC dataset {year}q{quarter}: HTTP {resp.status_code} for {url}"
@@ -202,35 +222,55 @@ async def prefetch_quarters(
     timeout: float = 300.0,
     on_progress: Callable[[list[dict[str, object]]], None] | None = None,
 ) -> list[dict[str, object]]:
-    """Put every quarter's ZIP on disk. All-or-nothing.
+    """Put every PUBLISHED quarter's ZIP on disk.
 
     This exists so a caller that is about to destroy data can find out FIRST
-    whether the replacement is obtainable. The first quarter that cannot be
-    fetched raises, and nothing downstream runs. A reload that wipes and then
+    whether the replacement is obtainable. A reload that wipes and then
     discovers SEC is returning 429 has already lost the data it was replacing.
+
+    "Obtainable" is not the same as "exists". A 404 means SEC has not published
+    that quarter yet -- routinely true of the newest one we ask for -- so it is
+    recorded as `source: "unpublished"` and skipped. Every other failure, 429
+    included, raises and nothing downstream runs.
+
+    Returns one entry per requested quarter, in order, each carrying `year`/`q`
+    so the caller can load exactly the quarters that landed.
     """
     staged: list[dict[str, object]] = []
     for year, q in quarters:
+        entry: dict[str, object] = {"quarter": f"{year}q{q}", "year": year, "q": q}
         # cached_bytes validates the ZIP, so a truncated file on disk does not
         # count as obtainable -- it is discarded and re-fetched here, not at
         # parse time when the table is already empty.
         cached = cached_bytes(year, q)
         if cached is not None:
-            staged.append(
-                {"quarter": f"{year}q{q}", "bytes": len(cached), "source": "cache"}
-            )
+            staged.append({**entry, "bytes": len(cached), "source": "cache"})
         else:
-            data = await fetch_dataset(year, q, timeout=timeout, use_cache=False)
-            staged.append(
-                {"quarter": f"{year}q{q}", "bytes": len(data), "source": "network"}
-            )
+            try:
+                data = await fetch_dataset(year, q, timeout=timeout, use_cache=False)
+            except SECNotPublished:
+                staged.append({**entry, "bytes": 0, "source": "unpublished"})
+                if on_progress is not None:
+                    on_progress(list(staged))
+                continue
+            staged.append({**entry, "bytes": len(data), "source": "network"})
         if on_progress is not None:
             on_progress(list(staged))
     log.info(
-        "sec_prefetch_complete", quarters=len(staged),
-        from_network=sum(1 for s in staged if s["source"] == "network"),
+        "sec_prefetch_complete", requested=len(staged),
+        available=sum(1 for s in staged if s["source"] != "unpublished"),
+        unpublished=[s["quarter"] for s in staged if s["source"] == "unpublished"],
     )
     return staged
+
+
+def available_quarters(staged: Sequence[dict[str, object]]) -> list[tuple[int, int]]:
+    """The (year, quarter) pairs that actually landed on disk."""
+    return [
+        (int(s["year"]), int(s["q"]))
+        for s in staged
+        if s["source"] != "unpublished"
+    ]
 
 
 def cache_status() -> list[dict[str, object]]:
