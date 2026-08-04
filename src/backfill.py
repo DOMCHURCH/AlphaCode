@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -25,7 +26,7 @@ import structlog
 from sqlalchemy import select
 
 from src.config.settings import get_settings
-from src.ingest import fmp, polygon, sec_datasets, sec_edgar, stooq, xbrl
+from src.ingest import fmp, polygon, sec_cache, sec_datasets, sec_edgar, stooq, xbrl
 from src.ingest import sic as sic_map
 from src.ingest.base import PermanentAPIError, gather_bounded
 from src.logging_config import configure_logging
@@ -84,12 +85,19 @@ def get_extraction_reports() -> dict[str, dict[str, Any]]:
 # from _BACKFILL_STATE so the page can say "wiping", "loading", "verifying"
 # rather than only "running", and so the wipe count survives to the report.
 _RELOAD_STATE: dict[str, Any] = {
-    "phase": "idle",          # idle | wiping | loading | verifying | done | error
+    # fetching -> replacing -> verifying. There is no "wiping" phase any more:
+    # nothing is deleted until every quarter is on disk, and the delete happens
+    # in the same transaction as the reload.
+    "phase": "idle",          # idle | fetching | replacing | verifying | done | error
     "started_at": None,
     "finished_at": None,
     "rows_deleted": None,
     "rows_written": None,
     "quarters_requested": None,
+    "quarters": None,         # the quarters this reload needs
+    "staged": None,           # per-quarter download status, filled during fetch
+    "quarters_loaded": None,
+    "data_intact": None,      # True after an abort that touched nothing
     "last_error": None,
     "verification": None,
 }
@@ -159,7 +167,12 @@ async def run_raw_facts_dump(
 
 
 async def download_dataset_for_dump(year: int, quarter: int) -> bytes:
-    """Indirection so tests can stub the download without touching the loader."""
+    """The dump uses the SAME cached path as the backfill.
+
+    Two independent downloaders of the same 100MB file, with no shared cache, is
+    what earned the 429s -- every tap of the dump button re-fetched a file
+    already on disk.
+    """
     return await sec_datasets.download_dataset(year, quarter)
 
 
@@ -173,6 +186,12 @@ def wipe_fundamentals() -> int:
     The old parser's rows cannot be repaired in place: once the tag and its
     dimensions are discarded, a wrong number is indistinguishable from a right
     one. So a reload starts from empty rather than upserting on top.
+
+    NOT part of the reload path any more -- `_replace_fundamentals` does the
+    delete inside the same transaction as the reload, so a failure half way
+    through leaves the old rows in place. This stays for the rare case of
+    deliberately emptying the table, and is deliberately the only thing in this
+    module that deletes without a replacement in hand.
     """
     from sqlalchemy import delete, func, select
 
@@ -187,51 +206,153 @@ def wipe_fundamentals() -> int:
     return before
 
 
+def _replace_fundamentals(
+    qs: list[tuple[int, int]], cik_map: Mapping[str, str]
+) -> tuple[int, int]:
+    """Delete the old rows and write the new ones in ONE transaction.
+
+    Every quarter must already be in the disk cache -- this does no network I/O,
+    so the only way it can fail is a parse, a validation abort, or the write
+    itself, and all three roll the delete back with it. The table is never
+    observably empty and never half-loaded.
+
+    Quarters are parsed one at a time and the frame is released before the next,
+    so peak memory is one quarter's num.txt, not seven.
+    """
+    from sqlalchemy import delete, func, select
+
+    from src.storage.models import Fundamental
+
+    written = 0
+    loaded = 0
+    with session_scope() as session:
+        before = session.execute(
+            select(func.count()).select_from(Fundamental)
+        ).scalar_one()
+        session.execute(delete(Fundamental))
+        log.warning("fundamentals_delete_staged", rows=before,
+                    note="rolls back unless every quarter loads")
+
+        for year, q in qs:
+            zbytes = sec_cache.cached_bytes(year, q)
+            if zbytes is None:
+                # Prefetch said it was there. Something removed or truncated it
+                # between then and now -- abort and keep the old rows.
+                raise RuntimeError(
+                    f"{year}q{q} left the cache mid-reload; nothing was deleted"
+                )
+            sub, num = sec_datasets.parse_dataset(zbytes)
+            del zbytes
+            rows, report = xbrl.extract_and_validate(sub, num, cik_map)
+            del sub, num
+            _LAST_EXTRACTION_REPORTS[f"{year}q{q}"] = report.as_dict()
+            raw = len(rows)
+            rows = _collapse_earliest_filing(rows)
+            log.info(
+                "sec_quarter_deduped", year=year, quarter=q, raw=raw,
+                kept=len(rows), dropped=raw - len(rows),
+            )
+            for j in range(0, len(rows), 5000):
+                written += repository.save_fundamentals(session, rows[j : j + 5000])
+            loaded += 1
+            _update_reload(rows_written=written, quarters_loaded=loaded)
+            log.info("fundamentals_reload_progress", year=year, quarter=q,
+                     rows=written, quarters_loaded=loaded)
+
+        if written == 0:
+            # Committing here would swap 1.2M rows for nothing at all.
+            raise RuntimeError(
+                f"reload extracted 0 rows from {len(qs)} quarters; "
+                f"the existing table was left untouched"
+            )
+    log.warning("fundamentals_replaced", rows_deleted=before, rows_written=written)
+    return before, written
+
+
 async def reload_fundamentals(quarters: int = 7) -> dict[str, Any]:
-    """Wipe the fundamentals table, reload it, then verify the five companies.
+    """Replace the fundamentals table, then verify the five companies.
+
+    Ordering is the whole point. A previous version wiped first and discovered
+    afterwards that SEC was returning 429 on every quarter, which deleted
+    1,231,927 rows and wrote none. So:
+
+      1. Download every quarter to the disk cache. Any failure aborts here,
+         before a single row has been touched.
+      2. Delete and reload inside one transaction, parsing from disk only.
+      3. Verify.
 
     Returns the full report: rows deleted/written, the per-quarter extraction
     diagnostics, and the verification result.
     """
     from src.company.verify import concept_coverage, verify_companies
+    from src.ingest.sec_cache import prefetch_quarters
 
+    qs = sec_datasets.recent_quarters(dt.date.today(), quarters)
     _RELOAD_STATE.update(
-        phase="wiping", started_at=dt.datetime.now(dt.UTC).isoformat(),
+        phase="fetching", started_at=dt.datetime.now(dt.UTC).isoformat(),
         finished_at=None, rows_deleted=None, rows_written=None,
-        quarters_requested=quarters, last_error=None, verification=None,
+        quarters_requested=quarters, quarters=[f"{y}q{q}" for y, q in qs],
+        staged=[], quarters_loaded=0, data_intact=True, last_error=None,
+        verification=None,
     )
     _LAST_EXTRACTION_REPORTS.clear()
 
+    # --- 1. everything obtainable? ------------------------------------------
     try:
-        deleted = await asyncio.to_thread(wipe_fundamentals)
-        _update_reload(phase="loading", rows_deleted=deleted)
+        staged = await prefetch_quarters(
+            qs, on_progress=lambda s: _update_reload(staged=s)
+        )
+        _update_reload(staged=staged)
+    except Exception as exc:  # noqa: BLE001 - reported on /admin
+        _update_reload(
+            phase="error", data_intact=True, rows_deleted=0,
+            last_error=f"download failed, nothing was deleted: {str(exc)[:400]}",
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        log.error("fundamentals_reload_aborted_before_delete", error=str(exc)[:300])
+        raise
 
-        written = await backfill_fundamentals(quarters=quarters)
-        _update_reload(phase="verifying", rows_written=written)
+    # --- 2. swap, transactionally -------------------------------------------
+    _update_reload(phase="replacing", data_intact=True)
+    cik_map = await _cik_to_ticker()
+    try:
+        deleted, written = await asyncio.to_thread(_replace_fundamentals, qs, cik_map)
+    except Exception as exc:  # noqa: BLE001 - the transaction rolled back
+        _update_reload(
+            phase="error", data_intact=True, rows_deleted=0,
+            last_error=f"reload rolled back, existing rows kept: {str(exc)[:400]}",
+            finished_at=dt.datetime.now(dt.UTC).isoformat(),
+        )
+        log.exception("fundamentals_reload_rolled_back", error=str(exc)[:300])
+        raise
 
+    # --- 3. verify -----------------------------------------------------------
+    _update_reload(phase="verifying", rows_deleted=deleted, rows_written=written,
+                   data_intact=False)
+    try:
         verification = await asyncio.to_thread(verify_companies)
         coverage = await asyncio.to_thread(concept_coverage)
         verification["coverage"] = coverage
-
+    except Exception as exc:  # noqa: BLE001 - the data is loaded; only the check failed
         _update_reload(
-            phase="done", verification=verification,
+            phase="error", last_error=f"loaded, but verification failed: {str(exc)[:400]}",
             finished_at=dt.datetime.now(dt.UTC).isoformat(),
         )
-        log.info(
-            "fundamentals_reload_complete", rows_deleted=deleted,
-            rows_written=written, verification_passed=verification["passed"],
-        )
-    except Exception as exc:  # noqa: BLE001 - reported on /admin, never crashes
-        _update_reload(
-            phase="error", last_error=str(exc)[:500],
-            finished_at=dt.datetime.now(dt.UTC).isoformat(),
-        )
-        log.exception("fundamentals_reload_failed", error=str(exc)[:300])
+        log.exception("fundamentals_verify_failed", error=str(exc)[:300])
         raise
 
+    _update_reload(
+        phase="done", verification=verification,
+        finished_at=dt.datetime.now(dt.UTC).isoformat(),
+    )
+    log.info(
+        "fundamentals_reload_complete", rows_deleted=deleted,
+        rows_written=written, verification_passed=verification["passed"],
+    )
     return {
         "rows_deleted": deleted,
         "rows_written": written,
+        "staged": staged,
         "extraction": get_extraction_reports(),
         "verification": verification,
     }
@@ -661,6 +782,13 @@ async def backfill_fundamentals(
             log.error("sec_dataset_extraction_invalid", year=year, quarter=q, error=str(exc))
             _update_state(phase="error", last_error=f"{year}q{q}: {str(exc)[:300]}")
             raise
+        except sec_cache.SECThrottled as exc:
+            # Every remaining quarter would hit the same throttle and spend four
+            # more retries doing it. Stop; what loaded already is upserted, and
+            # cached quarters make the re-run cheap.
+            log.error("sec_dataset_throttled_stop", year=year, quarter=q)
+            _update_state(phase="error", last_error=str(exc)[:300])
+            break
         except Exception as exc:  # noqa: BLE001 - one bad quarter is survivable
             log.warning("sec_dataset_quarter_failed", year=year, quarter=q, error=str(exc)[:200])
             _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")

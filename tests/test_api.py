@@ -42,7 +42,8 @@ def client(api_db):
     # job at a time), so it survives between tests unless reset here.
     backfill._RELOAD_STATE.update(
         phase="idle", started_at=None, finished_at=None, rows_deleted=None,
-        rows_written=None, quarters_requested=None, last_error=None,
+        rows_written=None, quarters_requested=None, quarters=None, staged=None,
+        quarters_loaded=None, data_intact=None, last_error=None,
         verification=None,
     )
     backfill._RAW_FACTS_STATE.update(
