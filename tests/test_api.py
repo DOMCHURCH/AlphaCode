@@ -696,3 +696,39 @@ def test_company_page_skips_a_flow_it_cannot_draw(client):
     assert "What it owns" in text
     assert "Where the money goes" not in text
     assert "The size of it" not in text
+
+
+# ------------------------------------------------------------ asset versioning
+def test_admin_page_cache_busts_its_assets(client):
+    """A cached admin.js makes a shipped fix look like a fix that did not work."""
+    text = client.get("/admin").text
+    assert "/static/admin.js?v=" in text
+    assert "/static/admin.css?v=" in text
+
+
+def test_company_page_cache_busts_its_css(client):
+    _seed_company("X", {
+        "total_assets": 1_000.0, "total_liabilities": 600.0, "total_equity": 400.0,
+    })
+    assert "/static/company.css?v=" in client.get("/company/X").text
+
+
+def test_raw_facts_presets_carry_their_own_parameters(client):
+    """A preset must submit its own params, not depend on form state."""
+    import re
+    from pathlib import Path
+
+    html = Path("src/report/templates/admin.html").read_text()
+    presets = re.findall(r'<button[^>]*class="chipbtn"[^>]*>', html)
+    assert presets, "the preset buttons must exist"
+    for p in presets:
+        assert "data-ticker=" in p, p
+        assert "data-tags=" in p, p
+
+    js = Path("src/report/static/admin.js").read_text()
+    # The handler submits directly; it must not write into the form inputs.
+    handler = js[js.index('$("rawPresets")'):]
+    handler = handler[:handler.index("});")]
+    assert "submitRawFacts(" in handler
+    assert '$("rawTicker").value =' not in handler
+    assert '$("rawTags").value =' not in handler

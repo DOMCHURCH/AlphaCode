@@ -559,12 +559,33 @@ def admin_json() -> dict[str, Any]:
 _ADMIN_PAGE = Path(__file__).parent / "report" / "templates" / "admin.html"
 
 
+def _asset_version() -> str:
+    """Newest mtime across the static assets, as a cache-busting stamp.
+
+    Without this a browser can keep serving a cached admin.js after a deploy,
+    so a shipped fix looks like a fix that did not work -- and the next hour
+    goes into debugging code that is not the code running. Cheap insurance.
+    """
+    try:
+        return str(int(max(
+            f.stat().st_mtime for f in _STATIC_DIR.iterdir() if f.is_file()
+        )))
+    except (OSError, ValueError):
+        return "0"
+
+
+def _versioned(html: str) -> str:
+    v = _asset_version()
+    return (html.replace("/static/admin.css", f"/static/admin.css?v={v}")
+                .replace("/static/admin.js", f"/static/admin.js?v={v}"))
+
+
 @app.get("/admin", response_class=HTMLResponse)
 def admin_page() -> HTMLResponse:
     """The break-glass page: verdict, data health, config, logs, and action
     buttons -- everything on one phone screen, with one-tap copy."""
     try:
-        return HTMLResponse(_ADMIN_PAGE.read_text(encoding="utf-8"))
+        return HTMLResponse(_versioned(_ADMIN_PAGE.read_text(encoding="utf-8")))
     except OSError:
         return HTMLResponse(
             "<h1>Admin</h1><p>See <a href='/admin.json'>/admin.json</a>.</p>"

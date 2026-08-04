@@ -619,15 +619,12 @@ async function startReload() {
   setTimeout(load, 800);
 }
 
-async function startRawFacts() {
-  const btn = $("rawFactsBtn"), msg = $("actionMsg");
-  const q = new URLSearchParams({
-    ticker: $("rawTicker").value.trim() || "MSFT",
-    tags: $("rawTags").value.trim() || "Assets,StockholdersEquity",
-    year: $("rawYear").value || "2026",
-    quarter: $("rawQuarter").value || "1",
-    ddate: $("rawDdate").value.trim(),
-  });
+// Takes its parameters explicitly. A preset passes its own; the form passes the
+// inputs. Nothing reads shared state at submit time, so a preset cannot fire
+// with whatever happened to be left in the form.
+async function submitRawFacts(params, btn) {
+  const msg = $("actionMsg");
+  const q = new URLSearchParams(params);
   btn.disabled = true;
   msg.textContent = "starting dump… (downloads ~100MB, takes a minute)";
   try {
@@ -641,6 +638,16 @@ async function startRawFacts() {
   }
   btn.disabled = false;
   setTimeout(load, 800);
+}
+
+function startRawFacts() {
+  return submitRawFacts({
+    ticker: $("rawTicker").value.trim() || "MSFT",
+    tags: $("rawTags").value.trim() || "Assets,StockholdersEquity",
+    year: $("rawYear").value || "2026",
+    quarter: $("rawQuarter").value || "1",
+    ddate: $("rawDdate").value.trim(),
+  }, $("rawFactsBtn"));
 }
 
 // ---------------------------------------------------------------- copy everything
@@ -900,14 +907,17 @@ function init() {
   $("universeBtn").addEventListener("click", runUniverseCheck);
   $("reloadBtn").addEventListener("click", startReload);
   $("rawFactsBtn").addEventListener("click", startRawFacts);
+  // One tap, straight to the dump with the preset's own parameters.
   $("rawPresets").addEventListener("click", (e) => {
     const b = e.target.closest(".chipbtn");
     if (!b) return;
-    $("rawTicker").value = b.dataset.ticker;
-    $("rawTags").value = b.dataset.tags;
-    $("rawDdate").value = b.dataset.ddate || "";
-    $("actionMsg").textContent =
-      `Form set to ${b.dataset.ticker} · ${b.dataset.tags.split(",").length} tags. Tap Dump.`;
+    submitRawFacts({
+      ticker: b.dataset.ticker,
+      tags: b.dataset.tags,
+      year: b.dataset.year || "2026",
+      quarter: b.dataset.quarter || "1",
+      ddate: b.dataset.ddate || "",
+    }, b);
   });
   document.querySelectorAll(".act[data-action]").forEach((b) =>
     b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));

@@ -10,9 +10,24 @@ from __future__ import annotations
 from html import escape
 from typing import Any
 
+from pathlib import Path
+
 from src.company.view1 import View1, describe_shape
 from src.company.view2 import View2
 from src.company.view3 import View3, describe_flow
+
+_STATIC = Path(__file__).parent / "static"
+
+
+def asset_version() -> str:
+    """Cache-busting stamp, so a deployed CSS change actually reaches a phone."""
+    try:
+        return str(int(max(
+            f.stat().st_mtime for f in _STATIC.iterdir() if f.is_file()
+        )))
+    except (OSError, ValueError):
+        return "0"
+
 
 SUGGESTED = (
     ("JPM", "a bank"),
@@ -281,7 +296,7 @@ def render_company_page(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css">
+<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
 </head>
 <body>
 <nav><div class="wrap nav">
@@ -356,7 +371,7 @@ def render_not_found(ticker: str, reason: str) -> str:
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css">
+<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
 </head>
 <body>
 <nav><div class="wrap nav">
