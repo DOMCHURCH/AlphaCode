@@ -49,10 +49,12 @@ REFERENCE: dict[str, dict[str, Reference]] = {
         ),
     },
     "MSFT": {
-        # NOT confirmed: the ~$665B figure came from the parser's own output, so
-        # using it as the expectation would be circular. Read the consolidated
-        # Assets row off the same dump that settled equity and promote it.
-        "total_assets": Reference(560_000_000_000, "recollection, unconfirmed"),
+        # Confirmed off the dump: 1 row, consolidated, ddate=20251231, qtrs=0,
+        # USD. Notably the same figure the parser produced -- but it is confirmed
+        # because the file says so, not because the parser agreed with itself.
+        "total_assets": Reference(
+            665_302_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+        ),
         # Corrected from a remembered ~$300B. The num.txt dump for period
         # 2025-12-31 shows exactly one consolidated StockholdersEquity row at
         # this figure: the parser was right and the expectation was stale, which

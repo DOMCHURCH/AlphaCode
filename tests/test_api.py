@@ -525,3 +525,62 @@ def test_universe_check_survives_an_empty_table(client):
     assert body["tickers_in_table"] == 0
     assert body["identity"]["checkable"] == 0
     assert body["identity"]["pass_rate_pct"] == 0.0
+
+
+# ----------------------------------------------------------- reference hygiene
+def test_confirmed_references_must_cite_the_dump():
+    """A reference may only be `confirmed` on the strength of a raw file read.
+
+    This is the guard against the failure mode that put $641B in the database:
+    an expectation adjusted until it agreed with the parser, then treated as
+    evidence. If it says confirmed, it must name the dump.
+    """
+    from src.company.verify import REFERENCE
+
+    for ticker, checks in REFERENCE.items():
+        for metric, ref in checks.items():
+            if ref.confirmed:
+                assert "num.txt dump" in ref.basis, (
+                    f"{ticker}.{metric} is marked confirmed but its basis is "
+                    f"{ref.basis!r} — only a raw dump can confirm a figure"
+                )
+            else:
+                assert "unconfirmed" in ref.basis, (
+                    f"{ticker}.{metric} is not confirmed, so its basis must say so"
+                )
+
+
+def test_msft_references_are_both_confirmed_from_the_dump():
+    from src.company.verify import REFERENCE
+
+    msft = REFERENCE["MSFT"]
+    assert msft["total_assets"].value == 665_302_000_000
+    assert msft["total_assets"].confirmed is True
+    assert msft["total_equity"].value == 390_875_000_000
+    assert msft["total_equity"].confirmed is True
+
+
+def test_msft_now_passes_verification_on_the_confirmed_figures(client):
+    _seed_fundamentals([
+        _fund("MSFT", "total_assets", 665_302_000_000.0),
+        _fund("MSFT", "total_equity", 390_875_000_000.0),
+    ])
+    msft = client.get("/admin/verify").json()["companies"]["MSFT"]
+
+    assert msft["passed"] is True
+    assert msft["metrics"]["total_assets"]["drift_pct"] == 0.0
+    assert msft["metrics"]["total_equity"]["drift_pct"] == 0.0
+    assert msft["metrics"]["total_assets"]["confirmed"] is True
+
+
+def test_a_confirmed_reference_mismatch_still_fails_the_run(client):
+    """Confirmed means a disagreement IS the parser's problem, not the ref's."""
+    _seed_fundamentals([
+        _fund("MSFT", "total_assets", 100_000_000_000.0),   # nowhere near
+        _fund("MSFT", "total_equity", 390_875_000_000.0),
+    ])
+    body = client.get("/admin/verify").json()
+
+    assert body["companies"]["MSFT"]["passed"] is False
+    assert body["passed"] is False
+    assert body["companies"]["MSFT"]["metrics"]["total_assets"].get("verdict") is None
