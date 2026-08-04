@@ -900,6 +900,15 @@ function init() {
   $("universeBtn").addEventListener("click", runUniverseCheck);
   $("reloadBtn").addEventListener("click", startReload);
   $("rawFactsBtn").addEventListener("click", startRawFacts);
+  $("rawPresets").addEventListener("click", (e) => {
+    const b = e.target.closest(".chipbtn");
+    if (!b) return;
+    $("rawTicker").value = b.dataset.ticker;
+    $("rawTags").value = b.dataset.tags;
+    $("rawDdate").value = b.dataset.ddate || "";
+    $("actionMsg").textContent =
+      `Form set to ${b.dataset.ticker} · ${b.dataset.tags.split(",").length} tags. Tap Dump.`;
+  });
   document.querySelectorAll(".act[data-action]").forEach((b) =>
     b.addEventListener("click", () => { if (!b.disabled) postAction(b.dataset.action); }));
   $("logfilters").addEventListener("click", (e) => {

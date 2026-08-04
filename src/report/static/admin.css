@@ -190,3 +190,12 @@ pre.tb {
   background: transparent; color: inherit; min-width: 0; flex: 1 1 auto;
 }
 .rawform input[type="number"] { max-width: 84px; }
+
+
+/* Raw-facts presets: a seven-tag question is unusable typed on a phone. */
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 8px}
+.chipbtn{font-family:var(--mono);font-size:11px;font-weight:700;
+  border:2px solid var(--ink);background:var(--paper2);color:var(--ink);
+  padding:6px 9px;cursor:pointer;box-shadow:2px 2px 0 var(--ink)}
+.chipbtn:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.chipbtn:active{transform:translate(1px,1px);box-shadow:1px 1px 0 var(--ink)}

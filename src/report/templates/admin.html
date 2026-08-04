@@ -94,6 +94,17 @@
       settled the JPM bug. <strong>A reference figure is only ever corrected
       against this</strong> — never against the parser's own output, which is
       how a wrong number gets blessed.</p>
+    <p class="hint">Presets fill the form; edit anything before dumping.</p>
+    <div class="presets" id="rawPresets">
+      <button type="button" class="chipbtn" data-ticker="JPM" data-ddate="20251231"
+        data-tags="LoansAndLeasesReceivableNetOfDeferredIncome,LoansAndLeasesReceivableNetReportedAmount,FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss,AvailableForSaleSecuritiesDebtSecurities,HeldToMaturitySecurities,TradingSecurities,DebtSecuritiesAvailableForSaleExcludingAccruedInterest"
+        >Bank assets (JPM)</button>
+      <button type="button" class="chipbtn" data-ticker="JPM" data-ddate="20251231"
+        data-tags="Assets,StockholdersEquity,Liabilities,LiabilitiesAndStockholdersEquity"
+        >Totals (JPM)</button>
+      <button type="button" class="chipbtn" data-ticker="MSFT" data-ddate="20251231"
+        data-tags="Assets,StockholdersEquity">Totals (MSFT)</button>
+    </div>
     <div class="rawform">
       <input id="rawTicker" type="text" value="MSFT" size="6" aria-label="ticker">
       <input id="rawTags" type="text" value="Assets,StockholdersEquity" aria-label="tags">
