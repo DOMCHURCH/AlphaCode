@@ -29,14 +29,6 @@ def asset_version() -> str:
         return "0"
 
 
-SUGGESTED = (
-    ("JPM", "a bank"),
-    ("AAL", "an airline"),
-    ("MSFT", "a software company"),
-    ("WMT", "a retailer"),
-    ("FCX", "a miner"),
-)
-
 _TONE_VARS = {
     "asset": ("--a0", "--a1", "--a2", "--a3", "--a4", "--a5", "--a6"),
     "liability": ("--l0", "--l1", "--l2", "--l3"),
@@ -53,6 +45,12 @@ def _colour(block: dict[str, Any]) -> str:
         return "var(--ink)" if block["value"] < 0 else "var(--yellow)"
     fam = _TONE_VARS[block["kind"]]
     return f"var({fam[min(block['tone'], len(fam) - 1)]})"
+
+
+def block_colour(block: dict[str, Any]) -> str:
+    """The fill for one band. Shared with the home page, so a thumbnail and the
+    full drawing of the same company are the same picture at two sizes."""
+    return _colour(block)
 
 
 def _is_pale(block: dict[str, Any]) -> bool:
@@ -359,8 +357,28 @@ def render_company_page(
 
 
 def render_not_found(ticker: str, reason: str) -> str:
+    """Says what is missing, then offers tickers that are actually there.
+
+    The alternatives are read out of the database, not hardcoded: sending a
+    reader from one empty page to another is the one thing an empty state must
+    not do.
+    """
+    from src.company.suggest import suggestions
+    from src.report.home_page import search_form
+
+    picks = suggestions()
     sugg = "".join(
-        f'<a href="/company/{t}">{t} <small>{d}</small></a>' for t, d in SUGGESTED
+        f'<a href="/company/{escape(s.ticker)}">{escape(s.ticker)}'
+        + (f" <small>{escape(s.kind)}</small>" if s.kind else "")
+        + "</a>"
+        for s in picks
+    )
+    alternatives = (
+        f'<p class="tryline">These are filed and complete, and each one looks '
+        f"completely different from the others:</p>"
+        f'<div class="sugg">{sugg}</div>'
+        if picks
+        else '<p class="tryline">No filed statements are loaded yet.</p>'
     )
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -376,14 +394,15 @@ def render_not_found(ticker: str, reason: str) -> str:
 <body>
 <nav><div class="wrap nav">
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <span class="spacer"></span>
+  <a class="navlink" href="/admin">Admin</a>
 </div></nav>
 <main class="wrap">
   <div class="empty">
     <h1>Nothing to draw for {escape(ticker)}</h1>
     <p>{escape(reason)}</p>
-    <p>These five are filed and complete, and each one looks completely
-      different from the others:</p>
-    <div class="sugg">{sugg}</div>
+    {search_form()}
+    {alternatives}
   </div>
 </main>
 </body>

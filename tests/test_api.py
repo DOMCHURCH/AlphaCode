@@ -106,10 +106,14 @@ def test_status_reports_counts(client):
 
 
 # ---------------------------------------------------------------------- admin
-def test_root_redirects_to_admin(client):
+def test_root_is_the_home_page(client):
+    """/ used to bounce to /admin. The front door is the product now; the admin
+    tool is reachable from it rather than standing in for it."""
     r = client.get("/", follow_redirects=False)
-    assert r.status_code == 307
-    assert r.headers["location"] == "/admin"
+    assert r.status_code == 200
+    assert "Filed financial statements, drawn at true proportion" in r.text
+    assert 'action="/search"' in r.text
+    assert 'href="/admin"' in r.text
 
 
 def test_admin_page_and_json(client):
@@ -616,12 +620,28 @@ def test_company_page_is_lowercase_tolerant(client):
 
 
 def test_company_page_says_so_when_there_is_nothing_to_draw(client):
+    _seed_company("MSFT", {
+        "total_assets": 665_302_000_000.0, "total_liabilities": 274_427_000_000.0,
+        "total_equity": 390_875_000_000.0, "cash": 75_000_000_000.0,
+    })
+
     r = client.get("/company/NOSUCH")
+
     assert r.status_code == 404
     assert "Nothing to draw" in r.text
-    # And points at tickers that do work rather than dead-ending.
-    for t in ("JPM", "AAL", "MSFT", "WMT", "FCX"):
-        assert f"/company/{t}" in r.text
+    # And points at a ticker that does work rather than dead-ending. The
+    # alternatives are read out of the database, so an empty page can never
+    # send a reader to another empty page.
+    assert "/company/MSFT" in r.text
+    assert "/company/JPM" not in r.text, "JPM is not loaded in this test"
+
+
+def test_a_page_with_nothing_loaded_at_all_offers_nothing_it_cannot_draw(client):
+    r = client.get("/company/NOSUCH")
+
+    assert r.status_code == 404
+    assert "No filed statements are loaded yet" in r.text
+    assert 'href="/company/' not in r.text
 
 
 def test_company_page_never_shows_investment_language(client):

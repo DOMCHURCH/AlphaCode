@@ -71,11 +71,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(
-    title="Company Data Service",
+    title="To Scale",
     version="2.0.0",
     description=(
-        "SEC as-reported fundamentals, price bars, and the sector map. "
-        "Descriptive only -- it makes no predictions and produces no scores."
+        "Filed financial statements, drawn at true proportion. SEC "
+        "as-reported fundamentals, price bars, and the sector map. Descriptive "
+        "only -- it makes no predictions and produces no scores."
     ),
     lifespan=lifespan,
 )
@@ -815,8 +816,8 @@ def company_page(ticker: str) -> HTMLResponse:
     from src.company.view3 import build_view3
     from src.report.company_page import render_company_page, render_not_found
 
-    symbol = ticker.strip().upper()[:16]
-    if not symbol.isalnum() and not symbol.replace(".", "").replace("-", "").isalnum():
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
         return HTMLResponse(
             render_not_found(symbol, "That does not look like a ticker symbol."),
             status_code=404,
@@ -953,17 +954,77 @@ def admin_verify() -> dict[str, Any]:
         return {"error": str(exc)[:300], "traceback": traceback.format_exc()[:2000]}
 
 
+def _clean_ticker(raw: str) -> str:
+    """A ticker as typed by a human: spaces, lowercase, a stray $ or a pasted
+    '$JPM ' all mean the same symbol."""
+    return raw.strip().lstrip("$").strip().upper()[:16]
+
+
+def _is_ticker_shaped(symbol: str) -> bool:
+    """Letters, with dots and dashes allowed for class shares (BRK.B, RDS-A)."""
+    if not symbol:
+        return False
+    return symbol.replace(".", "").replace("-", "").isalnum()
+
+
 @app.get("/", response_class=HTMLResponse)
-def root() -> RedirectResponse:
-    return RedirectResponse(url="/admin", status_code=307)
+def home() -> HTMLResponse:
+    """The front door: a sentence, a search box, and five real balance sheets.
+
+    Each thumbnail is built by the same `build_view1` the full page uses, so the
+    home page can never advertise a shape the page then contradicts. A ticker
+    whose drawing will not build is offered without one -- never with a
+    placeholder, which would be a picture of nothing presented as a company.
+    """
+    from src.company.suggest import suggestions
+    from src.company.view1 import build_view1
+    from src.report.home_page import render_home
+
+    pairs = []
+    for s in suggestions():
+        try:
+            pairs.append((s, build_view1(s.ticker)))
+        except Exception as exc:  # noqa: BLE001 - one bad ticker must not take the page
+            log.warning("home_thumbnail_failed", ticker=s.ticker, error=str(exc)[:200])
+            pairs.append((s, None))
+    return HTMLResponse(render_home(pairs))
+
+
+@app.get("/search")
+def search(q: str = Query("", max_length=64)) -> Response:
+    """One ticker in, straight to its page.
+
+    A redirect rather than a rendered result: the answer to "JPM" is JPM's page,
+    and a search-results screen between the two would be a page whose only job
+    is to be clicked through. A symbol we hold no data for still goes to
+    /company, which is the one place that can say so and offer alternatives.
+    """
+    symbol = _clean_ticker(q)
+    if not symbol:
+        from src.company.suggest import suggestions
+        from src.report.home_page import render_search_empty
+
+        return HTMLResponse(render_search_empty(suggestions()), status_code=400)
+    if not _is_ticker_shaped(symbol):
+        from src.report.company_page import render_not_found
+
+        return HTMLResponse(
+            render_not_found(symbol, "That does not look like a ticker symbol."),
+            status_code=404,
+        )
+    return RedirectResponse(url=f"/company/{symbol}", status_code=303)
 
 
 @app.get("/api")
 def api_index() -> JSONResponse:
     return JSONResponse(
         {
-            "service": "Company Data Service",
+            "service": "To Scale",
+            "description": (
+                "Filed financial statements, drawn at true proportion."
+            ),
             "endpoints": [
+                "/", "/search?q=TICKER", "/company/{ticker}",
                 "/health", "/status", "/reconcile",
                 "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
                 "/admin/universe-check",

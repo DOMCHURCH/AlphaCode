@@ -132,7 +132,11 @@ main{padding:18px 0 64px}
 .sugg a{font-family:var(--mono);font-size:13px;font-weight:700;border:2px solid var(--ink);
   padding:8px 12px;background:var(--card);box-shadow:2px 2px 0 var(--ink);
   text-decoration:none;color:var(--ink)}
-.sugg a:hover{transform:translate(-1px,-1px);box-shadow:3px 3px 0 var(--ink)}
+.sugg a:hover,.sugg a:focus-visible{transform:translate(-1px,-1px);
+  box-shadow:3px 3px 0 var(--ink);outline:0}
+.sugg a:focus-visible{box-shadow:3px 3px 0 var(--blue)}
+.sugg a small{font-family:var(--disp);font-size:11.5px;font-weight:400;
+  color:var(--ink2);margin-left:4px}
 
 footer{margin-top:30px;border-top:2px solid var(--ink);padding-top:12px;
   font-size:12px;color:var(--ink2);line-height:1.5}
@@ -174,6 +178,70 @@ footer{margin-top:30px;border-top:2px solid var(--ink);padding-top:12px;
 .srow.me .sbar{border-width:2.5px;box-shadow:2px 2px 0 var(--ink)}
 .srow.me .sbar i{background:var(--blue);opacity:1}
 .srow.me .sval{color:var(--ink);font-weight:700}
+
+/* ---- home: the front door ---- */
+/* The hero is the product, not a claim about it. Five thumbnails of five real
+   balance sheets carry the whole argument, so everything around them stays
+   quiet: one headline, one sentence, one input. */
+.navlink{font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink2);text-decoration:none;
+  border-bottom:2px solid transparent;padding-bottom:2px}
+.navlink:hover,.navlink:focus-visible{color:var(--ink);border-bottom-color:var(--ink)}
+
+.hero{border:2px solid var(--ink);box-shadow:var(--sh);background:var(--card);
+  padding:22px 18px 20px;margin-bottom:26px;position:relative}
+/* The triad down the edge, in the same order the drawing uses it: owns, owed,
+   left over. It is the page's legend before there is anything to read. */
+.hero::before{content:"";position:absolute;left:0;top:0;bottom:0;width:12px;
+  background:linear-gradient(var(--blue) 0 40%,var(--red) 0 78%,var(--yellow) 0)}
+.htitle{font-size:clamp(27px,7.9vw,42px);line-height:.99;font-weight:800;
+  letter-spacing:-.035em;margin:0 0 11px 10px;text-transform:uppercase;
+  max-width:13ch}
+.hlede{font-size:15.5px;line-height:1.45;color:var(--ink2);margin:0 0 18px 10px;
+  max-width:40ch}
+
+.search{margin-left:10px}
+.slabel{display:block;font-family:var(--mono);font-size:10.5px;font-weight:700;
+  letter-spacing:.09em;text-transform:uppercase;color:var(--ink2);margin-bottom:5px}
+.sfield{display:flex;gap:0}
+.search input{flex:1;min-width:0;font:700 17px/1 var(--mono);color:var(--ink);
+  background:var(--paper);border:2px solid var(--ink);border-right:0;padding:13px 12px;
+  text-transform:uppercase;border-radius:0;-webkit-appearance:none}
+.search input::placeholder{color:var(--dim);font-weight:400}
+.search input:focus-visible{outline:0;background:#fff;box-shadow:inset 0 0 0 2px var(--blue)}
+.search button{flex:none;font:800 13px/1 var(--disp);letter-spacing:.04em;
+  text-transform:uppercase;color:var(--paper);background:var(--ink);
+  border:2px solid var(--ink);padding:13px 16px;cursor:pointer;border-radius:0}
+.search button:hover{background:var(--blue)}
+.search button:focus-visible{outline:3px solid var(--blue);outline-offset:2px}
+
+.cards{display:grid;grid-template-columns:1fr;gap:10px}
+@media(min-width:520px){.cards{grid-template-columns:1fr 1fr}}
+.card{display:grid;grid-template-columns:1fr auto;grid-template-areas:
+  "head thumb" "fact thumb" "size thumb";
+  gap:2px 12px;align-items:start;text-decoration:none;color:var(--ink);
+  border:2px solid var(--ink);background:var(--card);box-shadow:2px 2px 0 var(--ink);
+  padding:12px 13px}
+.card:hover,.card:focus-visible{box-shadow:4px 4px 0 var(--ink);
+  transform:translate(-2px,-2px);outline:0}
+.card:focus-visible{background:#fff;box-shadow:4px 4px 0 var(--blue)}
+.chead2{grid-area:head;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+.ctick{font-family:var(--mono);font-size:17px;font-weight:700;letter-spacing:.02em}
+.ckind{font-size:12.5px;color:var(--ink2)}
+.cfact{grid-area:fact;font-size:13.5px;font-weight:600;line-height:1.3;margin-top:6px}
+.csize{grid-area:size;font-family:var(--mono);font-size:11px;color:var(--ink2);margin-top:3px}
+/* Two columns, same rules as the full drawing, one third the height. */
+.thumb{grid-area:thumb;display:flex;gap:4px;align-items:flex-start}
+.mcol{display:block;width:26px;border:1.5px solid var(--ink);background:var(--paper2)}
+.mband{display:block;border-bottom:1px solid rgba(22,19,16,.4)}
+.mband:last-child{border-bottom:0}
+.mband.rem{background-image:repeating-linear-gradient(45deg,
+  rgba(255,255,255,.34) 0 4px,transparent 4px 8px)}
+.munder{display:block;border-top:2px dashed var(--ink)}
+.card.bare{grid-template-columns:1fr;grid-template-areas:"head"}
+
+.tryline{margin:16px 0 8px!important;font-size:13.5px;color:var(--ink2)}
+.empty .search{margin:16px 0 0}
 
 .caution{margin-top:14px;border:2px solid var(--ink);border-left-width:8px;
   border-left-color:var(--yellow);background:var(--card);padding:11px 13px;
