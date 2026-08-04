@@ -146,6 +146,17 @@
     <div id="secCache" class="rows"><div class="loading">loading…</div></div>
   </section>
 
+  <!-- 7c. QUESTION BOX — model, caps, and what it has spent -->
+  <section class="card">
+    <div class="card-head"><h2>Question box</h2></div>
+    <p class="hint">The model behind the ask box on /company. Its id is resolved
+      against OpenRouter's live model list at startup — if it does not resolve,
+      the box is off and the reason is here rather than surfacing as a 404 to
+      one reader at a time. Per-token price comes from that same call, so the
+      cost below is the provider's number, not a stale table.</p>
+    <div id="ask" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
   <!-- 8. EXTRACTION — what the consolidated filter did -->
   <section class="card">
     <div class="card-head"><h2>XBRL extraction</h2></div>

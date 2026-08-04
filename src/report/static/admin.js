@@ -61,6 +61,7 @@ function render(d) {
   renderHealth(d.data_health || {});
   renderReload(d.reload || {});
   renderSecCache(d.sec_cache || []);
+  renderAsk(d.ask || {});
   renderRawFacts(d.raw_facts || {});
   renderExtraction(d.extraction || {});
   renderConfig(d.config || []);
@@ -298,6 +299,45 @@ function renderSecCache(rows) {
     out += row(r.quarter, `${((r.bytes || 0) / 1e6).toFixed(1)} MB`,
       `fetched ${r.age_hours}h ago`);
   }
+  el.innerHTML = out;
+}
+
+// The question box: is it on, what does it cost, how close is it to its caps.
+function renderAsk(a) {
+  const el = $("ask");
+  if (!el) return;
+  let out = "";
+  if (!a.available) {
+    out += row("Status", pill("off", "bad"), esc(a.configured_model || "—"));
+    out += `<div class="err-note">${esc(a.error || "not configured")}</div>`;
+    el.innerHTML = out;
+    return;
+  }
+  const m = a.model || {};
+  out += row("Status", pill("on", "ok"), esc(m.name || m.id || ""));
+  out += row("Model", esc(m.id || ""),
+    `$${m.prompt_usd_per_mtok}/M in · $${m.completion_usd_per_mtok}/M out`);
+
+  const t = a.today || {}, c = a.caps || {};
+  if (t.error) {
+    out += `<div class="err-note">${esc(t.error)}</div>`;
+    el.innerHTML = out;
+    return;
+  }
+  // Against the cap, not just a raw number: "212" is only meaningful next to
+  // the ceiling it is walking toward.
+  const reqPct = c.per_day ? Math.round(100 * t.requests / c.per_day) : 0;
+  const costPct = c.daily_cost_usd
+    ? Math.round(100 * t.cost_usd / c.daily_cost_usd) : 0;
+  const kind = (p) => (p >= 100 ? "bad" : p >= 80 ? "warn" : "ok");
+  out += row("Questions today", pill(`${fmtNum(t.requests)} / ${fmtNum(c.per_day)}`,
+    kind(reqPct)), `${reqPct}% of the daily limit`);
+  out += row("Spend today", pill(`$${(t.cost_usd || 0).toFixed(4)} / $${c.daily_cost_usd}`,
+    kind(costPct)), `${costPct}% of the daily cap`);
+  out += row("Tokens today",
+    `${fmtNum(t.prompt_tokens)} in · ${fmtNum(t.completion_tokens)} out`,
+    "resets at midnight UTC");
+  out += row("Per-IP limit", `${fmtNum(c.per_ip_per_hour)} / hour`);
   el.innerHTML = out;
 }
 

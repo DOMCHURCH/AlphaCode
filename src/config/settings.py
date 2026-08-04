@@ -62,6 +62,25 @@ class Settings(BaseSettings):
         default="https://openrouter.ai/api/v1", alias="OPENROUTER_BASE_URL"
     )
 
+    # ---------------- Ask box on /company/{ticker} ----------------
+    # A stable, paid, low-cost model. NEVER a ":free" variant -- those are
+    # delisted without notice and capped around 200 requests a day, so the
+    # question box would break silently at an unpredictable moment. The string
+    # is resolved against /api/v1/models at startup (src/llm/client.py), which
+    # is also where the per-token price comes from, so cost is never a
+    # hardcoded number that quietly goes stale.
+    llm_ask_model: str = Field(default="deepseek/deepseek-chat", alias="LLM_ASK_MODEL")
+    llm_ask_timeout_s: float = Field(default=25.0, alias="LLM_ASK_TIMEOUT_S")
+    llm_ask_max_tokens: int = Field(default=220, alias="LLM_ASK_MAX_TOKENS")
+    llm_ask_max_question_chars: int = Field(
+        default=300, alias="LLM_ASK_MAX_QUESTION_CHARS"
+    )
+    # The endpoint is public and the API key sits behind it, so every cap is
+    # enforced against the persisted usage table, not an in-process counter.
+    llm_ask_per_ip_per_hour: int = Field(default=10, alias="LLM_ASK_PER_IP_PER_HOUR")
+    llm_ask_per_day: int = Field(default=300, alias="LLM_ASK_PER_DAY")
+    llm_ask_daily_cost_usd: float = Field(default=1.0, alias="LLM_ASK_DAILY_COST_USD")
+
     # ---------------- Funnel widths ----------------
     stage1_target: int = Field(default=1200, alias="STAGE1_TARGET")
     # Stage 2 output = Stage 3 input. Stage 3 is the only expensive stage (per-

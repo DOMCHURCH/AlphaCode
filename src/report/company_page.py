@@ -225,8 +225,51 @@ def _scale_html(v2: View2 | None) -> str:
   </section>"""
 
 
+def _ask_html(ticker: str, available: bool) -> str:
+    """The question box. Absent entirely when the model is not configured.
+
+    A disabled input with an apology is worse than nothing: it advertises a
+    feature and then refuses, on a page whose whole claim is that what you see
+    is what was filed.
+
+    Progressive by construction -- everything above this point is already
+    rendered and complete. If the script never arrives, or the model never
+    answers, the reader has lost nothing but a convenience.
+    """
+    if not available:
+        return ""
+    from src.llm.ask import suggested_questions
+
+    chips = "".join(
+        f'<button type="button" class="qchip">{escape(q)}</button>'
+        for q in suggested_questions()
+    )
+    return f"""
+  <section class="sec ask" id="askbox" data-ticker="{escape(ticker)}">
+    <div class="sec-head"><h2>Ask about these numbers</h2></div>
+    <p class="sec-sub">Answered from the figures on this page and nothing else.
+      Ask for something that is not here — another company, a share price, an
+      earlier quarter — and it will tell you it is not in the filing data.</p>
+    <form class="qform" id="qform">
+      <div class="qfield">
+        <input id="qinput" name="question" type="text" autocomplete="off"
+          placeholder="What is the biggest thing it owns?" maxlength="300"
+          enterkeyhint="send">
+        <button type="submit" id="qsend">Ask</button>
+      </div>
+    </form>
+    <div class="qchips">{chips}</div>
+    <div class="qanswer" id="qanswer" hidden></div>
+    <p class="qnote">This is a language model reading the same numbers you can
+      see. It does not predict, rate or recommend.</p>
+  </section>"""
+
+
 def render_company_page(
-    view: View1, flow: View3 | None = None, scale: View2 | None = None
+    view: View1,
+    flow: View3 | None = None,
+    scale: View2 | None = None,
+    ask_available: bool = False,
 ) -> str:
     d = view.as_dict()
     total = d["total_assets"]
@@ -353,6 +396,7 @@ def render_company_page(
   <section class="shape">{shape_html}</section>
   {_flow_html(flow)}
   {_scale_html(scale)}
+  {_ask_html(d["ticker"], ask_available)}
 
   <footer>
     Every figure is as reported to the SEC for the quarter ended
@@ -361,6 +405,8 @@ def render_company_page(
     makes no prediction.
   </footer>
 </main>
+{'<script src="/static/company.js?v=' + asset_version() + '" defer></script>'
+ if ask_available else ''}
 </body>
 </html>"""
 

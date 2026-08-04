@@ -413,6 +413,40 @@ class CacheEntry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class LlmUsage(Base):
+    """One row per question asked on a company page: tokens, cost, outcome.
+
+    Persisted rather than counted in memory because the daily ceiling is a
+    SPEND cap on a public endpoint with a private key behind it. An in-process
+    counter resets on every container restart, so on a platform that restarts
+    freely the "hard stop" would be a hard stop per restart -- which is not a
+    cap at all. Reading the day's spend from here survives that.
+
+    `ip_hash` is a salted digest, never the address: enough to rate-limit one
+    caller, not enough to be a record of who read what. Failed calls are stored
+    too -- an upstream error still costs an attempt, and a rate limiter that
+    only counts successes can be spun by making requests that fail.
+    """
+
+    __tablename__ = "llm_usage"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=_utcnow, nullable=False, index=True
+    )
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False)
+    ip_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    model: Mapped[str] = mapped_column(String(96), nullable=False)
+    prompt_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    completion_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    cost_usd: Mapped[float] = mapped_column(Float, default=0.0)
+    latency_ms: Mapped[int] = mapped_column(Integer, default=0)
+    ok: Mapped[bool] = mapped_column(Boolean, default=True)
+    error: Mapped[str | None] = mapped_column(String(200))
+
+    __table_args__ = (Index("ix_llm_usage_ip_time", "ip_hash", "created_at"),)
+
+
 ALL_TABLES = [
     UniverseSnapshot,
     DailyBar,
@@ -429,6 +463,7 @@ ALL_TABLES = [
     RunLog,
     ReportArtifact,
     CacheEntry,
+    LlmUsage,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

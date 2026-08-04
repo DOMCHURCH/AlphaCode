@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -52,7 +52,75 @@ async def _boot(app: FastAPI) -> None:
     except Exception as exc:  # noqa: BLE001 - health endpoint reports it
         log.error("db_init_failed", error=str(exc)[:300])
 
+    await _verify_ask_model()
     app.state.boot_complete = True
+
+
+# The question box's model, resolved once at boot. None means the box is off,
+# and _ASK_MODEL_ERROR says exactly why.
+_ASK_MODEL: Any = None
+_ASK_MODEL_ERROR: str | None = None
+
+
+async def _verify_ask_model() -> None:
+    """Resolve LLM_ASK_MODEL against OpenRouter's live model list.
+
+    Loud, but not fatal. A wrong model id must never be discovered one reader
+    at a time as an upstream 404, so it is checked here and the reason is
+    carried to /admin, to /health's own log line, and to the endpoint's 503.
+    It does not abort the process: the balance-sheet pages are the product and
+    a misconfigured question box is not a reason to take them offline.
+    """
+    global _ASK_MODEL, _ASK_MODEL_ERROR
+    from src.llm.client import ModelUnavailable, resolve_model
+
+    s = get_settings()
+    if not s.openrouter_api_key:
+        _ASK_MODEL, _ASK_MODEL_ERROR = None, "OPENROUTER_API_KEY is not set."
+        log.warning("llm_ask_disabled", reason=_ASK_MODEL_ERROR)
+        return
+    try:
+        _ASK_MODEL = await resolve_model(s.llm_ask_model)
+        _ASK_MODEL_ERROR = None
+    except ModelUnavailable as exc:
+        _ASK_MODEL, _ASK_MODEL_ERROR = None, str(exc)
+        log.error("llm_ask_model_unavailable", model=s.llm_ask_model,
+                  reason=str(exc)[:300])
+    except Exception as exc:  # noqa: BLE001 - boot must complete regardless
+        _ASK_MODEL = None
+        _ASK_MODEL_ERROR = f"{type(exc).__name__}: {str(exc)[:200]}"
+        log.error("llm_ask_verify_failed", error=_ASK_MODEL_ERROR)
+
+
+def ask_status() -> dict[str, Any]:
+    """Whether the question box is on, and the numbers behind it, for /admin."""
+    s = get_settings()
+    out: dict[str, Any] = {
+        "configured_model": s.llm_ask_model,
+        "available": _ASK_MODEL is not None,
+        "error": _ASK_MODEL_ERROR,
+        "caps": {
+            "per_ip_per_hour": s.llm_ask_per_ip_per_hour,
+            "per_day": s.llm_ask_per_day,
+            "daily_cost_usd": s.llm_ask_daily_cost_usd,
+        },
+    }
+    if _ASK_MODEL is not None:
+        out["model"] = {
+            "id": _ASK_MODEL.id,
+            "name": _ASK_MODEL.name,
+            "prompt_usd_per_mtok": round(_ASK_MODEL.prompt_usd_per_token * 1e6, 4),
+            "completion_usd_per_mtok": round(
+                _ASK_MODEL.completion_usd_per_token * 1e6, 4
+            ),
+        }
+    try:
+        from src.llm.ask import usage_today
+
+        out["today"] = usage_today()
+    except Exception as exc:  # noqa: BLE001 - /admin must still render
+        out["today"] = {"error": str(exc)[:200]}
+    return out
 
 
 @asynccontextmanager
@@ -555,6 +623,7 @@ def admin_json() -> dict[str, Any]:
         "extraction": get_extraction_reports(),
         "reload": get_reload_state(),
         "sec_cache": cache_status(),
+        "ask": ask_status(),
         "raw_facts": get_raw_facts_state(),
         "backfill_running": _backfill_lock.locked(),
     }
@@ -858,7 +927,80 @@ def company_page(ticker: str) -> HTMLResponse:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("view2_failed", ticker=symbol, error=str(exc)[:200])
-    return HTMLResponse(render_company_page(view, flow=flow, scale=scale))
+    return HTMLResponse(
+        render_company_page(
+            view, flow=flow, scale=scale, ask_available=_ASK_MODEL is not None
+        )
+    )
+
+
+class AskRequest(BaseModel):
+    question: str
+
+
+@app.post("/company/{ticker}/ask")
+async def company_ask(ticker: str, body: AskRequest, request: Request) -> JSONResponse:
+    """Answer one question about one company's filed figures.
+
+    The model is sent that company's numbers and nothing else -- the same
+    figures already drawn on the page. It never sees a raw filing, another
+    company, or a price, so it has nothing to compare, rank or forecast with,
+    which is the first of the two layers stopping it from doing so.
+
+    Public endpoint with a paid key behind it, so the caps are checked against
+    persisted usage before the upstream call, never after.
+    """
+    from src.company.view1 import build_view1
+    from src.llm.ask import RateLimited, answer_question, hash_ip
+
+    s = get_settings()
+    if _ASK_MODEL is None:
+        # Say which half is broken. "Unavailable" alone sends the operator
+        # looking in the wrong place.
+        raise HTTPException(
+            503,
+            _ASK_MODEL_ERROR or "The question box is not configured.",
+        )
+
+    question = body.question.strip()
+    if not question:
+        raise HTTPException(400, "Ask a question first.")
+    if len(question) > s.llm_ask_max_question_chars:
+        raise HTTPException(
+            400,
+            f"Questions are capped at {s.llm_ask_max_question_chars} characters.",
+        )
+
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(404, "That does not look like a ticker symbol.")
+    view = await asyncio.to_thread(build_view1, symbol)
+    if view is None:
+        raise HTTPException(404, f"There are no filed figures for {symbol}.")
+
+    client_host = request.client.host if request.client else "unknown"
+    ip_hash = hash_ip(client_host)
+    try:
+        answer = await answer_question(_ASK_MODEL, view, question, ip_hash)
+    except RateLimited as exc:
+        raise HTTPException(
+            429, str(exc), headers={"Retry-After": str(exc.retry_after_s)}
+        ) from exc
+    except Exception as exc:  # noqa: BLE001 - already recorded as a failed row
+        log.warning("company_ask_failed", ticker=symbol, error=str(exc)[:300])
+        raise HTTPException(
+            502, "The model did not answer. Try again in a moment."
+        ) from exc
+
+    return JSONResponse({
+        "answer": answer.text,
+        "ticker": symbol,
+        "period_end": view.period_end.isoformat(),
+        "model": answer.model,
+        "prompt_tokens": answer.prompt_tokens,
+        "completion_tokens": answer.completion_tokens,
+        "cost_usd": round(answer.cost_usd, 6),
+    })
 
 
 @app.get("/admin/universe-check")
