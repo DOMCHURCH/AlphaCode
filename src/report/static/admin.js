@@ -48,8 +48,9 @@ async function load() {
     return;
   }
   // Keep polling while a reload is mid-flight, not just while the lock is held:
-  // the wipe and verify phases run outside the backfill loop's own state.
-  const busyPhases = ["wiping", "loading", "verifying", "downloading", "parsing"];
+  // the fetch and verify phases run outside the backfill loop's own state.
+  const busyPhases = ["fetching", "replacing", "verifying", "downloading",
+                      "parsing", "loading"];
   const reloading = busyPhases.includes((LATEST.reload || {}).phase);
   const dumping = busyPhases.includes((LATEST.raw_facts || {}).phase);
   if (LATEST.backfill_running || reloading || dumping) TIMER = setTimeout(load, 10000);
@@ -59,6 +60,7 @@ function render(d) {
   renderVerdict(d.verdict);
   renderHealth(d.data_health || {});
   renderReload(d.reload || {});
+  renderSecCache(d.sec_cache || []);
   renderRawFacts(d.raw_facts || {});
   renderExtraction(d.extraction || {});
   renderConfig(d.config || []);
@@ -232,7 +234,14 @@ function verifyHtml(v) {
   return out;
 }
 
-// Live state of the wipe/reload/verify job.
+// Live state of the download/replace/verify job. The phase names matter: while
+// it says "fetching", nothing has been deleted and an abort costs nothing.
+const RELOAD_PHASE_NOTE = {
+  fetching: "downloading every quarter — nothing deleted yet",
+  replacing: "delete + reload, one transaction",
+  verifying: "data is in; checking the five companies",
+};
+
 function renderReload(r) {
   const el = $("reload");
   if (!r.phase || r.phase === "idle") {
@@ -241,13 +250,45 @@ function renderReload(r) {
   }
   const kind = r.phase === "done" ? "ok" : r.phase === "error" ? "bad" : "warn";
   let out = row("Phase", pill(r.phase, kind),
-    r.started_at ? "started " + new Date(r.started_at).toLocaleTimeString() : "");
+    (RELOAD_PHASE_NOTE[r.phase] || "") +
+    (r.started_at ? " · started " + new Date(r.started_at).toLocaleTimeString() : ""));
+
+  const staged = r.staged || [];
+  const want = (r.quarters || []).length;
+  if (want) {
+    out += row("Downloaded", `${staged.length} / ${want}`,
+      staged.map((s) => `${s.quarter} ${s.source === "cache" ? "(cached)" : "↓"}`)
+        .join(" · ") || "—");
+  }
+  if (r.quarters_loaded != null && want)
+    out += row("Quarters loaded", `${r.quarters_loaded} / ${want}`);
   if (r.rows_deleted != null) out += row("Rows deleted", fmtNum(r.rows_deleted));
   if (r.rows_written != null) out += row("Rows written", fmtNum(r.rows_written));
-  if (r.quarters_requested != null) out += row("Quarters", fmtNum(r.quarters_requested));
+  if (r.phase === "error" && r.data_intact)
+    out += row("Existing data", pill("untouched", "ok"),
+      "the reload aborted before anything was committed");
   if (r.last_error)
     out += `<div class="err-note">${esc(r.last_error)}</div>`;
   if (r.verification) out += verifyHtml(r.verification);
+  el.innerHTML = out;
+}
+
+// What is already on disk. A cached quarter is a quarter SEC will not be asked
+// for again — the reason the 429s stopped.
+function renderSecCache(rows) {
+  const el = $("secCache");
+  if (!el) return;
+  if (!rows.length) {
+    el.innerHTML = `<div class="loading">nothing cached — the next load downloads every quarter</div>`;
+    return;
+  }
+  const mb = rows.reduce((a, r) => a + (r.bytes || 0), 0) / 1e6;
+  let out = row("Cached quarters", fmtNum(rows.length),
+    `${mb.toFixed(0)} MB on disk`);
+  for (const r of rows) {
+    out += row(r.quarter, `${((r.bytes || 0) / 1e6).toFixed(1)} MB`,
+      `fetched ${r.age_hours}h ago`);
+  }
   el.innerHTML = out;
 }
 
@@ -598,8 +639,10 @@ async function startReload() {
   // This deletes every fundamentals row and cannot be undone, so it asks first
   // and the endpoint independently requires confirm=true.
   const ok = window.confirm(
-    "Delete EVERY fundamentals row, then reload 7 quarters?\n\n" +
-    "This cannot be undone. It takes several minutes.");
+    "Replace EVERY fundamentals row from 7 quarters of SEC data?\n\n" +
+    "Nothing is deleted until all 7 quarters have downloaded, and the swap " +
+    "is one transaction — if it fails, the current data stays.\n\n" +
+    "Takes several minutes.");
   if (!ok) return;
 
   const btn = $("reloadBtn"), msg = $("actionMsg");
@@ -733,6 +776,11 @@ function buildCopyText(d) {
   if (rl.phase && rl.phase !== "idle") {
     push("RELOAD");
     push(`  phase: ${rl.phase}`);
+    if ((rl.staged || []).length)
+      push(`  downloaded: ${rl.staged.length}/${(rl.quarters || []).length} — ` +
+           rl.staged.map((s) => `${s.quarter}:${s.source}`).join(" "));
+    if (rl.quarters_loaded != null) push(`  quarters loaded: ${rl.quarters_loaded}`);
+    if (rl.phase === "error" && rl.data_intact) push(`  existing data: UNTOUCHED`);
     if (rl.rows_deleted != null) push(`  rows deleted: ${fmtNum(rl.rows_deleted)}`);
     if (rl.rows_written != null) push(`  rows written: ${fmtNum(rl.rows_written)}`);
     if (rl.last_error) push(`  ERROR: ${rl.last_error}`);

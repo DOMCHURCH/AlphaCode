@@ -526,6 +526,7 @@ def admin_json() -> dict[str, Any]:
         get_raw_facts_state,
         get_reload_state,
     )
+    from src.ingest.sec_cache import cache_status
     from src.logging_config import get_recent_logs
 
     db_ok = True
@@ -551,6 +552,7 @@ def admin_json() -> dict[str, Any]:
         "actions": _admin_actions(),
         "extraction": get_extraction_reports(),
         "reload": get_reload_state(),
+        "sec_cache": cache_status(),
         "raw_facts": get_raw_facts_state(),
         "backfill_running": _backfill_lock.locked(),
     }
@@ -761,21 +763,23 @@ async def admin_reload_fundamentals(
     ),
     quarters: int = Query(7, ge=1, le=20),
 ) -> RunResponse:
-    """Wipe the fundamentals table and reload it through the rebuilt extractor.
+    """Replace the fundamentals table through the rebuilt extractor.
+
+    Downloads every quarter first and aborts untouched if any of them cannot be
+    fetched; the delete and the reload then run in one transaction, so the table
+    is either fully replaced or exactly as it was.
 
     Runs in the background; poll `/admin.json` -> `reload` for progress, or
     `/admin` for the rendered version. On completion the payload carries the
     per-quarter extraction report and the five-company verification.
 
-    `confirm=true` is required. This endpoint is open and deletes every
-    fundamentals row, so a stray tap, a prefetch, or a crawler must not be able
-    to trigger it.
+    `confirm=true` is still required -- the successful path does replace every
+    row, and this endpoint is open.
     """
     if not confirm:
         raise HTTPException(
             400,
-            "Refusing to wipe without confirm=true. This deletes every "
-            "fundamentals row and cannot be undone.",
+            "Refusing to replace the fundamentals table without confirm=true.",
         )
     _enforce_rate(_backfill_gate, "backfills")
     if _backfill_lock.locked():
@@ -785,7 +789,8 @@ async def admin_reload_fundamentals(
     background.add_task(_reload_bg, quarters)
     return RunResponse(
         accepted=True,
-        detail=f"Reload queued: wipe, then {quarters} quarters, then verify. "
+        detail=f"Reload queued: download {quarters} quarters, then replace and "
+               "verify. Nothing is deleted until every quarter is on disk. "
                "Watch /admin for progress.",
     )
 

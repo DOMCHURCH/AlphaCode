@@ -62,28 +62,14 @@ def dataset_url(year: int, quarter: int) -> str:
 
 
 async def download_dataset(year: int, quarter: int, *, timeout: float = 300.0) -> bytes:
-    """Download one quarter's Financial Statement Data Set ZIP (raw bytes).
+    """One quarter's Financial Statement Data Set ZIP.
 
-    SEC requires a descriptive User-Agent; without it the request is 403'd.
-    Raises loudly (never returns an empty/HTML body silently) so a moved URL or a
-    throttle is a hard failure, not a silent zero-fundamentals load.
+    Delegates to the shared cache so this and the raw-facts dump cannot fetch
+    the same file twice, and so a 429 is retried rather than failing instantly.
     """
-    s = get_settings()
-    url = dataset_url(year, quarter)
-    headers = {"User-Agent": s.sec_user_agent, "Accept-Encoding": "gzip, deflate"}
-    log.info("sec_dataset_download_start", url=url)
-    async with httpx.AsyncClient(follow_redirects=True, timeout=timeout) as c:
-        resp = await c.get(url, headers=headers)
-    if resp.status_code >= 400:
-        raise RuntimeError(f"SEC dataset {year}q{quarter}: HTTP {resp.status_code} for {url}")
-    data = resp.content
-    if len(data) < 1024 or not zipfile.is_zipfile(io.BytesIO(data)):
-        raise RuntimeError(
-            f"SEC dataset {year}q{quarter}: not a valid ZIP ({len(data)} bytes) -- "
-            f"moved URL or throttled, not empty data."
-        )
-    log.info("sec_dataset_download_done", bytes=len(data), year=year, quarter=quarter)
-    return data
+    from src.ingest.sec_cache import fetch_dataset
+
+    return await fetch_dataset(year, quarter, timeout=timeout)
 
 
 def _read_member(
