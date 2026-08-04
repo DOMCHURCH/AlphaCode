@@ -45,9 +45,46 @@ LIABILITY_COMPONENTS: tuple[tuple[str, str], ...] = (
     ("long_term_debt", "Long-term debt"),
 )
 
-# Blocks smaller than this share of the total get no inline label; the legend
-# carries them. Chosen so a label never overflows its own block.
-INLINE_LABEL_MIN_PCT = 7.0
+# A bank files a different balance sheet. It reports no InventoryNet and no
+# AccountsPayableCurrent, so against the general set it renders as one
+# undifferentiated block -- accurate and useless. Its money is in loans and
+# securities, and it is funded by deposits, so those are its line items.
+BANK_ASSET_COMPONENTS: tuple[tuple[str, str], ...] = (
+    ("cash", "Cash"),
+    ("interbank_deposits", "Deposits with banks"),
+    ("trading_securities", "Trading securities"),
+    ("investment_securities", "Investment securities"),
+    ("loans", "Loans"),
+    ("goodwill", "Goodwill"),
+    ("intangibles", "Intangibles"),
+)
+BANK_LIABILITY_COMPONENTS: tuple[tuple[str, str], ...] = (
+    ("deposits", "Customer deposits"),
+    ("short_term_borrowings", "Short-term borrowings"),
+    ("long_term_debt", "Long-term debt"),
+)
+
+# Sector names that file a bank-shaped balance sheet. Matched loosely because
+# the sector map mixes GICS-style and SIC-derived labels.
+_BANKISH = ("financial", "bank")
+
+
+def component_sets(
+    sector: str | None,
+) -> tuple[tuple[tuple[str, str], ...], tuple[tuple[str, str], ...]]:
+    """The line items to look for, chosen by what this kind of filer reports."""
+    if sector and any(word in sector.lower() for word in _BANKISH):
+        return BANK_ASSET_COMPONENTS, BANK_LIABILITY_COMPONENTS
+    return ASSET_COMPONENTS, LIABILITY_COMPONENTS
+
+# Label tiers, in share of total assets. A band is 3px per percent, so:
+#   >= 9%  (27px+) fits the name and the value on two lines
+#   >= 4.5% (13px+) fits one compact line
+#   below that, only the legend carries it
+# A label must never be taller than the band it sits in -- clipped text reads as
+# a rendering bug and undermines trust in the numbers next to it.
+FULL_LABEL_MIN_PCT = 9.0
+COMPACT_LABEL_MIN_PCT = 4.5
 
 
 @dataclass
@@ -64,8 +101,12 @@ class Block:
     note: str | None = None
 
     @property
-    def inline_label(self) -> bool:
-        return self.pct >= INLINE_LABEL_MIN_PCT
+    def label_style(self) -> str:
+        if self.pct >= FULL_LABEL_MIN_PCT:
+            return "full"
+        if self.pct >= COMPACT_LABEL_MIN_PCT:
+            return "compact"
+        return "none"
 
 
 @dataclass
@@ -82,6 +123,9 @@ class View1:
     total_liabilities: float | None = None
     total_equity: float | None = None
     missing_components: list[str] = field(default_factory=list)
+    # Set when total liabilities was computed from the identity rather than
+    # read off the filing. Never left implicit.
+    liabilities_derived_from: str | None = None
     negative_equity: bool = False
     # Height of the claims column relative to assets. Exceeds 100 only when
     # equity is negative, which is exactly when it should.
@@ -95,7 +139,7 @@ class View1:
                     "key": b.key, "label": b.label, "value": b.value,
                     "pct": round(b.pct, 3), "kind": b.kind, "tone": b.tone,
                     "is_remainder": b.is_remainder, "note": b.note,
-                    "inline_label": b.inline_label,
+                    "label_style": b.label_style,
                 }
                 for b in bs
             ]
@@ -113,6 +157,7 @@ class View1:
             "total_liabilities": self.total_liabilities,
             "total_equity": self.total_equity,
             "missing_components": self.missing_components,
+            "liabilities_derived_from": self.liabilities_derived_from,
             "negative_equity": self.negative_equity,
             "claims_span_pct": round(self.claims_span_pct, 3),
             "notes": self.notes,
@@ -149,6 +194,21 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     equity_parent = _val(bs.equity, "shareholders_equity")
     total_equity = equity_incl if equity_incl is not None else equity_parent
 
+    # Deriving liabilities from the identity is arithmetic, not imputation. The
+    # filer stated two of the three terms; the third is exactly determined, not
+    # guessed from peers or averages. Leaving half the picture blank when the
+    # number is recoverable would be the worse answer -- but it is labelled, so
+    # a derived figure never passes as one read off the filing.
+    liabilities_derived_from: str | None = None
+    if total_liabilities is None and total_equity is not None:
+        stated_rhs = _val(bs.liabilities, "liabilities_and_equity")
+        if stated_rhs is not None:
+            total_liabilities = stated_rhs - total_equity
+            liabilities_derived_from = "liabilities and equity, less equity"
+        else:
+            total_liabilities = total_assets - total_equity
+            liabilities_derived_from = "total assets, less equity"
+
     sector = _sector_for(ticker)
     view = View1(
         ticker=bs.ticker,
@@ -160,14 +220,16 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
         total_assets=total_assets,
         total_liabilities=total_liabilities,
         total_equity=total_equity,
+        liabilities_derived_from=liabilities_derived_from,
     )
 
     pct = lambda v: v / total_assets * 100.0  # noqa: E731
+    asset_components, liability_components = component_sets(sector)
 
     # ---- left column: what it owns ----
     named_total = 0.0
     missing: list[str] = []
-    for tone, (key, label) in enumerate(ASSET_COMPONENTS):
+    for tone, (key, label) in enumerate(asset_components):
         v = _val(bs.assets, key)
         if v is None:
             missing.append(label)
@@ -205,7 +267,7 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     if total_liabilities is not None and total_equity is not None:
         named_liab = 0.0
         missing_liab: list[str] = []
-        for tone, (key, label) in enumerate(LIABILITY_COMPONENTS):
+        for tone, (key, label) in enumerate(liability_components):
             v = _val(bs.liabilities, key)
             if v is None:
                 missing_liab.append(label)
@@ -251,10 +313,14 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
         if total_equity is None:
             view.notes.append("This filer does not report a total for equity.")
 
-    if view.mode == "detailed" and len(view.assets) <= 1 and len(view.claims) <= 2:
-        # Only remainders survived: nothing is broken down, so present it as the
-        # simplified view rather than implying a detail that is not there.
-        view.mode = "totals_only"
+    # "Simplified" means NO component was broken out on either side. A company
+    # with four rendered components is not simplified, whichever totals it
+    # happened to report.
+    named_blocks = [
+        b for b in (view.assets + view.claims)
+        if not b.is_remainder and b.kind != "equity"
+    ]
+    view.mode = "detailed" if named_blocks else "totals_only"
 
     return view
 

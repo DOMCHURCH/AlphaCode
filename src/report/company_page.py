@@ -72,22 +72,25 @@ def _band(block: dict[str, Any], px_per_pct: float) -> str:
     if _is_pale(block):
         classes.append("pale")
     style = f"height:{height:.1f}px;background-color:{_colour(block)}"
-    # A negative equity block is the single most important thing on the page
-    # when it exists, so it is labelled regardless of how thin it is.
-    force_label = block["kind"] == "equity" and block["value"] < 0
-    label = ""
-    if force_label:
-        # The band keeps its true height -- scale fidelity is the whole point --
-        # so the label goes on one line to fit inside a thin one.
-        # Short form: the value is the point and must not be the thing that
-        # gets ellipsised. The legend below carries the full name.
+    # A label must never be taller than its band. The band keeps its true
+    # height -- scale fidelity is the whole point -- so the label adapts.
+    if block["kind"] == "equity" and block["value"] < 0:
+        # Negative equity is the most important thing on the page when it
+        # exists, so it is labelled however thin the band. Short form: the value
+        # must not be what gets ellipsised. The legend carries the full name.
         label = f'<span class="bl one">Equity <b>{money(block["value"])}</b></span>'
-
-    elif block["inline_label"]:
+    elif block["label_style"] == "full":
         label = (
             f'<span class="bl">{escape(block["label"])}'
             f'<span class="bv">{money(block["value"])}</span></span>'
         )
+    elif block["label_style"] == "compact":
+        label = (
+            f'<span class="bl one">{escape(block["label"])} '
+            f'<b>{money(block["value"])}</b></span>'
+        )
+    else:
+        label = ""
     return f'<div class="{" ".join(classes)}" style="{style}">{label}</div>'
 
 
@@ -145,6 +148,14 @@ def render_company_page(view: View1) -> str:
     shape_html = "".join(
         f"<p>{escape(s)}</p>" for s in describe_shape(view)
     )
+
+    derived = ""
+    if d["liabilities_derived_from"]:
+        derived = (
+            '<div class="derived">Total liabilities is not stated separately in '
+            f'this filing. It is computed from {escape(d["liabilities_derived_from"])}'
+            " — exact arithmetic from the filer's own figures, not an estimate.</div>"
+        )
 
     simplified = ""
     if d["mode"] == "totals_only":
@@ -210,6 +221,7 @@ def render_company_page(view: View1) -> str:
       <div class="legend">{_legend_rows(d["claims"], total)}</div>
     </div>
 
+    {derived}
     {simplified}
     {missing_html}
     {notes_html}

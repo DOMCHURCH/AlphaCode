@@ -140,6 +140,18 @@ def test_no_remainder_block_when_components_are_complete(db):
     assert [b for b in v.assets if b.is_remainder] == []
 
 
+def test_simplified_mode_only_when_nothing_is_broken_out(db):
+    """A company with rendered components is not "simplified", whichever totals
+    it happened to report."""
+    _seed("SOME", {
+        "total_assets": 1_000.0, "cash": 200.0, "inventory": 300.0,
+        "liabilities_and_equity": 1_000.0, "total_equity": 400.0,
+    })
+    v = build_view1("SOME")
+    assert v.mode == "detailed"
+    assert len([b for b in v.assets if not b.is_remainder]) == 2
+
+
 def test_totals_only_still_renders(db):
     """~89% of filers report totals without a full breakdown; that is a real
     answer, not a degraded one."""
@@ -155,12 +167,46 @@ def test_totals_only_still_renders(db):
     assert sum(b.value for b in v.claims) == pytest.approx(1_000.0)
 
 
-def test_missing_liability_total_is_stated_not_guessed(db):
+def test_missing_liability_total_is_derived_not_left_blank(db):
+    """WMT's shape: no stated total liabilities, but the number is recoverable.
+
+    Deriving it from the identity is arithmetic, not imputation -- the filer
+    stated the other two terms, so the third is exact. Leaving half the drawing
+    blank when the number is recoverable is the worse answer.
+    """
     _seed("NOL", {"total_assets": 1_000.0, "cash": 400.0, "total_equity": 400.0})
     v = build_view1("NOL")
-    assert v.mode == "totals_only"
-    assert any("total for liabilities" in n for n in v.notes)
+
+    assert v.total_liabilities == pytest.approx(600.0)
+    assert v.liabilities_derived_from == "total assets, less equity"
+    assert v.claims, "the claims column must not be empty when it is derivable"
+    assert sum(b.value for b in v.claims) == pytest.approx(1_000.0)
+
+
+def test_derivation_prefers_the_filers_own_stated_right_hand_side(db):
+    """liabilities_and_equity has 93% coverage and is stated, not reconstructed."""
+    _seed("RHS", {
+        "total_assets": 1_000.0, "liabilities_and_equity": 1_000.0,
+        "cash": 400.0, "total_equity": 350.0,
+    })
+    v = build_view1("RHS")
+    assert v.total_liabilities == pytest.approx(650.0)
+    assert v.liabilities_derived_from == "liabilities and equity, less equity"
+
+
+def test_a_stated_liability_total_is_never_overwritten_by_a_derivation(db):
+    _seed("STATED", FULL)
+    v = build_view1("STATED")
+    assert v.total_liabilities == 600.0
+    assert v.liabilities_derived_from is None
+
+
+def test_without_equity_there_is_nothing_to_derive_from(db):
+    _seed("BARE", {"total_assets": 1_000.0, "cash": 400.0})
+    v = build_view1("BARE")
+    assert v.total_liabilities is None
     assert v.claims == []
+    assert any("total for liabilities" in n for n in v.notes)
 
 
 # ------------------------------------------------------------ negative equity
@@ -244,3 +290,68 @@ def test_negative_equity_is_described_plainly(db):
     assert any(
         "negative" in s for s in describe_shape(build_view1("AAL"))
     )
+
+
+# ------------------------------------------------------- sector-shaped filers
+def test_a_bank_gets_bank_line_items(db):
+    """JPM files no InventoryNet and no AccountsPayableCurrent.
+
+    Against the general component set it renders as one undifferentiated
+    block -- accurate and useless. Its money is in loans and securities and it
+    is funded by deposits, so those are the lines that make it legible.
+    """
+    from src.storage.db import session_scope
+    from src.storage.models import SectorMap
+
+    _seed("JPM", {
+        "total_assets": 1_000.0,
+        "loans": 320.0,
+        "trading_securities": 145.0,
+        "investment_securities": 154.0,
+        "interbank_deposits": 156.0,
+        "total_liabilities": 918.0,
+        "deposits": 588.0,
+        "short_term_borrowings": 70.0,
+        "long_term_debt": 97.0,
+        "total_equity": 82.0,
+    })
+    with session_scope() as s:
+        s.add(SectorMap(ticker="JPM", sic="6021", sector="Financial Services",
+                        sector_source="sic"))
+
+    v = build_view1("JPM")
+    keys = {b.key for b in v.assets}
+    assert "loans" in keys and "trading_securities" in keys
+    assert {b.key for b in v.claims} >= {"deposits", "long_term_debt"}
+    # It must NOT be asked for line items a bank does not file.
+    assert "Inventory" not in v.missing_components
+    assert "Accounts payable" not in v.missing_components
+
+
+def test_a_non_bank_keeps_the_general_line_items(db):
+    from src.storage.db import session_scope
+    from src.storage.models import SectorMap
+
+    _seed("MSFT", FULL)
+    with session_scope() as s:
+        s.add(SectorMap(ticker="MSFT", sic="7372", sector="Technology",
+                        sector_source="sic"))
+
+    v = build_view1("MSFT")
+    assert "inventory" in {b.key for b in v.assets}
+    assert "deposits" not in {b.key for b in v.claims}
+
+
+def test_label_tiers_never_exceed_their_band(db):
+    """A two-line label in a 21px band clips, which reads as a broken render."""
+    from src.company.view1 import COMPACT_LABEL_MIN_PCT, FULL_LABEL_MIN_PCT, Block
+
+    assert FULL_LABEL_MIN_PCT > COMPACT_LABEL_MIN_PCT
+    # 3px per percent: a full two-line label needs ~27px, a compact one ~13px.
+    assert FULL_LABEL_MIN_PCT * 3 >= 27
+    assert COMPACT_LABEL_MIN_PCT * 3 >= 13
+
+    b = lambda p: Block(key="k", label="L", value=1.0, pct=p, kind="asset")  # noqa: E731
+    assert b(12.0).label_style == "full"
+    assert b(7.0).label_style == "compact"
+    assert b(1.0).label_style == "none"

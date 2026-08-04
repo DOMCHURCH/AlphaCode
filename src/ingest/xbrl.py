@@ -127,6 +127,30 @@ CONCEPTS: tuple[Concept, ...] = (
     ),
     Concept("long_term_debt", ("LongTermDebtNoncurrent", "LongTermDebt"), INSTANT),
     Concept("accounts_payable", ("AccountsPayableCurrent",), INSTANT),
+    # --- What banks actually file ---
+    # A bank's balance sheet has almost nothing in common with a manufacturer's.
+    # It files no InventoryNet and no AccountsPayableCurrent, so against the
+    # general component set it renders as one undifferentiated block -- which is
+    # true but useless. These are the line items that make a bank legible.
+    Concept("loans", ("LoansAndLeasesReceivableNetReportedAmount",
+                      "NotesReceivableNet"), INSTANT),
+    Concept("trading_securities", ("TradingSecurities",), INSTANT),
+    Concept(
+        "investment_securities",
+        ("AvailableForSaleSecuritiesDebtSecurities",
+         "HeldToMaturitySecurities",
+         "MarketableSecurities"),
+        INSTANT,
+    ),
+    Concept(
+        "interbank_deposits", ("InterestBearingDepositsInBanks",), INSTANT
+    ),
+    Concept("deposits", ("Deposits",), INSTANT),
+    Concept(
+        "short_term_borrowings",
+        ("SecuritiesSoldUnderAgreementsToRepurchase", "ShortTermBorrowings"),
+        INSTANT,
+    ),
     # --- Income and cash flow: durations (qtrs in {1, 4}) ---
     Concept(
         "revenue",

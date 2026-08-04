@@ -113,6 +113,9 @@ main{padding:18px 0 64px}
 .missing .tags span{font-family:var(--mono);font-size:10.5px;border:1.5px solid var(--dim);
   padding:2px 6px;color:var(--ink2);background:var(--card)}
 
+.derived{margin-top:14px;border:2px solid var(--ink);border-left-width:6px;
+  border-left-color:var(--blue);background:var(--card);padding:10px 12px;
+  font-size:13.5px;line-height:1.45}
 .note{border-left:6px solid var(--red);background:var(--card);border:2px solid var(--ink);
   border-left-width:6px;padding:10px 12px;margin-top:14px;font-size:13.5px;line-height:1.45}
 

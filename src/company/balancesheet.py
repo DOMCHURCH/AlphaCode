@@ -33,6 +33,11 @@ BALANCE_SHEET_CONCEPTS = {
     "property_plant_equipment": "property_plant_equipment",
     "goodwill": "goodwill",
     "intangibles": "intangibles",
+    # Bank-specific assets.
+    "loans": "loans",
+    "trading_securities": "trading_securities",
+    "investment_securities": "investment_securities",
+    "interbank_deposits": "interbank_deposits",
     # Liabilities
     "total_liabilities": "total_liabilities",
     # The filer's own stated right-hand side, where they report it.
@@ -40,6 +45,9 @@ BALANCE_SHEET_CONCEPTS = {
     "current_liabilities": "current_liabilities",
     "long_term_debt": "long_term_debt",
     "accounts_payable": "accounts_payable",
+    # Bank-specific claims.
+    "deposits": "deposits",
+    "short_term_borrowings": "short_term_borrowings",
     # Equity. Parent-only and NCI-inclusive are both carried: the first is
     # what "shareholders' equity" means to a reader, the second is what the
     # accounting identity balances against.
@@ -152,10 +160,13 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
         asset_concepts = [
             "total_assets", "current_assets", "cash", "receivables",
             "inventory", "property_plant_equipment", "goodwill", "intangibles",
+            "loans", "trading_securities", "investment_securities",
+            "interbank_deposits",
         ]
         liability_concepts = [
             "total_liabilities", "liabilities_and_equity", "current_liabilities",
-            "long_term_debt", "accounts_payable",
+            "long_term_debt", "accounts_payable", "deposits",
+            "short_term_borrowings",
         ]
         equity_concepts = [
             "shareholders_equity", "total_equity_incl_nci", "minority_interest",
