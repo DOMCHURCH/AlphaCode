@@ -813,6 +813,32 @@ def test_only_the_drawing_carries_colour(client):
             assert hue not in block, f"{rule} must not use {hue}"
 
 
+def test_the_company_page_has_a_way_back(client):
+    """The wordmark always linked home, but nobody reads a wordmark as a
+    control -- the browser back button was the only obvious exit."""
+    _seed_company("JPM", {
+        "total_assets": 4_424_900_000_000.0,
+        "total_liabilities": 4_062_462_000_000.0,
+        "total_equity": 362_438_000_000.0,
+    })
+
+    text = client.get("/company/JPM").text
+    nav = text.split("<nav>", 1)[1].split("</nav>", 1)[0]
+
+    assert 'class="back" href="/"' in nav
+    assert "Search" in nav
+    # And it comes before the wordmark, so the exit is the first thing in the
+    # nav rather than something to find.
+    assert nav.index('class="back"') < nav.index('class="brand"')
+
+
+def test_the_not_found_page_has_a_way_back_too(client):
+    nav = client.get("/company/NOSUCH").text.split(
+        "<nav>", 1)[1].split("</nav>", 1)[0]
+
+    assert 'class="back" href="/"' in nav
+
+
 def test_company_page_escapes_the_ticker(client):
     r = client.get("/company/%3Cscript%3E")
     assert "<script>" not in r.text.replace(

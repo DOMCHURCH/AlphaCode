@@ -238,6 +238,33 @@ main{padding:6px 0 72px}
 .sugg a small{font-family:var(--disp);font-size:12px;font-weight:400;
   color:var(--dim);margin-left:6px}
 
+/* ---- back link ---- */
+/* The primary control on a company page: it comes first in the nav and reads
+   left-to-right as an exit, which the wordmark never did. */
+.back{display:inline-flex;align-items:center;gap:8px;font-size:14px;
+  font-weight:500;color:var(--ink);text-decoration:none;padding:9px 16px 9px 13px;
+  border-radius:999px;box-shadow:var(--up-sm);background:var(--bg);
+  transition:box-shadow .18s,transform .18s}
+.back:hover{box-shadow:var(--up);transform:translateX(-2px)}
+.back:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.back span{font-size:15px;line-height:1}
+/* On a company page the wordmark is identity, not navigation, so it sits
+   opposite the exit and shrinks out of the way first. */
+.nav .brand{font-size:15px}
+@media(max-width:359px){.nav .brand{font-size:0;gap:0}}
+
+/* ---- home: the one line of scale ---- */
+.summary{margin:0 0 26px;padding:0 4px;font-size:13.5px;line-height:1.6;
+  color:var(--ink2)}
+.summary a{color:var(--ink);font-weight:500;white-space:nowrap;
+  border-bottom:1px solid var(--lo);text-decoration:none;margin-left:4px}
+.summary a:hover{border-bottom-color:var(--ink)}
+
+/* ---- about ---- */
+.abouthead{margin:4px 0 30px;padding:0 2px}
+.abouthead .htitle{margin-bottom:12px}
+.abouthead .hlede{margin-bottom:0}
+
 /* ---- home: explaining the drawing ---- */
 /* A schematic, at a third the height of the real thing, using the same colour
    rules so the reader learns the legend here and carries it to the page. */

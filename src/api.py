@@ -1145,6 +1145,20 @@ def home() -> HTMLResponse:
     return HTMLResponse(render_home(pairs, stats=site_stats()))
 
 
+@app.get("/about", response_class=HTMLResponse)
+def about() -> HTMLResponse:
+    """What the home page used to carry.
+
+    The landing page's job is to get someone to a company in one tap, and
+    every paragraph explaining the project competed with that. Anyone who
+    follows the link here has already decided they are interested.
+    """
+    from src.company.stats import site_stats
+    from src.report.about_page import render_about
+
+    return HTMLResponse(render_about(site_stats()))
+
+
 @app.get("/search")
 def search(q: str = Query("", max_length=64)) -> Response:
     """One ticker in, straight to its page.

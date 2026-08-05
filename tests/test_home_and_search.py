@@ -200,35 +200,84 @@ _DISCLAIMERS = (
 )
 
 
-def _body_without_disclaimers(client) -> str:
-    body = client.get("/").text.lower()
+def _body_without_disclaimers(client, path: str = "/") -> str:
+    body = client.get(path).text.lower()
     for phrase in _DISCLAIMERS:
         body = body.replace(phrase, "")
     return body
 
 
-def test_home_ranks_nothing(client):
+@pytest.mark.parametrize("path", ["/", "/about"])
+def test_no_page_ranks_anything(client, path):
     """No scores, no ratings, no advice, no ordering language -- except where
-    the page is saying it does none of those things."""
+    a page is saying it does none of those things."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = _body_without_disclaimers(client)
+    body = _body_without_disclaimers(client, path)
 
     for word in ("rank", "score", "rating", "best", "top pick", " buy ",
                  " sell ", "undervalued", "recommend", "outperform",
                  "predict", "forecast"):
-        assert word not in body, f"the front page must not say {word!r}"
+        assert word not in body, f"{path} must not say {word!r}"
 
 
-def test_home_still_says_what_it_does_not_do(client):
+def test_about_still_says_what_it_does_not_do(client):
     """The stripping above must not let the section itself go missing."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/").text.lower()
+    body = client.get("/about").text.lower()
 
     for phrase in ("no predictions", "no scores", "no recommendations",
                    "nothing estimated"):
-        assert phrase in body, f"the page must still say {phrase!r}"
+        assert phrase in body, f"/about must still say {phrase!r}"
+
+
+# ------------------------------------------------------- search-first landing
+def test_the_landing_page_is_search_first(client):
+    """The essay moved to /about. What is left has to fit above the fold: the
+    name, one sentence, the search, and the five companies."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+
+    assert 'action="/search"' in body
+    assert 'href="/company/JPM"' in body
+    # Everything below is on /about now.
+    for moved in ("Why it's harder than it looks", "What you're looking at",
+                  "What this doesn't do", "The numbers behind it",
+                  'class="example"'):
+        assert moved not in body, f"{moved!r} belongs on /about"
+
+
+def test_the_landing_page_states_its_scale_in_one_line(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("MSFT", _drawable(), sector="Information Technology")
+
+    body = client.get("/").text
+
+    assert 'class="summary"' in body
+    assert "12 facts from SEC filings" in body
+    assert "2 companies" in body
+    assert "100.0% reconcile" in body
+    assert 'href="/about"' in body
+
+
+def test_the_summary_line_drops_clauses_it_cannot_fill(client):
+    """An empty database gets a short line, not a boastful one about nothing."""
+    body = client.get("/").text
+
+    assert "facts from SEC filings" not in body
+    assert 'href="/about"' in body, "the way to the explanation always shows"
+
+
+def test_a_million_facts_reads_as_1_2m(client):
+    """The summary is read at a glance; the exact digits are on /about."""
+    from src.report.home_page import _compact
+
+    assert _compact(1_237_331) == "1.2M"
+    assert _compact(2_000_000) == "2M"
+    assert _compact(5_944) == "5,944"
+    assert _compact(41_233) == "41k"
 
 
 # ------------------------------------------------------------ the numbers
@@ -242,11 +291,10 @@ def test_the_scale_is_counted_live_not_written_down(client):
     _seed("MSFT", _drawable(), sector="Information Technology")
 
     c = counts()
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert c["companies"] == 2
     assert c["facts"] == 12, "6 metrics x 2 companies"
-    assert c["quarters"] == 1
     assert f"{c['facts']:,}" in body
     assert "2</b><span class=\"statk\">companies" in body.replace("\n", "")
 
@@ -267,7 +315,7 @@ def test_drawable_is_narrower_than_present(client):
 
 def test_the_numbers_section_is_absent_on_an_empty_database(client):
     """Better to say nothing than to print zeroes as if they were a scale."""
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert "The numbers behind it" not in body
     assert "as-reported fact" not in body
@@ -281,7 +329,7 @@ def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
     _seed("JPM", _drawable(), sector="Financials")
     monkeypatch.setattr(stats, "identity", lambda *a, **k: None)
 
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert "The numbers behind it" in body, "the counts still show"
     assert "satisfy assets = liabilities + equity" not in body
@@ -295,12 +343,47 @@ def test_the_identity_line_reports_the_real_pass_rate(client):
     _seed("GHOST", {"total_assets": 100.0})
 
     ident = identity(max_age_s=0.0)
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert ident["checkable"] == 1, "only companies with a full sheet count"
     assert ident["pass_rate_pct"] == 100.0
     assert "100.0%" in body
     assert "satisfy assets = liabilities + equity" in body
+
+
+def test_period_ends_are_never_reported_as_quarters(client):
+    """Seven quarterly downloads produce ninety-odd distinct period ends,
+    because filers close their books on different days. Counting those and
+    calling them quarters overstated the load by an order of magnitude.
+
+    Two companies with different fiscal year-ends are enough to reproduce it.
+    """
+    from src.company.stats import counts
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    _seed("JPM", _drawable())
+    with session_scope() as s:
+        for m, v in (("total_assets", 500e6), ("total_liabilities", 300e6),
+                     ("total_equity", 200e6)):
+            s.add(Fundamental(
+                ticker="ODD", metric=m, value=v,
+                period_end=dt.date(2025, 6, 30),   # a June fiscal year-end
+                fiscal_period="FY", filing_date=dt.date(2025, 8, 1),
+                source="sec", restated=False,
+            ))
+
+    c = counts()
+
+    assert "quarters" not in c, "a period-end count is not a dataset count"
+    # What IS reported is measured: the span of filing dates.
+    assert c["earliest_filing"] == "2025-08-01"
+    assert c["latest_filing"] == "2026-02-13"
+
+    body = client.get("/about").text
+    assert "quarters" not in body.lower().replace(
+        "sec quarterly financial statement data sets", "")
+    assert "most recent filing" in body
 
 
 def test_counts_survive_an_unreachable_database(monkeypatch):
@@ -318,11 +401,11 @@ def test_counts_survive_an_unreachable_database(monkeypatch):
     assert out["facts"] == 0 and out["identity"] is None
 
 
-# ------------------------------------------------------- explaining the thing
-def test_the_page_explains_the_drawing_before_it_shows_numbers(client):
+# ---------------------------------------------------------- /about explains it
+def test_about_explains_the_drawing(client):
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert "What you're looking at" in body
     assert "same money, counted twice" in body
@@ -335,7 +418,7 @@ def test_the_example_figure_is_labelled_as_an_example(client):
     kind of thing this project exists to avoid."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert "not a real company" in body
 
@@ -343,7 +426,7 @@ def test_the_example_figure_is_labelled_as_an_example(client):
 def test_the_hard_part_is_stated_with_the_real_numbers(client):
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/").text
+    body = client.get("/about").text
 
     assert "Why it's harder than it looks" in body
     assert "twenty-three separate times" in body

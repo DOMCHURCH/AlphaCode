@@ -40,12 +40,17 @@ def counts() -> dict[str, Any]:
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
 
+    # NOT a count of distinct period_end. That counts fiscal year-ends across
+    # companies, not datasets: seven quarterly downloads produce ninety-odd
+    # distinct period ends because filers close their books on different days,
+    # so reporting it as "92 quarters" overstates the load by an order of
+    # magnitude. The measurable, honest span is the filing dates themselves.
     with session_scope() as s:
-        facts, companies, quarters, latest_filing = s.execute(
+        facts, companies, earliest_filing, latest_filing = s.execute(
             select(
                 func.count(Fundamental.id),
                 func.count(distinct(Fundamental.ticker)),
-                func.count(distinct(Fundamental.period_end)),
+                func.min(Fundamental.filing_date),
                 func.max(Fundamental.filing_date),
             )
         ).one()
@@ -62,7 +67,9 @@ def counts() -> dict[str, Any]:
         "facts": int(facts or 0),
         "companies": int(companies or 0),
         "drawable": int(drawable or 0),
-        "quarters": int(quarters or 0),
+        "earliest_filing": earliest_filing.isoformat()
+        if isinstance(earliest_filing, dt.date)
+        else None,
         "latest_filing": latest_filing.isoformat()
         if isinstance(latest_filing, dt.date)
         else None,
@@ -126,7 +133,7 @@ def site_stats() -> dict[str, Any]:
         out = counts()
     except Exception as exc:  # noqa: BLE001 - the page must still render
         log.warning("site_counts_failed", error=str(exc)[:200])
-        return {"facts": 0, "companies": 0, "drawable": 0, "quarters": 0,
-                "latest_filing": None, "identity": None}
+        return {"facts": 0, "companies": 0, "drawable": 0,
+                "earliest_filing": None, "latest_filing": None, "identity": None}
     out["identity"] = identity()
     return out

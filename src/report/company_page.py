@@ -345,8 +345,12 @@ def render_company_page(
 </head>
 <body>
 <nav><div class="wrap nav">
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <!-- The wordmark has always linked home, but nobody reads a wordmark as a
+       control. The explicit back link is the difference between a way out and
+       one you have to guess at. -->
+  <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
   <span class="spacer"></span>
+  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
 
 <main class="wrap">
@@ -448,9 +452,12 @@ def render_not_found(ticker: str, reason: str) -> str:
 </head>
 <body>
 <nav><div class="wrap nav">
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <!-- The wordmark has always linked home, but nobody reads a wordmark as a
+       control. The explicit back link is the difference between a way out and
+       one you have to guess at. -->
+  <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
   <span class="spacer"></span>
-  <a class="navlink" href="/admin">Admin</a>
+  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
 <main class="wrap">
   <div class="empty">
