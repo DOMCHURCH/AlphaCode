@@ -471,10 +471,13 @@ def render_home(
     # One page, in the order someone actually uses it: search, then the five
     # shapes, then -- only for whoever is still reading -- the explanation.
     body = f"""
+<!-- No nav link to the explanation. It is further down THIS page, and a nav
+     item reads as a separate destination -- which is exactly the confusion
+     that made it a separate page in the first place. The jump under the stat
+     line is enough; the rest is scrolling. -->
 <nav><div class="wrap nav">
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
   <span class="spacer"></span>
-  <a class="navlink" href="#how">How this works</a>
 </div></nav>
 
 <main class="wrap">

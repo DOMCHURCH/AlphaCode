@@ -405,6 +405,19 @@ def test_the_landing_page_puts_search_before_showing_off(client):
         assert body.index(later) > fold, f"{later!r} must come after the fold"
 
 
+def test_the_nav_does_not_advertise_the_same_page_as_a_destination(client):
+    """A nav item pointing at an anchor on the page you are already on reads
+    as somewhere else to go. The jump under the stat line reads as what it is
+    -- a jump to a section -- and that one stays."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+    nav = body.split("<nav>", 1)[1].split("</nav>", 1)[0]
+
+    assert "#how" not in nav
+    assert 'href="#how"' in body.split("</nav>", 1)[1], "the stat-line jump stays"
+
+
 def test_about_redirects_onto_the_home_page(client):
     """It was a real URL for a while; a link that used to work keeps working."""
     r = client.get("/about", follow_redirects=False)
