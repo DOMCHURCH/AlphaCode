@@ -238,6 +238,60 @@ main{padding:6px 0 72px}
 .sugg a small{font-family:var(--disp);font-size:12px;font-weight:400;
   color:var(--dim);margin-left:6px}
 
+/* ---- home: explaining the drawing ---- */
+/* A schematic, at a third the height of the real thing, using the same colour
+   rules so the reader learns the legend here and carries it to the page. */
+.example{display:grid;grid-template-columns:1fr 1fr;gap:14px;
+  background:var(--bg);border-radius:var(--r2);box-shadow:var(--up);padding:20px}
+.excol{min-width:0}
+.excap{display:block;font-size:11.5px;font-weight:500;color:var(--ink2);
+  margin-bottom:9px}
+.exstack{display:block;border-radius:var(--r1);overflow:hidden;
+  background:var(--well);box-shadow:var(--in-sm)}
+.exband{display:flex;align-items:center;gap:5px;padding:0 10px;font-size:11px;
+  color:#fff;line-height:1.2;border-bottom:1px solid rgba(255,255,255,.28)}
+.exband:last-child{border-bottom:0}
+.exband b{font-weight:700}
+/* The palest asset tint and the yellow residual both need ink, not white. */
+.exband[style*="--a5"],.exband[style*="--yellow"]{color:var(--ink)}
+.exnote{margin:10px 2px 0;font-size:12px;color:var(--dim)}
+
+/* ---- home: the numbers ---- */
+.stats{display:grid;grid-template-columns:1fr;gap:12px}
+@media(min-width:540px){.stats{grid-template-columns:1fr 1fr}}
+.stat{background:var(--bg);border-radius:var(--r2);box-shadow:var(--up);
+  padding:18px 20px}
+.stat b{display:block;font-family:var(--mono);font-size:27px;font-weight:700;
+  letter-spacing:-.02em;line-height:1.1}
+.statk{display:block;font-size:14px;font-weight:500;margin-top:5px}
+.statn{display:block;font-size:12.5px;color:var(--ink2);margin-top:4px;line-height:1.45}
+/* The one number worth its own frame: the accounting identity holding across
+   the whole universe is the claim a reader with finance experience checks. */
+.bignum{margin-top:14px;background:var(--well);border-radius:var(--r2);
+  box-shadow:var(--in);padding:22px 20px;text-align:center}
+.bignum b{display:block;font-family:var(--mono);font-size:clamp(38px,11vw,52px);
+  font-weight:700;letter-spacing:-.03em;line-height:1}
+.bignum span{display:block;font-size:14px;color:var(--ink2);margin:10px auto 0;
+  max-width:40ch;line-height:1.5}
+
+/* ---- home: why it's hard ---- */
+.hard{display:flex;flex-direction:column;gap:2px}
+.hardrow{padding:18px 2px;border-bottom:1px solid var(--hi);
+  box-shadow:0 1px 0 var(--lo)}
+.hardrow:last-child{border-bottom:0;box-shadow:none}
+.hardrow h3{margin:0 0 8px;font-size:16px;font-weight:600;letter-spacing:-.015em}
+.hardrow p{margin:0;font-size:14.5px;line-height:1.6;color:var(--ink2);max-width:60ch}
+.method{margin:18px 0 0;font-size:14px;line-height:1.6;color:var(--ink);
+  background:var(--well);border-radius:var(--r1);box-shadow:var(--in-sm);
+  padding:15px 17px}
+
+/* ---- home: what it doesn't do ---- */
+.limits{margin:0;padding:0;list-style:none;display:flex;flex-direction:column;gap:10px}
+.limits li{font-size:14.5px;line-height:1.55;color:var(--ink2);
+  padding-left:26px;position:relative}
+/* An em dash rather than a tick: these are absences, not features earned. */
+.limits li::before{content:"—";position:absolute;left:4px;color:var(--dim)}
+
 /* ---- the question box ---- */
 /* Same monochrome chrome as everything else. It sits below the drawing on
    purpose: the numbers answer most questions on their own, and this is for

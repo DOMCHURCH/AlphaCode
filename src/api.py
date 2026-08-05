@@ -53,6 +53,17 @@ async def _boot(app: FastAPI) -> None:
         log.error("db_init_failed", error=str(exc)[:300])
 
     await _verify_ask_model()
+
+    # The home page states its own identity pass rate. Computing it walks every
+    # company, so it is warmed once here rather than on a reader's request; the
+    # page renders without it and simply omits the line until it lands.
+    try:
+        from src.company.stats import warm_identity
+
+        asyncio.create_task(asyncio.to_thread(warm_identity))
+    except Exception as exc:  # noqa: BLE001 - never block boot on a statistic
+        log.warning("site_identity_warm_skipped", error=str(exc)[:200])
+
     app.state.boot_complete = True
 
 
@@ -1119,6 +1130,7 @@ def home() -> HTMLResponse:
     whose drawing will not build is offered without one -- never with a
     placeholder, which would be a picture of nothing presented as a company.
     """
+    from src.company.stats import site_stats
     from src.company.suggest import suggestions
     from src.company.view1 import build_view1
     from src.report.home_page import render_home
@@ -1130,7 +1142,7 @@ def home() -> HTMLResponse:
         except Exception as exc:  # noqa: BLE001 - one bad ticker must not take the page
             log.warning("home_thumbnail_failed", ticker=s.ticker, error=str(exc)[:200])
             pairs.append((s, None))
-    return HTMLResponse(render_home(pairs))
+    return HTMLResponse(render_home(pairs, stats=site_stats()))
 
 
 @app.get("/search")

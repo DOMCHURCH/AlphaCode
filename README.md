@@ -1,192 +1,227 @@
-# Company Data Service
+# To Scale
 
-SEC as-reported fundamentals for ~6,000 US companies, with price bars and a
-sector map alongside. **Descriptive only** — it makes no predictions, produces no
-scores, and ranks nothing.
+**The first version reported JPMorgan's total assets as $641 billion. The real
+figure is $4.42 trillion.**
 
-The ranking funnel that used to live here is gone. What is left is the data
-plane: load SEC's quarterly Financial Statement Data Sets, extract the
-consolidated facts correctly, validate them before they are stored, and serve
-them.
+The number wasn't corrupted, and nothing miscalculated it. $641 billion is
+JPMorgan's assets *in Europe* — a real figure, from the same filing, sitting in
+the same file as the consolidated total and looking identical to it.
 
-```
-SEC quarterly ZIP  ──▶  extract (consolidated + right fact type)
-                          │
-                          ├── validate (reject what cannot be true)
-                          │
-                          └──▶  Postgres  ──▶  JSON API + /admin
-```
+That is the shape of the whole problem. SEC's bulk data carries the same tag
+many times per company per quarter, distinguished only by dimensional columns
+saying which slice each row describes. Discard those columns and a segment
+total, a legal-entity total and the company's actual total become three
+indistinguishable numbers in a list. There is no checksum, no flag, no
+plausibility signal: the wrong figure is a real figure about a real thing, just
+not the thing you asked for. It renders perfectly. It is off by a factor of
+seven.
 
----
-
-## The extraction is the whole product
-
-SEC's `num.txt` carries the same XBRL tag many times per period at different
-dimensional levels — consolidated, by segment, by geography, by legal entity —
-and both *instant* facts (balance sheet, a point in time) and *duration* facts
-(income and cash flow, over a period).
-
-A parser that takes the first matching row produces numbers that look real and
-are wrong. That is what the previous one did. For JPMorgan's 2025 fiscal year it
-stored:
-
-| Metric | Stored | Actual | What it actually grabbed |
-|---|---|---|---|
-| Total assets | $641.19B | **$4,424.90B** | `segments=Geographical=EMEA` |
-| Equity | −$1.43B | **$362.44B** | `segments=EquityComponents=AccumulatedGainLossNetCashFlowHedgeParent` |
-
-`Assets` appeared 23 times in that filing; exactly one row was consolidated. The
-old parser could not have filtered these even in principle — it read only
-`[adsh, tag, ddate, qtrs, uom, value]` out of `num.txt`, so `coreg` and
-`segments`, the columns carrying the dimensional breakdown, were never in memory.
-
-**Rule one — select the right fact** (`src/ingest/xbrl.py`):
-
-- Consolidated only: `coreg` empty **and** `segments` empty.
-- Balance-sheet items are instants: `qtrs == 0`. A nonzero `qtrs` on `Assets` is
-  a *change* over a period, not a balance — a likely source of negative totals.
-- Income and cash-flow items are durations: `qtrs` in `{1, 4}`.
-- Money facts must be `uom == USD`.
-
-**Rule two — validate before storing.** Rejected rows are logged with ticker,
-tag, value and the rule that caught them, and are never written:
-
-- Total assets must be positive. Zero or negative rejects the whole
-  company-period; that filing's fact selection cannot be trusted.
-- No component (cash, receivables, inventory, PPE, goodwill…) may exceed total
-  assets.
-- Assets ≈ liabilities + equity within 1% — **flagged**, not dropped, so a
-  drifting identity stays visible instead of being silently deleted.
-- A value >100× its own prior period is flagged as a units/scale problem.
-- If validation rejects >20% of company-periods (over a meaningful sample), the
-  load **fails** rather than writing partial data.
-
-`tests/test_xbrl.py` encodes the real row shapes from a `num.txt` dump, so the
-tests assert against the actual dimensional layout rather than an assumed one.
-Every test there fails against the old extractor.
+Finding that bug is what this project is mostly about.
 
 ---
 
-## Quick start
+## What it is
+
+A website that draws any US public company's balance sheet at true proportion,
+from what the company filed with the SEC. Two columns of the same height — what
+the company owns on the left, sorted by what it is; who has a claim on it on
+the right, lenders first and owners last. The columns match because they are
+the same money counted twice, which makes the accounting identity something you
+see rather than something you are told.
+
+It is for anyone who wants the shape of a company without learning to read a
+balance sheet first. A bank, a retailer and an airline look nothing alike, and
+that difference is legible in about two seconds when the figures are drawn to
+scale and invisible when they are in a table. Three views: the balance sheet at
+proportion, revenue as a flow from sales through costs to what is left, and the
+company's revenue against national GDP for a sense of scale.
+
+<!-- Regenerate against a deploy with real data:
+     python3 scripts/screenshots.py https://your-deploy-url -->
+![JPMorgan, Microsoft and Walmart drawn to the same rules](docs/screenshots/three-sectors.png)
+
+*Left to right: JPMorgan (a bank — loans funded by deposits), Microsoft
+(software — mostly equity), Walmart (retail — stores and inventory). Same
+rules, same colours, three completely different shapes.*
+
+---
+
+## How the data works
+
+**One ZIP per quarter, not one request per company.** SEC publishes quarterly
+[Financial Statement Data Sets](https://www.sec.gov/dera/data/financial-statement-data-sets):
+`sub.txt` (one row per filing) and `num.txt` (roughly two million numeric XBRL
+facts). Seven quarters is seven downloads. The per-company XBRL API would be
+around 85,000 requests against a 10/second limit.
+
+**Selection rules.** One fact per concept per company-period:
+
+- Consolidated only — `coreg` empty *and* `segments` empty. This is the rule
+  the $641B bug violated.
+- Balance sheet items are **instants** (`qtrs=0`): a photograph of one day.
+- Income and cash-flow items are **durations** matching the period
+  (`qtrs ∈ {1,4}`): a film over three months or a year.
+- Where several tags map to one concept, a deterministic preference order
+  decides and the first that resolves wins.
+
+**Validation before storage.** Total assets must be positive. A component
+cannot exceed the total it belongs to. The accounting identity is checked and
+drift recorded. Every rejection is logged with its reason, and if more than 20%
+of a quarter's company-periods fail, the entire load aborts rather than writing
+what survived — a half-right table is worse than an empty one, because it looks
+finished.
+
+**Point-in-time correctness.** Every fact carries `period_end` *and*
+`filing_date`, the date it actually became public. A quarter ending 30 September
+may not be filed until 8 November; using it on 1 October is lookahead. Within a
+load the earliest filing date wins, so a figure is stored as first reported.
+Restatements are separate facts with their own dates, not overwrites.
+
+---
+
+## Three problems worth writing up
+
+### 1. Dimensional facts — the $641B bug
+
+`num.txt` carries `Assets` twenty-three times for JPMorgan in a single filing:
+by geography, by business segment, by legal entity, by fair-value level.
+Exactly one row is the consolidated company. The original parser read only
+`[adsh, tag, ddate, qtrs, uom, value]` — it never loaded `coreg` or `segments`,
+so it could not have told the rows apart even in principle. It took the first
+one.
+
+Equity was worse. The stored figure was **−$1.43 billion** against an actual
+$362.44 billion, because the first `StockholdersEquity` row in the file was
+`EquityComponents=AccumulatedGainLossNetCashFlowHedgeParent` — a hedging
+component, correctly labelled, that a dimension-blind reader takes for the
+company's equity.
+
+**Fixed** by reading the dimensional columns and keeping only undimensioned
+rows. **Found** by dumping every raw row carrying the tag and reading them,
+rather than reasoning about what the tags probably meant. That dump is a
+permanent endpoint now rather than a one-off script, because the same question
+returns every time a new kind of filer is added.
+
+### 2. Noncontrolling interests
+
+After the rebuild a whole class of company still failed the identity by 5–30% —
+Cheniere, Air Products, S&P Global among them. Every one had partly-owned
+subsidiaries.
+
+The two sides were drawn from different scopes. `Assets` is consolidated: it
+includes a 60%-owned subsidiary's assets *in full*. `StockholdersEquity` is
+parent-only: it excludes the 40% belonging to somebody else. Subtract one from
+the other and the gap is exactly the minority interest — a real number that was
+simply never on the page.
+
+**Fixed** by mapping
+`StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest`, and by
+preferring the filer's own stated `LiabilitiesAndStockholdersEquity` over a
+reconstructed `liabilities + equity` wherever it exists. The stated total is the
+filer's arithmetic; reconstructing it substitutes ours.
+
+**The identity pass rate went from 78.6% to 99.9%.**
+
+### 3. Industry-specific tags
+
+Banks do not file the tags everything else files. There is no inventory and no
+property-heavy asset base; there are loans, deposits and investment securities.
+Looking for the retail tags on JPMorgan produced a page that was 93% "other" — a
+grey rectangle where a balance sheet should be.
+
+Two plausible-sounding guesses — `LoansAndLeasesReceivableNetReportedAmount` and
+`TradingSecurities` — both returned **zero rows**. The tags that worked were
+found by dumping the raw file and reading what was actually in it:
+
+| Concept | Tag that works | JPM |
+|---|---|---|
+| Loans | `FinancingReceivableExcludingAccruedInterestAfterAllowanceForCreditLoss` | $1.47T |
+| Investment securities | `DebtSecuritiesAvailableForSaleExcludingAccruedInterest` | $507B |
+
+The `ExcludingAccruedInterest` suffix is not cosmetic. It comes from ASU 2016-13
+(CECL), effective 2020, which changed how banks present receivables; the short
+names most references still use are deprecated. Loans are 33% of JPMorgan's
+balance sheet and were invisible until those two tags were mapped.
+
+---
+
+## The verification approach
+
+This is the part that actually kept the numbers honest.
+
+**A reference figure is only ever corrected against the raw filing, never
+against the parser's own output.** Correcting a reference to match what the
+parser produced is how a wrong number gets blessed and then defended. Midway
+through this project a remembered figure for Microsoft's equity ($300B) was
+contradicted by the parser ($390.9B). The parser was right — but it was only
+allowed to be right after the raw `num.txt` rows were dumped and read. A test
+enforces the rule: any reference marked `confirmed` must cite a raw dump.
+
+**Five companies check the mechanism; the whole universe checks the result.**
+JPM, MSFT, WMT, FCX and AAL are spot-checks — enough to catch a parser reading
+the wrong fact, nowhere near enough to say anything about coverage. So the
+identity also runs across every company with a complete balance sheet, bucketed
+by drift and broken down by sector. A sector failing systematically is a tag
+problem for that class of filer; scattered failures are noise. That breakdown is
+what surfaced both the noncontrolling-interest gap and the bank tags.
+
+**The reload fetches everything before it deletes anything.** An earlier version
+wiped the table and then discovered SEC was returning 429 on every quarter:
+1,231,927 rows deleted, zero written. The rule that came out of it is that the
+delete and the reload share one transaction, and nothing is touched until every
+quarter is on disk. A quarter SEC has not published yet (404) is skipped as
+absent; a 429 aborts with the existing data intact. The guard that failed had
+been placed on the *trigger* — a `confirm=true` parameter — rather than on the
+operation, which stopped stray taps and did nothing whatever about the failure
+that actually happened.
+
+---
+
+## Running it
+
+FastAPI, Postgres, SQLAlchemy, deployed on Railway. Server-rendered HTML: the
+pages are drawings of numbers already in the database, so they arrive complete
+with nothing to hydrate. The only JavaScript is an optional question box.
 
 ```bash
-python -m venv .venv && . .venv/bin/activate
-pip install -r requirements-dev.txt
-cp .env.example .env          # SEC_USER_AGENT is the only required variable
-
-python -m src.migrate                              # create the schema
-python -m src.backfill --days 600                  # price bars
-python -m src.backfill --fundamentals              # SEC quarterly datasets
-
-uvicorn src.api:app --reload                       # then open /admin
+pip install -r requirements.txt
+export DATABASE_URL=postgresql://...
+export SEC_USER_AGENT="Your Name your@email.com"   # SEC blocks blank UAs
+uvicorn src.api:app --reload
 ```
 
-To wipe and reload fundamentals with a full extraction report and a check of the
-five verification companies:
+Load the data — seven downloads, a few minutes:
 
 ```bash
-python3 scripts/reload_fundamentals.py --wipe --quarters 7
+python -m src.backfill --fundamentals --skip-bars   # or POST /admin/reload-fundamentals
+pytest                                   # no network; synthetic ZIPs throughout
 ```
 
-To inspect raw `num.txt` rows for a company — the tool that found the bug:
-
-```bash
-python3 scripts/dump_jpm_raw_facts.py --year 2026 --quarter 1 --ticker JPM
-```
-
----
-
-## Layout
-
-```
-src/
-  ingest/      one module per data source, all behind one rate limiter
-                 xbrl.py         the extraction filter + validation
-                 sec_datasets.py the quarterly ZIP downloader/parser
-  universe/    the SEC company list -> the ticker universe
-  company/     balance-sheet query layer (point-in-time)
-  storage/     models, point-in-time accessors, repository, cache
-  config/      settings, rate limits
-  report/      /admin page assets
-  api.py       FastAPI
-  backfill.py  the loaders
-scripts/       operational tools (raw dump, reload+verify)
-tests/
-migrations/
-```
-
----
-
-## Endpoints
-
-| Endpoint | What it does |
+| Variable | |
 |---|---|
-| `GET /health` | liveness + DB state |
-| `GET /status` | row counts, backfill progress |
-| `GET /admin` | the phone-first break-glass page |
-| `GET /admin.json` | everything that page renders, in one payload |
-| `GET /admin/balance-sheet?tickers=…` | per-concept values, the A = L + E check, and coverage |
-| `GET /reconcile` | symbology / coverage / split-adjustment / recency |
-| `POST /backfill?kind=…` | `bars` \| `sectors` \| `fundamentals` \| `earnings` |
+| `DATABASE_URL` | Postgres. Falls back to SQLite for local work |
+| `SEC_USER_AGENT` | Required — SEC blocks default and blank user agents |
+| `OPENROUTER_API_KEY` | Optional. Without it the question box does not appear |
+| `LLM_ASK_MODEL` | Optional. Resolved against OpenRouter's model list at startup |
 
-`/admin` is the only UI. It found every bug in this project, which is why it is
-kept — but it is an admin surface, not the product.
+`/admin` is the operations page: data health, the five-company verification, the
+whole-universe identity check, the raw `num.txt` dump, and the reload. It found
+every bug described above.
 
 ---
 
-## Point-in-time correctness
+## What it deliberately doesn't do
 
-A company with a fiscal quarter ending 2025-09-30 may not file its 10-Q until
-2025-11-08. Using that data on 2025-10-01 is lookahead bias.
+No predictions. No scores. No recommendations. Nothing imputed — where a company
+does not report something, the page names the missing line instead of showing a
+zero.
 
-- Every fundamental datapoint stores `period_end`, `filing_date` (the SEC `filed`
-  field), and `ingested_at`.
-- Every read goes through `get_fundamentals(session, ticker, as_of)`, which
-  enforces `filing_date + 2 business days <= as_of`. Nothing else queries the
-  `fundamentals` table.
-- **Restatements** resolve to what was actually known: before an amendment was
-  filed you get the original figure; after, the restated one. Within a single
-  load the earliest `filing_date` wins — as first reported.
-- Fundamentals are never forward-filled across a reporting gap, and missing
-  values are never imputed. **Missing is missing and says so.**
-- The universe snapshot is persisted every day, including names that have since
-  delisted.
-
-`tests/test_pit.py` asserts all of this. It sweeps every date in the month before
-a filing and fails if any of them can see the data.
+That is a design decision, not a gap. The whole value of this thing is that
+every number on screen traces to a specific filing on a specific date and a
+reader can check any of them. A score is an opinion with the provenance stripped
+off. Adding one would cost the only property that makes the rest worth trusting.
 
 ---
 
-## Data sources
-
-| Source | Job |
-|---|---|
-| **SEC EDGAR** | The universe seed, and as-reported XBRL via the quarterly Financial Statement Data Sets. The source of truth. |
-| **Stooq** | Keyless bulk daily bars — the whole market in one download. |
-| **Polygon** | Optional. Faster whole-market bars when `POLYGON_API_KEY` is set and `POLYGON_TIER=paid`. |
-| **FMP** | Optional. Market caps, GICS sectors, batch EOD. |
-
-Rate limiting is one token bucket per source (`src/config/rate_limits.py`),
-in-process by default. There is no `time.sleep()` anywhere; every request goes
-through `RateLimiter.acquire()`.
-
----
-
-## Types
-
-Every value leaving the parser is coerced to a real, finite float or `None`
-before anything touches it. pandas `NaN` is a `float`, passes an
-`isinstance(x, float)` check, survives arithmetic as `NaN`, and lands in the DB
-as a null-that-isn't. It has bitten this codebase repeatedly, so it is rejected
-once, at the parser boundary, rather than defended against downstream forever.
-
----
-
-## Tests
-
-```bash
-python -m pytest          # 191 tests
-```
-
-No network. The SEC datasets are exercised against synthetic ZIPs built to the
-documented schema, with the extraction fixtures taken from a real dump.
+Data source: [SEC Financial Statement Data Sets](https://www.sec.gov/dera/data/financial-statement-data-sets).
+Built by Dominique Church.

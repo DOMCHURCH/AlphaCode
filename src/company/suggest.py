@@ -23,12 +23,15 @@ log = structlog.get_logger(__name__)
 # a positive total to scale to.
 _REQUIRED_METRIC = "total_assets"
 
+# One word each, saying WHY it is on the list. "an airline" describes AAL;
+# "negative equity" says what makes its drawing worth looking at, which is the
+# only reason any of these five are here.
 CANDIDATES: tuple[tuple[str, str], ...] = (
-    ("JPM", "a bank"),
-    ("MSFT", "a software company"),
-    ("WMT", "a retailer"),
-    ("FCX", "a miner"),
-    ("AAL", "an airline"),
+    ("JPM", "bank"),
+    ("MSFT", "software"),
+    ("WMT", "retail"),
+    ("FCX", "mining"),
+    ("AAL", "negative equity"),
 )
 
 

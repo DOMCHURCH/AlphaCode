@@ -189,31 +189,179 @@ def test_home_offers_a_ticker_it_cannot_draw_without_a_fake_thumbnail(
     assert "thumb" not in r.text
 
 
+# Saying "no scores" is the opposite of scoring, so a blanket ban on the word
+# would forbid the page from stating the very thing that must be stated. Each
+# of these is stripped before the ban is applied, which means the ban still
+# catches any OTHER use.
+_DISCLAIMERS = (
+    "no predictions", "no scores", "no recommendations", "no ratings",
+    "nothing predicted", "makes no prediction", "produces no scores",
+    "it is not advice",
+)
+
+
+def _body_without_disclaimers(client) -> str:
+    body = client.get("/").text.lower()
+    for phrase in _DISCLAIMERS:
+        body = body.replace(phrase, "")
+    return body
+
+
 def test_home_ranks_nothing(client):
-    """No scores, no ratings, no advice, no ordering language."""
+    """No scores, no ratings, no advice, no ordering language -- except where
+    the page is saying it does none of those things."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/").text.lower()
+    body = _body_without_disclaimers(client)
 
     for word in ("rank", "score", "rating", "best", "top pick", " buy ",
-                 " sell ", "undervalued", "recommend", "outperform"):
+                 " sell ", "undervalued", "recommend", "outperform",
+                 "predict", "forecast"):
         assert word not in body, f"the front page must not say {word!r}"
 
 
-def test_home_only_mentions_prediction_to_disclaim_it(client):
-    """"Nothing predicted" is the opposite of a prediction, so a blanket ban on
-    the word would forbid saying the very thing that must be said. Every
-    occurrence has to be a negation."""
+def test_home_still_says_what_it_does_not_do(client):
+    """The stripping above must not let the section itself go missing."""
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text.lower()
-    allowed = ("nothing predicted", "makes no prediction", "no predictions")
-    stripped = body
-    for phrase in allowed:
-        stripped = stripped.replace(phrase, "")
 
-    assert "predict" not in stripped
-    assert "forecast" not in stripped
+    for phrase in ("no predictions", "no scores", "no recommendations",
+                   "nothing estimated"):
+        assert phrase in body, f"the page must still say {phrase!r}"
+
+
+# ------------------------------------------------------------ the numbers
+def test_the_scale_is_counted_live_not_written_down(client):
+    """A portfolio page with a hardcoded row count is wrong the first time the
+    data reloads, and overstating its own scale is the one failure this project
+    cannot afford."""
+    from src.company.stats import counts
+
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("MSFT", _drawable(), sector="Information Technology")
+
+    c = counts()
+    body = client.get("/").text
+
+    assert c["companies"] == 2
+    assert c["facts"] == 12, "6 metrics x 2 companies"
+    assert c["quarters"] == 1
+    assert f"{c['facts']:,}" in body
+    assert "2</b><span class=\"statk\">companies" in body.replace("\n", "")
+
+
+def test_drawable_is_narrower_than_present(client):
+    """A company with facts but no positive total for assets has nothing to
+    scale a drawing to. Counting it would overstate what the site can show."""
+    from src.company.stats import counts
+
+    _seed("JPM", _drawable())
+    _seed("GHOST", {"cash": 5.0, "total_assets": 0.0})
+
+    c = counts()
+
+    assert c["companies"] == 2
+    assert c["drawable"] == 1
+
+
+def test_the_numbers_section_is_absent_on_an_empty_database(client):
+    """Better to say nothing than to print zeroes as if they were a scale."""
+    body = client.get("/").text
+
+    assert "The numbers behind it" not in body
+    assert "as-reported fact" not in body
+
+
+def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
+    """It is a claim about every company, so it is stated only once actually
+    computed -- never guessed at, never defaulted to 100%."""
+    import src.company.stats as stats
+
+    _seed("JPM", _drawable(), sector="Financials")
+    monkeypatch.setattr(stats, "identity", lambda *a, **k: None)
+
+    body = client.get("/").text
+
+    assert "The numbers behind it" in body, "the counts still show"
+    assert "satisfy assets = liabilities + equity" not in body
+
+
+def test_the_identity_line_reports_the_real_pass_rate(client):
+    """JPM balances exactly; the ghost has no complete sheet so is not counted."""
+    from src.company.stats import identity
+
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("GHOST", {"total_assets": 100.0})
+
+    ident = identity(max_age_s=0.0)
+    body = client.get("/").text
+
+    assert ident["checkable"] == 1, "only companies with a full sheet count"
+    assert ident["pass_rate_pct"] == 100.0
+    assert "100.0%" in body
+    assert "satisfy assets = liabilities + equity" in body
+
+
+def test_counts_survive_an_unreachable_database(monkeypatch):
+    """The home page renders without its own statistics rather than 500ing."""
+    import src.company.stats as stats
+
+    def boom(*a, **kw):
+        raise RuntimeError("database is down")
+
+    monkeypatch.setattr("src.storage.db.session_scope", boom)
+    monkeypatch.setattr(stats, "identity", lambda *a, **k: None)
+
+    out = stats.site_stats()
+
+    assert out["facts"] == 0 and out["identity"] is None
+
+
+# ------------------------------------------------------- explaining the thing
+def test_the_page_explains_the_drawing_before_it_shows_numbers(client):
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+
+    assert "What you're looking at" in body
+    assert "same money, counted twice" in body
+    # The schematic is drawn, not described.
+    assert 'class="example"' in body and "exband" in body
+
+
+def test_the_example_figure_is_labelled_as_an_example(client):
+    """An unlabelled illustration sitting among real figures is exactly the
+    kind of thing this project exists to avoid."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+
+    assert "not a real company" in body
+
+
+def test_the_hard_part_is_stated_with_the_real_numbers(client):
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+
+    assert "Why it's harder than it looks" in body
+    assert "twenty-three separate times" in body
+    assert "$641 billion instead of $4.4 trillion" in body
+    assert "ExcludingAccruedInterest" in body
+    assert "confirmed against the raw filing data" in body
+
+
+def test_the_suggestions_say_why_each_one_is_there(client):
+    """One word each. "negative equity" is the reason AAL is on the list;
+    "an airline" would only describe it."""
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("AAL", _drawable(total_equity=-50e6, total_liabilities=1_050e6))
+
+    body = client.get("/").text
+
+    assert ">bank<" in body
+    assert ">negative equity<" in body
 
 
 # ----------------------------------------------------------------------- search
