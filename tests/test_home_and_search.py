@@ -207,7 +207,7 @@ def _body_without_disclaimers(client, path: str = "/") -> str:
     return body
 
 
-@pytest.mark.parametrize("path", ["/", "/about"])
+@pytest.mark.parametrize("path", ["/", "/company/JPM"])
 def test_no_page_ranks_anything(client, path):
     """No scores, no ratings, no advice, no ordering language -- except where
     a page is saying it does none of those things."""
@@ -221,11 +221,11 @@ def test_no_page_ranks_anything(client, path):
         assert word not in body, f"{path} must not say {word!r}"
 
 
-def test_about_still_says_what_it_does_not_do(client):
+def test_the_page_still_says_what_it_does_not_do(client):
     """The stripping above must not let the section itself go missing."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/about").text.lower()
+    body = client.get("/").text.lower()
 
     for phrase in ("no predictions", "no scores", "no recommendations",
                    "nothing estimated"):
@@ -233,20 +233,45 @@ def test_about_still_says_what_it_does_not_do(client):
 
 
 # ------------------------------------------------------- search-first landing
-def test_the_landing_page_is_search_first(client):
-    """The essay moved to /about. What is left has to fit above the fold: the
-    name, one sentence, the search, and the five companies."""
+def test_the_landing_page_puts_search_before_showing_off(client):
+    """One page, in the order someone actually uses it. The explanation stays
+    on it, but every part of it comes after the search and the five drawings.
+    """
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
+    fold = body.index('id="how"')
 
-    assert 'action="/search"' in body
-    assert 'href="/company/JPM"' in body
-    # Everything below is on /about now.
-    for moved in ("Why it's harder than it looks", "What you're looking at",
+    assert body.index('action="/search"') < fold
+    assert body.index('href="/company/JPM"') < fold
+    assert body.index('class="summary"') < fold
+    for later in ("Why it's harder than it looks", "What you're looking at",
                   "What this doesn't do", "The numbers behind it",
                   'class="example"'):
-        assert moved not in body, f"{moved!r} belongs on /about"
+        assert body.index(later) > fold, f"{later!r} must come after the fold"
+
+
+def test_about_redirects_onto_the_home_page(client):
+    """It was a real URL for a while; a link that used to work keeps working."""
+    r = client.get("/about", follow_redirects=False)
+
+    assert r.status_code == 307
+    assert r.headers["location"] == "/#how"
+
+
+def test_admin_is_reachable_without_typing_a_url(client):
+    """It is not part of the product, so it is a footnote rather than a nav
+    item -- but it has to be reachable from the UI."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    home = client.get("/").text
+    company = client.get("/company/JPM").text
+
+    for page, body in (("/", home), ("/company/JPM", company)):
+        foot = body.split("<footer>", 1)[1]
+        assert 'href="/admin"' in foot, f"no way to admin from {page}"
+    # And not in the nav, where it would compete with the product.
+    assert 'href="/admin"' not in home.split("<nav>", 1)[1].split("</nav>", 1)[0]
 
 
 def test_the_landing_page_states_its_scale_in_one_line(client):
@@ -259,7 +284,7 @@ def test_the_landing_page_states_its_scale_in_one_line(client):
     assert "12 facts from SEC filings" in body
     assert "2 companies" in body
     assert "100.0% reconcile" in body
-    assert 'href="/about"' in body
+    assert 'href="#how"' in body
 
 
 def test_the_summary_line_drops_clauses_it_cannot_fill(client):
@@ -267,7 +292,7 @@ def test_the_summary_line_drops_clauses_it_cannot_fill(client):
     body = client.get("/").text
 
     assert "facts from SEC filings" not in body
-    assert 'href="/about"' in body, "the way to the explanation always shows"
+    assert 'href="#how"' in body, "the way to the explanation always shows"
 
 
 def test_a_million_facts_reads_as_1_2m(client):
@@ -291,7 +316,7 @@ def test_the_scale_is_counted_live_not_written_down(client):
     _seed("MSFT", _drawable(), sector="Information Technology")
 
     c = counts()
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert c["companies"] == 2
     assert c["facts"] == 12, "6 metrics x 2 companies"
@@ -315,7 +340,7 @@ def test_drawable_is_narrower_than_present(client):
 
 def test_the_numbers_section_is_absent_on_an_empty_database(client):
     """Better to say nothing than to print zeroes as if they were a scale."""
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert "The numbers behind it" not in body
     assert "as-reported fact" not in body
@@ -329,7 +354,7 @@ def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
     _seed("JPM", _drawable(), sector="Financials")
     monkeypatch.setattr(stats, "identity", lambda *a, **k: None)
 
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert "The numbers behind it" in body, "the counts still show"
     assert "satisfy assets = liabilities + equity" not in body
@@ -343,7 +368,7 @@ def test_the_identity_line_reports_the_real_pass_rate(client):
     _seed("GHOST", {"total_assets": 100.0})
 
     ident = identity(max_age_s=0.0)
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert ident["checkable"] == 1, "only companies with a full sheet count"
     assert ident["pass_rate_pct"] == 100.0
@@ -380,7 +405,7 @@ def test_period_ends_are_never_reported_as_quarters(client):
     assert c["earliest_filing"] == "2025-08-01"
     assert c["latest_filing"] == "2026-02-13"
 
-    body = client.get("/about").text
+    body = client.get("/").text
     assert "quarters" not in body.lower().replace(
         "sec quarterly financial statement data sets", "")
     assert "most recent filing" in body
@@ -401,11 +426,11 @@ def test_counts_survive_an_unreachable_database(monkeypatch):
     assert out["facts"] == 0 and out["identity"] is None
 
 
-# ---------------------------------------------------------- /about explains it
-def test_about_explains_the_drawing(client):
+# ------------------------------------------------- the page explains itself
+def test_the_page_explains_the_drawing(client):
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert "What you're looking at" in body
     assert "same money, counted twice" in body
@@ -418,7 +443,7 @@ def test_the_example_figure_is_labelled_as_an_example(client):
     kind of thing this project exists to avoid."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert "not a real company" in body
 
@@ -426,7 +451,7 @@ def test_the_example_figure_is_labelled_as_an_example(client):
 def test_the_hard_part_is_stated_with_the_real_numbers(client):
     _seed("JPM", _drawable(), sector="Financials")
 
-    body = client.get("/about").text
+    body = client.get("/").text
 
     assert "Why it's harder than it looks" in body
     assert "twenty-three separate times" in body

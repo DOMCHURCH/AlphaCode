@@ -353,6 +353,7 @@ def render_company_page(
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
 
+
 <main class="wrap">
   <header class="chead">
     <p class="cticker">{escape(d["ticker"])}</p>
@@ -407,6 +408,7 @@ def render_company_page(
     {escape(d["period_end"])}, filed {escape(d["filing_date"])}. Nothing is
     estimated. This describes what a company reported; it is not advice and
     makes no prediction.
+    <span class="foot-admin"><a href="/admin">Admin</a></span>
   </footer>
 </main>
 {'<script src="/static/company.js?v=' + asset_version() + '" defer></script>'
@@ -459,6 +461,7 @@ def render_not_found(ticker: str, reason: str) -> str:
   <span class="spacer"></span>
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
+
 <main class="wrap">
   <div class="empty">
     <h1>Nothing to draw for {escape(ticker)}</h1>

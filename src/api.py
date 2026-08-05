@@ -1145,18 +1145,14 @@ def home() -> HTMLResponse:
     return HTMLResponse(render_home(pairs, stats=site_stats()))
 
 
-@app.get("/about", response_class=HTMLResponse)
-def about() -> HTMLResponse:
-    """What the home page used to carry.
+@app.get("/about")
+def about() -> RedirectResponse:
+    """The explanation lives on the home page now, below the search.
 
-    The landing page's job is to get someone to a company in one tap, and
-    every paragraph explaining the project competed with that. Anyone who
-    follows the link here has already decided they are interested.
+    Kept as a redirect rather than deleted: it was a real URL for a while, and
+    a link that used to work should keep working.
     """
-    from src.company.stats import site_stats
-    from src.report.about_page import render_about
-
-    return HTMLResponse(render_about(site_stats()))
+    return RedirectResponse(url="/#how", status_code=307)
 
 
 @app.get("/search")
