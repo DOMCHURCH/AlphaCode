@@ -28,6 +28,11 @@ log = structlog.get_logger(__name__)
 # staleness on a headline statistic costs nothing.
 IDENTITY_TTL_S = 1800.0
 
+# Coverage is "what fraction of companies file this line", used to decide which
+# line on a card is the distinctive one. Under this many companies the answer
+# says more about the sample than about filers, so it is reported as unknown.
+MIN_COMPANIES_FOR_COVERAGE = 100
+
 _identity_lock = threading.Lock()
 _identity: dict[str, Any] | None = None
 _identity_at: float = 0.0
@@ -74,6 +79,60 @@ def counts() -> dict[str, Any]:
         if isinstance(latest_filing, dt.date)
         else None,
     }
+
+
+_coverage_lock = threading.Lock()
+_coverage: dict[str, float] | None = None
+_coverage_at: float = 0.0
+
+
+def _compute_coverage() -> dict[str, float]:
+    """{metric -> fraction of companies that report it at all}.
+
+    One GROUP BY, no joins. Used to decide which line on a card is the
+    distinctive one: a metric almost nobody files (loans, deposits) says more
+    about a company than one almost everybody files (property & equipment).
+    """
+    from sqlalchemy import distinct, func, select
+
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as s:
+        rows = s.execute(
+            select(Fundamental.metric, func.count(distinct(Fundamental.ticker)))
+            .group_by(Fundamental.metric)
+        ).all()
+        total = s.execute(
+            select(func.count(distinct(Fundamental.ticker)))
+        ).scalar_one()
+    if not total or total < MIN_COMPANIES_FOR_COVERAGE:
+        # Below this, "rare" is an artifact of the sample rather than a fact
+        # about how companies file: in a five-company database one filer with
+        # receivables makes receivables look as unusual as bank deposits.
+        # Unknown is reported as unknown, and the caller falls back to size.
+        log.info("component_coverage_sample_too_small", companies=int(total or 0))
+        return {}
+    return {metric: n / total for metric, n in rows}
+
+
+def component_coverage(max_age_s: float = IDENTITY_TTL_S) -> dict[str, float]:
+    """Cached coverage. Returns {} rather than raising -- a card falls back to
+    its largest block, which is only a worse label, not a wrong one."""
+    global _coverage, _coverage_at
+    if _coverage is not None and (time.monotonic() - _coverage_at) < max_age_s:
+        return _coverage
+    if not _coverage_lock.acquire(blocking=False):
+        return _coverage or {}
+    try:
+        _coverage = _compute_coverage()
+        _coverage_at = time.monotonic()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("component_coverage_failed", error=str(exc)[:200])
+        _coverage = _coverage or {}
+    finally:
+        _coverage_lock.release()
+    return _coverage
 
 
 def _compute_identity() -> dict[str, Any] | None:

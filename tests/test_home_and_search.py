@@ -153,9 +153,10 @@ def test_home_draws_a_real_thumbnail_from_the_same_view_as_the_page(client):
     cash = next(b for b in d["assets"] if b["label"] == "Cash")
 
     assert cash["pct"] == pytest.approx(25.0)
-    # 25% of the 88px thumbnail column, drawn to the same proportion.
+    # 25% of the 88px thumbnail column, drawn to the same proportion. Which
+    # block the card LABELS is a separate decision (see the card-label tests);
+    # what is asserted here is that the picture is the same picture.
     assert "height:22.0px" in body
-    assert "Cash 25%" in body
 
 
 def test_home_says_so_when_nothing_is_loaded(client):
@@ -187,6 +188,159 @@ def test_home_offers_a_ticker_it_cannot_draw_without_a_fake_thumbnail(
     assert 'href="/company/JPM"' in r.text
     assert "card bare" in r.text
     assert "thumb" not in r.text
+
+
+# ------------------------------------------------------------- card labels
+def _blk(key, label, pct, kind="asset", value=None):
+    return {"key": key, "label": label, "pct": pct, "kind": kind,
+            "value": pct if value is None else value, "is_remainder": False}
+
+
+def _view(assets, claims):
+    import types
+
+    v = types.SimpleNamespace()
+    v.as_dict = lambda: {"assets": assets, "claims": claims}
+    return v
+
+
+# Roughly the real universe: banks are ~3% of filers, most companies report
+# property and cash, about half report goodwill.
+_COV = {"cash": 0.88, "inventory": 0.34, "property_plant_equipment": 0.66,
+        "goodwill": 0.49, "loans": 0.031, "deposits": 0.029,
+        "investment_securities": 0.05, "accounts_payable": 0.71,
+        "long_term_debt": 0.63, "equity": 1.0}
+
+
+def _five_production_shaped():
+    """The exact case that produced four cards reading "Property & equipment":
+    MSFT 39%, WMT 48%, FCX 70%, AAL 49%, all off the live site."""
+    return [
+        _view([_blk("cash", "Cash", 11),
+               _blk("investment_securities", "Investment securities", 11),
+               _blk("loans", "Loans", 33)],
+              [_blk("deposits", "Customer deposits", 58, "liability"),
+               _blk("equity", "Shareholders' equity", 8, "equity")]),
+        _view([_blk("goodwill", "Goodwill", 18),
+               _blk("property_plant_equipment", "Property & equipment", 39)],
+              [_blk("equity", "Shareholders' equity", 59, "equity")]),
+        _view([_blk("inventory", "Inventory", 21),
+               _blk("property_plant_equipment", "Property & equipment", 48)],
+              [_blk("accounts_payable", "Accounts payable", 22, "liability"),
+               _blk("equity", "Shareholders' equity", 33, "equity")]),
+        _view([_blk("property_plant_equipment", "Property & equipment", 70),
+               _blk("inventory", "Inventory", 12)],
+              [_blk("long_term_debt", "Long-term debt", 17, "liability"),
+               _blk("equity", "Shareholders' equity", 44, "equity")]),
+        _view([_blk("property_plant_equipment", "Property & equipment", 49)],
+              [_blk("long_term_debt", "Long-term debt", 52, "liability"),
+               _blk("equity", "Shareholders' equity", 7, "equity",
+                    value=-4_500_000_000)]),
+    ]
+
+
+def test_no_two_cards_carry_the_same_label():
+    """Four cards saying "Property & equipment" contradicted the sentence
+    directly above them promising the five look nothing alike."""
+    from src.report.home_page import headline_facts
+
+    facts = headline_facts(_five_production_shaped(), _COV)
+
+    assert len(set(facts)) == len(facts), f"repeated label in {facts}"
+
+
+def test_each_card_gets_its_own_defining_line():
+    from src.report.home_page import headline_facts
+
+    jpm, msft, wmt, fcx, aal = headline_facts(_five_production_shaped(), _COV)
+
+    assert jpm == "Customer deposits 58%", "a bank is deposits, not cash"
+    assert msft == "Goodwill 18%"
+    assert wmt == "Inventory 21%"
+    assert fcx == "Property &amp; equipment 70%", "the most property wins it"
+    assert aal == "Owes $4.5B more than it owns"
+
+
+def test_a_shared_line_goes_to_the_company_that_most_exemplifies_it():
+    """FCX is 70% property and MSFT 39%, so property is FCX's line. MSFT moves
+    to its own next-most-distinctive one rather than repeating it."""
+    from src.report.home_page import headline_facts
+
+    facts = headline_facts(_five_production_shaped(), _COV)
+
+    assert "Property &amp; equipment" in facts[3]
+    assert "Property" not in facts[1]
+
+
+def test_a_rare_line_beats_a_bigger_common_one():
+    """Almost nobody files loans; almost everybody files property. Filing
+    loans at all says more than being averagely property-heavy."""
+    from src.report.home_page import _distinctiveness
+
+    loans = _blk("loans", "Loans", 33)
+    ppe = _blk("property_plant_equipment", "Property & equipment", 45)
+
+    assert _distinctiveness(loans, _COV) > _distinctiveness(ppe, _COV)
+
+
+def test_a_very_large_common_line_still_wins_its_own_card():
+    """Being 70% property is itself the distinguishing fact, even though
+    property is a line almost everyone files."""
+    from src.report.home_page import _distinctiveness
+
+    ppe = _blk("property_plant_equipment", "Property & equipment", 70)
+    inventory = _blk("inventory", "Inventory", 12)
+
+    assert _distinctiveness(ppe, _COV) > _distinctiveness(inventory, _COV)
+
+
+def test_negative_equity_wins_outright():
+    """Owing more than you own is categorical, not a magnitude -- the single
+    most unusual thing a balance sheet can say."""
+    from src.report.home_page import headline_facts
+
+    v = _view([_blk("property_plant_equipment", "Property & equipment", 95)],
+              [_blk("equity", "Equity", 7, "equity", value=-4_500_000_000)])
+
+    assert headline_facts([v], _COV) == ["Owes $4.5B more than it owns"]
+
+
+def test_coverage_is_unknown_rather_than_noisy_on_a_small_universe(client):
+    """In a five-company database one filer with receivables makes receivables
+    look as unusual as bank deposits. That is a fact about the sample, not
+    about how companies file, so it is reported as unknown."""
+    from src.company.stats import component_coverage
+
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("MSFT", _drawable(receivables=80e6))
+
+    assert component_coverage(max_age_s=0.0) == {}
+
+
+def test_labels_still_work_with_no_coverage_data(client):
+    """A cold or unreachable coverage cache degrades to picking the largest
+    block -- a worse label, never a wrong one."""
+    from src.report.home_page import headline_facts
+
+    facts = headline_facts(_five_production_shaped(), {})
+
+    assert all(facts), "every card still gets a line"
+    assert len(set(facts)) == len(facts)
+
+
+def test_the_card_label_is_a_real_block_off_the_drawing(client):
+    """Whatever is chosen, the label and share come off the company's own
+    drawing -- nothing composed, nothing rounded into being."""
+    from src.company.view1 import build_view1
+
+    _seed("WMT", _drawable(inventory=210e6), sector="Consumer Staples")
+
+    body = client.get("/").text
+    d = build_view1("WMT").as_dict()
+    shown = [b for b in d["assets"] + d["claims"]
+             if not b["is_remainder"] and f"{b['pct']:.0f}%" in body]
+
+    assert shown, "the card's figure must be one the drawing actually has"
 
 
 # Saying "no scores" is the opposite of scoring, so a blanket ban on the word

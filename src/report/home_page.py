@@ -55,24 +55,113 @@ def _mini_claims(blocks: list[dict]) -> tuple[str, str]:
     return _mini_stack(above), _mini_stack(below)
 
 
-def _headline_fact(view: View1) -> str:
-    """The largest thing the company actually reports owning, as a share.
+def _distinctiveness(block: dict, coverage: dict[str, float]) -> float:
+    """How much this line says about THIS company rather than companies.
+
+    Two terms, both read straight off the data:
+
+      rarity   1 - (share of companies that file this metric at all). Almost
+               nobody files loans or deposits, so filing them is most of what
+               there is to say. Almost everybody files property & equipment.
+      size     the block's share of the balance sheet, so a company that is
+               70% property still leads with property even though property is
+               a common line.
+
+    Added rather than multiplied: a rare line stays interesting when it is
+    small, and a common line becomes interesting when it is enormous. Picking
+    the largest block instead gave four of the five cards "Property &
+    equipment", which contradicted the sentence directly above them.
+    """
+    rarity = 1.0 - coverage.get(block["key"], 1.0)
+    return rarity + min(block["pct"], 100.0) / 100.0
+
+
+def _headline_fact(view: View1, coverage: dict[str, float] | None = None) -> str:
+    """The most distinctive line on one drawing, from either column.
 
     Read off the drawing rather than composed, and named blocks only: the
-    remainder is a leftover, not a line anyone filed, so "Loans 33%" is the
-    honest headline for a bank even when the unbroken-out remainder is larger.
-    A filer that breaks nothing out gets told so plainly instead.
+    remainder is a leftover, not a line anyone filed. A filer that breaks
+    nothing out is told so plainly instead.
     """
     d = view.as_dict()
-    named = [b for b in d["assets"] if not b["is_remainder"]]
+    blocks = d["assets"] + d["claims"]
+
+    # Owing more than you own is categorical, not a magnitude, and it is the
+    # single most unusual thing a balance sheet can say. It wins outright.
+    for b in blocks:
+        if b["kind"] == "equity" and b["value"] < 0:
+            return f"Owes {money(abs(b['value']))} more than it owns"
+
+    named = [b for b in blocks if not b["is_remainder"]]
     if not named:
         rem = max(d["assets"], key=lambda b: b["pct"], default=None)
         return f"{rem['pct']:.0f}% not broken out" if rem else ""
-    biggest = max(named, key=lambda b: b["pct"])
-    return f"{escape(biggest['label'])} {biggest['pct']:.0f}%"
+
+    cov = coverage or {}
+    # Ties break toward the larger block, so the choice is never arbitrary.
+    best = max(named, key=lambda b: (_distinctiveness(b, cov), b["pct"]))
+    return f"{escape(best['label'])} {best['pct']:.0f}%"
 
 
-def _card(s: Suggestion, view: View1 | None) -> str:
+def headline_facts(
+    views: list[View1 | None], coverage: dict[str, float] | None = None
+) -> list[str]:
+    """One fact per card, and no two the same.
+
+    Scoring each card independently is not enough: several companies can share
+    a most-distinctive line, and the page then prints "Property & equipment"
+    four times directly under a sentence promising they look nothing alike.
+
+    So the labels are assigned across the whole set at once. Every
+    (card, block) pairing is scored, the strongest pairing anywhere is settled
+    first, and each label is then spent -- so property goes to the company that
+    is most made of property, and the next one down moves to its own second
+    line rather than repeating. Nothing is invented: each card still shows a
+    real block off its own drawing, with its own filed share.
+    """
+    cov = coverage or {}
+    facts: list[str] = [""] * len(views)
+    pairings: list[tuple[float, int, dict]] = []
+
+    for i, view in enumerate(views):
+        if view is None:
+            continue
+        d = view.as_dict()
+        blocks = d["assets"] + d["claims"]
+        negative = next(
+            (b for b in blocks if b["kind"] == "equity" and b["value"] < 0), None
+        )
+        if negative is not None:
+            facts[i] = f"Owes {money(abs(negative['value']))} more than it owns"
+            continue
+        named = [b for b in blocks if not b["is_remainder"]]
+        if not named:
+            rem = max(d["assets"], key=lambda b: b["pct"], default=None)
+            facts[i] = f"{rem['pct']:.0f}% not broken out" if rem else ""
+            continue
+        for b in named:
+            pairings.append((_distinctiveness(b, cov), i, b))
+
+    # Strongest pairing anywhere first. The index breaks score ties so the
+    # result is stable rather than dependent on dict ordering.
+    pairings.sort(key=lambda p: (-p[0], p[1], p[2]["label"]))
+    taken_labels: set[str] = set()
+    for _score, i, b in pairings:
+        if facts[i] or b["label"] in taken_labels:
+            continue
+        facts[i] = f"{escape(b['label'])} {b['pct']:.0f}%"
+        taken_labels.add(b["label"])
+
+    # A card whose every line was claimed by a stronger card still gets its own
+    # best line. A duplicate label beats a blank one.
+    for i, view in enumerate(views):
+        if facts[i] or view is None:
+            continue
+        facts[i] = _headline_fact(view, cov)
+    return facts
+
+
+def _card(s: Suggestion, view: View1 | None, fact: str = "") -> str:
     kind = f'<span class="ckind">{escape(s.kind)}</span>' if s.kind else ""
     if view is None:
         # Offered, but honestly: no drawing rather than an empty frame.
@@ -90,7 +179,7 @@ def _card(s: Suggestion, view: View1 | None) -> str:
         f'<span class="mcol">{_mini_stack(d["assets"])}</span>'
         f'<span class="mcol">{above}{under}</span>'
         f"</span>"
-        f'<span class="cfact">{_headline_fact(view)}</span>'
+        f'<span class="cfact">{fact}</span>'
         f'<span class="csize">{money(d["total_assets"])} of assets</span>'
         "</a>"
     )
@@ -352,7 +441,12 @@ def render_home(
     pairs: list[tuple[Suggestion, View1 | None]], stats: dict | None = None
 ) -> str:
     """`pairs` is (suggestion, its view or None), in the order to show them."""
-    cards = "".join(_card(s, v) for s, v in pairs)
+    from src.company.stats import component_coverage
+
+    facts = headline_facts([v for _s, v in pairs], component_coverage())
+    cards = "".join(
+        _card(s, v, fact) for (s, v), fact in zip(pairs, facts, strict=True)
+    )
 
     if pairs:
         gallery = f"""

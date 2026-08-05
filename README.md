@@ -36,14 +36,6 @@ scale and invisible when they are in a table. Three views: the balance sheet at
 proportion, revenue as a flow from sales through costs to what is left, and the
 company's revenue against national GDP for a sense of scale.
 
-<!-- Regenerate against a deploy with real data:
-     python3 scripts/screenshots.py https://your-deploy-url -->
-![JPMorgan, Microsoft and Walmart drawn to the same rules](docs/screenshots/three-sectors.png)
-
-*Left to right: JPMorgan (a bank — loans funded by deposits), Microsoft
-(software — mostly equity), Walmart (retail — stores and inventory). Same
-rules, same colours, three completely different shapes.*
-
 ---
 
 ## How the data works
