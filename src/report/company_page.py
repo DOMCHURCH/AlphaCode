@@ -326,7 +326,14 @@ def render_company_page(
             "still as filed.</div>"
         )
 
-    name = escape(d["company_name"] or d["ticker"])
+    # With a name, the ticker is an eyebrow above it. Without one, printing the
+    # ticker twice -- once as the eyebrow, once as the heading -- reads as a
+    # rendering bug rather than as missing data.
+    has_name = bool((d["company_name"] or "").strip())
+    name = escape(d["company_name"]) if has_name else escape(d["ticker"])
+    eyebrow = (
+        f'<p class="cticker">{escape(d["ticker"])}</p>' if has_name else ""
+    )
     sector = (
         f'<span class="chip">{escape(d["sector"])}</span>' if d["sector"] else ""
     )
@@ -356,7 +363,7 @@ def render_company_page(
 
 <main class="wrap">
   <header class="chead">
-    <p class="cticker">{escape(d["ticker"])}</p>
+    {eyebrow}
     <h1 class="cname">{name}</h1>
     <div class="cmeta">
       {sector}

@@ -81,9 +81,11 @@ main{padding:6px 0 72px}
   color:var(--dim);margin:0 0 9px 4px}
 .sfield{display:flex;align-items:center;gap:8px;background:var(--well);
   border-radius:999px;box-shadow:var(--in);padding:7px 7px 7px 8px}
-.search input{flex:1;min-width:0;font:600 17px/1 var(--mono);color:var(--ink);
-  background:transparent;border:0;padding:12px 10px;letter-spacing:.04em;
-  text-transform:uppercase;-webkit-appearance:none}
+/* No forced uppercase: the box takes company names as well as tickers, and
+   "WALMART DE MEXICO" is not how anybody types it. */
+.search input{flex:1;min-width:0;font:600 16.5px/1 var(--mono);color:var(--ink);
+  background:transparent;border:0;padding:12px 10px;letter-spacing:.02em;
+  -webkit-appearance:none}
 .search input::placeholder{color:var(--dim);font-weight:400;letter-spacing:.02em}
 .search input:focus{outline:0}
 /* The ring goes on the whole slot, so focus is visible on a soft surface
@@ -237,6 +239,18 @@ main{padding:6px 0 72px}
 .sugg a:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
 .sugg a small{font-family:var(--disp);font-size:12px;font-weight:400;
   color:var(--dim);margin-left:6px}
+
+/* ---- search results: several companies matched a name ---- */
+.matches{display:flex;flex-direction:column;gap:10px;margin-top:18px}
+.mrow{display:grid;grid-template-columns:auto 1fr;gap:2px 12px;
+  align-items:baseline;text-decoration:none;color:var(--ink);
+  background:var(--bg);border-radius:var(--r1);box-shadow:var(--up-sm);
+  padding:14px 16px;transition:box-shadow .18s,transform .18s}
+.mrow:hover{box-shadow:var(--up);transform:translateY(-1px)}
+.mrow:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.mtick{font-family:var(--mono);font-size:14px;font-weight:700;grid-row:1/3}
+.mname{font-size:14.5px;font-weight:500;line-height:1.3}
+.msec{grid-column:2;font-size:12px;color:var(--ink2)}
 
 /* ---- back link ---- */
 /* The primary control on a company page: it comes first in the nav and reads

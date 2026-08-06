@@ -157,6 +157,20 @@ function renderHealth(h) {
       `latest filing ${fu.latest_filing_date || "—"}`);
   }
 
+  // Company names — the one thing search-by-name depends on.
+  const cn = h.company_names || {};
+  if (cn.error) {
+    out += row("Company names", `<span style="color:var(--red)">${esc(cn.error)}</span>`);
+  } else if (!cn.with_name) {
+    out += row("Company names", pill("none", "bad"),
+      "search by name is off — tap “Company names” below to load them");
+  } else {
+    const k = cn.drawable_with_name > 0 ? "ok" : "warn";
+    out += statline(`Company names (${fmtNum(cn.with_name)} of ${fmtNum(cn.universe_tickers)} tickers)`,
+      `${fmtNum(cn.drawable_with_name)} searchable — named AND drawable`);
+    out += row("Search by name", pill(cn.drawable_with_name ? "on" : "no matches possible", k));
+  }
+
   out += row("Tickers loaded", fmtNum(cov.tickers_loaded));
   if (cov.sec_universe != null)
     out += row("Vs SEC universe", `${fmtNum(cov.joined_with_sec)} / ${fmtNum(cov.sec_universe)}`,

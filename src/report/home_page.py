@@ -267,11 +267,11 @@ def search_form(value: str = "", autofocus: bool = False) -> str:
     af = " autofocus" if autofocus else ""
     return f"""
   <form class="search" action="/search" method="get" role="search">
-    <label class="slabel" for="q">Ticker</label>
+    <label class="slabel" for="q">Ticker or company name</label>
     <div class="sfield">
       <input id="q" name="q" type="text" value="{escape(value)}"
-        placeholder="JPM" autocomplete="off" autocapitalize="characters"
-        spellcheck="false" maxlength="16" enterkeyhint="go"{af}>
+        placeholder="JPM or Walmart" autocomplete="off" autocapitalize="none"
+        spellcheck="false" maxlength="64" enterkeyhint="go"{af}>
       <button type="submit">Draw it</button>
     </div>
   </form>"""
@@ -505,6 +505,73 @@ def render_home(
   </footer>
 </main>"""
     return _shell("To Scale — filed financial statements, drawn to scale", body)
+
+
+def render_matches(query: str, matches, suggestions: list[Suggestion]) -> str:
+    """Several companies matched the name. Let the reader pick."""
+    rows = "".join(
+        f'<a class="mrow" href="/company/{escape(m.ticker)}">'
+        f'<span class="mtick">{escape(m.ticker)}</span>'
+        f'<span class="mname">{escape(m.name or "")}</span>'
+        + (f'<span class="msec">{escape(m.sector)}</span>' if m.sector else "")
+        + "</a>"
+        for m in matches
+    )
+    sugg = "".join(
+        f'<a href="/company/{escape(s.ticker)}">{escape(s.ticker)}'
+        + (f" <small>{escape(s.kind)}</small>" if s.kind else "")
+        + "</a>"
+        for s in suggestions
+    )
+    body = f"""
+<nav><div class="wrap nav">
+  <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
+  <span class="spacer"></span>
+  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+</div></nav>
+<main class="wrap">
+  <div class="empty">
+    <h1>{len(matches)} companies match “{escape(query)}”</h1>
+    <p>Pick one, or narrow the search.</p>
+    {search_form(query)}
+    <div class="matches">{rows}</div>
+  </div>
+  <p class="tryline">Or start with one of these:</p>
+  <div class="sugg">{sugg}</div>
+</main>"""
+    return _shell(f"{query} — To Scale", body)
+
+
+def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
+    """Name search asked for, but no names are stored.
+
+    Said plainly rather than as "no match": the two have completely different
+    causes, and only one of them is the reader's problem.
+    """
+    sugg = "".join(
+        f'<a href="/company/{escape(s.ticker)}">{escape(s.ticker)}'
+        + (f" <small>{escape(s.kind)}</small>" if s.kind else "")
+        + "</a>"
+        for s in suggestions
+    )
+    body = f"""
+<nav><div class="wrap nav">
+  <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
+  <span class="spacer"></span>
+  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+</div></nav>
+<main class="wrap">
+  <div class="empty">
+    <h1>Search by ticker for now</h1>
+    <p>Company names are not loaded on this instance, so “{escape(query)}”
+      can only be read as a ticker symbol — and there is no company with that
+      symbol.</p>
+    {search_form()}
+    <p class="tryline">These five are loaded:</p>
+    <div class="sugg">{sugg}</div>
+  </div>
+</main>"""
+    return _shell("Search by ticker — To Scale", body)
 
 
 def render_search_empty(suggestions: list[Suggestion]) -> str:

@@ -680,12 +680,150 @@ def test_search_with_nothing_typed_asks_for_a_ticker(client):
     assert 'href="/company/JPM"' in r.text
 
 
-def test_search_rejects_something_that_is_not_a_ticker(client):
+def test_search_rejects_something_that_is_neither_ticker_nor_name(client):
+    """It cannot be a symbol and matches no company, so it is answered here
+    rather than redirected -- and whatever was typed is echoed escaped."""
     r = client.get("/search", params={"q": "<script>x</script>"})
 
     assert r.status_code == 404
-    assert "does not look like a ticker" in r.text
     assert "<script>x</script>" not in r.text, "the echo must be escaped"
+    assert "&lt;script&gt;" in r.text
+
+
+# ------------------------------------------------------------ search by name
+def _named(ticker: str, name: str, sector: str | None = None, **over) -> None:
+    """A company with fundamentals AND a name in the universe."""
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed(ticker, _drawable(**over), sector=sector)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(as_of_date=PE, ticker=ticker, name=name,
+                               sector=sector))
+
+
+def test_a_company_name_lands_on_its_ticker(client):
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    _named("JPM", "JPMorgan Chase & Co", "Financials")
+
+    for query, expected in (("Walmart", "/company/WMT"),
+                            ("walmart", "/company/WMT"),
+                            ("JPMorgan", "/company/JPM"),
+                            ("  jpmorgan chase ", "/company/JPM")):
+        r = client.get("/search", params={"q": query}, follow_redirects=False)
+        assert r.status_code == 303, query
+        assert r.headers["location"] == expected, query
+
+
+def test_an_exact_ticker_beats_any_name_match(client):
+    """AAL is American Airlines. There is a company called Aalberts and it
+    does not get a vote."""
+    _named("AAL", "American Airlines Group Inc.", "Industrials")
+    _named("ABC", "Aalberts Industries", "Industrials")
+
+    r = client.get("/search", params={"q": "AAL"}, follow_redirects=False)
+
+    assert r.headers["location"] == "/company/AAL"
+
+
+def test_several_matches_offer_a_choice(client):
+    """Nothing here is simply called "Walmart", so there is a real choice and
+    the page has to let the reader make it."""
+    _named("WMTX", "Walmart de Mexico SAB de CV", "Consumer Staples")
+    _named("WMMY", "Walmart Chile SA", "Consumer Staples")
+    _named("WMCA", "Walmart Canada Bank", "Financials")
+
+    r = client.get("/search", params={"q": "walmart"})
+
+    assert r.status_code == 200
+    assert "companies match" in r.text
+    for ticker in ("WMTX", "WMMY", "WMCA"):
+        assert f'href="/company/{ticker}"' in r.text
+    # Ticker, name and sector, so the choice can actually be made.
+    assert "Walmart de Mexico SAB de CV" in r.text
+    assert "Consumer Staples" in r.text
+
+
+def test_a_legal_suffix_is_not_part_of_the_name(client):
+    """"Walmart" and "Walmart Inc." are the same answer, so the plain company
+    wins outright even with Walmart de Mexico in the same result set."""
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    _named("WMTX", "Walmart de Mexico SAB de CV", "Consumer Staples")
+
+    r = client.get("/search", params={"q": "walmart"}, follow_redirects=False)
+
+    assert r.status_code == 303
+    assert r.headers["location"] == "/company/WMT"
+
+
+def test_a_single_exact_prefix_does_not_stop_to_ask(client):
+    """"walmart" matches three, but only one company is actually called that."""
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    _named("WMTX", "Wal-Mart de Mexico", "Consumer Staples")
+    _named("XYZ", "Acme Walmart Suppliers", "Industrials")
+
+    r = client.get("/search", params={"q": "walmart"}, follow_redirects=False)
+
+    assert r.status_code == 303
+    assert r.headers["location"] == "/company/WMT"
+
+
+def test_a_name_with_nothing_to_draw_is_not_offered(client):
+    """Matching a name and then landing on "nothing to draw" sends a reader
+    from one empty page to another."""
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    with session_scope() as s:  # a name, but no fundamentals behind it
+        s.add(UniverseSnapshot(as_of_date=PE, ticker="GHOST",
+                               name="Walmart Ghost Holdings"))
+
+    r = client.get("/search", params={"q": "walmart"}, follow_redirects=False)
+
+    assert r.headers["location"] == "/company/WMT", "the ghost is not a match"
+
+
+def test_a_name_matching_nothing_says_so_and_offers_the_examples(client):
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+
+    r = client.get("/search", params={"q": "not a real company plc"})
+
+    assert r.status_code == 404
+    assert "No ticker or company name matches that" in r.text
+    assert 'href="/company/WMT"' in r.text
+
+
+def test_name_search_says_when_names_are_not_loaded(client):
+    """Distinct from "no match": one is missing data, the other is the
+    reader's query, and they have completely different fixes."""
+    _seed("JPM", _drawable(), sector="Financials")  # fundamentals, no name
+
+    r = client.get("/search", params={"q": "jpmorgan chase"})
+
+    assert r.status_code == 404
+    assert "Company names are not loaded" in r.text
+    assert 'href="/company/JPM"' in r.text
+
+
+def test_the_universe_is_snapshotted_daily_so_matches_are_deduped(client):
+    """One row per ticker in the results, not one per day the company existed."""
+    import datetime as _dt
+
+    from src.company.lookup import resolve
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    with session_scope() as s:
+        for day in range(1, 6):
+            s.add(UniverseSnapshot(as_of_date=_dt.date(2026, 1, day),
+                                   ticker="WMT", name="Walmart Inc."))
+
+    found = resolve("walmart")
+
+    assert found.kind == "one"
+    assert found.ticker == "WMT"
 
 
 def test_the_company_page_and_search_clean_a_ticker_the_same_way(client):

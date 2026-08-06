@@ -740,6 +740,42 @@ async def backfill_sectors(limit: int | None = None, concurrency: int = 8) -> in
     return total
 
 
+async def backfill_company_names() -> int:
+    """Persist the company names SEC already hands us on every load.
+
+    NOT a new data source. `sec_edgar.fetch_company_tickers()` returns
+    {ticker, name, cik} and the fundamentals and earnings loads both already
+    call it -- they keep the CIK map and drop the name. This writes the name
+    into `universe`, which is where the company page and the name search
+    already look for it.
+
+    Additive and idempotent: one row per ticker for today, upserted. It writes
+    only the identity columns, so it cannot disturb a universe snapshot built
+    with prices and liquidity in it.
+    """
+    reference = await sec_edgar.fetch_company_tickers()
+    today = dt.date.today()
+    rows = [
+        {
+            "ticker": str(r["ticker"]).upper(),
+            "name": r.get("name"),
+            "cik": str(r.get("cik")) if r.get("cik") is not None else None,
+            "security_type": r.get("security_type"),
+        }
+        for r in reference
+        if r.get("ticker") and r.get("name")
+    ]
+    if not rows:
+        _update_state(phase="error", last_error="SEC returned no company names")
+        return 0
+    written = 0
+    for i in range(0, len(rows), 5000):
+        with session_scope() as session:
+            written += repository.save_universe(session, today, rows[i : i + 5000])
+    log.info("company_names_loaded", rows=written, as_of=today.isoformat())
+    return written
+
+
 async def _cik_to_ticker() -> dict[str, str]:
     """{cik (leading zeros stripped) -> ticker} from the SEC company list."""
     reference = await sec_edgar.fetch_company_tickers()

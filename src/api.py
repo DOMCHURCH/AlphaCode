@@ -292,7 +292,7 @@ async def reconcile_endpoint(sample: int = Query(15, ge=1, le=50)) -> dict[str, 
     return data
 
 
-_BACKFILL_KINDS = ("bars", "sectors", "fundamentals", "earnings")
+_BACKFILL_KINDS = ("bars", "sectors", "fundamentals", "earnings", "names")
 
 
 @app.post("/backfill", response_model=RunResponse)
@@ -355,6 +355,12 @@ async def _backfill_bg(kind: str, days: int) -> None:
                 e = await backfill_earnings()
                 log.info("backfill_earnings_done", rows=e)
                 record_backfill_result("earnings", e)
+            elif kind == "names":
+                from src.backfill import backfill_company_names
+
+                nm = await backfill_company_names()
+                log.info("backfill_names_done", rows=nm)
+                record_backfill_result("names", nm)
         except Exception as exc:  # noqa: BLE001 - logged, never crashes the API
             record_backfill_error(str(exc))
             record_backfill_result(kind, 0, error=str(exc))
@@ -432,6 +438,45 @@ def _config_report() -> list[dict[str, Any]]:
     rows.append(opt("FRED_API_KEY", bool(s.fred_api_key), "optional — macro regime tilt"))
     rows.append(opt("REDIS_URL", bool(s.redis_url), "optional — shared rate limits"))
     return rows
+
+
+def _company_name_coverage() -> dict[str, Any]:
+    """Whether search-by-name can work at all.
+
+    Names live in `universe.name`, which is SEC's own company title. When this
+    reads zero, name search is off and says so rather than reporting "no
+    match" -- the two have different causes and only one is the reader's.
+    """
+    from sqlalchemy import distinct, func
+
+    from src.company.lookup import names_loaded
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    out: dict[str, Any] = {"with_name": 0, "universe_tickers": 0,
+                           "drawable_with_name": 0}
+    try:
+        with session_scope() as s:
+            out["with_name"] = names_loaded()
+            out["universe_tickers"] = int(s.execute(
+                select(func.count(distinct(UniverseSnapshot.ticker)))
+            ).scalar_one() or 0)
+            # The number that decides whether search is useful: a name on a
+            # company with nothing to draw is not a searchable company.
+            out["drawable_with_name"] = int(s.execute(
+                select(func.count(distinct(UniverseSnapshot.ticker))).where(
+                    UniverseSnapshot.name.isnot(None),
+                    UniverseSnapshot.name != "",
+                    UniverseSnapshot.ticker.in_(
+                        select(Fundamental.ticker).where(
+                            Fundamental.metric == "total_assets",
+                            Fundamental.value > 0,
+                        )
+                    ),
+                )
+            ).scalar_one() or 0)
+    except Exception as exc:  # noqa: BLE001 - /admin must still render
+        out["error"] = str(exc)[:200]
+    return out
 
 
 def _admin_data_health(session: Any) -> dict[str, Any]:
@@ -514,6 +559,7 @@ def _admin_data_health(session: Any) -> dict[str, Any]:
         "adjustment": adjustment,
         "sector_map": sector_map,
         "fundamentals": fundamentals,
+        "company_names": _company_name_coverage(),
         "price_bars": price_bars,
         "reconcile_checked_at": _RECONCILE_CACHE["at"],
         "errors": errors,
@@ -1157,27 +1203,51 @@ def about() -> RedirectResponse:
 
 @app.get("/search")
 def search(q: str = Query("", max_length=64)) -> Response:
-    """One ticker in, straight to its page.
+    """A ticker or a company name in, a company out.
 
-    A redirect rather than a rendered result: the answer to "JPM" is JPM's page,
-    and a search-results screen between the two would be a page whose only job
-    is to be clicked through. A symbol we hold no data for still goes to
-    /company, which is the one place that can say so and offer alternatives.
+    A redirect rather than a rendered result wherever the answer is
+    unambiguous: the answer to "JPM" is JPM's page, and a results screen
+    between the two would be a page whose only job is to be clicked through.
+    Several matches get a list, because then there is a real choice to make.
+
+    An exact ticker always wins. "AAL" is American Airlines, not the closest
+    company whose name happens to contain those letters.
     """
-    symbol = _clean_ticker(q)
-    if not symbol:
-        from src.company.suggest import suggestions
+    from src.company.lookup import resolve
+    from src.company.suggest import suggestions
+
+    raw = q.strip()
+    if not raw:
         from src.report.home_page import render_search_empty
 
         return HTMLResponse(render_search_empty(suggestions()), status_code=400)
-    if not _is_ticker_shaped(symbol):
-        from src.report.company_page import render_not_found
 
-        return HTMLResponse(
-            render_not_found(symbol, "That does not look like a ticker symbol."),
-            status_code=404,
-        )
-    return RedirectResponse(url=f"/company/{symbol}", status_code=303)
+    found = resolve(raw)
+    if found.kind in ("ticker", "one"):
+        return RedirectResponse(url=f"/company/{found.ticker}", status_code=303)
+    if found.kind == "many":
+        from src.report.home_page import render_matches
+
+        return HTMLResponse(render_matches(raw, found.matches, suggestions()))
+    # Nothing resolved. A ticker-shaped query still goes to /company/{SYMBOL}:
+    # that is the canonical, shareable URL for a company, and it is the one
+    # page that can say what is missing about that specific symbol. Only a
+    # query that cannot be a ticker at all is answered here.
+    symbol = _clean_ticker(raw)
+    if _is_ticker_shaped(symbol):
+        return RedirectResponse(url=f"/company/{symbol}", status_code=303)
+
+    if found.kind == "no_names":
+        from src.report.home_page import render_no_names
+
+        return HTMLResponse(render_no_names(raw, suggestions()), status_code=404)
+
+    from src.report.company_page import render_not_found
+
+    return HTMLResponse(
+        render_not_found(raw[:40], "No ticker or company name matches that."),
+        status_code=404,
+    )
 
 
 @app.get("/api")
