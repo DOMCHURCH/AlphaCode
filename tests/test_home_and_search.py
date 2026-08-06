@@ -25,12 +25,14 @@ FD = dt.date(2026, 2, 13)
 @pytest.fixture
 def db(tmp_path, monkeypatch):
     from src.config.settings import get_settings
+    from src.company.lookup import reset_cache
     from src.storage.db import init_db, reset_engine_cache
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'home.db'}")
     monkeypatch.setenv("API_KEY", "")
     get_settings.cache_clear()
     reset_engine_cache()
+    reset_cache()
     init_db()
     try:
         yield
@@ -782,6 +784,84 @@ def test_a_name_with_nothing_to_draw_is_not_offered(client):
     r = client.get("/search", params={"q": "walmart"}, follow_redirects=False)
 
     assert r.headers["location"] == "/company/WMT", "the ghost is not a match"
+
+
+def test_a_misspelling_is_offered_never_followed(client):
+    """The rule that matters: a near-miss is a question, not an answer.
+
+    Redirecting on a guess would put a company on screen nobody asked for,
+    under a heading that reads as the site asserting it is the right one.
+    """
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+
+    r = client.get("/search", params={"q": "walmrt"}, follow_redirects=False)
+
+    assert r.status_code == 404, "a guess is never a redirect"
+    assert "Nothing matches" in r.text
+    assert "Did you mean" in r.text
+    assert 'href="/company/WMT"' in r.text
+
+
+def test_common_typos_reach_the_right_company(client):
+    from src.company.lookup import resolve
+
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    _named("MSFT", "Microsoft Corporation", "Information Technology")
+    _named("AAL", "American Airlines Group Inc.", "Industrials")
+
+    for typo, expected in (("walmrt", "WMT"), ("wallmart", "WMT"),
+                           ("micrsoft", "MSFT"), ("microsofy", "MSFT"),
+                           ("amercan airlines", "AAL")):
+        found = resolve(typo)
+        assert found.kind == "fuzzy", typo
+        assert expected in [m.ticker for m in found.matches], typo
+
+
+def test_two_different_companies_are_not_called_typos_of_each_other(client):
+    """Walgreens is not a misspelling of Walmart. The threshold has to be high
+    enough that a real company is never proposed as a correction to another."""
+    from src.company.lookup import resolve
+
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+    _named("WBA", "Walgreens Boots Alliance", "Consumer Staples")
+
+    found = resolve("walgreens")
+
+    assert found.kind == "one"
+    assert found.ticker == "WBA", "an exact match is never a fuzzy one"
+
+
+def test_punctuation_is_not_a_misspelling(client):
+    """"freeport mcmoran" matches FREEPORT-MCMORAN INC exactly as far as the
+    reader is concerned. Answering it with "did you mean" would be wrong
+    twice: it did match, and the site holds that name."""
+    _named("FCX", "FREEPORT-MCMORAN INC", "Materials")
+
+    r = client.get("/search", params={"q": "freeport mcmoran"},
+                   follow_redirects=False)
+
+    assert r.status_code == 303
+    assert r.headers["location"] == "/company/FCX"
+
+
+def test_a_short_query_is_not_fuzzy_matched(client):
+    """Under four characters everything is close to everything."""
+    from src.company.lookup import close_matches
+
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+
+    assert close_matches("wal") == []
+
+
+def test_a_ticker_typo_still_reaches_the_page_that_explains_it(client):
+    """A short ticker-shaped miss goes to /company, which can say what is
+    missing about that symbol, rather than guessing at a company name."""
+    _named("JPM", "JPMorgan Chase & Co", "Financials")
+
+    r = client.get("/search", params={"q": "JPMM"}, follow_redirects=False)
+
+    assert r.status_code == 303
+    assert r.headers["location"] == "/company/JPMM"
 
 
 def test_a_name_matching_nothing_says_so_and_offers_the_examples(client):

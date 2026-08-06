@@ -1229,6 +1229,17 @@ def search(q: str = Query("", max_length=64)) -> Response:
         from src.report.home_page import render_matches
 
         return HTMLResponse(render_matches(raw, found.matches, suggestions()))
+    if found.kind == "fuzzy":
+        # Suggested, never followed: resolving a misspelling automatically puts
+        # a company on screen that nobody asked for, under a heading that reads
+        # as the site asserting it is the right one. 404, because nothing
+        # actually matched what was typed.
+        from src.report.home_page import render_matches
+
+        return HTMLResponse(
+            render_matches(raw, found.matches, suggestions(), did_you_mean=True),
+            status_code=404,
+        )
     # Nothing resolved. A ticker-shaped query still goes to /company/{SYMBOL}:
     # that is the canonical, shareable URL for a company, and it is the one
     # page that can say what is missing about that specific symbol. Only a

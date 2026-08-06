@@ -20,6 +20,7 @@ thing every empty state in this project is built to avoid.
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -32,6 +33,28 @@ log = structlog.get_logger(__name__)
 MAX_MATCHES = 12
 # Below this a name search matches half the market. "in" is not a query.
 MIN_QUERY_CHARS = 2
+# Similarity a misspelling has to reach before it is worth offering. High
+# enough that "walmart"/"walgreens" (0.62) is not proposed as a typo, low
+# enough to catch a dropped or swapped letter.
+FUZZY_THRESHOLD = 0.78
+# Under four characters everything is close to everything.
+MIN_FUZZY_CHARS = 4
+_NAMES_TTL_S = 1800.0
+
+_named_cache: list["Match"] | None = None
+_named_cache_at: float = 0.0
+
+
+def reset_cache() -> None:
+    """Forget the cached name list.
+
+    Needed because the cache is module-level and outlives a database: tests
+    swapping DBs, and a process that has just reloaded fundamentals, would
+    otherwise both be answering from a list that no longer describes what is
+    stored.
+    """
+    global _named_cache, _named_cache_at
+    _named_cache, _named_cache_at = None, 0.0
 
 
 @dataclass(frozen=True)
@@ -47,11 +70,12 @@ class Resolution:
     ticker  -- an exact ticker; go straight there
     one     -- exactly one company matched the name; go straight there
     many    -- several matched; let the reader pick
+    fuzzy   -- nothing matched, but these are close. NEVER redirected to.
     none    -- nothing matched
     no_names -- names are not loaded, so a name search cannot be answered
     """
 
-    kind: Literal["ticker", "one", "many", "none", "no_names"]
+    kind: Literal["ticker", "one", "many", "fuzzy", "none", "no_names"]
     ticker: str | None = None
     matches: tuple[Match, ...] = ()
 
@@ -194,6 +218,100 @@ def _best_tier(matches: list[Match], query: str) -> list[Match]:
     return [m for m in matches if tier(m) == top]
 
 
+def _all_named() -> list[Match]:
+    """Every drawable company that has a name. Cached: this is the haystack a
+    misspelling is compared against, and it changes only on a reload."""
+    global _named_cache, _named_cache_at
+    if _named_cache is not None and (time.monotonic() - _named_cache_at) < _NAMES_TTL_S:
+        return _named_cache
+
+    from sqlalchemy import func, select
+
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
+
+    with session_scope() as s:
+        rows = s.execute(
+            select(
+                UniverseSnapshot.ticker,
+                func.max(UniverseSnapshot.name),
+                func.max(SectorMap.sector),
+            )
+            .join(Fundamental, Fundamental.ticker == UniverseSnapshot.ticker)
+            .outerjoin(SectorMap, SectorMap.ticker == UniverseSnapshot.ticker)
+            .where(
+                UniverseSnapshot.name.isnot(None),
+                UniverseSnapshot.name != "",
+                Fundamental.metric == "total_assets",
+                Fundamental.value > 0,
+            )
+            .group_by(UniverseSnapshot.ticker)
+        ).all()
+    _named_cache = [Match(t, n, sec) for t, n, sec in rows]
+    _named_cache_at = time.monotonic()
+    return _named_cache
+
+
+def _search_names_normalised(query: str) -> list[Match]:
+    """Substring match ignoring punctuation and legal form.
+
+    SQL LIKE compares the stored name literally, so "freeport mcmoran" misses
+    "FREEPORT-MCMORAN INC" over one hyphen. That is an exact match as far as
+    the reader is concerned, and answering it with "did you mean" would be
+    wrong twice: it did match, and the site would be asking about a name it
+    holds.
+    """
+    q = _bare(query.lower().strip())
+    if not q:
+        return []
+    try:
+        return [m for m in _all_named() if q in _bare((m.name or "").lower())]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("normalised_search_failed", error=str(exc)[:200])
+        return []
+
+
+def close_matches(query: str, limit: int = 6) -> list[Match]:
+    """Companies whose name is nearly what was typed.
+
+    Only reached when nothing matched exactly, so the cost lands on the miss
+    rather than on every search. Compared against the name with its legal form
+    stripped, so "walmrt" is measured against "walmart" rather than against
+    "walmart inc" -- the suffix would otherwise dilute the ratio and push a
+    real typo below the threshold.
+
+    difflib is stdlib and its ratio short-circuits hard on length, so a few
+    thousand candidates is a handful of milliseconds.
+    """
+    import difflib
+
+    q = _bare(query.lower().strip())
+    if len(q) < MIN_FUZZY_CHARS:
+        return []
+    try:
+        candidates = _all_named()
+    except Exception as exc:  # noqa: BLE001 - a miss stays a miss
+        log.warning("close_matches_failed", error=str(exc)[:200])
+        return []
+
+    scored: list[tuple[float, Match]] = []
+    for m in candidates:
+        bare = _bare((m.name or "").lower())
+        if not bare:
+            continue
+        ratio = difflib.SequenceMatcher(None, q, bare).ratio()
+        if ratio < FUZZY_THRESHOLD:
+            # A typo in one word of a longer name -- "walmrt de mexico" -- can
+            # score low overall while matching a word almost exactly.
+            first = bare.split()[0]
+            ratio = max(ratio, difflib.SequenceMatcher(None, q, first).ratio())
+        if ratio >= FUZZY_THRESHOLD:
+            scored.append((ratio, m))
+
+    scored.sort(key=lambda p: (-p[0], len(p[1].name or ""), p[1].ticker))
+    return [m for _r, m in scored[:limit]]
+
+
 def resolve(query: str) -> Resolution:
     """What the reader meant, as far as the data can say."""
     raw = query.strip()
@@ -214,13 +332,21 @@ def resolve(query: str) -> Resolution:
         return Resolution("no_names")
 
     try:
-        found = _rank(_search_names(raw), raw)
+        # Literal substring first -- it is the common case and the database
+        # does the work. Only if that finds nothing is the punctuation- and
+        # suffix-insensitive pass worth the scan.
+        hits = _search_names(raw) or _search_names_normalised(raw)
+        found = _rank(hits, raw)
     except Exception as exc:  # noqa: BLE001
         log.warning("name_search_failed", query=raw[:40], error=str(exc)[:200])
         return Resolution("none")
 
     if not found:
-        return Resolution("none")
+        near = close_matches(raw)
+        # Offered, never followed. A misspelling resolved automatically would
+        # put a company on screen that the reader never asked for, under a
+        # heading that reads as the site asserting it is the right one.
+        return Resolution("fuzzy", matches=tuple(near)) if near else Resolution("none")
     if len(found) == 1:
         return Resolution("one", ticker=found[0].ticker, matches=tuple(found))
 

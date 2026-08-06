@@ -267,6 +267,11 @@ def _replace_fundamentals(
                 f"reload extracted 0 rows from {len(qs)} quarters; "
                 f"the existing table was left untouched"
             )
+    # Which companies are drawable has just changed wholesale, and the search
+    # caches that list.
+    from src.company.lookup import reset_cache
+
+    reset_cache()
     log.warning("fundamentals_replaced", rows_deleted=before, rows_written=written)
     return before, written
 
@@ -772,6 +777,13 @@ async def backfill_company_names() -> int:
     for i in range(0, len(rows), 5000):
         with session_scope() as session:
             written += repository.save_universe(session, today, rows[i : i + 5000])
+
+    # Search caches the name list for half an hour. Without this the names are
+    # searchable the moment they land but MISSPELLINGS are not, for thirty
+    # minutes -- which is exactly the window in which somebody tests it.
+    from src.company.lookup import reset_cache
+
+    reset_cache()
     log.info("company_names_loaded", rows=written, as_of=today.isoformat())
     return written
 

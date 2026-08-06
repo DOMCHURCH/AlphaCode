@@ -16,12 +16,14 @@ AS_OF = dt.date(2025, 6, 2)
 @pytest.fixture
 def api_db(tmp_path, monkeypatch):
     from src.config.settings import get_settings
+    from src.company.lookup import reset_cache
     from src.storage.db import init_db, reset_engine_cache
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'api.db'}")
     monkeypatch.setenv("API_KEY", "")  # open by default
     get_settings.cache_clear()
     reset_engine_cache()
+    reset_cache()
     init_db()
     try:
         yield

@@ -507,8 +507,15 @@ def render_home(
     return _shell("To Scale — filed financial statements, drawn to scale", body)
 
 
-def render_matches(query: str, matches, suggestions: list[Suggestion]) -> str:
-    """Several companies matched the name. Let the reader pick."""
+def render_matches(
+    query: str, matches, suggestions: list[Suggestion], did_you_mean: bool = False
+) -> str:
+    """Several companies matched the name -- or none did, and these are close.
+
+    The two states share a layout and differ in what they claim. "3 companies
+    match" is a statement about the data; "did you mean" is a question, and
+    a near-miss must never be dressed as a match.
+    """
     rows = "".join(
         f'<a class="mrow" href="/company/{escape(m.ticker)}">'
         f'<span class="mtick">{escape(m.ticker)}</span>'
@@ -531,8 +538,15 @@ def render_matches(query: str, matches, suggestions: list[Suggestion]) -> str:
 </div></nav>
 <main class="wrap">
   <div class="empty">
-    <h1>{len(matches)} companies match “{escape(query)}”</h1>
-    <p>Pick one, or narrow the search.</p>
+    <h1>{
+      f'Nothing matches “{escape(query)}”'
+      if did_you_mean
+      else f'{len(matches)} companies match “{escape(query)}”'
+    }</h1>
+    <p>{
+      "Did you mean one of these?" if did_you_mean
+      else "Pick one, or narrow the search."
+    }</p>
     {search_form(query)}
     <div class="matches">{rows}</div>
   </div>
