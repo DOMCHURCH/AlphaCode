@@ -886,6 +886,82 @@ def test_name_search_says_when_names_are_not_loaded(client):
     assert 'href="/company/JPM"' in r.text
 
 
+def test_a_one_word_company_name_is_not_reported_as_a_dead_ticker(client):
+    """THE reported bug. "walmart" is one word, so it is ticker-SHAPED, and the
+    unloaded-names answer used to be skipped for exactly the queries that
+    needed it: the reader was redirected to /company/WALMART and told there
+    were no filed fundamentals for WALMART -- a symbol nobody typed, about a
+    company the site had never looked for.
+    """
+    _seed("WMT", _drawable(), sector="Consumer Staples")  # fundamentals, no name
+
+    for query in ("walmart", "WALMART", "Walmart", "microsoft"):
+        r = client.get("/search", params={"q": query}, follow_redirects=False)
+
+        assert r.status_code == 404, query
+        assert "Company names are not loaded" in r.text, query
+        assert "/company/WALMART" not in r.text, query
+
+
+def test_a_query_that_could_be_a_symbol_is_still_answered_as_one(client):
+    """The other half of the same rule: SPACE is a plausible ticker, so it goes
+    to the page that can say what is missing about that symbol. Only queries
+    too long to be a symbol are diverted."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    for query in ("SPACE", "space", "brk.b", "NOSUCH"):
+        r = client.get("/search", params={"q": query}, follow_redirects=False)
+
+        assert r.status_code == 303, query
+        assert r.headers["location"].startswith("/company/"), query
+
+
+def test_the_company_page_offers_the_company_whose_name_was_typed(client):
+    """A miss that has an obvious right answer must show it.
+
+    /company/WALMART is where a typed URL and a short name query both land.
+    Listing WMT there is the difference between "we don't have Walmart" and
+    "Walmart is one tap away".
+    """
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+
+    r = client.get("/company/WALMART")
+
+    assert r.status_code == 404, "nothing matched, and the page still says so"
+    assert "Did you mean" in r.text
+    assert 'href="/company/WMT"' in r.text
+
+
+def test_the_company_page_offers_a_near_miss_too(client):
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+
+    r = client.get("/company/WALMRT")
+
+    assert r.status_code == 404
+    assert 'href="/company/WMT"' in r.text
+
+
+def test_the_company_page_says_when_names_are_not_loaded(client):
+    """The one page every unanswerable query reaches has to name the real
+    cause, not describe the symptom as a missing ticker."""
+    _seed("WMT", _drawable(), sector="Consumer Staples")  # fundamentals, no name
+
+    r = client.get("/company/WALMART")
+
+    assert r.status_code == 404
+    assert "Company names are not loaded" in r.text
+
+
+def test_a_drawable_company_page_is_untouched_by_any_of_that(client):
+    """The suggestion machinery runs only on the empty state."""
+    _named("WMT", "Walmart Inc.", "Consumer Staples")
+
+    r = client.get("/company/WMT")
+
+    assert r.status_code == 200
+    assert "Did you mean" not in r.text
+
+
 def test_the_universe_is_snapshotted_daily_so_matches_are_deduped(client):
     """One row per ticker in the results, not one per day the company existed."""
     import datetime as _dt

@@ -217,3 +217,66 @@ def test_free_tier_polygon_bucket_is_five_per_min(monkeypatch):
     bp = rate_limits.bucket_for("polygon")
     assert bp.rps == 50.0  # the paid bucket, untouched
     get_settings.cache_clear()
+
+
+# --------------------------------------------------------------------------
+# company names: the index onto everything else
+# --------------------------------------------------------------------------
+def test_a_fundamentals_load_stores_the_company_names_it_already_fetched(
+    bf_db, monkeypatch
+):
+    """Search by name was dead on a fully loaded instance.
+
+    `_cik_to_ticker` fetches SEC's company list -- which carries the NAME --
+    for every fundamentals and earnings load, kept the CIK and dropped the
+    name. Nothing else wrote names automatically, so an instance could load
+    bars, sectors, fundamentals and earnings and still answer nothing but bare
+    tickers: "walmart" was a miss on a database holding WMT.
+    """
+    import asyncio
+
+    from sqlalchemy import select
+
+    import src.backfill as bf
+    from src.ingest import sec_edgar
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    async def fake_tickers():
+        return [
+            {"ticker": "WMT", "name": "Walmart Inc.", "cik": "0000104169"},
+            {"ticker": "JPM", "name": "JPMORGAN CHASE & CO", "cik": "0000019617"},
+        ]
+
+    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
+
+    cik_map = asyncio.run(bf._cik_to_ticker())
+
+    assert cik_map == {"104169": "WMT", "19617": "JPM"}, "the map still works"
+    with session_scope() as s:
+        names = dict(
+            s.execute(
+                select(UniverseSnapshot.ticker, UniverseSnapshot.name)
+            ).all()
+        )
+    assert names == {"WMT": "Walmart Inc.", "JPM": "JPMORGAN CHASE & CO"}
+
+
+def test_a_failure_to_store_names_never_fails_the_load(bf_db, monkeypatch):
+    """Names are an index onto the data, not the data. A load that got the
+    fundamentals and lost the names is degraded; one that raises is broken."""
+    import asyncio
+
+    import src.backfill as bf
+    from src.ingest import sec_edgar
+
+    async def fake_tickers():
+        return [{"ticker": "WMT", "name": "Walmart Inc.", "cik": "0000104169"}]
+
+    def boom(_reference):
+        raise RuntimeError("universe table is unwritable")
+
+    monkeypatch.setattr(sec_edgar, "fetch_company_tickers", fake_tickers)
+    monkeypatch.setattr(bf, "_save_company_names", boom)
+
+    assert asyncio.run(bf._cik_to_ticker()) == {"104169": "WMT"}

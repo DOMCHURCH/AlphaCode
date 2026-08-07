@@ -424,15 +424,36 @@ def render_company_page(
 </html>"""
 
 
-def render_not_found(ticker: str, reason: str) -> str:
+def render_not_found(ticker: str, reason: str, matches=()) -> str:
     """Says what is missing, then offers tickers that are actually there.
 
     The alternatives are read out of the database, not hardcoded: sending a
     reader from one empty page to another is the one thing an empty state must
     not do.
+
+    `matches` is what somebody typing this may have meant -- a company whose
+    NAME is what was typed, when what was typed is not a symbol. Somebody who
+    searched "walmart" lands here as WALMART; the useful thing on the page is
+    WMT, not five unrelated examples. Offered, never followed: the page still
+    says nothing matched, because nothing did.
     """
     from src.company.suggest import suggestions
     from src.report.home_page import search_form
+
+    near = "".join(
+        f'<a class="mrow" href="/company/{escape(m.ticker)}">'
+        f'<span class="mtick">{escape(m.ticker)}</span>'
+        f'<span class="mname">{escape(m.name or "")}</span>'
+        + (f'<span class="msec">{escape(m.sector)}</span>' if m.sector else "")
+        + "</a>"
+        for m in matches
+    )
+    did_you_mean = (
+        f'<p class="tryline">Did you mean one of these?</p>'
+        f'<div class="matches">{near}</div>'
+        if near
+        else ""
+    )
 
     picks = suggestions()
     sugg = "".join(
@@ -474,6 +495,7 @@ def render_not_found(ticker: str, reason: str) -> str:
     <h1>Nothing to draw for {escape(ticker)}</h1>
     <p>{escape(reason)}</p>
     {search_form()}
+    {did_you_mean}
     {alternatives}
   </div>
 </main>

@@ -958,12 +958,29 @@ def company_page(ticker: str) -> HTMLResponse:
             status_code=500,
         )
     if view is None:
+        # Somebody arriving here typed something that is not a drawable symbol,
+        # and most of the time it is a company NAME -- /search sends short
+        # ticker-shaped queries straight here, and a pasted or guessed URL
+        # lands here too. Offer what the name actually resolves to: "nothing to
+        # draw for WALMART" with WMT one tap away is an answer; without it, it
+        # reads as the site not holding Walmart.
+        from src.company.lookup import did_you_mean, names_loaded
+
+        near = did_you_mean(symbol)
+        reason = (
+            "There are no filed fundamentals for it in the database, or it "
+            "reports no total for assets — so there is nothing to draw to scale."
+        )
+        if not near and not names_loaded():
+            # The honest cause, which is not the reader's query: with no names
+            # stored, a company name cannot be searched at all, so anything
+            # that is not a bare symbol arrives here looking like a dead ticker.
+            reason += (
+                " Company names are not loaded on this instance either, so only "
+                "ticker symbols can be searched — load them from the admin page."
+            )
         return HTMLResponse(
-            render_not_found(
-                symbol,
-                "There are no filed fundamentals for it in the database, or it "
-                "reports no total for assets — so there is nothing to draw to scale.",
-            ),
+            render_not_found(symbol, reason, matches=near),
             status_code=404,
         )
 
@@ -1167,6 +1184,28 @@ def _is_ticker_shaped(symbol: str) -> bool:
     return symbol.replace(".", "").replace("-", "").isalnum()
 
 
+# A US-listed symbol is five characters, plus a class suffix that is
+# punctuation rather than length (BRK.B). Six is the generous end of that, and
+# generous is the right side to err on: a real symbol wrongly called a name
+# loses a page that exists, while a name wrongly called a symbol produces a
+# 404 about a ticker nobody typed.
+_MAX_TICKER_CHARS = 6
+
+
+def _could_be_a_ticker(symbol: str) -> bool:
+    """Whether a query is short enough to be read as a symbol at all.
+
+    The distinction /search turns on. "SPACE" could be a ticker and is answered
+    as one; "WALMART" cannot be, and answering it with "nothing to draw for
+    WALMART" states the wrong problem -- the site never looked for a ticker
+    called WALMART, it failed to search for a company called Walmart, and the
+    reader is left reading a symbol they never typed.
+    """
+    if not _is_ticker_shaped(symbol):
+        return False
+    return len(symbol.replace(".", "").replace("-", "")) <= _MAX_TICKER_CHARS
+
+
 @app.get("/", response_class=HTMLResponse)
 def home() -> HTMLResponse:
     """The front door: a sentence, a search box, and five real balance sheets.
@@ -1240,12 +1279,15 @@ def search(q: str = Query("", max_length=64)) -> Response:
             render_matches(raw, found.matches, suggestions(), did_you_mean=True),
             status_code=404,
         )
-    # Nothing resolved. A ticker-shaped query still goes to /company/{SYMBOL}:
-    # that is the canonical, shareable URL for a company, and it is the one
-    # page that can say what is missing about that specific symbol. Only a
-    # query that cannot be a ticker at all is answered here.
+    # Nothing resolved. A query that could actually BE a ticker still goes to
+    # /company/{SYMBOL}: that is the canonical, shareable URL for a company, and
+    # it is the one page that can say what is missing about that specific
+    # symbol. A query too long to be a symbol is answered here instead --
+    # sending "walmart" to /company/WALMART reports a missing ticker nobody
+    # asked about and buries the real answer, which is either "did you mean
+    # WMT" or "names are not loaded on this instance".
     symbol = _clean_ticker(raw)
-    if _is_ticker_shaped(symbol):
+    if _could_be_a_ticker(symbol):
         return RedirectResponse(url=f"/company/{symbol}", status_code=303)
 
     if found.kind == "no_names":

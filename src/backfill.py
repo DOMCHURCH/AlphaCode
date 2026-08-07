@@ -759,6 +759,18 @@ async def backfill_company_names() -> int:
     with prices and liquidity in it.
     """
     reference = await sec_edgar.fetch_company_tickers()
+    written = _save_company_names(reference)
+    if not written:
+        _update_state(phase="error", last_error="SEC returned no company names")
+    return written
+
+
+def _save_company_names(reference: list[dict[str, Any]]) -> int:
+    """Write {ticker, name, cik} from an already-fetched SEC company list.
+
+    Split out from `backfill_company_names` so the fundamentals load can call
+    it with the list it ALREADY has. No network of its own.
+    """
     today = dt.date.today()
     rows = [
         {
@@ -771,7 +783,6 @@ async def backfill_company_names() -> int:
         if r.get("ticker") and r.get("name")
     ]
     if not rows:
-        _update_state(phase="error", last_error="SEC returned no company names")
         return 0
     written = 0
     for i in range(0, len(rows), 5000):
@@ -789,7 +800,19 @@ async def backfill_company_names() -> int:
 
 
 async def _cik_to_ticker() -> dict[str, str]:
-    """{cik (leading zeros stripped) -> ticker} from the SEC company list."""
+    """{cik (leading zeros stripped) -> ticker} from the SEC company list.
+
+    Stores the company NAMES from the same response, which is the whole point
+    of doing it here: every fundamentals and earnings load calls this, the list
+    carries {ticker, name, cik}, and dropping the name left search-by-name dead
+    on an instance whose data had loaded perfectly. Nothing called
+    `backfill_company_names` automatically, so a fully loaded deployment still
+    answered nothing but bare tickers -- "walmart" was a miss on a database
+    holding WMT.
+
+    A failure to write the names never fails the load that asked for the map:
+    names are an index onto the data, not the data.
+    """
     reference = await sec_edgar.fetch_company_tickers()
     out: dict[str, str] = {}
     for r in reference:
@@ -797,6 +820,10 @@ async def _cik_to_ticker() -> dict[str, str]:
         tkr = str(r.get("ticker") or "").upper()
         if cik and tkr:
             out.setdefault(cik, tkr)
+    try:
+        _save_company_names(reference)
+    except Exception as exc:  # noqa: BLE001 - the fundamentals still load
+        log.warning("company_names_save_failed", error=str(exc)[:200])
     return out
 
 

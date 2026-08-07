@@ -312,6 +312,33 @@ def close_matches(query: str, limit: int = 6) -> list[Match]:
     return [m for _r, m in scored[:limit]]
 
 
+def did_you_mean(query: str, limit: int = 6) -> list[Match]:
+    """Companies worth offering somebody whose query found nothing.
+
+    Name matches first, then near-misses. Used by the company page, which is
+    where a query that could not be answered actually lands: "walmart" is not a
+    ticker, so it arrives at /company/WALMART, and a page that says only "no
+    filed fundamentals for WALMART" is answering a question nobody asked. WMT
+    is right there.
+
+    Returns [] rather than raising, in every case: this decorates an error
+    page and must never become one.
+    """
+    q = query.strip()
+    if len(q) < MIN_QUERY_CHARS:
+        return []
+    try:
+        if names_loaded() == 0:
+            return []
+        hits = _search_names(q) or _search_names_normalised(q)
+        if hits:
+            return _rank(hits, q)[:limit]
+        return close_matches(q, limit=limit)
+    except Exception as exc:  # noqa: BLE001 - a miss stays a miss
+        log.warning("did_you_mean_failed", query=q[:40], error=str(exc)[:200])
+        return []
+
+
 def resolve(query: str) -> Resolution:
     """What the reader meant, as far as the data can say."""
     raw = query.strip()
