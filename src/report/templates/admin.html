@@ -73,6 +73,20 @@
     <div id="health" class="rows"><div class="loading">loading…</div></div>
   </section>
 
+  <!-- 2b. VISITORS -->
+  <section class="card">
+    <div class="card-head"><h2>Visitors</h2></div>
+    <p class="hint">Every reader-facing page request, stored one row per view
+      and counted live — no sampling, and nothing held in memory that a restart
+      would lose. <strong>Addresses are not people</strong>: an office shares
+      one and a phone moving from wifi to cellular makes two, so the unique
+      figure is a count of distinct addresses and is labelled as one. Crawler
+      traffic is kept and shown separately rather than dropped, so these
+      numbers reconcile against the server log. /admin, static files and health
+      probes are never counted.</p>
+    <div id="visitors" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
   <!-- 3. BALANCE SHEET — the extraction check -->
   <section class="card">
     <div class="card-head">

@@ -160,6 +160,39 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+@app.middleware("http")
+async def count_visits(request: Request, call_next):
+    """Record reader-facing page requests, without ever affecting the response.
+
+    The write happens AFTER the response is produced and in a worker thread, so
+    a synchronous insert cannot block the event loop or add latency the reader
+    experiences. Every qualifying request is written -- no sampling and no
+    in-memory buffer, because a buffer loses whatever it holds when the
+    container recycles, and a visitor count that quietly drops rows is worse
+    than no visitor count.
+    """
+    response = await call_next(request)
+    try:
+        from src import analytics
+
+        path = request.url.path
+        if request.method == "GET" and analytics.should_count(path):
+            await asyncio.to_thread(
+                analytics.record,
+                path,
+                analytics.client_ip(
+                    request.headers,
+                    request.client.host if request.client else "unknown",
+                ),
+                request.headers.get("user-agent"),
+                status=response.status_code,
+                referrer=request.headers.get("referer"),
+            )
+    except Exception as exc:  # noqa: BLE001 - never let counting break a page
+        log.warning("visit_count_failed", error=str(exc)[:200])
+    return response
+
+
 _backfill_lock = asyncio.Lock()
 
 
@@ -653,6 +686,7 @@ def admin_json() -> dict[str, Any]:
         get_raw_facts_state,
         get_reload_state,
     )
+    from src.analytics import summary as visit_summary
     from src.ingest.sec_cache import cache_status
     from src.logging_config import get_recent_logs
 
@@ -681,6 +715,7 @@ def admin_json() -> dict[str, Any]:
         "reload": get_reload_state(),
         "sec_cache": cache_status(),
         "ask": ask_status(),
+        "visitors": visit_summary(),
         "raw_facts": get_raw_facts_state(),
         "backfill_running": _backfill_lock.locked(),
     }

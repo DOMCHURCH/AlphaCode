@@ -413,6 +413,43 @@ class CacheEntry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class PageView(Base):
+    """One row per reader-facing page request. No sampling, no rollups.
+
+    Stored per event rather than as counters because a counter cannot be
+    re-cut: "how many people looked at JPM last week" is unanswerable once the
+    only thing kept is a running total. Rows are cheap and this is a personal
+    site.
+
+    `ip_hash` is a salted digest, never the address. It is enough to tell two
+    requests apart, and deliberately not enough to be a log of who read what.
+    It is also NOT a person: one office shares an address, and one phone
+    switching from wifi to cellular produces two. Anything derived from it is
+    labelled as a count of addresses, not of people.
+
+    `is_bot` is recorded rather than dropped. A crawler is real traffic and
+    silently discarding it makes a number nobody can reconcile against the
+    server log.
+    """
+
+    __tablename__ = "page_views"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, default=_utcnow, nullable=False, index=True
+    )
+    path: Mapped[str] = mapped_column(String(128), nullable=False)
+    ticker: Mapped[str | None] = mapped_column(String(16))
+    ip_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    is_bot: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    referrer: Mapped[str | None] = mapped_column(String(128))
+    status: Mapped[int] = mapped_column(Integer, default=200)
+
+    __table_args__ = (
+        Index("ix_pageview_time_bot", "created_at", "is_bot"),
+    )
+
+
 class LlmUsage(Base):
     """One row per question asked on a company page: tokens, cost, outcome.
 
@@ -464,6 +501,7 @@ ALL_TABLES = [
     ReportArtifact,
     CacheEntry,
     LlmUsage,
+    PageView,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

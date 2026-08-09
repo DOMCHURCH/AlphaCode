@@ -62,6 +62,7 @@ function render(d) {
   renderReload(d.reload || {});
   renderSecCache(d.sec_cache || []);
   renderAsk(d.ask || {});
+  renderVisitors(d.visitors || {});
   renderRawFacts(d.raw_facts || {});
   renderExtraction(d.extraction || {});
   renderConfig(d.config || []);
@@ -312,6 +313,50 @@ function renderSecCache(rows) {
   for (const r of rows) {
     out += row(r.quarter, `${((r.bytes || 0) / 1e6).toFixed(1)} MB`,
       `fetched ${r.age_hours}h ago`);
+  }
+  el.innerHTML = out;
+}
+
+// Visitors. Every label says exactly what it counts: views are requests,
+// "addresses" are distinct IP hashes and NOT people, and bot traffic is shown
+// rather than folded away.
+function renderVisitors(v) {
+  const el = $("visitors");
+  if (!el) return;
+  if (v.error) {
+    el.innerHTML = `<div class="err-note">${esc(v.error)}</div>`;
+    return;
+  }
+  const w = v.windows || {}, all = v.all_time || {};
+  if (!all.views) {
+    el.innerHTML = `<div class="loading">no page views recorded yet</div>`;
+    return;
+  }
+
+  let out = "";
+  for (const [label, name] of [["24h", "Last 24 hours"], ["7d", "Last 7 days"],
+                               ["30d", "Last 30 days"]]) {
+    const x = w[label] || {};
+    out += statline(name,
+      `${fmtNum(x.views)} views · ${fmtNum(x.addresses)} addresses`,
+      `${fmtNum(x.bot_views)} bot views, not included`);
+  }
+  out += statline("All time",
+    `${fmtNum(all.views)} views · ${fmtNum(all.addresses)} addresses`,
+    `${fmtNum(v.bot_views_all_time)} bot views, not included`);
+  if (all.first_seen)
+    out += row("Counting since", new Date(all.first_seen).toLocaleString(),
+      all.last_seen ? "last view " + new Date(all.last_seen).toLocaleString() : "");
+
+  if ((v.top_tickers || []).length) {
+    out += `<div class="bf-head">Most-viewed companies (30 days)</div>`;
+    for (const t of v.top_tickers)
+      out += row(t.ticker, fmtNum(t.views));
+  }
+  if ((v.top_pages || []).length) {
+    out += `<div class="bf-head">Most-viewed pages (30 days)</div>`;
+    for (const p of v.top_pages)
+      out += row(p.path, fmtNum(p.views));
   }
   el.innerHTML = out;
 }
