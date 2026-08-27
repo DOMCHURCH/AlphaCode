@@ -630,3 +630,136 @@ def test_no_tag_is_claimed_by_two_concepts():
         for t in c.tags:
             assert t not in seen, f"{t} claimed by both {seen[t]} and {c.metric}"
             seen[t] = c.metric
+
+
+# ---------------------------------------------------------------------------
+# The hypothesised Assets-selection failure modes, asserted against directly.
+#
+# When JPM's total_assets read 10.75% high, the first suspicion was that a
+# dimensional `Assets` fact -- a VIE, a consolidated legal entity, a business
+# segment -- was passing the filter, or that several contexts were being
+# summed. Neither is possible here, and these pin that down so the next
+# investigation starts somewhere else. (The real cause was a verification
+# reference read for an older period; see tests/test_verify_reference_periods.)
+# ---------------------------------------------------------------------------
+
+# Every dimensional flavour a heavily-segmented 10-Q carries for `Assets`.
+_JPM_ASSETS_CONTEXTS = [
+    ("Geographical=EMEA", 1_490_000_000_000),
+    ("Geographical=NorthAmerica", 2_810_000_000_000),
+    ("BusinessSegments=ConsumerBanking", 1_210_000_000_000),
+    ("BusinessSegments=CorporateAndInvestmentBank", 2_050_000_000_000),
+    ("LegalEntityAxis=JPMorganChaseBankNA", 3_480_000_000_000),
+    ("ConsolidatedEntitiesAxis=VariableInterestEntity", 475_575_000_000),
+]
+_JPM_CONSOLIDATED_ASSETS = 4_900_475_000_000
+
+
+def test_no_dimensional_assets_context_survives_the_filter():
+    """VIE and legal-entity axes are `segments` values like any other."""
+    rows = [
+        _num(tag="Assets", qtrs="0", segments=seg, value=str(val))
+        for seg, val in _JPM_ASSETS_CONTEXTS
+    ]
+    rows.append(_num(tag="Assets", qtrs="0", coreg="JPMCB", value="3480000000000"))
+    rows.append(_num(tag="Assets", qtrs="0", value=str(_JPM_CONSOLIDATED_ASSETS)))
+
+    out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), _df(rows, NUM_COLS), {"19617": "JPM"})
+
+    assert rep.dropped_dimensional == len(_JPM_ASSETS_CONTEXTS) + 1
+    assets = [r for r in out if r["metric"] == "total_assets"]
+    assert len(assets) == 1
+    assert assets[0]["value"] == _JPM_CONSOLIDATED_ASSETS
+
+
+def test_contexts_are_selected_never_summed():
+    """The parser picks one fact. It has no path that adds two together.
+
+    A sum of these contexts is nowhere near the answer, and the distance is the
+    point: if a total ever came out as a sum, it would not be 10% high.
+    """
+    rows = [
+        _num(tag="Assets", qtrs="0", segments=seg, value=str(val))
+        for seg, val in _JPM_ASSETS_CONTEXTS
+    ]
+    rows.append(_num(tag="Assets", qtrs="0", value=str(_JPM_CONSOLIDATED_ASSETS)))
+
+    out, _ = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), _df(rows, NUM_COLS), {"19617": "JPM"})
+    total = [r for r in out if r["metric"] == "total_assets"][0]["value"]
+
+    assert total == _JPM_CONSOLIDATED_ASSETS
+    assert total != sum(v for _s, v in _JPM_ASSETS_CONTEXTS) + _JPM_CONSOLIDATED_ASSETS
+
+
+def test_the_same_dimensional_rule_guards_every_balance_sheet_total():
+    """total_assets is not special. Liabilities and the stated total filter too."""
+    rows = []
+    for tag in ("Assets", "Liabilities", "LiabilitiesAndStockholdersEquity",
+                "AssetsCurrent", "LiabilitiesCurrent"):
+        rows.append(_num(tag=tag, qtrs="0", segments="Geographical=EMEA", value="1"))
+        rows.append(_num(tag=tag, qtrs="0", coreg="SUB", value="2"))
+        rows.append(_num(tag=tag, qtrs="0", value="1000000000000"))
+
+    out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), _df(rows, NUM_COLS), {"19617": "JPM"})
+
+    assert rep.dropped_dimensional == 10
+    assert {r["metric"] for r in out} == {
+        "total_assets", "total_liabilities", "liabilities_and_equity",
+        "current_assets", "current_liabilities",
+    }
+    assert all(r["value"] == 1_000_000_000_000 for r in out)
+
+
+def test_two_consolidated_facts_for_one_key_are_flagged_not_silently_ranked():
+    """Same tag, same period, same filing date, two different values.
+
+    This is not an alias collapse -- there is no better tag to prefer -- so the
+    incumbent wins only because it came first in the file. That is exactly the
+    behaviour this parser replaced, so it must be visible in the report rather
+    than folded into the alias counter.
+    """
+    rows = [
+        _num(tag="Assets", qtrs="0", value="4900475000000"),
+        _num(tag="Assets", qtrs="0", value="641190000000"),
+    ]
+    out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), _df(rows, NUM_COLS), {"19617": "JPM"})
+
+    assert rep.conflicting_duplicate == 1
+    flag = [f for f in rep.flags if f["rule"] == "conflicting_duplicate_fact"]
+    assert len(flag) == 1
+    assert flag[0]["metric"] == "total_assets"
+    assert flag[0]["kept_value"] == 4_900_475_000_000
+    assert flag[0]["discarded_value"] == 641_190_000_000
+    assert len(out) == 1
+
+
+def test_an_alias_collapse_is_not_reported_as_a_conflict():
+    """Two names for one concept have a principled winner, so no flag."""
+    rows = [
+        _num(tag="IntangibleAssetsNet", qtrs="0", value="200"),
+        _num(tag="IntangibleAssetsNetExcludingGoodwill", qtrs="0", value="100"),
+    ]
+    out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), _df(rows, NUM_COLS), {"19617": "JPM"})
+
+    assert rep.dropped_alias_duplicate == 1
+    assert rep.conflicting_duplicate == 0
+    assert out[0]["value"] == 100
+
+
+def test_the_report_says_which_dimension_columns_it_could_filter_on():
+    """A coreg-only dataset filters on half the rule and must not look complete.
+
+    Without `segments`, a `Geographical=EMEA` Assets row is indistinguishable
+    from a consolidated one. The load still runs -- those datasets predate the
+    rows that would need filtering -- but "we could only filter on coreg" and
+    "we filtered on everything" must not report identically.
+    """
+    full = _df([_num(tag="Assets", qtrs="0", value="1")], NUM_COLS)
+    _out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), full, {"19617": "JPM"})
+    assert set(rep.dimension_columns_present) == set(xbrl.DIMENSION_COLUMNS)
+    assert rep.as_dict()["dimension_filter_complete"] is True
+
+    legacy = full.drop(columns=["segments"])
+    _out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), legacy, {"19617": "JPM"})
+    assert rep.dimension_columns_present == ("coreg",)
+    assert rep.as_dict()["dimension_filter_complete"] is False

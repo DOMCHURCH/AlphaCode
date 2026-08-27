@@ -22,6 +22,15 @@ Usage:
     python3 scripts/dump_jpm_raw_facts.py --ticker JPM,FCX
     python3 scripts/dump_jpm_raw_facts.py --year 2026 --quarter 1 --ddate 20251231
 
+    # Spot check the Assets selection on large multi-segment filers. The
+    # whole-universe A = L + E sweep cannot catch a wrong Assets pick, so this
+    # is the check that has to be run filer by filer.
+    python3 scripts/dump_jpm_raw_facts.py --year 2026 --quarter 2 \
+        --ticker JPM,BAC,C,WFC,GS,WMT,COST,TGT,GE,CAT --tags Assets
+
+    # Resolve a filer out of sub.txt when you do not know its CIK.
+    python3 scripts/dump_jpm_raw_facts.py --name "BERKSHIRE" --tags Assets
+
 SEC requires a descriptive User-Agent with a contact email; without one every
 request is 403'd.
 """
@@ -41,12 +50,39 @@ from pathlib import Path
 DATASET_URL = "https://www.sec.gov/files/dera/data/financial-statement-data-sets/{year}q{q}.zip"
 
 # CIKs for the five verification companies, unpadded.
+#
+# The second block is the spot-check set: large, heavily-dimensioned filers
+# across banks, retail and industrials. A whole-universe balance-identity sweep
+# cannot catch a wrong Assets selection -- A = L + E is an internal-consistency
+# check and a segment-level balance sheet balances just as well as a
+# consolidated one -- so agreement with a ground-truth total has to be checked
+# filer by filer, and these are the filers where it is most likely to break.
+#
+# These CIKs are not verified against sec.gov from this environment. If one is
+# wrong the run reports "no submissions" rather than wrong numbers, and
+# `--name` resolves a filer out of sub.txt itself without trusting this table.
 KNOWN_CIKS = {
     "JPM": "19617",     # JPMorgan Chase
     "AAL": "6201",      # American Airlines Group
     "MSFT": "789019",   # Microsoft
     "WMT": "104169",    # Walmart
     "FCX": "831259",    # Freeport-McMoRan
+    # Banks -- multiple business segments, geography axes, and VIE consolidation.
+    "BAC": "70858",     # Bank of America
+    "C": "831001",      # Citigroup
+    "WFC": "72971",     # Wells Fargo
+    "GS": "886982",     # Goldman Sachs
+    "MS": "895421",     # Morgan Stanley
+    # Retail -- segment and geography breakdowns on the balance sheet.
+    "COST": "909832",   # Costco
+    "TGT": "27419",     # Target
+    "HD": "354950",     # Home Depot
+    # Industrials -- segment reporting plus finance-arm legal entities.
+    "GE": "40545",      # GE Aerospace
+    "HON": "773840",    # Honeywell
+    "CAT": "18230",     # Caterpillar
+    "BA": "12927",      # Boeing
+    "XOM": "34088",     # Exxon Mobil
 }
 
 # The two tags that expose the bug most clearly. Both are balance-sheet
@@ -124,12 +160,19 @@ def read_tsv(zf: zipfile.ZipFile, name: str):
             yield header, row
 
 
-def find_submissions(zf: zipfile.ZipFile, ciks: set[str]) -> dict[str, dict]:
-    """adsh -> submission metadata, for the CIKs we care about."""
+def find_submissions(
+    zf: zipfile.ZipFile, ciks: set[str], name_substr: str = ""
+) -> dict[str, dict]:
+    """adsh -> submission metadata, for the CIKs (or names) we care about.
+
+    Matching on `name` resolves a filer out of the file itself, so a spot check
+    does not depend on the hardcoded CIK table being right.
+    """
+    needle = name_substr.strip().upper()
     subs: dict[str, dict] = {}
     for _header, row in read_tsv(zf, "sub.txt"):
         cik = (row.get("cik") or "").lstrip("0")
-        if cik in ciks:
+        if cik in ciks or (needle and needle in (row.get("name") or "").upper()):
             subs[row["adsh"]] = row
     return subs
 
@@ -246,6 +289,12 @@ def main() -> int:
     ap.add_argument(
         "--ddate", default="", help="restrict to one period end, YYYYMMDD (e.g. 20251231)"
     )
+    ap.add_argument(
+        "--name",
+        default="",
+        help="also match filers whose sub.txt `name` contains this substring, "
+             "case-insensitive. Resolves a filer without needing its CIK.",
+    )
     args = ap.parse_args()
 
     if args.cik:
@@ -266,8 +315,9 @@ def main() -> int:
     with zipfile.ZipFile(zip_path) as zf:
         print(f"\nZIP members: {zf.namelist()}")
 
-        print(f"\nScanning sub.txt for CIK(s) {sorted(ciks)} ...")
-        subs = find_submissions(zf, ciks)
+        print(f"\nScanning sub.txt for CIK(s) {sorted(ciks)}"
+              + (f" or name containing {args.name!r}" if args.name else "") + " ...")
+        subs = find_submissions(zf, ciks, args.name)
         if not subs:
             print(
                 f"\nNo submissions for those CIKs in {args.year}q{args.quarter}.\n"

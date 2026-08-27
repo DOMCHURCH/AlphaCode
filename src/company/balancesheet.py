@@ -82,11 +82,24 @@ class BalanceSheet:
     data_quality_issues: list[str]  # e.g., negative equity, zero assets
 
 
-def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet | None:
-    """Fetch the most recent balance sheet for a ticker.
+def get_balance_sheet(
+    ticker: str,
+    as_of: dt.date | None = None,
+    period_end: dt.date | None = None,
+) -> BalanceSheet | None:
+    """Fetch a balance sheet for a ticker.
 
     Returns None if the ticker has no usable fundamentals data.
     Point-in-time: only shows data as of `as_of` and earlier.
+
+    `period_end` pins the answer to ONE reporting period instead of "whichever
+    is newest". A caller holding a figure read off a specific filing -- the
+    reference set in `src.company.verify` is the whole reason this exists --
+    must compare against that period or it is not comparing like with like: a
+    balance sheet grows between filings, so an unpinned comparison reports the
+    passage of time as an extraction error. Returns None when that period is
+    not loaded, which is a different answer from "this ticker has no data" and
+    must not be collapsed into one.
     """
     if as_of is None:
         as_of = dt.date.today()
@@ -140,9 +153,19 @@ def get_balance_sheet(ticker: str, as_of: dt.date | None = None) -> BalanceSheet
         if not by_period:
             return None
 
-        # Use most recent period
-        most_recent_period = max(by_period.keys())
-        period_data = {f.metric: f for f in by_period[most_recent_period]}
+        # Pinned period when the caller named one, most recent otherwise.
+        if period_end is not None:
+            if period_end not in by_period:
+                log.info(
+                    "no_fundamentals_for_period",
+                    ticker=ticker,
+                    period_end=str(period_end),
+                )
+                return None
+            selected_period = period_end
+        else:
+            selected_period = max(by_period.keys())
+        period_data = {f.metric: f for f in by_period[selected_period]}
 
         # Get period end and filing date from any concept in the period
         sample = period_data[next(iter(period_data))]

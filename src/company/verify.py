@@ -8,6 +8,19 @@ JPM's figures are exact: they were read off a real num.txt dump for period
 2025-12-31 and are the consolidated rows the filter must now select. The rest
 are order-of-magnitude expectations -- they catch a parser reading the wrong
 fact, not a small reporting difference.
+
+Every reference figure is a fact about ONE period, so each carries the period
+it was read for and is compared against that period. Until it did, this module
+compared its 2025-12-31 figures against whatever the newest loaded period
+happened to be, and reported the difference as a parser failure: JPM's assets
+read 4,900,475,000,000 for 2026-03-31 against the 4,424,900,000,000 confirmed
+for 2025-12-31 and failed at 10.75% drift, with the extraction entirely
+correct and the balance identity clean. A balance sheet grows between filings.
+Comparing across periods measures the growth, not the parser, and it fails
+harder every quarter that passes -- always in the same direction, because
+assets accumulate. That is a verification bug that manufactures extraction
+bugs, so the period is now data the check enforces rather than prose in
+`basis` that nothing reads.
 """
 
 from __future__ import annotations
@@ -31,21 +44,43 @@ class Reference:
     reference is at least as likely to be the wrong side. Saying which is which
     keeps "the parser is broken" and "my memory was stale" from looking
     identical in the output.
+
+    `period_end` is the period the figure was read for. A confirmed reference
+    must have one: it is a fact about a specific balance sheet, and comparing
+    it against a different one measures elapsed time. `None` means the figure
+    has no period basis at all -- a recollection nobody has pinned to a filing
+    -- and such a reference can only ever be a smell test against the latest
+    period, never evidence that the parser is wrong.
     """
 
-    def __init__(self, value: float, basis: str, confirmed: bool = False) -> None:
+    def __init__(
+        self,
+        value: float,
+        basis: str,
+        period_end: dt.date | None = None,
+        confirmed: bool = False,
+    ) -> None:
+        if confirmed and period_end is None:
+            raise ValueError(
+                f"confirmed reference {value:,.0f} ({basis}) has no period_end; "
+                "a figure read off a dump is a fact about one period and cannot "
+                "be checked without knowing which."
+            )
         self.value = value
         self.basis = basis
+        self.period_end = period_end
         self.confirmed = confirmed
 
 
 REFERENCE: dict[str, dict[str, Reference]] = {
     "JPM": {
         "total_assets": Reference(
-            4_424_900_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+            4_424_900_000_000, "num.txt dump, period 2025-12-31",
+            period_end=dt.date(2025, 12, 31), confirmed=True,
         ),
         "total_equity": Reference(
-            362_438_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+            362_438_000_000, "num.txt dump, period 2025-12-31",
+            period_end=dt.date(2025, 12, 31), confirmed=True,
         ),
     },
     "MSFT": {
@@ -53,17 +88,25 @@ REFERENCE: dict[str, dict[str, Reference]] = {
         # USD. Notably the same figure the parser produced -- but it is confirmed
         # because the file says so, not because the parser agreed with itself.
         "total_assets": Reference(
-            665_302_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+            665_302_000_000, "num.txt dump, period 2025-12-31",
+            period_end=dt.date(2025, 12, 31), confirmed=True,
         ),
         # Corrected from a remembered ~$300B. The num.txt dump for period
         # 2025-12-31 shows exactly one consolidated StockholdersEquity row at
         # this figure: the parser was right and the expectation was stale, which
         # is the only direction a reference is allowed to move.
         "total_equity": Reference(
-            390_875_000_000, "num.txt dump, period 2025-12-31", confirmed=True
+            390_875_000_000, "num.txt dump, period 2025-12-31",
+            period_end=dt.date(2025, 12, 31), confirmed=True,
         ),
     },
     "WMT": {
+        # No period basis: this is a remembered round number, and ~$260B is
+        # what WMT's balance sheet looked like at a fiscal year end more than a
+        # year before the newest loaded period. Compared against the latest
+        # period it reads ~11% low, which is the reference aging, not the
+        # parser. It stays unconfirmed and unpinned until a dump settles it,
+        # and unconfirmed references cannot fail the run.
         "total_assets": Reference(260_000_000_000, "recollection, unconfirmed"),
     },
     "FCX": {
@@ -98,8 +141,12 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
     as_of = as_of or dt.date.today()
     companies: dict[str, Any] = {}
     all_passed = True
+    unverifiable: list[str] = []
 
     for ticker, checks in REFERENCE.items():
+        # The latest period carries the identity and impossibility checks: those
+        # are statements about a balance sheet being internally coherent, and
+        # they are most useful on the newest data we hold.
         bs = get_balance_sheet(ticker, as_of=as_of)
         if bs is None:
             companies[ticker] = {
@@ -110,17 +157,55 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
             all_passed = False
             continue
 
+        # Reference comparisons run against the period each figure was read
+        # for, which is usually NOT the latest one. Cached because several
+        # metrics normally share a period and each lookup is a query.
+        pinned: dict[dt.date, Any] = {}
+
         metrics: dict[str, Any] = {}
         company_passed = True
 
         for metric, ref in checks.items():
             group_name, concept = _LOCATION[metric]
-            cell = getattr(bs, group_name)[concept]
+            if ref.period_end is None:
+                # No period basis, so the newest sheet is all there is to
+                # compare against -- flagged as such on the way out.
+                ref_bs = bs
+            else:
+                if ref.period_end not in pinned:
+                    pinned[ref.period_end] = get_balance_sheet(
+                        ticker, as_of=as_of, period_end=ref.period_end
+                    )
+                ref_bs = pinned[ref.period_end]
+            compared_period = ref.period_end or bs.period_end
+
+            # The reference names a period we have not loaded. That is not the
+            # parser being wrong -- it is nothing to compare against -- and
+            # calling it a failure is how a partial load reads as a data bug.
+            if ref_bs is None:
+                metrics[metric] = {
+                    "actual": None,
+                    "expected": ref.value,
+                    "basis": ref.basis,
+                    "confirmed": ref.confirmed,
+                    "reference_period_end": ref.period_end.isoformat(),
+                    "latest_period_end": bs.period_end.isoformat()
+                    if bs.period_end else None,
+                    "drift_pct": None,
+                    "passed": False,
+                    "verdict": "reference period not loaded — cannot verify",
+                }
+                unverifiable.append(f"{ticker}.{metric}")
+                continue
+
+            cell = getattr(ref_bs, group_name)[concept]
             actual = None if cell.missing else cell.value
 
             if actual is None:
                 metrics[metric] = {
                     "actual": None, "expected": ref.value, "basis": ref.basis,
+                    "compared_period_end": compared_period.isoformat()
+                    if compared_period else None,
                     "drift_pct": None, "passed": False, "note": "missing",
                 }
                 company_passed = False
@@ -133,6 +218,15 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
                 "expected": ref.value,
                 "basis": ref.basis,
                 "confirmed": ref.confirmed,
+                # Which balance sheet the figure was actually compared against.
+                # An unpinned reference falls back to the latest period, and
+                # saying so is the difference between a real check and one that
+                # silently measures elapsed time.
+                "compared_period_end": compared_period.isoformat()
+                if compared_period else None,
+                "period_matched": ref.period_end is not None,
+                "latest_period_end": bs.period_end.isoformat()
+                if bs.period_end else None,
                 "drift_pct": round(drift * 100, 2),
                 "passed": ok,
             }
@@ -224,18 +318,63 @@ def verify_companies(as_of: dt.date | None = None) -> dict[str, Any]:
         for m, x in c["metrics"].items()
         if not x.get("confirmed") and not x.get("passed")
     ]
+    # Name the actual cause. "The parser is wrong" is one of several reasons a
+    # run fails, and printing it for a ticker that simply was not loaded sends
+    # the reader to debug an extractor that is working.
+    absent = [t for t, c in companies.items() if not c.get("found")]
+    drifted = [
+        f"{t}.{m}"
+        for t, c in companies.items()
+        if c.get("found")
+        for m, x in c["metrics"].items()
+        # `drift_pct is None` means the figure was never compared -- missing
+        # metric or unloaded reference period. Those are coverage gaps, and
+        # counting them as disagreement is what this whole check got wrong.
+        if x.get("confirmed") and not x.get("passed")
+        and x.get("drift_pct") is not None
+    ]
+    if drifted:
+        summary = (
+            f"FAIL — CONFIRMED figure(s) off by more than {TOLERANCE:.0%} "
+            f"against the period they were read for: {', '.join(drifted)}. The "
+            f"parser is wrong; do not build on these."
+        )
+    elif not all_passed:
+        reasons = []
+        if absent:
+            reasons.append(f"no fundamentals loaded for {', '.join(absent)}")
+        other = [
+            t for t, c in companies.items()
+            if c.get("found") and not c["passed"] and t not in absent
+        ]
+        if other:
+            reasons.append(f"failing checks for {', '.join(other)}")
+        summary = (
+            "FAIL — " + "; ".join(reasons or ["see per-company detail"])
+            + ". No confirmed figure disagrees with its reference, so this is a "
+              "coverage problem, not a parser problem."
+        )
+    elif unverifiable:
+        # Nothing disagreed, but not everything was checkable. Saying "PASS"
+        # flat would overstate what was actually verified.
+        summary = (
+            f"PASS — every checkable figure reconciles, but {len(unverifiable)} "
+            f"reference period(s) are not loaded and went unverified: "
+            f"{', '.join(unverifiable)}"
+        )
+    else:
+        summary = "PASS — every company reconciles against its reference period"
+
     return {
         "as_of": as_of.isoformat(),
         "tolerance_pct": TOLERANCE * 100,
         "companies": companies,
         "passed": all_passed,
         "unconfirmed_mismatches": unconfirmed,
-        "summary": (
-            "PASS — every company reconciles"
-            if all_passed
-            else f"FAIL — at least one CONFIRMED figure is off by more than "
-                 f"{TOLERANCE:.0%}. The parser is wrong; do not build on these."
-        ),
+        # References whose period is absent from the load. Neither a pass nor a
+        # parser failure: there was nothing to compare against.
+        "unverifiable": unverifiable,
+        "summary": summary,
     }
 
 

@@ -213,8 +213,16 @@ function verifyHtml(v) {
           (m.drift_pct != null ? ` · ${m.drift_pct}% off` : "") + `</span>`;
       const tag = m.passed ? pill("✓", "ok")
         : m.confirmed ? pill("✗", "bad") : pill("? ref", "warn");
+      // Which period the figure was actually compared against. A reference is
+      // a fact about one balance sheet, and when this is not the period it was
+      // read for the drift is elapsed time, not an extraction error.
+      const per = m.compared_period_end
+        ? ` · vs ${esc(m.compared_period_end)}` +
+          (m.period_matched === false ? " (latest — reference has no period)" : "")
+        : m.reference_period_end ? ` · ref period ${esc(m.reference_period_end)} not loaded` : "";
       out += `<div class="row indent"><div class="k">${esc(metric)}` +
-        `<span class="sub">${esc(m.basis)}${m.verdict ? " — " + esc(m.verdict) : ""}</span></div>` +
+        `<span class="sub">${esc(m.basis)}${per}` +
+        `${m.verdict ? " — " + esc(m.verdict) : ""}</span></div>` +
         `<div class="v">${shown} ${tag}</div></div>`;
     }
 
@@ -469,6 +477,19 @@ function renderExtraction(ex) {
       `(${fmtNum(r.dropped_ytd_cumulative)} YTD cumulative) · ` +
       `${fmtNum(r.dropped_non_usd)} non-USD · ${fmtNum(r.dropped_alias_duplicate)} alias dupes`,
       "structural — expected to be large");
+    // Not structural. Two consolidated facts for one key at two values means
+    // the winner was decided by file order, which is the failure this parser
+    // replaced. Any nonzero count wants looking at.
+    if (r.conflicting_duplicate)
+      out += statline("  conflicting duplicates",
+        pill(fmtNum(r.conflicting_duplicate), "bad"),
+        "same tag, same period, two values — winner is file order; see flags");
+    // Half the dimensional rule is not the rule. Without `segments` a segment
+    // or legal-entity row is indistinguishable from a consolidated one.
+    if (r.dimension_filter_complete === false)
+      out += statline("  dimension filter",
+        pill("partial: " + (r.dimension_columns_present || []).join(", "), "warn"),
+        "dataset lacks a dimension column; breakdowns it carries read as consolidated");
     const hist = r.duration_qtrs_seen || {};
     if (Object.keys(hist).length) {
       out += statline("  duration qtrs seen",
@@ -845,6 +866,10 @@ function buildCopyText(d) {
   for (const q of qs) {
     const r = ex[q] || {};
     push(`  ${q}: kept ${fmtNum(r.kept)} of ${fmtNum(r.tag_matched)} tag matches`);
+    if (r.conflicting_duplicate)
+      push(`    CONFLICTING DUPLICATES: ${fmtNum(r.conflicting_duplicate)} (winner is file order)`);
+    if (r.dimension_filter_complete === false)
+      push(`    PARTIAL DIMENSION FILTER: only ${(r.dimension_columns_present || []).join(", ")}`);
     push(`    dropped: ${fmtNum(r.dropped_dimensional)} dimensional, ${fmtNum(r.dropped_wrong_qtrs)} wrong-qtrs ` +
       `(${fmtNum(r.dropped_ytd_cumulative)} YTD-cumulative), ` +
       `${fmtNum(r.dropped_non_usd)} non-USD, ${fmtNum(r.dropped_alias_duplicate)} alias-dupes`);
@@ -907,7 +932,9 @@ function buildCopyText(d) {
       if (!c.found) { push(`  ${t}: NO DATA (${c.reason || ""})`); continue; }
       push(`  ${t} [${c.passed ? "PASS" : "FAIL"}] ${c.period_end} filed ${c.filing_date}`);
       for (const [m, x] of Object.entries(c.metrics || {}))
-        push(`    ${m}: actual=${x.actual} expected=${x.expected} drift=${x.drift_pct}% ${x.passed ? "OK" : "OFF"}`);
+        push(`    ${m}: actual=${x.actual} expected=${x.expected} drift=${x.drift_pct}% ` +
+          `period=${x.compared_period_end || x.reference_period_end || "?"}` +
+          `${x.period_matched === false ? " (unpinned ref)" : ""} ${x.passed ? "OK" : "OFF"}`);
       const id = c.identity || {};
       push(`    A=L+E: ${id.checkable ? (id.balanced ? "OK " : "OFF ") + id.drift_pct + "%" : "not checkable"}`);
       if (c.impossible) push(`    IMPOSSIBLE: ${c.impossible}`);

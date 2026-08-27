@@ -262,7 +262,21 @@ class ExtractionReport:
     dropped_unparseable: int = 0
     dropped_no_ticker: int = 0
     dropped_alias_duplicate: int = 0
+    # Subset of dropped_alias_duplicate: two rows collided on the same
+    # (ticker, metric, period_end, filing_date) at the SAME alias rank -- so
+    # they are the same tag, not two aliases -- carrying DIFFERENT values.
+    # An alias collapse has a principled winner; this does not, and the
+    # incumbent only wins because it appeared first in the file. That is the
+    # "whichever row came first" behaviour this parser exists to remove, so it
+    # is counted and flagged rather than resolved silently.
+    conflicting_duplicate: int = 0
     kept: int = 0
+    # Which dimensional columns num.txt actually carried. `segments` appears
+    # only from ~2021, and without it a segment or legal-entity row is
+    # indistinguishable from a consolidated one -- the filter degrades to
+    # coreg-only and cannot catch a `Geographical=EMEA` Assets row. A load that
+    # could only filter on part of the rule must say so.
+    dimension_columns_present: tuple[str, ...] = ()
     # Validation, counted separately: structural drops are expected and huge,
     # validation rejections should be rare.
     validated_periods: int = 0
@@ -296,7 +310,12 @@ class ExtractionReport:
             "dropped_unparseable": self.dropped_unparseable,
             "dropped_no_ticker": self.dropped_no_ticker,
             "dropped_alias_duplicate": self.dropped_alias_duplicate,
+            "conflicting_duplicate": self.conflicting_duplicate,
             "kept": self.kept,
+            "dimension_columns_present": list(self.dimension_columns_present),
+            "dimension_filter_complete": (
+                set(self.dimension_columns_present) == set(DIMENSION_COLUMNS)
+            ),
             "validated_periods": self.validated_periods,
             "rejected_periods": self.rejected_periods,
             "reject_rate": round(
@@ -419,6 +438,24 @@ def extract_facts(
             "be distinguished from consolidated ones and the load would repeat the "
             "original bug."
         )
+    report.dimension_columns_present = tuple(present_dims)
+    # One column present is not the rule, it is half of it. `segments` carries
+    # the segment, geography and legal-entity breakdowns; without it every such
+    # row reads as consolidated and a `Geographical=EMEA` Assets fact can be
+    # selected as the company total -- the exact failure this parser replaced.
+    # Not fatal, because coreg-only datasets predate the dimensional rows they
+    # would need filtering for, but never silent.
+    missing_dims = [c for c in DIMENSION_COLUMNS if c not in num.columns]
+    if missing_dims:
+        log.warning(
+            "xbrl_partial_dimension_filter",
+            present=list(present_dims),
+            missing=missing_dims,
+            detail=(
+                "dimensional facts can only be filtered on the present columns; "
+                "any breakdown carried by a missing column reads as consolidated"
+            ),
+        )
 
     mapped = num["tag"].isin(_TAG_TO_CONCEPT)
 
@@ -491,6 +528,26 @@ def extract_facts(
         prev = best.get(key)
         if prev is not None:
             report.dropped_alias_duplicate += 1
+            # Same alias rank means the same tag, so this is not two names for
+            # one concept -- it is one concept reported twice for one period by
+            # one filing date, at two different values. Nothing here can tell
+            # which is right, and picking by file position is guessing. Keep
+            # the incumbent (deterministic given the file) and surface the
+            # collision so a wrong total_assets cannot hide inside a counter.
+            if rank == prev[0] and prev[1]["value"] != value:
+                report.conflicting_duplicate += 1
+                flag = {
+                    "ticker": ticker,
+                    "metric": concept.metric,
+                    "rule": "conflicting_duplicate_fact",
+                    "period_end": str(period_end),
+                    "filing_date": str(filing_date),
+                    "tag": r.tag,
+                    "kept_value": prev[1]["value"],
+                    "discarded_value": value,
+                }
+                report.flags.append(flag)
+                log.warning("xbrl_conflicting_duplicate_fact", **flag)
             if rank >= prev[0]:
                 continue
         best[key] = (
