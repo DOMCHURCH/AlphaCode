@@ -59,6 +59,7 @@ async function load() {
 function render(d) {
   renderVerdict(d.verdict);
   renderHealth(d.data_health || {});
+  renderAutoUpdate(d.auto_update || {});
   renderReload(d.reload || {});
   renderSecCache(d.sec_cache || []);
   renderAsk(d.ask || {});
@@ -308,6 +309,56 @@ function renderReload(r) {
 
 // What is already on disk. A cached quarter is a quarter SEC will not be asked
 // for again — the reason the 429s stopped.
+// The auto-updater. Three states per job, and the panel names which one it is
+// in rather than showing a bare timestamp: BEHIND (it will run at the next
+// check), WAITING (it ran, the upstream has nothing newer yet), CURRENT. A
+// failure shows its error and when it will try again, because a job that is
+// quietly retrying looks identical to a job that has given up.
+function relTime(iso) {
+  if (!iso) return null;
+  const t = new Date(iso + (/(Z|[+-]\d\d:?\d\d)$/.test(iso) ? "" : "Z"));
+  if (isNaN(t)) return null;
+  const mins = Math.round((Date.now() - t.getTime()) / 60000);
+  const abs = Math.abs(mins);
+  const unit = abs < 60 ? `${abs} min` : abs < 1440
+    ? `${Math.round(abs / 60)}h` : `${Math.round(abs / 1440)}d`;
+  return mins >= 0 ? `${unit} ago` : `in ${unit}`;
+}
+
+function renderAutoUpdate(a) {
+  const el = $("autoUpdate");
+  if (!el) return;
+  const jobs = a.jobs || [];
+  if (!jobs.length) {
+    el.innerHTML = `<div class="loading">no jobs reported</div>`;
+    return;
+  }
+  let out = row("Auto-update",
+    a.enabled ? pill("on", "ok") : pill("off", "warn"),
+    a.enabled
+      ? `checks every ${a.tick_minutes} min · ${a.quarters_per_run} quarter(s) per SEC run`
+      : `AUTO_UPDATE=${a.mode} — nothing refreshes on its own`);
+
+  for (const j of jobs) {
+    if (j.error) { out += row(j.name, pill("unknown", "warn"), j.error); continue; }
+    const failing = (j.consecutive_failures || 0) > 0;
+    const state = failing ? pill("failing", "bad")
+      : j.due ? pill("behind", "warn")
+      : pill("current", "ok");
+    const bits = [];
+    if (j.now) bits.push(j.now);
+    if (failing && j.last_error) bits.push(`error: ${j.last_error}`);
+    else if (j.last_detail) bits.push(`last run: ${j.last_detail}`);
+    const success = relTime(j.last_success_at);
+    bits.push(success ? `last landed ${success}` : "never landed yet");
+    const next = relTime(j.next_earliest_at);
+    if (next) bits.push(`next check ${next}`);
+    out += row(j.name, state, bits.join(" · "));
+    out += `<div class="row"><div class="k"><span class="sub">${esc(j.does || "")}</span></div><div class="v"></div></div>`;
+  }
+  el.innerHTML = out;
+}
+
 function renderSecCache(rows) {
   const el = $("secCache");
   if (!el) return;

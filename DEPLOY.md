@@ -46,8 +46,34 @@
    against Postgres). Check `https://<service>.up.railway.app/health` →
    `{"status":"ok","database":"ok"}`.
 
-5. **Load the data.** Open `/admin` and tap the backfill buttons, or drive them
-   by hand:
+5. **It keeps itself current — nothing to schedule.** With `ENV=prod` the
+   auto-updater is on by default (no extra variable), and the "Keeping itself
+   current" card on `/admin` shows what it has done and what it is waiting on.
+   It works out what is behind by READING THE DATA, not by watching a clock:
+
+   | Job | Runs when |
+   |---|---|
+   | `bars` | the newest bar is older than the last completed trading session |
+   | `fundamentals` | the newest published SEC quarter is not in `fundamentals` yet |
+   | `earnings` | the same quarter is not in `earnings_events` yet |
+
+   That is what makes late work catch itself up. SEC publishes a quarter's
+   dataset weeks after the quarter ends and on no announced date, so the
+   quarterly jobs look for it and, if it is not up, look again in 12 hours —
+   reported as *waiting*, not as a failure. A deploy in the middle of a
+   quarter, a container that was down for a week, or a restored database all
+   resolve the same way: the first check after boot sees the gap and closes it.
+   Real failures (an unreachable source, a throttle) back off 30 min → 1h → 2h,
+   capped at 12h, and are surfaced on `/admin` rather than retried silently.
+
+   Every wait is stored in the `job_state` table, so a restart cannot turn a
+   quarterly job into a per-deploy job. Knobs, all optional: `AUTO_UPDATE`
+   (`auto`|`on`|`off`), `AUTO_UPDATE_TICK_MINUTES`, `AUTO_UPDATE_QUARTERS`,
+   `AUTO_UPDATE_BARS_MIN_HOURS`, `AUTO_UPDATE_SEC_RECHECK_HOURS`,
+   `AUTO_UPDATE_BACKOFF_MAX_HOURS`.
+
+6. **Load the data now, if you don't want to wait for the first check.** Open
+   `/admin` and tap the backfill buttons, or drive them by hand:
    ```bash
    curl -X POST "https://<service>.up.railway.app/backfill?kind=bars&days=600"
    curl -X POST "https://<service>.up.railway.app/backfill?kind=sectors"
@@ -55,7 +81,7 @@
    curl      "https://<service>.up.railway.app/status"     # watch progress
    ```
 
-6. **Verify the fundamentals actually reconcile.** The fundamentals load is the
+7. **Verify the fundamentals actually reconcile.** The fundamentals load is the
    one that has been wrong before — the old extractor stored segment and equity
    rollforward facts as company totals. After loading, open `/admin` and tap
    **Balance sheet**, or:
@@ -71,7 +97,7 @@
    python3 scripts/reload_fundamentals.py --wipe --quarters 7
    ```
 
-7. **Reconcile the keyless price source (first live load, once).** Synthetic tests
+8. **Reconcile the keyless price source (first live load, once).** Synthetic tests
    prove the Stooq loader works, not that Stooq's real data is what we assume:
    ```bash
    python -m src.reconcile          # symbology / coverage / adjustment / recency

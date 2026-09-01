@@ -73,6 +73,19 @@
     <div id="health" class="rows"><div class="loading">loading…</div></div>
   </section>
 
+  <!-- 2a. AUTO-UPDATE -->
+  <section class="card">
+    <div class="card-head"><h2>Keeping itself current</h2></div>
+    <p class="hint">Nothing here needs a button. Each job decides it is behind by
+      reading the data — is the newest bar older than the last trading session,
+      is the newest published SEC quarter actually in the table — so a deploy
+      that lands late, or a stretch where the service was down, catches up on
+      its own at the next check rather than waiting for the next scheduled
+      time. SEC publishes a quarter weeks after it ends and on no announced
+      date, so <em>waiting</em> is a normal state, not a failure.</p>
+    <div id="autoUpdate" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
   <!-- 2b. VISITORS -->
   <section class="card">
     <div class="card-head"><h2>Visitors</h2></div>

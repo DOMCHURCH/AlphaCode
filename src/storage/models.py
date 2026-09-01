@@ -508,3 +508,35 @@ __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]
 
 # Keep the import referenced so linters don't strip it; used by migrations.
 _ = ForeignKeyConstraint
+
+
+class JobState(Base):
+    """One row per scheduled data job. The auto-updater's memory.
+
+    Persisted rather than kept in process memory for the same reason
+    `llm_usage` is: this runs on a platform that restarts containers freely,
+    and an in-memory "last run at" resets to nothing on every restart. That
+    turns a quarterly job into a job that re-downloads the SEC datasets on
+    every deploy, and turns a failure backoff into no backoff at all -- a
+    crash-looping container would hammer sec.gov once per boot.
+
+    `next_earliest_at` is the gate the loop actually reads: a single naive-UTC
+    timestamp meaning "do not attempt this job before then". Every reason to
+    wait -- a fresh success, an exponential backoff after a failure, a quarter
+    SEC has not published yet -- collapses into that one field, so the loop has
+    exactly one thing to check and /admin has exactly one thing to show.
+    """
+
+    __tablename__ = "job_state"
+
+    name: Mapped[str] = mapped_column(String(32), primary_key=True)
+    last_attempt_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    last_success_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    next_earliest_at: Mapped[dt.datetime | None] = mapped_column(DateTime, index=True)
+    last_rows: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(300))
+    # Plain English, shown on /admin: "loaded 2026q2", "2026q2 not published yet".
+    last_detail: Mapped[str | None] = mapped_column(String(200))
+    consecutive_failures: Mapped[int] = mapped_column(
+        Integer, default=0, nullable=False
+    )

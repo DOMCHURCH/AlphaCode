@@ -900,14 +900,14 @@ def test_raw_facts_presets_carry_their_own_parameters(client):
     import re
     from pathlib import Path
 
-    html = Path("src/report/templates/admin.html").read_text()
+    html = Path("src/report/templates/admin.html").read_text(encoding="utf-8")
     presets = re.findall(r'<button[^>]*class="chipbtn"[^>]*>', html)
     assert presets, "the preset buttons must exist"
     for p in presets:
         assert "data-ticker=" in p, p
         assert "data-tags=" in p, p
 
-    js = Path("src/report/static/admin.js").read_text()
+    js = Path("src/report/static/admin.js").read_text(encoding="utf-8")
     # The handler submits directly; it must not write into the form inputs.
     handler = js[js.index('$("rawPresets")'):]
     handler = handler[:handler.index("});")]
@@ -915,3 +915,65 @@ def test_raw_facts_presets_carry_their_own_parameters(client):
     assert '$("rawTicker").value =' not in handler
     assert '$("rawTags").value =' not in handler
 
+
+# ---------------------------------------------------------------------------
+# Auto-update: the data keeps itself current (see src/scheduler.py)
+# ---------------------------------------------------------------------------
+def test_status_and_admin_report_the_auto_updater(client):
+    """Both surfaces must say what is keeping the data current, and what it is
+    waiting on -- otherwise "why is this number old?" has no answer on a phone."""
+    for path in ("/status", "/admin.json"):
+        body = client.get(path).json()
+        auto = body["auto_update"]
+        assert [j["name"] for j in auto["jobs"]] == [
+            "bars", "fundamentals", "earnings"
+        ]
+        assert "enabled" in auto and "tick_minutes" in auto
+        # An empty test database is behind on everything, and says so.
+        assert all(j["due"] is True for j in auto["jobs"])
+        assert all(j["last_success_at"] is None for j in auto["jobs"])
+
+
+def test_stale_bars_are_not_a_chore_while_the_updater_is_on():
+    """With auto-update on, stale data is a status; with it off, it's a task."""
+    from src.api import _admin_verdict
+
+    health = {
+        "recency": {"staleness_days": 9},
+        "adjustment": {"status": "unchecked"},
+        "backfill": {},
+        "fundamentals": {"rows": 10},
+    }
+    auto_on = {
+        "enabled": True,
+        "jobs": [{"name": "bars", "now": "newest bar 2026-08-20", "due": True}],
+    }
+    v = _admin_verdict(health, True, auto_on)
+    assert v["headline"] == "Price data is 9 days stale"
+    assert "refreshes itself" in v["action"]
+
+    v_off = _admin_verdict(health, True, {"enabled": False, "jobs": []})
+    assert "Tap Backfill" in v_off["action"]
+
+
+def test_a_failing_auto_update_job_is_surfaced_as_an_error():
+    from src.api import _admin_verdict
+
+    health = {
+        "recency": {"staleness_days": 0},
+        "adjustment": {"status": "ok"},
+        "backfill": {},
+        "fundamentals": {"rows": 10},
+    }
+    auto = {
+        "enabled": True,
+        "jobs": [{
+            "name": "fundamentals", "due": True, "consecutive_failures": 3,
+            "last_error": "sec.gov 429",
+        }],
+    }
+    v = _admin_verdict(health, True, auto)
+    assert v["level"] == "error"
+    assert v["headline"] == "Auto-update failing: fundamentals"
+    assert "sec.gov 429" in v["detail"]
+    assert "retrying" in v["action"]

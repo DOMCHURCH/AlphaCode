@@ -29,7 +29,9 @@ from pydantic import BaseModel
 from sqlalchemy import select
 
 from src.config.settings import get_settings
+from src.locks import BACKFILL
 from src.logging_config import configure_logging
+from src import scheduler
 from src.storage import repository
 from src.storage.db import init_db, session_scope
 from src.storage.models import DailyBar
@@ -63,6 +65,17 @@ async def _boot(app: FastAPI) -> None:
         asyncio.create_task(asyncio.to_thread(warm_identity))
     except Exception as exc:  # noqa: BLE001 - never block boot on a statistic
         log.warning("site_identity_warm_skipped", error=str(exc)[:200])
+
+    # The data keeps itself current from here. Started after init_db so the
+    # first tick reads a migrated schema, and as a background task so a slow
+    # first refresh never delays boot. See src/scheduler.py -- it decides what
+    # is due by reading the data, which is what makes a deploy that lands late
+    # in the quarter (or after an outage) catch up on its own.
+    if scheduler.enabled():
+        app.state.auto_update_task = asyncio.create_task(scheduler.run_forever())
+    else:
+        log.info("auto_update_disabled", mode=get_settings().auto_update,
+                 env=get_settings().env)
 
     app.state.boot_complete = True
 
@@ -142,11 +155,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:  # noqa: BLE001 - never let logging setup stall startup
         pass
     app.state.boot_complete = False
+    app.state.auto_update_task = None
     boot_task = asyncio.create_task(_boot(app))
     try:
         yield
     finally:
         boot_task.cancel()
+        task = getattr(app.state, "auto_update_task", None)
+        if task is not None:
+            task.cancel()
 
 
 app = FastAPI(
@@ -193,7 +210,11 @@ async def count_visits(request: Request, call_next):
     return response
 
 
-_backfill_lock = asyncio.Lock()
+# Every data load takes this, scheduled or manual, so an auto-refresh and a tap
+# on /admin can never run at once. It lives in src/locks.py because the
+# auto-updater holds the SAME lock and the two modules must not import each
+# other.
+_backfill_lock = BACKFILL
 
 
 class _RateGate:
@@ -410,6 +431,9 @@ def status() -> dict[str, Any]:
 
     out: dict[str, Any] = {"backfill_running": _backfill_lock.locked()}
     out["backfill"] = get_backfill_state()
+    # What is keeping the data current, and what it is waiting on. Cheap (DB
+    # reads only), and the first thing to look at when a number looks old.
+    out["auto_update"] = scheduler.report()
     try:
         with session_scope() as session:
             out["price_bars"] = session.execute(
@@ -627,12 +651,27 @@ def _admin_actions() -> dict[str, Any]:
     return out
 
 
-def _admin_verdict(health: dict[str, Any], db_ok: bool) -> dict[str, Any]:
-    """One plain-English line: what's wrong and what to do. Ordered by severity."""
+def _admin_verdict(
+    health: dict[str, Any], db_ok: bool, auto: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """One plain-English line: what's wrong and what to do. Ordered by severity.
+
+    Stale data is only a call to action when nothing is already coming for it.
+    With the auto-updater on, "the bars are three days old" is a status, not a
+    chore -- so the verdict says what will happen and when, and only asks for a
+    tap when the updater is off or has actually failed.
+    """
     if not db_ok:
         return {"level": "error", "headline": "Database unreachable",
                 "detail": "The service can't read its own data.",
                 "action": "Check DATABASE_URL and that Postgres is up."}
+
+    auto = auto or {}
+    auto_on = bool(auto.get("enabled"))
+    failing = [
+        j for j in (auto.get("jobs") or [])
+        if (j.get("consecutive_failures") or 0) > 0
+    ]
 
     fu = health.get("fundamentals") or {}
     if isinstance(fu, dict) and not fu.get("error") and (fu.get("rows") or 0) == 0:
@@ -640,7 +679,24 @@ def _admin_verdict(health: dict[str, Any], db_ok: bool) -> dict[str, Any]:
             "level": "warn",
             "headline": "Fundamentals table is empty",
             "detail": "No SEC as-reported facts have been loaded.",
-            "action": "Tap Fundamentals to load the quarterly datasets.",
+            "action": (
+                "The auto-updater will load the quarterly datasets at its next "
+                "check; tap Fundamentals to start now."
+                if auto_on
+                else "Tap Fundamentals to load the quarterly datasets."
+            ),
+        }
+
+    if failing:
+        j = failing[0]
+        return {
+            "level": "error",
+            "headline": f"Auto-update failing: {j.get('name')}",
+            "detail": (
+                f"{j.get('consecutive_failures')} consecutive failures. "
+                f"{j.get('last_error') or ''}"
+            ).strip(),
+            "action": "It keeps retrying with a growing backoff. Fix the source.",
         }
 
     adj = health["adjustment"]
@@ -665,9 +721,22 @@ def _admin_verdict(health: dict[str, Any], db_ok: bool) -> dict[str, Any]:
 
     st = health["recency"].get("staleness_days")
     if st is not None and st > 5:
+        bars = next(
+            (j for j in (auto.get("jobs") or []) if j.get("name") == "bars"), {}
+        )
+        if auto_on:
+            return {
+                "level": "warn",
+                "headline": f"Price data is {st} days stale",
+                "detail": (
+                    "The auto-updater is on and has this job queued: "
+                    f"{bars.get('now') or 'bars are behind'}."
+                ),
+                "action": "Nothing to do — it refreshes itself. Tap Backfill to hurry it.",
+            }
         return {"level": "warn", "headline": f"Price data is {st} days stale",
-                "detail": "Bars have not refreshed recently.",
-                "action": "Tap Backfill to refresh the bars."}
+                "detail": "Bars have not refreshed recently, and AUTO_UPDATE is off.",
+                "action": "Tap Backfill to refresh the bars, or set AUTO_UPDATE=on."}
 
     if adj.get("status") == "unchecked":
         return {"level": "ok", "headline": "Everything working",
@@ -704,9 +773,10 @@ def admin_json() -> dict[str, Any]:
             "adjustment": {"status": "unchecked"}, "errors": {"database": str(exc)[:200]},
         }
 
+    auto = scheduler.report()
     return {
         "generated_at": dt.datetime.now(dt.UTC).isoformat(),
-        "verdict": _admin_verdict(health, db_ok),
+        "verdict": _admin_verdict(health, db_ok, auto),
         "data_health": health,
         "config": _config_report(),
         "logs": get_recent_logs(limit=200),
@@ -717,6 +787,7 @@ def admin_json() -> dict[str, Any]:
         "ask": ask_status(),
         "visitors": visit_summary(),
         "raw_facts": get_raw_facts_state(),
+        "auto_update": auto,
         "backfill_running": _backfill_lock.locked(),
     }
 

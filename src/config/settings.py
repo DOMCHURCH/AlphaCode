@@ -170,6 +170,43 @@ class Settings(BaseSettings):
     # local dev doesn't spawn a cron; set ENABLE_SCHEDULER=true on the one Railway
     # service.
     enable_scheduler: bool = Field(default=False, alias="ENABLE_SCHEDULER")
+
+    # ---------------- Auto-update ----------------
+    # The data keeps itself current. "auto" means: on in prod, off in dev, so a
+    # deploy needs no extra variable to start updating and a local test run
+    # never spawns a loop that talks to sec.gov. "on"/"off" force it either way.
+    auto_update: Literal["auto", "on", "off"] = Field(
+        default="auto", alias="AUTO_UPDATE"
+    )
+    # How often the loop wakes and asks "is anything stale?". This is NOT how
+    # often work runs -- each job carries its own minimum interval and its own
+    # backoff. A short tick just means a job that came due is picked up
+    # promptly, including right after a deploy.
+    auto_update_tick_minutes: int = Field(
+        default=15, ge=1, alias="AUTO_UPDATE_TICK_MINUTES"
+    )
+    # Bars are due when the newest bar is older than the last completed trading
+    # day. Market holidays mean "stale" can be permanently true for a day, so a
+    # floor on retries stops the loop re-downloading the market every tick.
+    auto_update_bars_min_hours: float = Field(
+        default=6.0, alias="AUTO_UPDATE_BARS_MIN_HOURS"
+    )
+    # Quarters to reload on a SCHEDULED fundamentals/earnings run. Small on
+    # purpose: the scheduled job exists to pick up the newest quarter (plus one
+    # for late filers and restatements), not to rebuild history. A full rebuild
+    # is still `POST /backfill?kind=fundamentals` or the reload button.
+    auto_update_quarters: int = Field(default=2, ge=1, alias="AUTO_UPDATE_QUARTERS")
+    # SEC publishes a quarter's dataset several weeks after the quarter ends,
+    # on no announced date. When the quarter we want is not up yet, that is not
+    # a failure -- we simply look again this often until it appears.
+    auto_update_sec_recheck_hours: float = Field(
+        default=12.0, alias="AUTO_UPDATE_SEC_RECHECK_HOURS"
+    )
+    # Failure backoff: 30 min, doubling, capped here. Applies to real errors
+    # only (a network blip, a throttle), never to "not published yet".
+    auto_update_backoff_max_hours: float = Field(
+        default=12.0, alias="AUTO_UPDATE_BACKOFF_MAX_HOURS"
+    )
     report_dir: str = Field(default="./reports", alias="REPORT_DIR")
     log_level: str = Field(default="INFO", alias="LOG_LEVEL")
     env: Literal["dev", "prod"] = Field(default="dev", alias="ENV")
