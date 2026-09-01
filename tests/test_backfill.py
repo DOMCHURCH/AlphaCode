@@ -47,16 +47,21 @@ def test_polygon_backfill_skips_days_already_stored(bf_db, monkeypatch):
     from sqlalchemy import func, select
 
     import src.backfill as bf
-    from src.ingest import polygon, stooq
+    from src.ingest import polygon, stooq, yahoo
     from src.storage.db import session_scope
     from src.storage.models import DailyBar
 
-    # Bulk sources come first in the chain; stub Stooq to fail so this test
+    # Keyless sources come first in the chain; stub BOTH to fail so this test
     # deterministically exercises the paid-tier Polygon fallback it is about.
+    # Leaving Yahoo live would make the suite hit the network.
     async def no_stooq():
         raise RuntimeError("stooq unavailable in test")
 
+    async def no_yahoo(tickers, start, end, **kw):
+        return []
+
     monkeypatch.setattr(stooq, "download_bulk", no_stooq)
+    monkeypatch.setattr(yahoo, "fetch_daily_bars_batch", no_yahoo)
 
     # Pre-seed 200 recent business days as already loaded.
     seeded = _business_days(END, 200)
@@ -96,7 +101,7 @@ def test_free_tier_polygon_key_uses_stooq_not_polygon(bf_db, monkeypatch):
     import asyncio
 
     import src.backfill as bf
-    from src.ingest import polygon, stooq
+    from src.ingest import polygon, stooq, yahoo
 
     monkeypatch.setenv("POLYGON_API_KEY", "x")
     monkeypatch.setenv("POLYGON_TIER", "free")  # key present, but free tier
@@ -120,9 +125,16 @@ def test_free_tier_polygon_key_uses_stooq_not_polygon(bf_db, monkeypatch):
             on_progress(1, n)
         return n
 
+    async def no_yahoo(tickers, start, end, **kw):
+        return []
+
     monkeypatch.setattr(polygon, "fetch_grouped_daily", boom_grouped)
     monkeypatch.setattr(stooq, "download_bulk", fake_download)
     monkeypatch.setattr(stooq, "load_bulk_from_zip", fake_load)
+    # Yahoo leads the keyless chain now; stub it empty so this test still
+    # exercises the Stooq leg. NEVER leave it live -- the real call would
+    # enumerate the universe and hit the network from the test suite.
+    monkeypatch.setattr(yahoo, "fetch_daily_bars_batch", no_yahoo)
 
     rows = asyncio.run(bf.backfill_bars(252, end=END))
     assert rows > 0
@@ -131,7 +143,8 @@ def test_free_tier_polygon_key_uses_stooq_not_polygon(bf_db, monkeypatch):
     assert st["source"] == "stooq"
     assert st["phase"] == "done"
     assert st["polygon_tier"] == "free"
-    assert st["sources_available"] == ["stooq"]  # polygon excluded on free tier
+    # Both keyless sources are offered; polygon is excluded on the free tier.
+    assert st["sources_available"] == ["yahoo_batch", "stooq"]
 
 
 def test_fmp_batch_eod_is_fallback_when_stooq_fails(bf_db, monkeypatch):
@@ -139,7 +152,7 @@ def test_fmp_batch_eod_is_fallback_when_stooq_fails(bf_db, monkeypatch):
     import asyncio
 
     import src.backfill as bf
-    from src.ingest import fmp, stooq
+    from src.ingest import fmp, stooq, yahoo
 
     monkeypatch.setenv("POLYGON_API_KEY", "")
     monkeypatch.setenv("FMP_API_KEY", "fk")
@@ -151,11 +164,15 @@ def test_fmp_batch_eod_is_fallback_when_stooq_fails(bf_db, monkeypatch):
     async def no_stooq():
         raise RuntimeError("stooq down")
 
+    async def no_yahoo(tickers, start, end, **kw):
+        return []
+
     async def fake_batch(date):
         return [{"ticker": "AAA", "date": date, "open": 1, "high": 1,
                  "low": 1, "close": 9.0, "volume": 100}]
 
     monkeypatch.setattr(stooq, "download_bulk", no_stooq)
+    monkeypatch.setattr(yahoo, "fetch_daily_bars_batch", no_yahoo)
     monkeypatch.setattr(fmp, "fetch_batch_eod", fake_batch)
 
     rows = asyncio.run(bf.backfill_bars(5, end=END))
@@ -163,7 +180,7 @@ def test_fmp_batch_eod_is_fallback_when_stooq_fails(bf_db, monkeypatch):
     st = bf.get_backfill_state()
     assert st["source"] == "fmp_batch_eod"
     assert st["phase"] == "done"
-    assert "stooq" in st["sources_available"] and "fmp_batch_eod" in st["sources_available"]
+    assert {"yahoo_batch", "stooq", "fmp_batch_eod"} <= set(st["sources_available"])
 
 
 def test_fmp_batch_eod_capability_probe_falls_through(bf_db, monkeypatch):
@@ -172,7 +189,7 @@ def test_fmp_batch_eod_capability_probe_falls_through(bf_db, monkeypatch):
     import asyncio
 
     import src.backfill as bf
-    from src.ingest import fmp, stooq
+    from src.ingest import fmp, stooq, yahoo
     from src.ingest.base import PermanentAPIError
 
     monkeypatch.setenv("POLYGON_API_KEY", "")
@@ -185,10 +202,14 @@ def test_fmp_batch_eod_capability_probe_falls_through(bf_db, monkeypatch):
     async def no_stooq():
         raise RuntimeError("stooq down")
 
+    async def no_yahoo(tickers, start, end, **kw):
+        return []
+
     async def not_entitled(date):
         raise PermanentAPIError("fmp 403: Exclusive Endpoint, upgrade your plan")
 
     monkeypatch.setattr(stooq, "download_bulk", no_stooq)
+    monkeypatch.setattr(yahoo, "fetch_daily_bars_batch", no_yahoo)
     monkeypatch.setattr(fmp, "fetch_batch_eod", not_entitled)
 
     rows = asyncio.run(bf.backfill_bars(5, end=END))
@@ -217,3 +238,110 @@ def test_free_tier_polygon_bucket_is_five_per_min(monkeypatch):
     bp = rate_limits.bucket_for("polygon")
     assert bp.rps == 50.0  # the paid bucket, untouched
     get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Yahoo is the keyless primary now that Stooq's archive sits behind a challenge
+# ---------------------------------------------------------------------------
+def test_yahoo_leads_the_keyless_chain(monkeypatch):
+    """With no keys at all, the service must still have a working bar source --
+    and it must be the one that is actually reachable."""
+    from src.backfill import _wide_end_backfill_chain
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("POLYGON_API_KEY", "")
+    monkeypatch.setenv("FMP_API_KEY", "")
+    get_settings.cache_clear()
+    try:
+        names = [n for n, _ in _wide_end_backfill_chain(get_settings())]
+    finally:
+        get_settings.cache_clear()
+    assert names[0] == "yahoo_batch"
+    # Stooq is kept behind it, not deleted: one request for the whole market's
+    # history is still the better source if the challenge ever lifts.
+    assert "stooq" in names
+
+
+def test_the_bar_universe_prefers_tickers_we_already_track(bf_db, monkeypatch):
+    """A daily top-up should refresh what the site shows, not re-crawl every
+    registrant -- and must not call SEC at all when it has bars to go on."""
+    import asyncio
+
+    import src.backfill as bf
+    from src.storage.db import session_scope
+    from src.storage.models import DailyBar
+
+    async def boom():
+        raise AssertionError("SEC must not be called when bars already exist")
+
+    monkeypatch.setattr(bf, "_cik_to_ticker", boom)
+    with session_scope() as s:
+        for t in ("BBB", "AAA"):
+            s.add(DailyBar(ticker=t, date=END, open=1, high=1, low=1,
+                           close=1, volume=1))
+
+    assert asyncio.run(bf._bar_universe(None)) == ["AAA", "BBB"]
+
+
+def test_the_bar_universe_falls_back_to_secs_list_on_a_cold_database(
+    bf_db, monkeypatch
+):
+    import asyncio
+
+    import src.backfill as bf
+
+    async def fake_map():
+        return {"320193": "AAPL", "789019": "MSFT"}
+
+    monkeypatch.setattr(bf, "_cik_to_ticker", fake_map)
+    assert asyncio.run(bf._bar_universe(None)) == ["AAPL", "MSFT"]
+    assert asyncio.run(bf._bar_universe(1)) == ["AAPL"]  # cap applies
+
+
+def test_yahoo_returning_nothing_raises_so_the_chain_moves_on(bf_db, monkeypatch):
+    """A silent zero would look like "the market had no data today". The loader
+    must raise with the reason so the orchestrator records it and tries the
+    next source."""
+    import asyncio
+
+    import pytest
+
+    import src.backfill as bf
+    from src.ingest import yahoo
+
+    async def empty(tickers, start, end, **kw):
+        return []
+
+    monkeypatch.setattr(bf, "_bar_universe", lambda cap: _done(["AAA"]))
+    monkeypatch.setattr(yahoo, "fetch_daily_bars_batch", empty)
+    monkeypatch.setattr(yahoo, "last_error", lambda: "Yahoo download timed out")
+
+    with pytest.raises(RuntimeError, match="timed out"):
+        asyncio.run(bf._backfill_bars_yahoo(30, END))
+
+
+def test_yahoo_rows_are_written(bf_db, monkeypatch):
+    import asyncio
+
+    import src.backfill as bf
+    from src.ingest import yahoo
+    from src.storage.db import session_scope
+    from src.storage.models import DailyBar
+    from sqlalchemy import func, select
+
+    async def rows(tickers, start, end, **kw):
+        return [{"ticker": "AAA", "date": END, "open": 1.0, "high": 2.0,
+                 "low": 0.5, "close": 1.5, "volume": 10}]
+
+    monkeypatch.setattr(bf, "_bar_universe", lambda cap: _done(["AAA"]))
+    monkeypatch.setattr(yahoo, "fetch_daily_bars_batch", rows)
+
+    n = asyncio.run(bf._backfill_bars_yahoo(30, END))
+    assert n == 1
+    with session_scope() as s:
+        assert s.execute(select(func.count()).select_from(DailyBar)).scalar_one() == 1
+
+
+async def _done(value):
+    """Wrap a plain value as an awaited result, for stubbing async helpers."""
+    return value

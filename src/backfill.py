@@ -35,6 +35,7 @@ from src.ingest import (
     sec_frames,
     stooq,
     xbrl,
+    yahoo,
 )
 from src.ingest import sic as sic_map
 from src.ingest.base import PermanentAPIError, gather_bounded
@@ -438,15 +439,27 @@ def record_backfill_error(msg: str) -> None:
 def _wide_end_backfill_chain(s) -> list[tuple[str, Any]]:
     """The ordered wide-end bar sources for a *multi-day* backfill.
 
-    Chosen by CAPABILITY, not key presence. Whole-market-in-one-call sources come
-    first: Stooq bulk (keyless, one download of the entire market's history) is
-    primary, FMP batch EOD (whole market per day, paid FMP endpoint) is the
-    fallback. Polygon grouped-daily is one call PER SESSION, so a multi-day
+    Chosen by CAPABILITY, not key presence. Keyless sources come first, so the
+    service loads prices with no keys configured at all: Yahoo's batched
+    download (200 symbols per call) is primary, with Stooq's bulk archive
+    behind it for the day its browser challenge lifts. FMP batch EOD (whole
+    market per day, paid FMP endpoint) follows. Polygon grouped-daily is one call PER SESSION, so a multi-day
     backfill is `days` calls -- fine on a paid plan, but on the rate-limited free
     tier it 429s for hours, so it is included ONLY when POLYGON_TIER=paid, and
     even then it sits last behind the bulk sources.
     """
-    chain: list[tuple[str, Any]] = [("stooq", _backfill_bars_stooq)]
+    # Yahoo first, because it is the keyless source that currently WORKS.
+    # Stooq's bulk archive was primary here and is no longer reachable: the
+    # whole site now answers with a JavaScript proof-of-work browser challenge,
+    # and /db/h/d_us_txt.zip returns a genuine "page does not exist". Solving a
+    # bot challenge to take the file is not something this service should do.
+    # It stays in the chain BELOW Yahoo rather than being deleted: it is one
+    # request for the entire market and all of its history when it works, so if
+    # Stooq restores it, the fallback picks it up again with no code change.
+    chain: list[tuple[str, Any]] = [
+        ("yahoo_batch", _backfill_bars_yahoo),
+        ("stooq", _backfill_bars_stooq),
+    ]
     if s.fmp_api_key:
         chain.append(("fmp_batch_eod", _backfill_bars_fmp_batch))
     if s.polygon_api_key and s.polygon_tier == "paid":
@@ -576,6 +589,73 @@ async def _backfill_bars_polygon(days: int, end: dt.date) -> int:
         "backfill_polygon_complete", sessions=covered, fetched=fetched_sessions,
         rows=total,
     )
+    return total
+
+
+async def _bar_universe(cap: int | None) -> list[str]:
+    """The symbols to ask a per-ticker source for.
+
+    Tickers already carrying bars come first and are used alone when present:
+    a daily top-up should refresh what the site actually shows, not re-crawl
+    every registrant. On a cold database it falls back to SEC's company list,
+    which is the same free seed the universe builder uses.
+    """
+    with session_scope() as session:
+        known = session.execute(
+            select(DailyBar.ticker).distinct()
+        ).scalars().all()
+    tickers = sorted({t for t in known if t})
+    if not tickers:
+        cik_map = await _cik_to_ticker()
+        tickers = sorted({t for t in cik_map.values() if t})
+    if cap:
+        tickers = tickers[:cap]
+    return tickers
+
+
+async def _backfill_bars_yahoo(days: int, end: dt.date) -> int:
+    """Keyless history for the whole universe, batched through Yahoo.
+
+    yfinance takes 200 symbols per call, so ~8,000 names cost ~40 requests
+    rather than 8,000. That is a different shape from a bulk archive -- more
+    requests, and the universe has to be enumerated first -- but it needs no
+    key and no browser challenge, which is what makes it the working keyless
+    primary now that Stooq's archive is gone.
+
+    Raises on a hard failure so the orchestrator records the reason and tries
+    the next source, rather than reporting a silent zero.
+    """
+    cap = get_settings().free_universe_max or None
+    tickers = await _bar_universe(cap)
+    if not tickers:
+        raise RuntimeError(
+            "no tickers to load: the bars table is empty and SEC's company "
+            "list could not be read"
+        )
+    # The same 1.5x cushion the bulk path uses: `days` counts trading sessions,
+    # and a calendar window has to cover weekends and holidays to contain them.
+    start = end - dt.timedelta(days=int(days * 1.5) + 10)
+    _update_state(
+        unit="tickers", units_total=len(tickers), units_done=0, rows=0,
+    )
+    log.info(
+        "backfill_yahoo_start", tickers=len(tickers), start=str(start),
+        end=str(end),
+    )
+
+    rows = await yahoo.fetch_daily_bars_batch(tickers, start, end)
+    if not rows:
+        raise RuntimeError(
+            "Yahoo returned no rows: " + (yahoo.last_error() or "empty response")
+        )
+
+    total = 0
+    for i in range(0, len(rows), 5000):
+        with session_scope() as session:
+            total += repository.save_bars(session, rows[i : i + 5000])
+        _update_state(rows=total)
+    _update_state(units_done=len(tickers), rows=total)
+    log.info("backfill_yahoo_complete", rows=total, tickers=len(tickers))
     return total
 
 

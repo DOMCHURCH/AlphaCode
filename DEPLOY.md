@@ -30,7 +30,7 @@
 
    **Everything runs on free data.** The universe comes from SEC's company list,
    fundamentals from SEC's quarterly Financial Statement Data Sets, and prices
-   from the Stooq bulk daily archive — **no market-data keys are required**.
+   from Yahoo's batched daily download — **no market-data keys are required**.
    `SEC_USER_AGENT` is the one must-set variable.
 
    Optional upgrades, used automatically when set: `POLYGON_API_KEY` (faster,
@@ -108,13 +108,22 @@
    ```
 
 8. **Reconcile the keyless price source (first live load, once).** Synthetic tests
-   prove the Stooq loader works, not that Stooq's real data is what we assume:
+   prove the loader works, not that the real feed is what we assume:
    ```bash
    python -m src.reconcile          # symbology / coverage / adjustment / recency
    ```
-   **The one that matters is `adjustment`:** if any names read `unadjusted`,
-   Stooq is serving raw (non-split-adjusted) prices — switch to
+   **The one that matters is `adjustment`:** if any names read `unadjusted`, the
+   source is serving raw (non-split-adjusted) prices — switch to
    `POLYGON_API_KEY`, which is adjusted. Don't assume — read the numbers.
+   (Yahoo is requested with `auto_adjust=True`, so it should read adjusted.)
+
+   **On the price source.** Stooq's bulk archive used to be the keyless
+   primary. It is gone: `stooq.com` now answers every request with a JavaScript
+   proof-of-work browser challenge, and `/db/h/d_us_txt.zip` returns a real
+   "page does not exist". Yahoo took its place — batched 200 symbols per call,
+   so a few thousand names cost tens of requests, not thousands. Stooq is still
+   in the chain behind Yahoo, because one download of the entire market's
+   history is the better source if it ever returns.
 
 ## Local dev
 
@@ -132,9 +141,10 @@ one. Nothing else changes between the two.
 ## Egress
 
 Allowlist these hosts if the environment restricts outbound traffic:
-`www.sec.gov` + `data.sec.gov` (universe seed + fundamentals datasets),
-`stooq.com` (keyless bulk prices). Optional upgrades: `api.polygon.io`,
-`financialmodelingprep.com`.
+`www.sec.gov` + `data.sec.gov` (universe seed, fundamentals datasets, XBRL
+frames + form index), `query1.finance.yahoo.com` / `query2.finance.yahoo.com`
+(keyless prices, via yfinance). `stooq.com` is still tried as a fallback.
+Optional upgrades: `api.polygon.io`, `financialmodelingprep.com`.
 
 ## What's verified vs not
 
