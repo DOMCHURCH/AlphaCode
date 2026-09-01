@@ -149,8 +149,13 @@ Optional upgrades: `api.polygon.io`, `financialmodelingprep.com`.
 ## What's verified vs not
 
 Code, config, schema migration, Postgres compatibility, and the XBRL extraction
-filter are tested offline (191 tests). The extraction tests are built from a real
-`num.txt` dump, so they encode the actual dimensional layout rather than an
-assumed one. What is **not** verified here is a live load against the real SEC
-datasets — that happens in your Railway environment. Run step 6 and read the
+filter are covered by the offline suite. The extraction tests are built from a
+real `num.txt` dump, so they encode the actual dimensional layout rather than an
+assumed one.
+
+Verified against live SEC and Yahoo, not just offline: the frames sweep (80,804
+rows for one quarter across 4,644 tickers, with the accounting identity holding
+to 0.0000% on every name that tags all three sides), the bulk dataset load, and
+the Yahoo bar load. What is still **not** verified outside a deploy is the
+behaviour under Postgres and Railway's own network. Run step 6 and read the
 numbers before trusting anything downstream.

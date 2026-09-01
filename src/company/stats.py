@@ -159,14 +159,27 @@ def _compute_identity() -> dict[str, Any] | None:
 
 
 def identity(max_age_s: float = IDENTITY_TTL_S) -> dict[str, Any] | None:
-    """The cached identity result, or None if it has never been computed."""
+    """The cached identity result, or None if it has never been computed.
+
+    `max_age_s=0` means "computed from the data as it is NOW" and is honoured
+    as such: such a caller WAITS for whoever holds the lock rather than being
+    handed the previous value. It used to be handed the previous value with no
+    way to tell, which made a startup warm capable of publishing a figure
+    derived from data that is no longer there.
+
+    Every other caller is a page render, and for those the original trade still
+    holds: serve what we have, even if stale, rather than queue a render behind
+    a whole-universe walk.
+    """
     global _identity, _identity_at
-    if _identity is not None and (time.monotonic() - _identity_at) < max_age_s:
+    fresh_enough = (
+        _identity is not None and (time.monotonic() - _identity_at) < max_age_s
+    )
+    if fresh_enough:
         return _identity
-    if not _identity_lock.acquire(blocking=False):
-        # Another thread is already on it. Serve what we have, even if stale --
-        # queueing a page render behind a whole-universe walk is not a trade
-        # worth making.
+
+    forced = max_age_s <= 0
+    if not _identity_lock.acquire(blocking=forced):
         return _identity
     try:
         computed = _compute_identity()
@@ -175,6 +188,19 @@ def identity(max_age_s: float = IDENTITY_TTL_S) -> dict[str, Any] | None:
         return _identity
     finally:
         _identity_lock.release()
+
+
+def reset_identity_cache() -> None:
+    """Forget the computed identity.
+
+    `_identity` is module state, so it outlives any one database. Tests that
+    swap the database underneath the process must clear it the same way they
+    reset the engine and lookup caches -- otherwise a figure counted from one
+    test's data is served to the next.
+    """
+    global _identity, _identity_at
+    with _identity_lock:
+        _identity, _identity_at = None, 0.0
 
 
 def warm_identity() -> None:

@@ -444,8 +444,16 @@ def test_admin_is_reachable_without_typing_a_url(client):
 
 
 def test_the_landing_page_states_its_scale_in_one_line(client):
+    from src.company.stats import identity
+
     _seed("JPM", _drawable(), sector="Financials")
     _seed("MSFT", _drawable(), sector="Information Technology")
+
+    # Compute the identity before rendering rather than racing the background
+    # warm the API starts at boot. Asserting the line is present while a thread
+    # may or may not have finished writing it is a coin flip; that the line is
+    # OMITTED until it is known is its own test, just above.
+    identity(max_age_s=0.0)
 
     body = client.get("/").text
 

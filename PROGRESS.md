@@ -429,6 +429,15 @@ STOP-AND-ASK / remaining (all need the live deploy — cannot be done here):
   (/validation, benchmark_against_null, backfill_forward_returns) but only
   accrues signal from real forward returns over live daily runs.
 
-NOTE: this environment still cannot reach live data (proxy blocks SEC/Yahoo/
-Stooq/Polygon; verified). Items are built + verified on the seeded/synthetic
-harness offline; live verification requires a deploy with keys + open egress.
+NOTE (superseded 2026-09-01): the "proxy blocks everything" note below was
+true of the old build environment and is NOT true now. sec.gov, data.sec.gov
+and Yahoo are all reachable from a local checkout, and the SEC frames sweep,
+the bulk dataset load and the Yahoo bar load have each been run live against
+them. Stooq is the one that genuinely cannot be reached, and not because of a
+proxy: the site now serves a JavaScript proof-of-work challenge to everything,
+so its bulk archive is gone as a data source (see the price-source note in
+DEPLOY.md). Check reachability before assuming it, rather than trusting this
+file.
+
+Items below were built + verified on the seeded/synthetic harness offline;
+anything needing Postgres or Railway's network still requires a deploy.

@@ -17,6 +17,23 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 from src.storage.models import Base  # noqa: E402
 
 
+@pytest.fixture(autouse=True)
+def _clean_identity_cache():
+    """Start every test with no memory of another test's database.
+
+    The home page's identity figure is cached in module state and warmed by a
+    background thread the API starts at boot, so without this a count from one
+    test's data can be served to the next -- which is exactly how
+    test_the_identity_line_reports_the_real_pass_rate began failing at random
+    in full-suite runs while passing on its own.
+    """
+    from src.company.stats import reset_identity_cache
+
+    reset_identity_cache()
+    yield
+    reset_identity_cache()
+
+
 @pytest.fixture
 def engine():
     eng = create_engine("sqlite:///:memory:", future=True)
