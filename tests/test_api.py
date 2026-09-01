@@ -926,7 +926,7 @@ def test_status_and_admin_report_the_auto_updater(client):
         body = client.get(path).json()
         auto = body["auto_update"]
         assert [j["name"] for j in auto["jobs"]] == [
-            "bars", "fundamentals", "earnings"
+            "bars", "filings", "fundamentals", "earnings",
         ]
         assert "enabled" in auto and "tick_minutes" in auto
         # An empty test database is behind on everything, and says so.

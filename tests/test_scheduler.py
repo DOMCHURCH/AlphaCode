@@ -124,7 +124,14 @@ def _seed_fundamentals(session, filing_date: dt.date, n: int) -> None:
         )
 
 
-def test_fundamentals_due_until_the_target_quarter_is_loaded(session):
+def _mark_dataset_loaded(session, job: str, quarter: str) -> None:
+    from src.storage.models import JobState
+
+    session.add(JobState(name=job, last_quarter_loaded=quarter))
+    session.flush()
+
+
+def test_fundamentals_due_until_the_target_quarters_dataset_has_loaded(session):
     from src.scheduler import fundamentals_status
 
     st = fundamentals_status(session, TODAY)
@@ -132,24 +139,59 @@ def test_fundamentals_due_until_the_target_quarter_is_loaded(session):
     assert st["quarter"] == "2026q2"
     assert st["detail"] == "2026q2 not loaded yet"
 
-    # Filings from the quarter BEFORE the target do not satisfy it.
-    _seed_fundamentals(session, dt.date(2026, 3, 10), 40)
-    session.flush()
-    assert fundamentals_status(session, TODAY)["due"] is True
-
+    # Rows alone are NOT enough any more: the frames sweep writes rows for the
+    # same quarter from a different endpoint, so rows prove nothing about
+    # whether the authoritative ZIP was ever fetched.
     _seed_fundamentals(session, dt.date(2026, 5, 12), 40)
     session.flush()
+    assert fundamentals_status(session, TODAY)["due"] is True
+
+    _mark_dataset_loaded(session, "fundamentals", "2026q2")
     st = fundamentals_status(session, TODAY)
     assert st["due"] is False
-    assert "2026q2 loaded" in st["detail"]
+    assert "2026q2 dataset loaded" in st["detail"]
 
 
-def test_a_handful_of_rows_does_not_count_as_a_loaded_quarter(session):
-    from src.scheduler import _QUARTER_LOADED_MIN_ROWS, fundamentals_status
+def test_the_frames_sweep_cannot_retire_the_quarterly_dataset_job(session):
+    """The regression this marker exists to prevent.
 
-    _seed_fundamentals(session, dt.date(2026, 5, 12), _QUARTER_LOADED_MIN_ROWS - 1)
+    A live run loaded 175,000 rows via frames, which filled the target quarter
+    in the fundamentals table. Under a row-count-only check that reads as "the
+    quarterly dataset is loaded", and the authoritative job -- the one that
+    carries non-calendar filers and the fuller history -- would never run
+    again.
+    """
+    from src.scheduler import fundamentals_status
+
+    # Exactly what the frames sweep produces: plenty of rows, no dataset load.
+    _seed_fundamentals(session, dt.date(2026, 5, 12), 500)
     session.flush()
-    assert fundamentals_status(session, TODAY)["due"] is True
+
+    st = fundamentals_status(session, TODAY)
+    assert st["due"] is True, "rows from another source must not mark it done"
+    assert st["rows_in_quarter"] == 500
+    assert st["dataset_quarter_loaded"] is None
+
+
+def test_a_stale_marker_does_not_survive_a_wiped_table(session):
+    """Bookkeeping never beats an empty table: a restored or wiped database
+    must reload whatever the marker claims."""
+    from src.scheduler import fundamentals_status
+
+    _mark_dataset_loaded(session, "fundamentals", "2026q2")
+    st = fundamentals_status(session, TODAY)
+    assert st["due"] is True
+    assert st["detail"] == "2026q2 not loaded yet"
+
+
+def test_an_older_marker_leaves_the_job_due(session):
+    from src.scheduler import fundamentals_status
+
+    _seed_fundamentals(session, dt.date(2026, 5, 12), 40)
+    _mark_dataset_loaded(session, "fundamentals", "2026q1")
+    st = fundamentals_status(session, TODAY)
+    assert st["due"] is True
+    assert "last was 2026q1" in st["detail"]
 
 
 def test_earnings_track_the_same_quarter(session):
@@ -166,9 +208,12 @@ def test_earnings_track_the_same_quarter(session):
             )
         )
     session.flush()
+    assert earnings_status(session, TODAY)["due"] is True  # rows are not proof
+
+    _mark_dataset_loaded(session, "earnings", "2026q2")
     st = earnings_status(session, TODAY)
     assert st["due"] is False
-    assert "2026q2 loaded" in st["detail"]
+    assert "2026q2 dataset loaded" in st["detail"]
 
 
 # ---------------------------------------------------------------------------
@@ -345,7 +390,9 @@ def test_report_describes_every_job_before_anything_has_run(db):
     from src import scheduler
 
     rep = scheduler.report()
-    assert [j["name"] for j in rep["jobs"]] == ["bars", "fundamentals", "earnings"]
+    assert [j["name"] for j in rep["jobs"]] == [
+        "bars", "filings", "fundamentals", "earnings",
+    ]
     bars = rep["jobs"][0]
     assert bars["due"] is True  # empty database
     assert bars["last_success_at"] is None
@@ -411,3 +458,47 @@ def test_zero_rows_with_a_clean_backfill_is_only_waiting(db, monkeypatch):
     state = scheduler._read_state("bars")
     assert state["consecutive_failures"] == 0
     assert state["last_error"] is None
+
+
+# ---------------------------------------------------------------------------
+# The filings job -- the one that keeps the site current within a day
+# ---------------------------------------------------------------------------
+def test_filings_are_due_until_a_filing_from_the_last_session_is_held(session):
+    from src.scheduler import filings_status
+
+    st = filings_status(session, TODAY)
+    assert st["due"] is True
+    assert st["detail"] == "no filings loaded"
+
+    # A filing from ten days ago: still sweeping for anything newer.
+    _seed_fundamentals(session, dt.date(2026, 8, 21), 1)
+    session.flush()
+    st = filings_status(session, TODAY)
+    assert st["due"] is True
+    assert "sweeping for anything newer" in st["detail"]
+
+    # A filing from the last completed session: current.
+    _seed_fundamentals(session, dt.date(2026, 8, 31), 1)
+    session.flush()
+    st = filings_status(session, TODAY)
+    assert st["due"] is False
+    assert "current through 2026-08-31" in st["detail"]
+
+
+def test_filings_run_before_the_quarterly_jobs(db):
+    """Order matters: one job runs per tick, and the fresh source should be the
+    one that gets the slot when several are behind."""
+    from src import scheduler
+
+    names = [j.name for j in scheduler.JOBS]
+    assert names.index("filings") < names.index("fundamentals")
+    assert names.index("filings") < names.index("earnings")
+
+
+def test_report_covers_the_filings_job(db):
+    from src import scheduler
+
+    rep = scheduler.report()
+    job = next(j for j in rep["jobs"] if j["name"] == "filings")
+    assert job["due"] is True
+    assert "frames" in job["does"]

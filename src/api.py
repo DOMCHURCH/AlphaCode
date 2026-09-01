@@ -346,7 +346,9 @@ async def reconcile_endpoint(sample: int = Query(15, ge=1, le=50)) -> dict[str, 
     return data
 
 
-_BACKFILL_KINDS = ("bars", "sectors", "fundamentals", "earnings", "names")
+_BACKFILL_KINDS = (
+    "bars", "sectors", "filings", "fundamentals", "earnings", "names",
+)
 
 
 @app.post("/backfill", response_model=RunResponse)
@@ -358,7 +360,11 @@ async def trigger_backfill(
     fundamentals: bool = False,
     sectors: bool = False,
 ) -> RunResponse:
-    """Load ONE kind of data. `kind` = bars | sectors | fundamentals | earnings.
+    """Load ONE kind of data.
+
+    `kind` = bars | sectors | filings | fundamentals | earnings | names.
+    `filings` is the fast one: SEC's XBRL frames, which carry the current
+    quarter months before its bulk dataset exists.
 
     Open by design; single-flighted by `_backfill_lock`.
     """
@@ -382,6 +388,7 @@ async def _backfill_bg(kind: str, days: int) -> None:
     from src.backfill import (
         backfill_bars,
         backfill_earnings,
+        backfill_filings,
         backfill_fundamentals,
         backfill_sectors,
         record_backfill_error,
@@ -401,6 +408,10 @@ async def _backfill_bg(kind: str, days: int) -> None:
                 sm = await backfill_sectors()
                 log.info("backfill_sectors_done", mapped=sm)
                 record_backfill_result("sectors", sm)
+            elif kind == "filings":
+                f = await backfill_filings()
+                log.info("backfill_filings_done", rows=f)
+                record_backfill_result("filings", f)
             elif kind == "fundamentals":
                 m = await backfill_fundamentals()
                 log.info("backfill_fundamentals_done", rows=m)
@@ -752,6 +763,7 @@ def admin_json() -> dict[str, Any]:
     """Everything the /admin page renders, in one cheap payload."""
     from src.backfill import (
         get_extraction_reports,
+        get_frames_reports,
         get_raw_facts_state,
         get_reload_state,
     )
@@ -788,6 +800,7 @@ def admin_json() -> dict[str, Any]:
         "visitors": visit_summary(),
         "raw_facts": get_raw_facts_state(),
         "auto_update": auto,
+        "frames": get_frames_reports(),
         "backfill_running": _backfill_lock.locked(),
     }
 

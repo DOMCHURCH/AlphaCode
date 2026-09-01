@@ -196,6 +196,16 @@ class Settings(BaseSettings):
     # for late filers and restatements), not to rebuild history. A full rebuild
     # is still `POST /backfill?kind=fundamentals` or the reload button.
     auto_update_quarters: int = Field(default=2, ge=1, alias="AUTO_UPDATE_QUARTERS")
+    # How many calendar quarters of XBRL frames to sweep for newly-filed
+    # numbers. Two: the newest closed quarter is still filling up while the one
+    # before it still gains late filers and amendments.
+    sec_frames_quarters: int = Field(default=2, ge=1, alias="SEC_FRAMES_QUARTERS")
+    # Floor between filing sweeps. This is the job that makes the site current
+    # within a day of a company filing, so it runs several times a day rather
+    # than quarterly -- but it is a whole-market sweep, so not every tick.
+    auto_update_filings_min_hours: float = Field(
+        default=6.0, alias="AUTO_UPDATE_FILINGS_MIN_HOURS"
+    )
     # SEC publishes a quarter's dataset several weeks after the quarter ends,
     # on no announced date. When the quarter we want is not up yet, that is not
     # a failure -- we simply look again this often until it appears.

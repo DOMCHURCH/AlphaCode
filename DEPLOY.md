@@ -54,8 +54,18 @@
    | Job | Runs when |
    |---|---|
    | `bars` | the newest bar is older than the last completed trading session |
+   | `filings` | anything filed since the newest `filing_date` we hold (every 6h) |
    | `fundamentals` | the newest published SEC quarter is not in `fundamentals` yet |
    | `earnings` | the same quarter is not in `earnings_events` yet |
+
+   `filings` is the one that keeps a company page current. It reads SEC's XBRL
+   **frames** API — one request returns a concept for every filer in a period,
+   so the whole market's newest quarter costs ~48 requests and about half a
+   minute, not one request per company. Frames carry no filing date, so each
+   fact's accession number is joined to EDGAR's form index to get the real one;
+   a fact that cannot be dated honestly is dropped rather than dated by
+   guesswork. That gap matters: a 10-Q filed in August does not appear in any
+   bulk dataset until November.
 
    That is what makes late work catch itself up. SEC publishes a quarter's
    dataset weeks after the quarter ends and on no announced date, so the

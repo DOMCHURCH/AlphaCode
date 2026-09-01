@@ -26,7 +26,16 @@ import structlog
 from sqlalchemy import select
 
 from src.config.settings import get_settings
-from src.ingest import fmp, polygon, sec_cache, sec_datasets, sec_edgar, stooq, xbrl
+from src.ingest import (
+    fmp,
+    polygon,
+    sec_cache,
+    sec_datasets,
+    sec_edgar,
+    sec_frames,
+    stooq,
+    xbrl,
+)
 from src.ingest import sic as sic_map
 from src.ingest.base import PermanentAPIError, gather_bounded
 from src.logging_config import configure_logging
@@ -74,6 +83,11 @@ _BACKFILL_RESULTS: dict[str, dict[str, Any]] = {}
 # is the evidence that the filter is doing its job, so it is surfaced on /admin
 # rather than only living in the logs.
 _LAST_EXTRACTION_REPORTS: dict[str, dict[str, Any]] = {}
+
+
+# What the last frames sweep did, per quarter. A list rather than a dict: the
+# sweep is ordered and small, and /admin shows it as it ran.
+_FRAMES_REPORTS: list[dict[str, Any]] = []
 
 
 def get_extraction_reports() -> dict[str, dict[str, Any]]:
@@ -851,6 +865,11 @@ async def backfill_fundamentals(
 
     total = 0
     loaded_quarters = 0
+    # Which quarters' ZIPs actually parsed. The scheduler reads this to know
+    # whether the authoritative load for the target quarter has happened --
+    # the fundamentals table alone can no longer answer that, since the frames
+    # sweep writes the same rows from a different endpoint.
+    quarters_loaded: list[str] = []
     unpublished: list[str] = []
     for i, (year, q) in enumerate(qs):
         try:
@@ -881,6 +900,7 @@ async def backfill_fundamentals(
             _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")
             continue
         loaded_quarters += 1
+        quarters_loaded.append(f"{year}q{q}")
         _LAST_EXTRACTION_REPORTS[f"{year}q{q}"] = report.as_dict()
         # Collapse across the WHOLE quarter BEFORE batching. save_fundamentals
         # dedupes too, but only within the batch it is handed -- duplicates split
@@ -901,10 +921,11 @@ async def backfill_fundamentals(
         log.info("backfill_fundamentals_progress", year=year, quarter=q, rows=total)
 
     if loaded_quarters == 0:
-        _update_state(phase="error", last_error=_BACKFILL_STATE.get("last_error")
+        _update_state(phase="error", quarters_loaded=[],
+                      last_error=_BACKFILL_STATE.get("last_error")
                       or "no SEC dataset quarter could be downloaded")
     else:
-        _update_state(phase="done")
+        _update_state(phase="done", quarters_loaded=quarters_loaded)
     log.info("backfill_fundamentals_complete", rows=total,
              quarters_loaded=loaded_quarters, unpublished=unpublished)
     return total
@@ -931,6 +952,7 @@ async def backfill_earnings(
 
     events: list[dict[str, Any]] = []
     loaded_quarters = 0
+    quarters_loaded: list[str] = []
     for i, (year, q) in enumerate(qs):
         try:
             zbytes = await sec_datasets.download_dataset(year, q)
@@ -941,6 +963,7 @@ async def backfill_earnings(
             _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")
             continue
         loaded_quarters += 1
+        quarters_loaded.append(f"{year}q{q}")
         _update_state(units_done=i + 1)
 
     # Same cross-batch hazard as fundamentals, plus one more: a filing can appear
@@ -957,12 +980,106 @@ async def backfill_earnings(
         with session_scope() as session:
             total += repository.save_earnings(session, events[j : j + 5000])
     if loaded_quarters == 0:
-        _update_state(phase="error", last_error=_BACKFILL_STATE.get("last_error")
+        _update_state(phase="error", quarters_loaded=[],
+                      last_error=_BACKFILL_STATE.get("last_error")
                       or "no SEC dataset quarter could be downloaded")
     else:
-        _update_state(phase="done", rows=total)
+        _update_state(phase="done", rows=total, quarters_loaded=quarters_loaded)
     log.info("backfill_earnings_complete", rows=total, quarters_loaded=loaded_quarters)
     return total
+
+
+async def backfill_filings(
+    as_of: dt.date | None = None, quarters: int | None = None
+) -> int:
+    """Newly-filed numbers, from SEC's XBRL frames -- the CURRENT quarter's
+    filings, months before the bulk dataset for them exists.
+
+    The bulk datasets (`backfill_fundamentals`) publish once, weeks after a
+    quarter closes, so a 10-Q filed in August is invisible here until November.
+    This path asks a different SEC endpoint the same question: one request per
+    concept returns that concept for every filer in a period, and the accession
+    number on each fact is joined to EDGAR's form index for the filing date.
+    See src/ingest/sec_frames.py for why the join, not a guess, supplies the
+    date.
+
+    Writes the same metrics under the same names and the same `source="sec"` as
+    the bulk path, so a fact loaded by either route lands on one natural key.
+    Returns the number of fundamental rows written.
+    """
+    s = get_settings()
+    as_of = as_of or dt.date.today()
+    quarters = quarters or s.sec_frames_quarters
+    qs = sec_frames.frame_quarters(as_of, quarters)
+    _update_state(
+        phase="running", source="sec_frames", unit="quarters",
+        units_total=len(qs), units_done=0, rows=0, last_error=None,
+    )
+    log.info("backfill_filings_start", quarters=qs)
+
+    cik_map = await _cik_to_ticker()
+
+    # Filing dates for a period land in the FOLLOWING calendar quarter, so the
+    # index has to cover the quarter in progress as well as the one before it.
+    # Anything older than that is what the bulk dataset is for.
+    index: dict[str, dict[str, Any]] = {}
+    current_q = (as_of.month - 1) // 3 + 1
+    index_quarters = [(as_of.year, current_q)]
+    prev_q, prev_y = current_q - 1, as_of.year
+    if prev_q == 0:
+        prev_q, prev_y = 4, as_of.year - 1
+    index_quarters.append((prev_y, prev_q))
+    for year, q in index_quarters:
+        try:
+            index.update(await sec_frames.fetch_form_index(year, q))
+        except sec_frames.SECUnavailable as exc:
+            # Without any index there are no honest filing dates, so this is
+            # fatal for the run rather than something to work around.
+            _update_state(phase="error", last_error=str(exc)[:300])
+            log.error("form_index_failed", year=year, quarter=q, error=str(exc)[:200])
+            return 0
+    log.info("form_index_loaded", filings=len(index), quarters=index_quarters)
+    if not index:
+        _update_state(phase="error", last_error="EDGAR form index came back empty")
+        return 0
+
+    total = 0
+    reports: list[dict[str, Any]] = []
+    for i, (year, q) in enumerate(qs):
+        try:
+            rows, report = await sec_frames.sweep_quarter(year, q, index, cik_map)
+        except sec_frames.SECUnavailable as exc:
+            _update_state(phase="error", last_error=str(exc)[:300])
+            log.error("frames_sweep_failed", year=year, quarter=q, error=str(exc)[:200])
+            return total
+        reports.append(report)
+        log.info("frames_quarter_swept", **report)
+        for j in range(0, len(rows), 5000):
+            with session_scope() as session:
+                total += repository.save_fundamentals(session, rows[j : j + 5000])
+        events = sec_frames.earnings_from_rows(rows)
+        for j in range(0, len(events), 5000):
+            with session_scope() as session:
+                repository.save_earnings(session, events[j : j + 5000])
+        _update_state(units_done=i + 1, rows=total)
+
+    _FRAMES_REPORTS.clear()
+    _FRAMES_REPORTS.extend(reports)
+    if total == 0 and all(r["rows_kept"] == 0 for r in reports):
+        _update_state(
+            phase="error",
+            last_error="frames returned no datable rows for any quarter",
+        )
+    else:
+        _update_state(phase="done", rows=total)
+    log.info("backfill_filings_complete", rows=total, quarters=len(reports))
+    return total
+
+
+def get_frames_reports() -> list[dict[str, Any]]:
+    """What the last filing sweep saw, kept and dropped -- for /admin."""
+    return [dict(r) for r in _FRAMES_REPORTS]
+
 
 
 def main() -> None:

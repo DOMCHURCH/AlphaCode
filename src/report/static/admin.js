@@ -59,7 +59,7 @@ async function load() {
 function render(d) {
   renderVerdict(d.verdict);
   renderHealth(d.data_health || {});
-  renderAutoUpdate(d.auto_update || {});
+  renderAutoUpdate(d.auto_update || {}, d.frames || []);
   renderReload(d.reload || {});
   renderSecCache(d.sec_cache || []);
   renderAsk(d.ask || {});
@@ -325,7 +325,7 @@ function relTime(iso) {
   return mins >= 0 ? `${unit} ago` : `in ${unit}`;
 }
 
-function renderAutoUpdate(a) {
+function renderAutoUpdate(a, frames) {
   const el = $("autoUpdate");
   if (!el) return;
   const jobs = a.jobs || [];
@@ -355,6 +355,18 @@ function renderAutoUpdate(a) {
     if (next) bits.push(`next check ${next}`);
     out += row(j.name, state, bits.join(" · "));
     out += `<div class="row"><div class="k"><span class="sub">${esc(j.does || "")}</span></div><div class="v"></div></div>`;
+  }
+
+  // What the last frames sweep actually did. Dropped rows are shown, not
+  // hidden: "80,804 stored" without "and 1,002 skipped because their accession
+  // was in no index we hold" is a number that cannot be reconciled.
+  for (const f of (frames || [])) {
+    const d = f.dropped || {};
+    const skipped = (d.no_accession_in_index || 0) + (d.no_ticker || 0);
+    out += row(`sweep ${f.quarter}`, fmtNum(f.rows_kept),
+      `${fmtNum(f.facts_seen)} facts from ${f.frames_found}/${f.frames_requested} frames · ` +
+      `${fmtNum(skipped)} skipped (${fmtNum(d.no_accession_in_index)} undatable, ` +
+      `${fmtNum(d.no_ticker)} no ticker)`);
   }
   el.innerHTML = out;
 }

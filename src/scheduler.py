@@ -18,10 +18,17 @@ fired into the void and waited for the next one.
 would turn a quarterly job into a per-deploy job, and a failure backoff into no
 backoff at all.
 
-SEC publishes a quarter's Financial Statement Data Set several weeks after the
-quarter ends, on no announced date. So the quarterly jobs do not guess: they
-look for the quarter, and if it is not up yet they say so and look again in a
-few hours. That is a normal state, not an error, and it is reported as
+SEC filings arrive by two routes, and both are here for a reason. The
+`filings` job sweeps SEC's XBRL frames every few hours, which carries a 10-Q
+within a day of it being filed. The `fundamentals` and `earnings` jobs load the
+bulk Financial Statement Data Sets, which publish once, weeks after a quarter
+closes, and are the authoritative and more complete record. Fast first,
+thorough behind it -- and both write `source="sec"`, so a fact loaded by either
+route lands on one row rather than two.
+
+The bulk datasets publish on no announced date, so those jobs do not guess:
+they look for the quarter, and if it is not up yet they say so and look again
+in a few hours. That is a normal state, not an error, and it is reported as
 "waiting" rather than left sitting in `last_error`.
 
 One job runs per tick. These are whole-market downloads; overlapping them buys
@@ -131,46 +138,85 @@ def bars_status(session: Any, today: dt.date) -> dict[str, Any]:
     }
 
 
-def fundamentals_status(session: Any, today: dt.date) -> dict[str, Any]:
-    """Whether the newest publishable SEC quarter is in `fundamentals`.
+def _dataset_quarter_loaded(session: Any, job: str) -> str | None:
+    """The newest quarter whose bulk ZIP this job actually parsed.
 
-    Keyed on `filing_date`, because a quarter's dataset is defined by what was
-    FILED in it. Rows filed inside the target quarter can only have come from
-    that quarter's dataset, so their presence is direct evidence it loaded --
-    no bookkeeping to fall out of sync with the table it describes.
+    Read from `job_state` rather than inferred from the fundamentals table.
+    Counting rows in the target quarter USED to answer this, and stopped being
+    able to the moment the frames sweep began writing rows for the same
+    quarter from a different endpoint: the table would say "loaded" while the
+    authoritative dataset had never been fetched, and the quarterly job would
+    retire itself.
     """
+    row = session.get(JobState, job)
+    return row.last_quarter_loaded if row is not None else None
+
+
+def _bulk_status(
+    session: Any, today: dt.date, job: str, entity: Any, column: Any, noun: str
+) -> dict[str, Any]:
+    """Shared shape for the two bulk-dataset jobs."""
     year, q = target_quarter(today)
-    rows = _quarter_row_count(session, Fundamental, Fundamental.filing_date, year, q)
-    loaded = rows >= _QUARTER_LOADED_MIN_ROWS
+    target = f"{year}q{q}"
+    rows = _quarter_row_count(session, entity, column, year, q)
+    marked = _dataset_quarter_loaded(session, job)
+    # Empty table beats any marker: a wiped or restored database has to reload
+    # whatever the bookkeeping claims.
+    wiped = rows < _QUARTER_LOADED_MIN_ROWS
+    loaded = marked == target and not wiped
+    if loaded:
+        detail = f"{target} dataset loaded ({rows:,} {noun} in the table)"
+    elif wiped:
+        detail = f"{target} not loaded yet"
+    else:
+        detail = (
+            f"{target} dataset not loaded yet"
+            + (f" (last was {marked})" if marked else "")
+        )
     return {
         "due": not loaded,
-        "quarter": f"{year}q{q}",
+        "quarter": target,
         "rows_in_quarter": rows,
-        "detail": (
-            f"{year}q{q} loaded ({rows:,} filings)"
-            if loaded
-            else f"{year}q{q} not loaded yet"
-        ),
+        "dataset_quarter_loaded": marked,
+        "detail": detail,
     }
+
+
+def fundamentals_status(session: Any, today: dt.date) -> dict[str, Any]:
+    """Whether the newest publishable SEC quarter's BULK dataset has loaded."""
+    return _bulk_status(
+        session, today, "fundamentals", Fundamental, Fundamental.filing_date,
+        "filings",
+    )
+
+
+def filings_status(session: Any, today: dt.date) -> dict[str, Any]:
+    """Whether anything filed since the last sweep is still missing.
+
+    Measured on the newest `filing_date` we hold, not on a quarter boundary:
+    this is the job whose whole purpose is that a 10-Q filed on Tuesday is on
+    the site by Wednesday. It is therefore due most of the time by design --
+    "due" here means "sweep at the next check", and the job's minimum interval,
+    not the due flag, is what decides how often that actually happens.
+    """
+    newest = session.execute(select(func.max(Fundamental.filing_date))).scalar_one()
+    expected = last_completed_session(today)
+    behind = newest is None or newest < expected
+    if newest is None:
+        detail = "no filings loaded"
+    elif behind:
+        detail = f"newest filing {newest.isoformat()}; sweeping for anything newer"
+    else:
+        detail = f"current through {newest.isoformat()}"
+    return {"due": behind, "newest_filing": newest, "detail": detail}
 
 
 def earnings_status(session: Any, today: dt.date) -> dict[str, Any]:
-    """The same check against `earnings_events`, keyed on report (filing) date."""
-    year, q = target_quarter(today)
-    rows = _quarter_row_count(
-        session, EarningsEvent, EarningsEvent.report_date, year, q
+    """The same check against `earnings_events`."""
+    return _bulk_status(
+        session, today, "earnings", EarningsEvent, EarningsEvent.report_date,
+        "events",
     )
-    loaded = rows >= _QUARTER_LOADED_MIN_ROWS
-    return {
-        "due": not loaded,
-        "quarter": f"{year}q{q}",
-        "rows_in_quarter": rows,
-        "detail": (
-            f"{year}q{q} loaded ({rows:,} events)"
-            if loaded
-            else f"{year}q{q} not loaded yet"
-        ),
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -241,6 +287,16 @@ async def _run_sec(kind: str) -> Outcome:
     s = get_settings()
     fn = backfill_fundamentals if kind == "fundamentals" else backfill_earnings
     rows = await fn(quarters=s.auto_update_quarters)
+
+    # Record which quarter's ZIP actually parsed BEFORE judging the outcome:
+    # that marker is what the due-check reads next time, and it must reflect
+    # the download that happened, not the verdict we reach about it.
+    from src.backfill import get_backfill_state
+
+    target = "{}q{}".format(*target_quarter(dt.date.today()))
+    if target in (get_backfill_state().get("quarters_loaded") or []):
+        _write_state(kind, last_quarter_loaded=target)
+
     failure = _source_error()
     if failure:
         # "No quarter could be downloaded" is reported the same way: state, not
@@ -259,6 +315,23 @@ async def _run_sec(kind: str) -> Outcome:
             rows,
             f"{after['quarter']} not published by SEC yet; will look again",
         )
+    return Outcome("ok", rows, f"{rows:,} rows; {after['detail']}")
+
+
+async def _run_filings(_status: dict[str, Any]) -> Outcome:
+    from src.backfill import backfill_filings
+
+    s = get_settings()
+    rows = await backfill_filings(quarters=s.sec_frames_quarters)
+    failure = _source_error()
+    if failure:
+        return Outcome("error", rows, failure)
+    with session_scope() as session:
+        after = filings_status(session, dt.date.today())
+    if after["due"]:
+        # Swept cleanly and still nothing newer than the last session, which is
+        # simply what a day with no periodic filings looks like.
+        return Outcome("waiting", rows, f"{rows:,} rows; {after['detail']}")
     return Outcome("ok", rows, f"{rows:,} rows; {after['detail']}")
 
 
@@ -291,6 +364,17 @@ JOBS: tuple[Job, ...] = (
         min_hours=lambda s: s.auto_update_bars_min_hours,
         wait_hours=lambda s: s.auto_update_bars_min_hours,
         description="daily price bars, through the last completed session",
+    ),
+    Job(
+        name="filings",
+        status=filings_status,
+        run=_run_filings,
+        min_hours=lambda s: s.auto_update_filings_min_hours,
+        wait_hours=lambda s: s.auto_update_filings_min_hours,
+        description=(
+            "newly-filed numbers from SEC's XBRL frames, months ahead of the "
+            "bulk datasets"
+        ),
     ),
     Job(
         name="fundamentals",

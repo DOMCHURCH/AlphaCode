@@ -540,3 +540,9 @@ class JobState(Base):
     consecutive_failures: Mapped[int] = mapped_column(
         Integer, default=0, nullable=False
     )
+    # For the bulk-dataset jobs: the newest quarter whose ZIP actually loaded,
+    # as "2026q2". It cannot be inferred from the fundamentals table any more,
+    # because the frames sweep fills the same rows for the same quarter from a
+    # different endpoint -- so a table-only check would report the authoritative
+    # quarterly load as already done and it would never run again.
+    last_quarter_loaded: Mapped[str | None] = mapped_column(String(8))
