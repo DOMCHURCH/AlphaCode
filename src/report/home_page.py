@@ -251,6 +251,7 @@ def _shell(title: str, body: str) -> str:
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 {body}
 </body>
 </html>"""
@@ -480,7 +481,7 @@ def render_home(
   <span class="spacer"></span>
 </div></nav>
 
-<main class="wrap">
+<main class="wrap" id="main">
   <header class="hero">
     <h1 class="htitle">To Scale</h1>
     <p class="hlede">Every US public company's balance sheet, drawn at true
@@ -536,7 +537,7 @@ def render_matches(
   <span class="spacer"></span>
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
-<main class="wrap">
+<main class="wrap" id="main">
   <div class="empty">
     <h1>{
       f'Nothing matches “{escape(query)}”'
@@ -574,7 +575,7 @@ def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
   <span class="spacer"></span>
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
-<main class="wrap">
+<main class="wrap" id="main">
   <div class="empty">
     <h1>Search by ticker for now</h1>
     <p>Company names are not loaded on this instance, so “{escape(query)}”
@@ -600,7 +601,7 @@ def render_search_empty(suggestions: list[Suggestion]) -> str:
 <nav><div class="wrap nav">
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
-<main class="wrap">
+<main class="wrap" id="main">
   <div class="empty">
     <h1>Type a ticker</h1>
     <p>The search takes one ticker symbol and draws that company's most

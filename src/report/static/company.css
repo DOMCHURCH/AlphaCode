@@ -50,6 +50,17 @@ body{margin:0;background:var(--bg);color:var(--ink);
 a{color:var(--ink)}
 .wrap{max-width:720px;margin:0 auto;padding:0 18px}
 
+/* Visually hidden, but read by assistive tech: table captions, the ask-box
+   label, and anything else a screen reader needs and the eye does not. */
+.vh{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+/* Skip link: off-screen until focused, then a pill at the top-left. First stop
+   on every page, so a keyboard reader isn't marched through the nav each time. */
+.skip{position:absolute;left:8px;top:-56px;z-index:100;background:var(--ink);
+  color:var(--bg);padding:11px 17px;border-radius:999px;font-weight:600;
+  font-size:14px;text-decoration:none;box-shadow:var(--up-sm);transition:top .15s}
+.skip:focus{top:8px;outline:2px solid var(--ink);outline-offset:2px}
+
 /* ---- nav: a shelf, not a rule ---- */
 nav{position:sticky;top:0;z-index:50;background:var(--bg)}
 .nav{display:flex;align-items:center;gap:12px;height:64px}
@@ -78,7 +89,7 @@ main{padding:6px 0 72px}
 /* ---- search: a slot pressed into the sheet ---- */
 .search{margin:0}
 .slabel{display:block;font-size:12px;font-weight:500;letter-spacing:.02em;
-  color:var(--dim);margin:0 0 9px 4px}
+  color:var(--ink2);margin:0 0 9px 4px}
 .sfield{display:flex;align-items:center;gap:8px;background:var(--well);
   border-radius:999px;box-shadow:var(--in);padding:7px 7px 7px 8px}
 /* No forced uppercase: the box takes company names as well as tickers, and
@@ -135,7 +146,7 @@ main{padding:6px 0 72px}
 /* ---- company header ---- */
 .chead{padding:26px 24px 22px;margin-bottom:26px}
 .cticker{font-family:var(--mono);font-size:12px;font-weight:700;letter-spacing:.12em;
-  color:var(--dim);margin:0 0 6px}
+  color:var(--ink2);margin:0 0 6px}
 .cname{font-size:clamp(26px,7vw,38px);line-height:1.06;font-weight:600;
   letter-spacing:-.03em;margin:0 0 16px}
 .cmeta{display:flex;flex-wrap:wrap;gap:8px}
@@ -184,18 +195,23 @@ main{padding:6px 0 72px}
 .band .bl.one b{font-family:var(--mono);font-weight:700}
 .baseline{height:14px}
 
-/* ---- legend: every band, with the number ---- */
-.legend{margin:20px 0 0;padding-top:4px}
+/* ---- legend: every band, with the number. A real table now: the drawing
+   itself is marked role="img" and its bands are hidden from assistive tech,
+   so this is where a screen reader reads the figures -- one row per line, the
+   line name as the row header, amount and share alongside. ---- */
+table.legend{width:100%;border-collapse:collapse;margin:20px 0 0}
 /* An engraved line, not a drawn one: the two legends are the two columns, and
    the break between them has to be findable without adding a rule. */
-.legend+.legend{margin-top:16px;padding:16px 0 4px;
+.legend+.legend{margin-top:16px;padding-top:16px;
   border-top:1px solid var(--hi);box-shadow:0 -1px 0 var(--lo)}
-.lrow{display:flex;align-items:flex-start;gap:12px;padding:9px 2px}
-.sw{width:16px;height:16px;flex:none;border-radius:5px;margin-top:2px;
+.lrow>*{padding:9px 2px;vertical-align:top}
+.sw-cell{width:16px;padding-right:0}
+.sw{display:block;width:16px;height:16px;border-radius:5px;margin-top:2px;
   box-shadow:0 1px 2px rgba(34,38,47,.18)}
 .sw.rem{background-image:repeating-linear-gradient(45deg,
   rgba(255,255,255,.5) 0 4px,transparent 4px 8px)}
-.lk{flex:1;min-width:0;font-size:14px;font-weight:500;line-height:1.35}
+.lk{padding-left:12px;text-align:left;font-family:inherit;font-size:14px;
+  font-weight:500;line-height:1.35}
 .lk .ln{display:block;font-size:12px;font-weight:400;color:var(--ink2);
   line-height:1.4;margin-top:3px}
 .lv{font-family:var(--mono);font-size:12.5px;font-weight:700;white-space:nowrap;
@@ -209,7 +225,7 @@ main{padding:6px 0 72px}
   background:var(--well);box-shadow:var(--in-sm);padding:15px 17px;
   font-size:13.5px;line-height:1.55;color:var(--ink2)}
 .missing h3{font-size:11.5px;font-weight:600;letter-spacing:.04em;
-  text-transform:uppercase;margin:0 0 8px;color:var(--dim)}
+  text-transform:uppercase;margin:0 0 8px;color:var(--ink2)}
 .missing p{margin:0}
 .missing .tags{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}
 .missing .tags span{font-size:11.5px;padding:5px 11px;border-radius:999px;
@@ -278,8 +294,8 @@ main{padding:6px 0 72px}
    rather than a place in the nav -- but it has to be reachable without typing
    a URL. */
 .foot-admin{display:block;margin-top:10px}
-.foot-admin a{color:var(--dim);text-decoration:none;border-bottom:1px solid var(--lo)}
-.foot-admin a:hover{color:var(--ink2)}
+.foot-admin a{color:var(--ink2);text-decoration:none;border-bottom:1px solid var(--lo)}
+.foot-admin a:hover{color:var(--ink)}
 
 /* The jump target for "How this works". scroll-margin keeps the heading clear
    of the sticky nav when the anchor lands. */
@@ -301,7 +317,7 @@ main{padding:6px 0 72px}
 .exband b{font-weight:700}
 /* The palest asset tint and the yellow residual both need ink, not white. */
 .exband[style*="--a5"],.exband[style*="--yellow"]{color:var(--ink)}
-.exnote{margin:10px 2px 0;font-size:12px;color:var(--dim)}
+.exnote{margin:10px 2px 0;font-size:12px;color:var(--ink2)}
 
 /* ---- home: the numbers ---- */
 .stats{display:grid;grid-template-columns:1fr;gap:12px}
@@ -372,7 +388,7 @@ main{padding:6px 0 72px}
   color:var(--ink)}
 .qanswer.pending{color:var(--dim)}
 .qanswer.bad{color:var(--ink2)}
-.qnote{margin:14px 0 0;font-size:12px;color:var(--dim);line-height:1.5}
+.qnote{margin:14px 0 0;font-size:12px;color:var(--ink2);line-height:1.5}
 
 footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-height:1.6}
 

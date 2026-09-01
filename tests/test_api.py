@@ -771,10 +771,12 @@ def test_the_two_columns_share_one_caption_row(client):
     text = client.get("/company/JPM").text
     cols = text.split('<div class="bs-cols">', 1)[1].split("</div>\n\n", 1)[0]
     cap = cols.index('<div class="bs-cap">')
-    col = cols.index('<div class="bs-col">')
+    col = cols.index('<div class="bs-col"')
 
     assert cols.count('<div class="bs-cap">') == 2
-    assert cols.count('<div class="bs-col">') == 2
+    # bs-col now also carries role="img" + aria-label (screen-reader summary of
+    # the drawing), so match the opening tag without its closing bracket.
+    assert cols.count('<div class="bs-col"') == 2
     assert cap < col, "both captions must precede both columns, as one grid row"
     # And no caption may be nested inside a column, which is what re-introduces
     # the independent wrap.
@@ -912,3 +914,4 @@ def test_raw_facts_presets_carry_their_own_parameters(client):
     assert "submitRawFacts(" in handler
     assert '$("rawTicker").value =' not in handler
     assert '$("rawTags").value =' not in handler
+

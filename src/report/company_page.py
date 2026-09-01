@@ -121,9 +121,11 @@ def _legend_rows(blocks: list[dict[str, Any]], total: float) -> str:
         share = abs(b["value"]) / total * 100.0 if total else 0.0
         note = f'<span class="ln">{escape(b["note"])}</span>' if b.get("note") else ""
         out.append(
-            f'<div class="lrow"><span class="{cls}" style="{sw}"></span>'
-            f'<span class="lk">{escape(b["label"])}{note}</span>'
-            f'<span class="lv">{money(b["value"])}<small>{share:.0f}%</small></span></div>'
+            f'<tr class="lrow">'
+            f'<td class="sw-cell" aria-hidden="true"><span class="{cls}" style="{sw}"></span></td>'
+            f'<th scope="row" class="lk">{escape(b["label"])}{note}</th>'
+            f'<td class="lv">{money(b["value"])}<small>{share:.0f}%</small></td>'
+            f"</tr>"
         )
     return "".join(out)
 
@@ -164,12 +166,14 @@ def _flow_html(v3: View3 | None) -> str:
     )
 
     rows = "".join(
-        f'<div class="lrow"><span class="sw" style="background-color:var(--l{min(i,3)})">'
-        f'</span><span class="lk">{escape(st["label"])}'
+        f'<tr class="lrow">'
+        f'<td class="sw-cell" aria-hidden="true"><span class="sw" '
+        f'style="background-color:var(--l{min(i, 3)})"></span></td>'
+        f'<th scope="row" class="lk">{escape(st["label"])}'
         f'<span class="ln">{escape(st["caption"])}'
         + (" · computed as a remainder" if st["derived"] else "")
-        + f'</span></span><span class="lv">{money(st["value"])}'
-        f'<small>{st["pct"]:.0f}%</small></span></div>'
+        + f'</span></th><td class="lv">{money(st["value"])}'
+        f'<small>{st["pct"]:.0f}%</small></td></tr>'
         for i, st in enumerate(d["stages"])
     )
 
@@ -185,8 +189,8 @@ def _flow_html(v3: View3 | None) -> str:
       is left after each cost comes out.</p>
     <div class="bs flow">
       <div class="bs-cap"><span>Revenue in</span><b>{money(rev)}</b></div>
-      <div class="stack">{"".join(bands)}</div>
-      <div class="legend">{rows}</div>
+      <div class="stack" role="img" aria-label="Where each dollar of revenue goes, drawn to scale — revenue {money(rev)}, {"loss" if d["loss_making"] else "profit kept"} {money(keep)}, margin {d["margin_pct"]:.1f}%. Line-by-line amounts in the table below.">{"".join(bands)}</div>
+      <table class="legend"><caption class="vh">Revenue and costs, line by line</caption><tbody>{rows}</tbody></table>
     </div>
     {notes}
     <div class="shape">{sentences}</div>
@@ -251,6 +255,7 @@ def _ask_html(ticker: str, available: bool) -> str:
       Ask for something that is not here — another company, a share price, an
       earlier quarter — and it will tell you it is not in the filing data.</p>
     <form class="qform" id="qform">
+      <label class="vh" for="qinput">Ask a question about these numbers</label>
       <div class="qfield">
         <input id="qinput" name="question" type="text" autocomplete="off"
           placeholder="What is the biggest thing it owns?" maxlength="300"
@@ -259,7 +264,7 @@ def _ask_html(ticker: str, available: bool) -> str:
       </div>
     </form>
     <div class="qchips">{chips}</div>
-    <div class="qanswer" id="qanswer" hidden></div>
+    <div class="qanswer" id="qanswer" role="status" aria-live="polite" hidden></div>
     <p class="qnote">This is a language model reading the same numbers you can
       see. It does not predict, rate or recommend.</p>
   </section>"""
@@ -351,6 +356,7 @@ def render_company_page(
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a
        control. The explicit back link is the difference between a way out and
@@ -361,7 +367,7 @@ def render_company_page(
 </div></nav>
 
 
-<main class="wrap">
+<main class="wrap" id="main">
   <header class="chead">
     {eyebrow}
     <h1 class="cname">{name}</h1>
@@ -386,17 +392,19 @@ def render_company_page(
       <div class="bs-cols">
         <div class="bs-cap"><span>Owns</span><b>{money(total)}</b></div>
         <div class="bs-cap"><span>Owed &amp; owned</span><b>{liab_label} + {eq_label}</b></div>
-        <div class="bs-col">
+        <div class="bs-col" role="img" aria-label="What it owns, drawn to scale — total assets {money(total)}. Line-by-line amounts in the assets table below.">
           <div class="stack">{assets_html}</div>
         </div>
-        <div class="bs-col">
+        <div class="bs-col" role="img" aria-label="Who has a claim on it, drawn to scale — liabilities {liab_label}, equity {eq_label}. Line-by-line amounts in the claims table below.">
           <div class="stack">{claims_html}</div>
           {f'<div class="baseline"></div><div class="stack">{below_html}</div>' if below_html else ""}
         </div>
       </div>
 
-      <div class="legend">{_legend_rows(d["assets"], total)}</div>
-      <div class="legend">{_legend_rows(d["claims"], total)}</div>
+      <table class="legend"><caption class="vh">Assets, line by line</caption>
+        <tbody>{_legend_rows(d["assets"], total)}</tbody></table>
+      <table class="legend"><caption class="vh">Liabilities and equity, line by line</caption>
+        <tbody>{_legend_rows(d["claims"], total)}</tbody></table>
     </div>
 
     {derived}
@@ -460,6 +468,7 @@ def render_not_found(ticker: str, reason: str) -> str:
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a
        control. The explicit back link is the difference between a way out and
@@ -469,7 +478,7 @@ def render_not_found(ticker: str, reason: str) -> str:
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
 </div></nav>
 
-<main class="wrap">
+<main class="wrap" id="main">
   <div class="empty">
     <h1>Nothing to draw for {escape(ticker)}</h1>
     <p>{escape(reason)}</p>
