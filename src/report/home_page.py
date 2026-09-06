@@ -543,7 +543,10 @@ def _limits() -> str:
 
 
 def render_home(
-    pairs: list[tuple[Suggestion, View1 | None]], stats: dict | None = None
+    pairs: list[tuple[Suggestion, View1 | None]],
+    stats: dict | None = None,
+    *,
+    nav: str = "",
 ) -> str:
     """`pairs` is (suggestion, its view or None), in the order to show them."""
     from src.company.stats import component_coverage
@@ -580,11 +583,7 @@ def render_home(
      item reads as a separate destination -- which is exactly the confusion
      that made it a separate page in the first place. The jump under the stat
      line is enough; the rest is scrolling. -->
-<nav><div class="wrap nav">
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
-  <span class="spacer"></span>
-  <a class="navlink" href="/dashboard">API</a>
-</div></nav>
+{nav}
 
 <main class="wrap" id="main">
   <header class="hero">
@@ -616,6 +615,7 @@ def render_home(
 
 <!-- In the body, not the shell: the shell is shared with /dashboard and the
      search pages, and none of those have a demo box to drive. -->
+<script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>"""
     return _shell("To Scale — filed financial statements, drawn to scale", body)
 

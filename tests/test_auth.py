@@ -344,3 +344,83 @@ def test_hidden_panels_cannot_be_unhidden_by_a_display_rule():
         Path("src/report/static/dashboard.css").read_text(encoding="utf-8")
     )
     assert "[hidden]{display:none!important}" in css
+
+
+# ---------------------------------------------------------------------------
+# Navigation
+# ---------------------------------------------------------------------------
+
+def test_dashboard_is_greyed_out_when_signed_out(client):
+    """Present, visibly unavailable, and able to say why. A disabled <a> is not
+    a thing -- an anchor without href is not focusable and one with
+    aria-disabled is announced as a link that lies -- so it is a button."""
+    for path in ("/", "/login"):
+        html = client.get(path).text
+        assert 'id="nav-dash-off"' in html, path
+        assert 'aria-disabled="true"' in html, path
+        assert "Log in to access your dashboard" in html, path
+        assert 'href="/dashboard"' not in html.split("</nav>")[0], path
+
+
+def test_dashboard_is_a_real_link_once_signed_in(client):
+    sign_in(client)
+    nav = client.get("/").text.split("</nav>")[0]
+    assert 'href="/dashboard"' in nav
+    assert 'id="nav-dash-off"' not in nav
+
+
+def test_the_nav_shows_who_is_signed_in(client):
+    sign_in(client)
+    nav = client.get("/dashboard").text.split("</nav>")[0]
+    assert "user@example.com" in nav
+    assert "Log out" in nav
+    assert 'id="signed-out"' in nav and 'hidden' in nav
+
+
+def test_the_nav_is_rendered_by_the_server_not_fetched(client):
+    """A bar that says "Sign in" for half a second to somebody who is signed in
+    is worse than no bar, and it would be wrong forever with scripting off."""
+    sign_in(client)
+    # No JS has run in this client, yet the page already knows.
+    assert "user@example.com" in client.get("/").text
+
+
+def test_the_active_page_is_marked(client):
+    assert 'class="brand on"' in client.get("/").text
+    login_nav = client.get("/login").text.split("</nav>")[0]
+    assert 'class="navlink on" href="/login"' in login_nav
+    sign_in(client)
+    dash_nav = client.get("/dashboard").text.split("</nav>")[0]
+    assert 'class="navlink on" href="/dashboard"' in dash_nav
+
+
+def test_the_collapse_cannot_strand_the_menu(client):
+    """The toggle ships hidden and is revealed by nav.js. Collapsing with CSS
+    and opening with JS would leave the menu shut forever if the script never
+    arrives -- which on a phone is exactly when it does not."""
+    html = client.get("/").text
+    assert 'id="nav-toggle" hidden' in html
+    css = __import__("pathlib").Path(
+        "src/report/static/dashboard.css"
+    ).read_text(encoding="utf-8")
+    assert ".nav-js .navlinks{display:none" in css
+
+
+def test_logout_works_without_javascript(client):
+    sign_in(client)
+    assert client.get("/api/auth/me").status_code == 200
+    r = client.post("/logout", follow_redirects=False)
+    assert r.status_code == 303
+    assert r.headers["location"] == "/"
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_the_nav_offers_no_sign_in_when_login_is_disabled(client, monkeypatch):
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("SESSION_SECRET", "")
+    get_settings.cache_clear()
+    nav = client.get("/").text.split("</nav>")[0]
+    assert 'href="/login"' not in nav
+    # ...but the Dashboard item still says what it is.
+    assert 'id="nav-dash-off"' in nav

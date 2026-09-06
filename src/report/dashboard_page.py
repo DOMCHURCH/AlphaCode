@@ -74,6 +74,7 @@ def render_dashboard(
     pro_limit: int = 10_000,
     fact_count: int | None = None,
     login_enabled: bool = True,
+    nav: str = "",
 ) -> str:
     contact = _contact(admin_email)
     facts = (
@@ -85,23 +86,9 @@ def render_dashboard(
         f'<a href="/company/{t}">{t} <small>{escape(k)}</small></a>'
         for t, k in _QUICK
     )
-    sign_in = (
-        '<a class="navlink" href="/login">Sign in</a>' if login_enabled else ""
-    )
 
     body = f"""
-<nav><div class="wrap nav">
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
-  <span class="spacer"></span>
-  <!-- Swapped for the signed-in bar by the script. Rendered this way round so
-       the page is honest about not knowing who you are until it asks. -->
-  <span class="whoami" id="whoami" hidden>
-    <span class="who-email" id="who-email"></span>
-    <span class="badge" id="who-plan"></span>
-    <button type="button" class="linkish" id="logout-btn">Log out</button>
-  </span>
-  <span id="signed-out">{sign_in}</span>
-</div></nav>
+{nav}
 
 <main class="wrap" id="main">
   <header class="hero">
@@ -292,6 +279,7 @@ def render_dashboard(
     loginEnabled: {"true" if login_enabled else "false"}
   }};
 </script>
+<script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dashboard.js?v={asset_version()}" defer></script>"""
 
     return shell("To Scale — API access", body)

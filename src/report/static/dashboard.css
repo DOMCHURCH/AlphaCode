@@ -194,3 +194,61 @@
 @media(min-width:560px){
   .buyrow{grid-template-columns:1fr 1fr}
 }
+
+/* ---- navigation ---------------------------------------------------------- */
+/* One bar, every page, rendered by the server. The collapse below is an
+   enhancement: `html.nav-js` is set by nav.js, so a browser that never runs it
+   keeps the full row of links rather than a menu with no way to open it. */
+.navlinks{display:flex;align-items:center;gap:4px;flex-wrap:wrap;
+  justify-content:flex-end}
+.navtoggle{display:none}
+
+.navlink{font-size:13px;font-weight:500;color:var(--ink2);text-decoration:none;
+  background:none;border:0;font-family:var(--disp);cursor:pointer;
+  padding:8px 14px;border-radius:999px;transition:box-shadow .18s,color .18s;
+  white-space:nowrap}
+.navlink:hover{color:var(--ink);box-shadow:var(--up-sm)}
+.navlink:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+/* The active page is pressed into the sheet rather than coloured — the only
+   colour on this site is data, and a nav item is not data. */
+.navlink.on{color:var(--ink);font-weight:600;background:var(--well);
+  box-shadow:var(--in-sm)}
+.navlink.on:hover{box-shadow:var(--in-sm)}
+/* Present, visibly unavailable, still reachable by keyboard. */
+.navlink.off{color:var(--dim);cursor:default}
+.navlink.off:hover{color:var(--dim);box-shadow:none}
+.brand.on{color:var(--ink)}
+
+.navnote{margin:0;padding:0 18px 10px;font-size:12.5px;color:var(--ink2);
+  text-align:right}
+
+.logout{display:inline;margin:0}
+
+/* ---- collapsed, only once the script is here ---- */
+@media(max-width:620px){
+  .nav-js .navtoggle{display:flex;align-items:center;justify-content:center;
+    width:40px;height:40px;flex:none;background:var(--bg);border:0;
+    border-radius:999px;box-shadow:var(--up-sm);cursor:pointer}
+  .nav-js .navtoggle:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+  .nav-js .navtoggle .bars,
+  .nav-js .navtoggle .bars::before,
+  .nav-js .navtoggle .bars::after{display:block;width:16px;height:2px;
+    border-radius:2px;background:var(--ink);content:""}
+  .nav-js .navtoggle .bars{position:relative}
+  .nav-js .navtoggle .bars::before{position:absolute;top:-5px}
+  .nav-js .navtoggle .bars::after{position:absolute;top:5px}
+
+  .nav-js .navlinks{display:none;position:absolute;top:60px;right:18px;left:18px;
+    z-index:60;flex-direction:column;align-items:stretch;gap:2px;
+    background:var(--bg);border-radius:var(--r2);box-shadow:var(--up-lg);
+    padding:10px}
+  .nav-js .navlinks.open{display:flex}
+  .nav-js .navlinks .navlink{text-align:left;padding:12px 14px}
+  .nav-js .whoami{flex-wrap:wrap;padding:10px 14px 4px;gap:8px}
+  .nav-js .who-email{max-width:100%}
+  nav{position:sticky}
+}
+
+@media(max-width:620px){
+  .who-email{max-width:30vw}
+}

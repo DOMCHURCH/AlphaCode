@@ -19,20 +19,21 @@ from src.report.company_page import asset_version
 from src.report.home_page import shell
 
 
-def _nav() -> str:
-    return """
-<nav><div class="wrap nav">
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
-  <span class="spacer"></span>
-  <a class="navlink" href="/api">API reference</a>
-</div></nav>"""
+def _nav(active: str = "login") -> str:
+    """The shared bar. Nobody reaching these pages has a session -- /login is
+    where you go without one, and /auth/verify runs before the cookie is set."""
+    from src.report.nav import render_nav
+
+    return render_nav(active=active, signed_in=False)
 
 
-def render_login(*, admin_email: str = "", enabled: bool = True) -> str:
+def render_login(
+    *, admin_email: str = "", enabled: bool = True, nav: str = ""
+) -> str:
     """Ask for an address, promise nothing about whether it is registered."""
     if not enabled:
         where = escape(admin_email) if admin_email else "the site owner"
-        body = f"""{_nav()}
+        body = f"""{nav or _nav()}
 <main class="wrap" id="main">
   <header class="hero">
     <h1 class="htitle">Sign in</h1>
@@ -42,7 +43,7 @@ def render_login(*, admin_email: str = "", enabled: bool = True) -> str:
 </main>"""
         return shell("To Scale — sign in", body)
 
-    body = f"""{_nav()}
+    body = f"""{nav or _nav()}
 <main class="wrap" id="main">
   <header class="hero">
     <h1 class="htitle">Sign in</h1>
@@ -67,6 +68,7 @@ def render_login(*, admin_email: str = "", enabled: bool = True) -> str:
   </section>
 </main>
 
+<script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
     return shell("To Scale — sign in", body)
 
@@ -110,5 +112,6 @@ def render_verify(*, token: str, state: str) -> str:
   </section>
 </main>
 
+<script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
     return shell("To Scale — signing you in", body)

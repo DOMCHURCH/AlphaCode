@@ -1320,7 +1320,7 @@ def _is_ticker_shaped(symbol: str) -> bool:
 
 
 @app.get("/", response_class=HTMLResponse)
-def home() -> HTMLResponse:
+def home(request: Request) -> HTMLResponse:
     """The front door: a sentence, a search box, and five real balance sheets.
 
     Each thumbnail is built by the same `build_view1` the full page uses, so the
@@ -1340,7 +1340,11 @@ def home() -> HTMLResponse:
         except Exception as exc:  # noqa: BLE001 - one bad ticker must not take the page
             log.warning("home_thumbnail_failed", ticker=s.ticker, error=str(exc)[:200])
             pairs.append((s, None))
-    return HTMLResponse(render_home(pairs, stats=site_stats()))
+    return HTMLResponse(
+        _versioned(
+            render_home(pairs, stats=site_stats(), nav=_nav_for(request, "home"))
+        )
+    )
 
 
 @app.get("/about")
@@ -1866,15 +1870,51 @@ def admin_grant_access(
     )
 
 
+def _nav_for(request: Request, active: str) -> str:
+    """The navigation bar for a server-rendered page, session included.
+
+    Rendered here rather than fetched by script: a bar that says "Sign in" for
+    half a second to somebody who is signed in is worse than no bar, and it
+    would be wrong permanently with scripting off.
+    """
+    from src import auth
+    from src.report.nav import render_nav
+
+    account = auth.current_account(request)
+    return render_nav(
+        active=active,
+        signed_in=account is not None,
+        email=account.email if account else "",
+        tier=account.tier if account else "free",
+        login_enabled=auth.is_enabled(),
+    )
+
+
+@app.post("/logout")
+def logout_form(request: Request) -> RedirectResponse:
+    """Log out from the nav bar, with or without JavaScript.
+
+    A form POST rather than only the JSON endpoint, because the nav is on pages
+    that do not load dashboard.js and must still work with scripting off.
+    """
+    from src import auth
+
+    response = RedirectResponse("/", status_code=303)
+    auth.clear_session(response)
+    return response
+
+
 @app.get("/login", response_class=HTMLResponse)
-def login_page() -> HTMLResponse:
+def login_page(request: Request) -> HTMLResponse:
     from src import auth
     from src.report.auth_pages import render_login
 
     return HTMLResponse(
         _versioned(
             render_login(
-                admin_email=get_settings().admin_email, enabled=auth.is_enabled()
+                admin_email=get_settings().admin_email,
+                enabled=auth.is_enabled(),
+                nav=_nav_for(request, "login"),
             )
         )
     )
@@ -1935,7 +1975,7 @@ async def verify_submit(request: Request) -> Response:
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard() -> HTMLResponse:
+def dashboard(request: Request) -> HTMLResponse:
     """The one page a buyer needs: get a key, see the tier, take the download."""
     from src import auth, dataset
     from src.report.dashboard_page import render_dashboard
@@ -1956,6 +1996,7 @@ def dashboard() -> HTMLResponse:
                 pro_limit=s.pro_tier_monthly_calls,
                 fact_count=facts,
                 login_enabled=auth.is_enabled(),
+                nav=_nav_for(request, "dashboard"),
             )
         )
     )
