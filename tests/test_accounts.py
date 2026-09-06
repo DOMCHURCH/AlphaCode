@@ -239,6 +239,44 @@ def test_granting_the_download_opens_it_and_revoking_shuts_it(client):
     assert client.get("/api/download-dataset", headers=h).status_code == 402
 
 
+def test_the_download_answers_on_both_spellings_of_its_path(client):
+    """`/download` is the URL that gets typed from memory. Unregistered, it 404s
+    with a bare {"detail":"Not Found"} -- which reads exactly like an auth
+    failure and sends you hunting for a bug in the key handling that is not
+    there. Both paths, both auth channels."""
+    key = register(client)
+    grant(client, "grant_download")
+    h = {"X-API-Key": key}
+    for url, kwargs in [
+        ("/download", {"headers": h}),
+        (f"/download?api_key={key}", {}),
+        ("/api/download-dataset", {"headers": h}),
+        (f"/api/download-dataset?api_key={key}", {}),
+    ]:
+        r = client.get(url, **kwargs)
+        assert r.status_code == 200, f"{url} -> {r.status_code}"
+        assert r.text.splitlines()[0].startswith("ticker,metric,value")
+
+
+def test_a_rejected_key_says_it_is_an_auth_problem(client):
+    """Not "NotFound". The status line and the body both have to name the cause,
+    or the next person debugging this loses an afternoon to the router."""
+    r = client.get("/download?api_key=definitely-not-a-key")
+    assert r.status_code == 401
+    assert "API key" in r.json()["detail"]
+
+
+def test_a_logged_key_is_never_a_usable_key(client):
+    from src.accounts import fingerprint
+
+    secret = "abcdef0123456789abcdef0123456789"
+    printed = fingerprint(secret)
+    assert secret not in printed
+    assert printed.startswith("abcdef")
+    assert "len=32" in printed
+    assert fingerprint(None) == "<absent>" and fingerprint("") == "<empty>"
+
+
 def test_the_download_accepts_the_key_in_the_query_string(client):
     """Only this route does, and only so a browser can stream it to disk from a
     plain link instead of buffering a gigabyte in a tab."""

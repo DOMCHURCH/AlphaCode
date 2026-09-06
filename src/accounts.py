@@ -149,6 +149,23 @@ def register(email: str) -> Account:
 # Authentication
 # ---------------------------------------------------------------------------
 
+def fingerprint(key: str | None) -> str:
+    """Enough of a key to identify it in a log, never enough to use it.
+
+    A rejected key is the one thing here that actually needs debugging -- "is
+    the caller sending the key I think they are" cannot be answered from a bare
+    401 -- and the obvious fix, logging the key, writes a live credential into a
+    log aggregator that outlives the incident. The prefix plus the length settles
+    every real question (truncated? whitespace? URL-encoded? a different key
+    entirely?) and grants nobody access.
+    """
+    if key is None:
+        return "<absent>"
+    if not key:
+        return "<empty>"
+    return f"{key[:6]}...len={len(key)}"
+
+
 def lookup(api_key: str) -> Account | None:
     key = (api_key or "").strip()
     if not key:
@@ -170,10 +187,13 @@ def get_current_user(
     """
     account = lookup(x_api_key or "")
     if account is None:
+        log.warning(
+            "api_key_rejected", source="header", key=fingerprint(x_api_key)
+        )
         raise HTTPException(
             status_code=401,
             detail=(
-                "Missing or unknown API key. Send it as an X-API-Key header. "
+                "Invalid or missing API key. Send it as an X-API-Key header. "
                 "Get one free at /dashboard."
             ),
             headers={"WWW-Authenticate": "X-API-Key"},
@@ -198,13 +218,24 @@ def get_current_user_flexible(
     read access to filings that are already public, and it is NOT accepted on
     any other route.
     """
-    key = x_api_key or request.query_params.get("api_key") or ""
+    from_query = request.query_params.get("api_key")
+    key = x_api_key or from_query or ""
     account = lookup(key)
     if account is None:
+        # Which of the two channels the key arrived on is the first thing worth
+        # knowing when a download is refused, because they fail for different
+        # reasons: a header gets dropped by a proxy, a query parameter gets
+        # truncated or double-encoded by whatever built the URL.
+        log.warning(
+            "api_key_rejected",
+            source="header" if x_api_key else ("query" if from_query else "none"),
+            key=fingerprint(x_api_key or from_query),
+            path=request.url.path,
+        )
         raise HTTPException(
             status_code=401,
             detail=(
-                "Missing or unknown API key. Send it as an X-API-Key header, "
+                "Invalid or missing API key. Send it as an X-API-Key header, "
                 "or as ?api_key= on this endpoint only."
             ),
             headers={"WWW-Authenticate": "X-API-Key"},

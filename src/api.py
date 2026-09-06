@@ -1516,6 +1516,15 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     return JSONResponse(payload)
 
 
+# `/download` is the same handler, not a redirect. It is the URL that gets typed
+# from memory and pasted into an email, and a request to an unregistered path is
+# answered by the router before any dependency runs -- so it returns a bare
+# `{"detail":"Not Found"}` that looks exactly like an auth failure and sends you
+# looking for a bug in the key handling. Registering both spellings costs one
+# line and removes that whole false trail. A 307 would not: it drops the
+# X-API-Key header on any client that does not re-send headers across a
+# redirect, which would break the curl case to fix the browser one.
+@app.get("/download", include_in_schema=False)
 @app.get("/api/download-dataset")
 def api_download_dataset(account=Depends(_DOWNLOAD_DEP)) -> StreamingResponse:
     """The whole `fundamentals` table as CSV. 402 unless the download is paid.
