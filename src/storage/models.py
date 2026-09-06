@@ -630,6 +630,33 @@ class DemoUsage(Base):
     __table_args__ = (Index("ix_demo_ip_day", "ip_hash", "day"),)
 
 
+class MagicLink(Base):
+    """One row per login link issued. Single use, short lived.
+
+    The token is stored as issued rather than hashed, matching how `api_users`
+    already holds its keys: hashing here would be a lock on a door standing
+    beside an open one, and the window is fifteen minutes and one use wide
+    either way.
+
+    `used` is a column rather than a delete so a second click on the same link
+    can be told apart from a link that never existed -- the first deserves
+    "already used, here is a fresh one", the second does not.
+    """
+
+    __tablename__ = "magic_links"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    email: Mapped[str] = mapped_column(String(254), nullable=False, index=True)
+    token: Mapped[str] = mapped_column(
+        String(64), nullable=False, unique=True, index=True
+    )
+    expires_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
+    used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow
+    )
+
+
 ALL_TABLES = [
     UniverseSnapshot,
     DailyBar,
@@ -652,6 +679,7 @@ ALL_TABLES = [
     UsageLog,
     AdminAction,
     DemoUsage,
+    MagicLink,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

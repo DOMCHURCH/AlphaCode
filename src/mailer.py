@@ -196,3 +196,45 @@ def send_api_key(email: str, api_key: str) -> bool:
         return False
     log.info("agentmail_key_sent", to=email)
     return True
+
+
+def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
+    """Mail a login link. True if AgentMail accepted it.
+
+    Same never-raises contract as `send_api_key`: the caller is a background
+    task with nobody to report an exception to.
+
+    The body says what to do if it was not you, because this is the one message
+    the service sends to addresses that have never registered -- somebody typing
+    a stranger's address into the login box causes mail to that stranger, and
+    they are owed an explanation rather than a bare link.
+    """
+    client = _client()
+    if client is None:
+        log.info("agentmail_unconfigured", to=email)
+        return False
+    inbox_id = _resolve_inbox(client)
+    if inbox_id is None:
+        log.warning("agentmail_no_inbox", to=email)
+        return False
+
+    body = (
+        "Click here to log in to To Scale:\n\n"
+        f"    {url}\n\n"
+        f"This link expires in {ttl_minutes} minutes and can be used once.\n\n"
+        "If you didn't request this, you can safely ignore this email -- no "
+        "account was created and nothing has changed.\n"
+    )
+    try:
+        client.inboxes.messages.send(
+            inbox_id,
+            to=email,
+            subject="Log in to To Scale",
+            text=body,
+            reply_to=get_settings().admin_email or None,
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed send is a log line
+        log.warning("agentmail_link_failed", to=email, error=_why(exc))
+        return False
+    log.info("agentmail_link_sent", to=email)
+    return True

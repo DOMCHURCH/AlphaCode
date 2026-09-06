@@ -277,6 +277,29 @@ class Settings(BaseSettings):
     )
     resend_cooldown_s: int = Field(default=600, ge=0, alias="RESEND_COOLDOWN_S")
 
+    # ---------------- Dashboard login (magic links) ----------------
+    # Signing key for the session cookie. UNSET MEANS LOGIN IS DEAD, not open:
+    # an empty secret would sign cookies anybody could forge, and that cookie
+    # carries the user's API key. Fails closed like ADMIN_SECRET does.
+    session_secret: str = Field(default="", alias="SESSION_SECRET")
+    # Absolute base for the link in the email. Wrong here means every login
+    # link points somewhere that is not this service.
+    base_url: str = Field(
+        default="https://alphacode-production.up.railway.app", alias="BASE_URL"
+    )
+    session_max_age_s: int = Field(
+        default=30 * 24 * 3600, ge=60, alias="SESSION_MAX_AGE_S"
+    )
+    magic_link_ttl_s: int = Field(default=900, ge=60, alias="MAGIC_LINK_TTL_S")
+    # 3 an hour per address, per the same reasoning as key recovery: the link
+    # goes to an inbox the requester does not have to own.
+    magic_link_rate_per_hour: int = Field(
+        default=30, ge=0, alias="MAGIC_LINK_RATE_PER_HOUR"
+    )
+    magic_link_cooldown_s: int = Field(
+        default=1200, ge=0, alias="MAGIC_LINK_COOLDOWN_S"
+    )
+
     # ---------------- Public demo ----------------
     # The key the home page's live demo runs on, server-side. It is a REAL key
     # and is never sent to the browser (see src/demo.py); unset simply disables

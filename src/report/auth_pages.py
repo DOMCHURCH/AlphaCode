@@ -1,0 +1,114 @@
+"""The two pages either side of an emailed link: /login and /auth/verify.
+
+Rendered in Python like every other page here rather than from a template file
+-- this codebase has exactly one HTML file on disk (the admin console) and its
+reader-facing pages are all functions. A template engine for two forms would be
+a dependency and a second way of doing things.
+
+The verify page is the interesting one. It receives the token in a URL that mail
+scanners and link prefetchers will fetch before the recipient ever clicks, so it
+must not spend the token merely by being looked at. It looks, reports, and only
+POSTs -- which a prefetcher does not do.
+"""
+
+from __future__ import annotations
+
+from html import escape
+
+from src.report.company_page import asset_version
+from src.report.home_page import shell
+
+
+def _nav() -> str:
+    return """
+<nav><div class="wrap nav">
+  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <span class="spacer"></span>
+  <a class="navlink" href="/api">API reference</a>
+</div></nav>"""
+
+
+def render_login(*, admin_email: str = "", enabled: bool = True) -> str:
+    """Ask for an address, promise nothing about whether it is registered."""
+    if not enabled:
+        where = escape(admin_email) if admin_email else "the site owner"
+        body = f"""{_nav()}
+<main class="wrap" id="main">
+  <header class="hero">
+    <h1 class="htitle">Sign in</h1>
+    <p class="hlede">Login is not configured on this deployment. Your API key
+      still works on every /api route — contact {where} if you have lost it.</p>
+  </header>
+</main>"""
+        return shell("To Scale — sign in", body)
+
+    body = f"""{_nav()}
+<main class="wrap" id="main">
+  <header class="hero">
+    <h1 class="htitle">Sign in</h1>
+    <p class="hlede">No password. Put in your address and a one-time link
+      arrives — clicking it signs you in and, if you are new, makes the account.</p>
+  </header>
+
+  <section class="sec">
+    <form class="search" id="login-form">
+      <label class="slabel" for="login-email">Email address</label>
+      <div class="sfield">
+        <input id="login-email" name="email" type="email" inputmode="email"
+          placeholder="you@example.com" autocomplete="email" required
+          maxlength="254" spellcheck="false" enterkeyhint="go" autofocus>
+        <button type="submit" id="login-btn">Send magic link</button>
+      </div>
+    </form>
+    <p class="formnote" id="login-note" role="status" aria-live="polite"></p>
+    <p class="plan-note">The link is good for 15 minutes and one use. If you
+      already have an API key and only want to make calls, you do not need to
+      sign in at all — <a href="/dashboard">paste it on the dashboard</a>.</p>
+  </section>
+</main>
+
+<script src="/static/auth.js?v={asset_version()}" defer></script>"""
+    return shell("To Scale — sign in", body)
+
+
+def render_verify(*, token: str, state: str) -> str:
+    """The page the emailed link lands on.
+
+    `state` is "ready" when the token is currently good and "dead" when it is
+    not, decided by LOOKING at the token rather than spending it. The page then
+    spends it with a POST, so a scanner that fetched this URL on the way to the
+    inbox has not used up the recipient's one click.
+    """
+    if state != "ready":
+        body = f"""{_nav()}
+<main class="wrap" id="main">
+  <section class="sec">
+    <div class="empty">
+      <h1>That link has expired</h1>
+      <p>Login links last 15 minutes and work once. This one has been used
+        already, or it is older than that.</p>
+      <div class="sugg"><a href="/login">Send a new one</a></div>
+    </div>
+  </section>
+</main>"""
+        return shell("To Scale — link expired", body)
+
+    body = f"""{_nav()}
+<main class="wrap" id="main">
+  <section class="sec">
+    <div class="empty" id="verify-box">
+      <h1 id="verify-title">Signing you in…</h1>
+      <p id="verify-msg">One moment.</p>
+      <!-- The fallback for a browser with no JS, and the reason the token is
+           not spent by a GET: this is a POST, which link prefetchers do not
+           issue. -->
+      <form method="post" action="/auth/verify" id="verify-form">
+        <input type="hidden" name="token" value="{escape(token)}">
+        <button type="submit" class="btn" id="verify-btn">Continue to dashboard</button>
+      </form>
+    </div>
+  </section>
+</main>
+
+<script src="/static/auth.js?v={asset_version()}" defer></script>"""
+    return shell("To Scale — signing you in", body)

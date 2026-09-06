@@ -151,6 +151,33 @@ uvicorn src.api:app --reload
 SQLite is the local default; Postgres is used whenever `DATABASE_URL` points at
 one. Nothing else changes between the two.
 
+## Dashboard login (magic links)
+
+`/login` takes an address and emails a one-time link; clicking it signs the
+person in and, if they are new, creates the account. Requires:
+
+| Variable | Value |
+|---|---|
+| `SESSION_SECRET` | `openssl rand -hex 32` &nbsp;**(unset = login disabled, 503)** |
+| `BASE_URL` | `https://alphacode-production.up.railway.app` — the link's base |
+| `AGENTMAIL_API_KEY` | the link is an email; no mail, no login |
+
+Notes that matter when this misbehaves:
+
+* **The emailed link is a GET that does not spend the token.** Mail scanners and
+  link prefetchers fetch every URL in a message; a GET that consumed the token
+  would mean the recipient's own click always landed on a used link. The page
+  POSTs to consume it, which prefetchers do not do.
+* **`BASE_URL` wrong = every link broken.** It is the one setting with no
+  sensible failure mode — the link simply points elsewhere.
+* Links last 15 minutes, work once, and one address can only be mailed every
+  20 minutes.
+* The session cookie is `HttpOnly; Secure; SameSite=Lax`. **Secure means it will
+  not be set over plain http**, so local testing needs https or a tolerant
+  browser; on Railway everything is https already.
+* Regenerating an API key needs the session, never the key — the reason to press
+  it is that the key leaked, and a key that can rotate itself locks its owner out.
+
 ## Key recovery (email)
 
 "Resend my key" on `/dashboard` sends through [AgentMail](https://agentmail.to).

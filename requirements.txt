@@ -25,6 +25,12 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pandas-market-calendars>=4.4
 
+# --- signed session cookies ---
+# Used directly (URLSafeTimedSerializer), not via Starlette's
+# SessionMiddleware: the cookie flags and lifetime belong to this app,
+# and app-wide middleware is a large blast radius for one dashboard.
+itsdangerous>=2.1,<3
+
 # --- outgoing mail (key recovery) ---
 # Imported lazily by src/mailer.py, so a container that predates this
 # line has key recovery switched off rather than failing to boot.

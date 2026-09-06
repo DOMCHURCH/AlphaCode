@@ -292,6 +292,9 @@ _register_gate = _RateGate(lambda: get_settings().register_rate_per_hour)
 # it is capped globally as well as per-address. Without the global cap, one
 # script walking a list of addresses is a spam run with this service's name on it.
 _resend_gate = _RateGate(lambda: get_settings().resend_rate_per_hour)
+# Login links go to inboxes the requester does not have to own, so the same
+# global ceiling applies as for key recovery.
+_magic_link_gate = _RateGate(lambda: get_settings().magic_link_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -1548,6 +1551,126 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
     return JSONResponse(ok)
 
 
+class MagicLinkRequest(BaseModel):
+    email: str
+
+
+class VerifyRequest(BaseModel):
+    token: str
+
+
+@app.post("/api/auth/magic-link")
+def api_magic_link(body: MagicLinkRequest, tasks: BackgroundTasks) -> JSONResponse:
+    """Email a one-time login link. Same reply whatever the address.
+
+    Issued for addresses that have never registered too -- verifying the link
+    creates the account. The alternative is "register, be told 409, then ask
+    for a link", which is three steps to do what one email already does.
+    """
+    from src import accounts, auth, demo, mailer
+
+    if not auth.is_enabled():
+        raise auth.LoginDisabled()
+    _enforce_rate(_magic_link_gate, "login links")
+
+    address = accounts.normalise_email(body.email)
+    ok = JSONResponse(
+        {"message": "If that email exists, a magic link has been sent"}
+    )
+    if not mailer.is_configured():
+        where = get_settings().admin_email or "the site owner"
+        return JSONResponse(
+            status_code=503,
+            content={
+                "message": f"Email is not configured. Contact {where} to sign in."
+            },
+        )
+    # The shared demo account is not a person and has no inbox. Barring it here
+    # stops the row being pried loose via a login and then regenerate-key.
+    if address == demo.DEMO_EMAIL or not accounts.valid_email(address):
+        return ok
+
+    token = auth.create_link(address)
+    if token is None:
+        log.info("magic_link_on_cooldown")  # uniform reply regardless
+        return ok
+    tasks.add_task(
+        mailer.send_magic_link,
+        address,
+        auth.link_url(token),
+        get_settings().magic_link_ttl_s // 60,
+    )
+    return ok
+
+
+@app.post("/api/auth/verify")
+def api_verify(body: VerifyRequest) -> JSONResponse:
+    """Spend a login token and set the session cookie.
+
+    POST, not GET, and that is the whole point. Mail scanners and link
+    prefetchers issue a GET on every URL in a message, so a GET that consumed
+    the token would mean the user's own click always arrived second, to a link
+    that had already been used. The emailed link lands on a page (GET
+    /auth/verify) that only LOOKS at the token; this consumes it.
+    """
+    from src import auth
+
+    if not auth.is_enabled():
+        raise auth.LoginDisabled()
+
+    email = auth.consume_token(body.token.strip())
+    if email is None:
+        raise HTTPException(
+            status_code=401, detail="Invalid or expired magic link"
+        )
+    account = auth.account_for_login(email)
+    response = JSONResponse({"ok": True, "email": account.email})
+    auth.issue_session(response, account.email)
+    log.info("session_started", email=account.email)
+    return response
+
+
+@app.get("/api/auth/me")
+def api_me(request: Request) -> JSONResponse:
+    """Who is signed in, and their key. Cookie-gated, never key-gated.
+
+    Returning the API key here is what lets the dashboard show it instead of
+    asking for a paste -- which also means this cookie IS the key, hence Secure
+    and HttpOnly on it.
+    """
+    from src import accounts, auth
+
+    account = auth.require_account(request)
+    payload = accounts.status_payload(account)
+    payload["api_key"] = account.api_key
+    payload["signed_in"] = True
+    return JSONResponse(payload)
+
+
+@app.post("/api/auth/logout")
+def api_logout() -> JSONResponse:
+    from src import auth
+
+    response = JSONResponse({"message": "Logged out"})
+    auth.clear_session(response)
+    return response
+
+
+@app.post("/api/auth/regenerate-key")
+def api_regenerate_key(request: Request) -> JSONResponse:
+    """Replace the signed-in account's API key. Session auth only.
+
+    Deliberately not reachable with the API key itself: the reason to press
+    this is that the key has leaked, and a leaked key that can rotate itself
+    lets whoever holds it lock the owner out.
+    """
+    from src import auth
+
+    account = auth.require_account(request)
+    new_key = auth.regenerate_key(account.email)
+    return JSONResponse({"api_key": new_key})
+
+
 @app.get("/api/user/status")
 def api_user_status(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     """Your own tier, entitlement and usage. Does not spend a call --
@@ -1743,10 +1866,78 @@ def admin_grant_access(
     )
 
 
+@app.get("/login", response_class=HTMLResponse)
+def login_page() -> HTMLResponse:
+    from src import auth
+    from src.report.auth_pages import render_login
+
+    return HTMLResponse(
+        _versioned(
+            render_login(
+                admin_email=get_settings().admin_email, enabled=auth.is_enabled()
+            )
+        )
+    )
+
+
+@app.get("/auth/verify", response_class=HTMLResponse)
+def verify_page(token: str = Query("", max_length=128)) -> HTMLResponse:
+    """Where the emailed link lands. Looks at the token; does not spend it.
+
+    Spending it here would hand the user's one click to whichever mail scanner
+    fetched the URL first. The page reports whether the token is currently good
+    and then POSTs to consume it.
+    """
+    from src import auth
+    from src.report.auth_pages import render_verify
+
+    if not auth.is_enabled():
+        return HTMLResponse(
+            _versioned(render_verify(token="", state="dead")), status_code=503
+        )
+    state = "ready" if auth.peek_token(token.strip()) else "dead"
+    return HTMLResponse(
+        _versioned(render_verify(token=token.strip(), state=state)),
+        status_code=200 if state == "ready" else 410,
+    )
+
+
+@app.post("/auth/verify")
+async def verify_submit(request: Request) -> Response:
+    """The no-JavaScript path: the verify page's form posts here directly.
+
+    Same consume-then-redirect as the JSON endpoint, so the dashboard is
+    reachable with scripting switched off -- which the rest of this site
+    already manages.
+    """
+    from urllib.parse import parse_qs
+
+    from src import auth
+    from src.report.auth_pages import render_verify
+
+    if not auth.is_enabled():
+        raise auth.LoginDisabled()
+    # Parsed here rather than with `request.form()`, which asserts on
+    # python-multipart being installed even for a urlencoded body. This form has
+    # one field and no file upload, so a dependency for it would be a whole
+    # package to parse `token=...`.
+    raw = (await request.body()).decode("utf-8", "replace")
+    email = auth.consume_token(parse_qs(raw).get("token", [""])[0].strip())
+    if email is None:
+        return HTMLResponse(
+            _versioned(render_verify(token="", state="dead")), status_code=410
+        )
+    account = auth.account_for_login(email)
+    response = RedirectResponse("/dashboard", status_code=303)
+    auth.issue_session(response, account.email)
+    log.info("session_started", email=account.email, path="form")
+    return response
+
+
 @app.get("/dashboard", response_class=HTMLResponse)
 def dashboard() -> HTMLResponse:
     """The one page a buyer needs: get a key, see the tier, take the download."""
-    from src import dataset
+    from src import auth, dataset
     from src.report.dashboard_page import render_dashboard
 
     s = get_settings()
@@ -1764,6 +1955,7 @@ def dashboard() -> HTMLResponse:
                 free_limit=s.free_tier_monthly_calls,
                 pro_limit=s.pro_tier_monthly_calls,
                 fact_count=facts,
+                login_enabled=auth.is_enabled(),
             )
         )
     )
@@ -1790,6 +1982,8 @@ def api_index() -> JSONResponse:
                 "endpoints": [
                     "POST /api/auth/register",
                     "POST /api/auth/resend-key",
+                    "POST /api/auth/magic-link  (dashboard login)",
+                    "GET  /api/auth/me  (session)",
                     "GET /api/company/{ticker}",
                     "GET /api/demo/{ticker}  (no key, 5/day per address)",
                     "GET /api/user/status",
