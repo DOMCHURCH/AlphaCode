@@ -42,6 +42,19 @@
    `DATABASE_URL` can be a `postgres://` or `postgresql://` URL — the app
    normalizes it and uses the psycopg2 driver.
 
+   **For the paid API** (`/dashboard`, `/api/*`, `/admin/grant-access`):
+
+   | Variable | Value |
+   |---|---|
+   | `ADMIN_SECRET` | `openssl rand -hex 32` &nbsp;**(required to grant anything)** |
+   | `ADMIN_EMAIL` | the address buyers send payment and their key to |
+   | `FREE_TIER_MONTHLY_CALLS` | `10` (default) |
+   | `PRO_TIER_MONTHLY_CALLS` | `10000` (default) |
+   | `DATASET_PRICE_USD` / `PRO_PRICE_USD` | `29` / `49` (defaults) |
+
+   `ADMIN_SECRET` unset does **not** leave the grant endpoint open — it returns
+   503 and nothing can be granted. Set it before taking money, not after.
+
 4. **Deploy.** On boot the service migrates the schema itself (tables + indexes
    against Postgres). Check `https://<service>.up.railway.app/health` →
    `{"status":"ok","database":"ok"}`.
@@ -137,6 +150,31 @@ uvicorn src.api:app --reload
 
 SQLite is the local default; Postgres is used whenever `DATABASE_URL` points at
 one. Nothing else changes between the two.
+
+## Granting paid access (the whole billing system)
+
+There is no payment processor. Somebody e-transfers or PayPals you and emails
+their API key; you run one command. Four actions:
+`grant_download`, `grant_pro`, `revoke_download`, `revoke_pro`.
+
+```bash
+curl -X POST https://<service>.up.railway.app/admin/grant-access \
+  -H "X-Admin-Secret: $ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"buyer@example.com","action":"grant_download"}'
+```
+
+Notes worth having in front of you when a payment lands:
+
+* **Match on email, not key.** The buyer quotes a key; you grant by the address
+  they registered. If the addresses do not match, ask — do not guess.
+* **Idempotent.** Running the same grant twice is a no-op, so a re-run after a
+  dropped connection is safe.
+* **404 means they never registered.** Send them to `/dashboard` first.
+* **Every grant, and every rejected secret, is a row in `admin_actions`.** That
+  table is the record of what was sold, since container logs rotate away.
+* Free/Pro is a per-calendar-month call allowance; the dataset download is a
+  separate one-time boolean. Someone can have either, both, or neither.
 
 ## Egress
 

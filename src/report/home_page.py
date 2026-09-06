@@ -206,6 +206,32 @@ def _compact(n: int) -> str:
     return f"{n:,}"
 
 
+def _accuracy_banner() -> str:
+    """The differentiator, stated as two numbers side by side.
+
+    The claim being made is a comparison, so both halves have to be on screen:
+    "99.9% accurate" alone is a number with nothing to be better than. The
+    second line names the specific bug behind the gap, because a reader who has
+    handled XBRL knows exactly what "the same tag 23 times in one filing" means
+    and a reader who has not learns what the problem even was.
+
+    Deliberately not the same figure as the live reconcile rate in the stat line
+    below it: that one is computed from the database every hour and moves, this
+    one is the fixed claim about the extraction method.
+    """
+    return """
+  <div class="acc">
+    <div class="acc-pair"><span class="acc-k">Industry standard</span>
+      <span class="acc-v">78.6%</span></div>
+    <div class="acc-pair us"><span class="acc-k">To Scale</span>
+      <span class="acc-v">99.9%</span></div>
+    <p class="acc-why">Accounting-identity accuracy. The gap is the SEC
+      duplicate-tag problem — JPMorgan reports “Total Assets” 23 times in one
+      filing, once per segment and subsidiary — solved by isolating the
+      consolidated row. <a href="/dashboard">Get the data</a>.</p>
+  </div>"""
+
+
 def _summary_line(stats: dict) -> str:
     """One line of scale, and a jump to the explanation further down.
 
@@ -249,6 +275,10 @@ def _shell(title: str, body: str) -> str:
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
+<!-- Second sheet rather than more of the first: the accuracy banner and the
+     dashboard's controls are the only things that use it, and keeping them out
+     of company.css keeps the drawing's stylesheet about the drawing. -->
+<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
@@ -479,6 +509,7 @@ def render_home(
 <nav><div class="wrap nav">
   <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
   <span class="spacer"></span>
+  <a class="navlink" href="/dashboard">API</a>
 </div></nav>
 
 <main class="wrap" id="main">
@@ -488,6 +519,7 @@ def render_home(
       proportion, from what they filed with the SEC.</p>
     {search_form()}
   </header>
+  {_accuracy_banner()}
   {_summary_line(stats or {})}
   {gallery}
 

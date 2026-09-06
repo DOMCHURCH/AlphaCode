@@ -144,6 +144,15 @@ class Settings(BaseSettings):
     # /reconcile makes a handful of network calls (SEC + Yahoo per sampled name),
     # so cap it low -- it's a diagnostic, not a hot path.
     reconcile_rate_per_hour: int = Field(default=6, alias="RECONCILE_RATE_PER_HOUR")
+    # /api/auth/register is open and hands out a free allowance, which makes the
+    # per-key limit worth exactly as much as the cost of a new key. Without a cap
+    # here, a script registering a hundred throwaway addresses has a thousand
+    # free calls a month and the tier means nothing. Capped globally rather than
+    # per-IP for the same reason the others are: one personal service, and the
+    # thing being stopped is a loop, not a person signing up twice.
+    register_rate_per_hour: int = Field(
+        default=20, ge=0, alias="REGISTER_RATE_PER_HOUR"
+    )
 
     # Hard per-chunk timeout (seconds) for the Yahoo/yfinance batch download.
     # yfinance does a blocking socket read with no timeout of its own; a stalled
@@ -225,6 +234,31 @@ class Settings(BaseSettings):
     # the one-button site needs no token. Kept only so an existing API_KEY env var
     # doesn't fail settings validation. Safe to leave unset.
     api_key: str = Field(default="", alias="API_KEY")
+
+    # ---------------- Paid access (manual, no payment processor) ----------------
+    # The shared secret for POST /admin/grant-access. UNSET MEANS THE ENDPOINT IS
+    # DEAD, not open: an empty secret that compared equal to an empty header
+    # would hand the grant switch to the whole internet the moment the variable
+    # was forgotten on a redeploy. Failing closed makes that mistake obvious
+    # (nothing can be granted) instead of silent (anything can).
+    admin_secret: str = Field(default="", alias="ADMIN_SECRET")
+    # Shown to users as the address to send payment notice to. Empty renders as
+    # a plain "contact the site owner" rather than a broken mailto.
+    admin_email: str = Field(default="", alias="ADMIN_EMAIL")
+    # Calls per calendar month, by tier. Pro is a large ceiling rather than
+    # literally unlimited: an unbounded key is an unbounded database bill if one
+    # gets loose, and 10k/month is far past any honest use of this API.
+    free_tier_monthly_calls: int = Field(
+        default=10, ge=0, alias="FREE_TIER_MONTHLY_CALLS"
+    )
+    pro_tier_monthly_calls: int = Field(
+        default=10_000, ge=0, alias="PRO_TIER_MONTHLY_CALLS"
+    )
+    # Prices, in whole dollars, quoted on the dashboard. Settings rather than
+    # literals in the copy so the page and the payment instructions can never
+    # drift apart.
+    dataset_price_usd: int = Field(default=29, ge=0, alias="DATASET_PRICE_USD")
+    pro_price_usd: int = Field(default=49, ge=0, alias="PRO_PRICE_USD")
 
     # Business-day buffer added on top of filing_date to model ingestion lag.
     pit_lag_business_days: int = Field(default=2, alias="PIT_LAG_BUSINESS_DAYS")

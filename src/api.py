@@ -17,12 +17,22 @@ from pathlib import Path
 from typing import Any
 
 import structlog
-from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+)
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
     RedirectResponse,
     Response,
+    StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -262,6 +272,10 @@ class _RateGate:
 
 _backfill_gate = _RateGate(lambda: get_settings().backfill_rate_per_hour)
 _reconcile_gate = _RateGate(lambda: get_settings().reconcile_rate_per_hour)
+# Registration is open and each key carries a free monthly allowance, so the
+# per-key limit is only worth as much as a key costs to obtain. This is what
+# makes it cost something.
+_register_gate = _RateGate(lambda: get_settings().register_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -1380,6 +1394,217 @@ def search(q: str = Query("", max_length=64)) -> Response:
     )
 
 
+# ---------------------------------------------------------------------------
+# The paid API: register, call, check, download -- and the manual grant switch
+# ---------------------------------------------------------------------------
+
+# Imported at module level, unlike the rest of this file's lazy imports: a
+# `Depends(...)` is evaluated when the decorator runs, so the dependency has to
+# be a real function object here and not a name looked up later.
+from src.accounts import get_current_user as _ACCOUNT_DEP  # noqa: E402
+from src.accounts import get_current_user_flexible as _DOWNLOAD_DEP  # noqa: E402
+
+
+class RegisterRequest(BaseModel):
+    email: str
+
+
+class GrantRequest(BaseModel):
+    email: str
+    action: str
+
+
+def _caller_ip_hash(request: Request) -> str:
+    from src import analytics
+
+    return analytics.hash_ip(
+        analytics.client_ip(
+            request.headers, request.client.host if request.client else "unknown"
+        )
+    )
+
+
+@app.post("/api/auth/register", status_code=201)
+def api_register(body: RegisterRequest) -> JSONResponse:
+    """One email in, one API key out. Free tier, no payment, no confirmation.
+
+    An address that already has a key gets 409 and NOT the key. Handing it back
+    would make this open endpoint a lookup service: type a customer's address,
+    receive their paid key.
+    """
+    from src import accounts
+
+    # Before the write, and before the validity check, so a loop cannot probe
+    # this endpoint for free by sending addresses it knows will be rejected.
+    _enforce_rate(_register_gate, "registration")
+
+    address = accounts.normalise_email(body.email)
+    if not accounts.valid_email(address):
+        raise HTTPException(
+            status_code=422, detail="That does not look like an email address."
+        )
+    try:
+        account = accounts.register(address)
+    except accounts.EmailTaken:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "That address is already registered. Keys are not re-sent from "
+                "here -- contact the site owner if you have lost yours."
+            ),
+        ) from None
+    log.info("api_user_registered", email=address)
+    return JSONResponse(
+        status_code=201,
+        content={
+            "api_key": account.api_key,
+            "email": account.email,
+            "tier": account.tier,
+            "calls_limit": account.call_limit,
+            "note": "Send this key as an X-API-Key header. Keep it: it is not re-issued.",
+        },
+    )
+
+
+@app.get("/api/user/status")
+def api_user_status(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """Your own tier, entitlement and usage. Does not spend a call --
+    a meter you cannot read without moving it is not a meter."""
+    from src import accounts
+
+    return JSONResponse(accounts.status_payload(account))
+
+
+@app.get("/api/company/{ticker}")
+def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """One company's filed balance sheet, as JSON. Costs one metered call.
+
+    The limit is enforced before the read and the call is recorded after it
+    succeeds, so a ticker that does not exist is not billed.
+    """
+    from dataclasses import asdict
+
+    from src import accounts
+    from src.company.balancesheet import get_balance_sheet
+
+    accounts.enforce_monthly_limit(account)
+
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(
+            status_code=422, detail="That does not look like a ticker symbol."
+        )
+    try:
+        sheet = get_balance_sheet(symbol)
+    except Exception as exc:  # noqa: BLE001 - an API error must still say why
+        log.exception("api_company_failed", ticker=symbol, error=str(exc))
+        raise HTTPException(
+            status_code=500, detail=f"Something went wrong reading it: {exc}"
+        ) from exc
+    if sheet is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No filed fundamentals for {symbol} in the database, or it "
+                "reports no total for assets."
+            ),
+        )
+
+    accounts.record_call(account, "/api/company")
+    payload = jsonable_encoder(asdict(sheet))
+    payload["source"] = "SEC Financial Statement Data Sets (as reported)"
+    return JSONResponse(payload)
+
+
+@app.get("/api/download-dataset")
+def api_download_dataset(account=Depends(_DOWNLOAD_DEP)) -> StreamingResponse:
+    """The whole `fundamentals` table as CSV. 402 unless the download is paid.
+
+    Streamed, not buffered: this is over a million rows, and building the file
+    in memory before sending a byte would take the container down. The response
+    therefore has no Content-Length -- the size is not known until the last row
+    is read -- so a browser shows an indeterminate progress bar. That is the
+    honest trade for not needing a gigabyte of RAM per buyer.
+    """
+    from src import accounts, dataset
+
+    accounts.require_paid_download(account)
+    log.info("dataset_download_started", email=account.email)
+    return StreamingResponse(
+        dataset.iter_csv(),
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="{dataset.filename()}"',
+            # A partially-written CSV that a proxy cached as complete would be
+            # indistinguishable from the real file. Never cache this.
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@app.post("/admin/grant-access")
+def admin_grant_access(
+    body: GrantRequest,
+    request: Request,
+    x_admin_secret: str | None = Header(default=None, alias="X-Admin-Secret"),
+) -> JSONResponse:
+    """The manual payment switch. Authenticated by ADMIN_SECRET, nothing else.
+
+    This is the entire billing system: a payment notice arrives by email, and
+    one curl marks the account paid. Unset ADMIN_SECRET is 503 (fail closed),
+    a wrong one is 403 and an audit row.
+
+        curl -X POST https://<host>/admin/grant-access \\
+          -H "X-Admin-Secret: $ADMIN_SECRET" \\
+          -H "Content-Type: application/json" \\
+          -d '{"email":"buyer@example.com","action":"grant_download"}'
+    """
+    from src import accounts
+
+    ip_hash = _caller_ip_hash(request)
+    accounts.verify_admin_secret(x_admin_secret, ip_hash=ip_hash)
+    account = accounts.apply_admin_action(body.email, body.action, ip_hash=ip_hash)
+    return JSONResponse(
+        {
+            "ok": True,
+            "message": f"{body.action} applied to {account.email}.",
+            "user": {
+                "email": account.email,
+                "tier": account.tier,
+                "has_paid_download": account.has_paid_download,
+                "calls_limit": account.call_limit,
+            },
+        }
+    )
+
+
+@app.get("/dashboard", response_class=HTMLResponse)
+def dashboard() -> HTMLResponse:
+    """The one page a buyer needs: get a key, see the tier, take the download."""
+    from src import dataset
+    from src.report.dashboard_page import render_dashboard
+
+    s = get_settings()
+    try:
+        facts = dataset.row_count()
+    except Exception as exc:  # noqa: BLE001 - a missing count must not lose the page
+        log.warning("dashboard_count_failed", error=str(exc)[:200])
+        facts = None
+    return HTMLResponse(
+        _versioned(
+            render_dashboard(
+                admin_email=s.admin_email,
+                dataset_price=s.dataset_price_usd,
+                pro_price=s.pro_price_usd,
+                free_limit=s.free_tier_monthly_calls,
+                pro_limit=s.pro_tier_monthly_calls,
+                fact_count=facts,
+            )
+        )
+    )
+
+
 @app.get("/api")
 def api_index() -> JSONResponse:
     return JSONResponse(
@@ -1396,6 +1621,20 @@ def api_index() -> JSONResponse:
                 "POST /backfill", "POST /admin/reload-fundamentals",
                 "POST /admin/raw-facts",
             ],
+            "keyed_api": {
+                "get_a_key": "/dashboard",
+                "endpoints": [
+                    "POST /api/auth/register",
+                    "GET /api/company/{ticker}",
+                    "GET /api/user/status",
+                    "GET /api/download-dataset",
+                ],
+                "auth": "Send your key as an X-API-Key header.",
+                "free_tier": (
+                    f"{get_settings().free_tier_monthly_calls} calls per "
+                    "calendar month"
+                ),
+            },
             "disclaimer": (
                 "Descriptive data only. Makes no predictions and produces no scores."
             ),

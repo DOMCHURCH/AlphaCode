@@ -14,6 +14,7 @@ Design notes that matter:
 from __future__ import annotations
 
 import datetime as dt
+import uuid
 from typing import Any
 
 from sqlalchemy import (
@@ -484,6 +485,118 @@ class LlmUsage(Base):
     __table_args__ = (Index("ix_llm_usage_ip_time", "ip_hash", "created_at"),)
 
 
+# ---------------------------------------------------------------------------
+# Accounts: who may call the API, and what they have paid for
+# ---------------------------------------------------------------------------
+
+
+def _new_id() -> str:
+    """A fresh row id. `str(uuid4())` rather than a native UUID column because
+    the same schema has to create itself on SQLite (tests, local runs) and on
+    Postgres (Railway) from one `create_all`, and a 36-char string behaves
+    identically on both."""
+    return str(uuid.uuid4())
+
+
+def current_month(now: dt.datetime | None = None) -> str:
+    """The calendar month a call counts against, as "2026-09".
+
+    UTC, not local time. The alternative -- the server's idea of "this month"
+    -- moves the reset moment whenever the platform's timezone changes, which
+    would silently hand somebody a second free allowance.
+    """
+    return (now or _utcnow()).strftime("%Y-%m")
+
+
+class ApiUser(Base):
+    """One row per API key. The whole access-control state of one caller.
+
+    Access is granted by hand: there is no payment processor in this service.
+    Money arrives out of band (e-transfer, PayPal) and `POST /admin/grant-access`
+    flips the two fields below. That is the entire billing system, and keeping
+    it two plain columns is what makes it safe to operate from a phone.
+
+    `api_key` is stored in the clear rather than hashed. It is a read-only key
+    over data that is already public (SEC filings), the worst case of a leak is
+    somebody else's free quota being spent, and a recoverable key means a lost
+    key is a lookup rather than a re-registration. That trade would be wrong for
+    a password and is right for this.
+    """
+
+    __tablename__ = "api_users"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
+    api_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # "free" | "pro". A plain string, not a SQLAlchemy Enum: a native Postgres
+    # enum type cannot be widened by the additive ALTER that `init_db` runs, so
+    # adding a third tier later would need a real migration to add a word.
+    subscription_tier: Mapped[str] = mapped_column(
+        String(8), nullable=False, default="free"
+    )
+    has_paid_download: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow
+    )
+    updated_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+
+class UsageLog(Base):
+    """One row per metered API call. The meter itself, not a summary of it.
+
+    Rows rather than a counter on `api_users`, for the reason the rest of this
+    schema keeps events: a counter cannot answer "which endpoint did they
+    actually use" or be recut after the fact, and it cannot be audited when a
+    caller disputes their usage. `month` is denormalised out of `called_at` so
+    the limit check is an indexed equality test instead of a date range scan.
+    """
+
+    __tablename__ = "usage_logs"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False)
+    endpoint_called: Mapped[str] = mapped_column(String(128), nullable=False)
+    called_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow
+    )
+    month: Mapped[str] = mapped_column(String(7), nullable=False)
+
+    __table_args__ = (
+        ForeignKeyConstraint(["user_id"], ["api_users.id"], ondelete="CASCADE"),
+        Index("ix_usage_user_month", "user_id", "month"),
+    )
+
+
+class AdminAction(Base):
+    """Every grant and revoke, kept. The record of who was given what, when.
+
+    Persisted rather than only logged because this is the paper trail behind
+    real money: somebody paid, and the only evidence that access was granted is
+    this row. Container logs on this platform are ephemeral and rotate away,
+    which makes them the wrong home for the one record a payment dispute would
+    turn on. Failed attempts are stored too -- a wrong admin secret against this
+    endpoint is the single thing worth noticing here.
+    """
+
+    __tablename__ = "admin_actions"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow, index=True
+    )
+    email: Mapped[str] = mapped_column(String(254), nullable=False)
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    # Salted digest of the caller's address, never the address -- enough to see
+    # that fifty failed attempts came from one place, not a log of who called.
+    actor_ip_hash: Mapped[str | None] = mapped_column(String(32))
+    detail: Mapped[str | None] = mapped_column(String(300))
+
+
 ALL_TABLES = [
     UniverseSnapshot,
     DailyBar,
@@ -502,6 +615,9 @@ ALL_TABLES = [
     CacheEntry,
     LlmUsage,
     PageView,
+    ApiUser,
+    UsageLog,
+    AdminAction,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

@@ -1,0 +1,112 @@
+/* To Scale — the API dashboard, and the accuracy banner on the home page.
+   ---------------------------------------------------------------------------
+   Same material as everything else: one soft grey sheet, things raised or
+   pressed into it by light, and NO colour that is not carrying data. That rule
+   is why the tier tiles and the usage meter are grey rather than the green and
+   amber a billing screen usually reaches for -- on this site, saturation means
+   a balance sheet, and a subscription state that borrowed it would compete with
+   the drawings for the eye.
+
+   The two exceptions are earned. The usage meter turns red at 100% because a
+   spent allowance is the one state on this page that stops the API working, and
+   "unlocked" goes blue because it is the thing somebody paid for. Everything
+   else stays ink and grey.
+
+   Loaded after company.css, whose tokens it uses. */
+
+/* ---- shared controls ---- */
+.btn{font:600 14px/1 var(--disp);letter-spacing:.01em;color:var(--ink);
+  background:var(--bg);border:0;border-radius:999px;padding:13px 22px;
+  box-shadow:var(--up-sm);cursor:pointer;
+  transition:box-shadow .18s,transform .1s}
+.btn:hover{box-shadow:var(--up)}
+.btn:active{transform:translateY(1px);box-shadow:var(--up-sm)}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.btn[disabled]{color:var(--dim);cursor:default;box-shadow:var(--in-sm)}
+.btn.wide{width:100%;padding:16px 22px;font-size:15px}
+
+/* A button that reads as prose, for the secondary escape hatches ("paste a
+   key", "forget this key"). A real <button> rather than an <a href="#"> so it
+   is announced as an action and does not push a junk history entry. */
+.linkish{font:inherit;color:var(--ink);background:none;border:0;padding:0;
+  cursor:pointer;border-bottom:1px solid var(--lo)}
+.linkish:hover{border-bottom-color:var(--ink)}
+.linkish:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+
+.formnote{margin:12px 2px 0;font-size:13.5px;line-height:1.5;color:var(--ink2);
+  min-height:1.2em}
+.formnote.bad{color:var(--red);font-weight:500}
+.formnote.good{color:var(--ink);font-weight:500}
+.mail{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--lo)}
+.mail:hover{border-bottom-color:var(--ink)}
+
+/* ---- the key itself ---- */
+.keyrow{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+/* Pressed into the sheet, like the search field: this is a value being held,
+   not a control. `break-all` because a 43-character token has no spaces in it
+   and would otherwise run off a phone. */
+.keybox{flex:1;min-width:0;font:700 13px/1.5 var(--mono);color:var(--ink);
+  background:var(--well);border-radius:var(--r1);padding:14px 16px;
+  box-shadow:var(--in-sm);word-break:break-all}
+
+/* ---- status tiles ---- */
+.tiles{display:grid;grid-template-columns:1fr;gap:12px}
+.tile{background:var(--bg);border-radius:var(--r2);box-shadow:var(--up-sm);
+  padding:16px 18px;display:flex;flex-direction:column;gap:3px}
+.tlabel{font-size:11.5px;font-weight:500;letter-spacing:.04em;
+  text-transform:uppercase;color:var(--ink2)}
+.tval{font:700 20px/1.2 var(--mono);color:var(--ink)}
+.tval.good{color:var(--blue)}
+.tval.muted{color:var(--ink2)}
+.tsub{font-size:12.5px;color:var(--ink2)}
+
+/* The same fraction as the tile above it, in a shape read without arithmetic. */
+.meter{margin-top:14px;height:10px;border-radius:999px;background:var(--well);
+  box-shadow:var(--in-sm);overflow:hidden}
+.meter i{display:block;height:100%;border-radius:999px;background:var(--ink2);
+  transition:width .3s ease}
+.meter i.warn{background:var(--ink)}
+.meter i.full{background:var(--red)}
+
+/* ---- copyable example ---- */
+.code{margin:0 0 16px;background:var(--well);border-radius:var(--r1);
+  box-shadow:var(--in-sm);padding:16px 18px;overflow-x:auto}
+.code code{font:400 12.5px/1.7 var(--mono);color:var(--ink);white-space:pre}
+.sec-sub code{font-family:var(--mono);font-size:12.5px;
+  background:var(--well);border-radius:6px;padding:2px 6px}
+
+/* ---- the paywall dialog ---- */
+.modal{position:fixed;inset:0;z-index:200;display:flex;align-items:center;
+  justify-content:center;padding:20px;background:rgba(34,38,47,.45)}
+.modal[hidden]{display:none}
+.sheet{width:100%;max-width:440px;background:var(--bg);border-radius:var(--r3);
+  box-shadow:var(--up-lg);padding:28px 24px 24px}
+.sheet h2{margin:0 0 12px;font-size:21px;font-weight:600;letter-spacing:-.02em}
+.sheet p{margin:0 0 16px;font-size:15px;line-height:1.6;color:var(--ink2)}
+.paykey{font-size:12.5px}
+.paykey code{display:block;margin-top:6px;font:700 12.5px/1.5 var(--mono);
+  color:var(--ink);background:var(--well);border-radius:var(--r1);
+  padding:12px 14px;box-shadow:var(--in-sm);word-break:break-all}
+
+/* ---- the accuracy banner (home page) ---- */
+/* Pressed rather than raised, and set in the mono face the figures use: this is
+   a claim about numbers, so it is dressed as a reading and not as an ad. */
+.acc{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 16px;
+  margin:0 0 26px;padding:16px 18px;border-radius:var(--r2);
+  background:var(--well);box-shadow:var(--in-sm)}
+.acc-pair{display:flex;align-items:baseline;gap:8px}
+.acc-k{font-size:12px;font-weight:500;letter-spacing:.02em;color:var(--ink2)}
+.acc-v{font:700 16px/1 var(--mono);color:var(--ink2)}
+.acc-pair.us .acc-k{color:var(--ink)}
+.acc-pair.us .acc-v{color:var(--blue);font-size:19px}
+.acc-why{flex-basis:100%;font-size:12.5px;line-height:1.5;color:var(--ink2)}
+.acc-why a{color:var(--ink);text-decoration:none;border-bottom:1px solid var(--lo)}
+.acc-why a:hover{border-bottom-color:var(--ink)}
+
+@media(min-width:560px){
+  .tiles{grid-template-columns:repeat(3,1fr)}
+}
+@media(max-width:359px){
+  .sheet{padding:24px 18px 20px}
+  .keybox{font-size:12px;padding:12px 14px}
+}
