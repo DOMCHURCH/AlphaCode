@@ -232,6 +232,80 @@ def _accuracy_banner() -> str:
   </div>"""
 
 
+def _pricing(stats: dict) -> str:
+    """Three cards: free, the dataset, Pro.
+
+    Every number is read from settings and from the live fact count rather than
+    written into the copy. A price quoted in HTML is a price that disagrees with
+    the one the API enforces the first time either changes, and on this page the
+    disagreement would be with the figure a buyer is about to act on.
+    """
+    from src.config.settings import get_settings
+
+    s = get_settings()
+    rows = _compact(stats.get("facts") or 0) if stats.get("facts") else None
+    dataset_line = (
+        f"Download all {rows} rows as CSV" if rows else "Download the whole table as CSV"
+    )
+
+    def card(name: str, price: str, per: str, line: str, cta: str, feature: bool) -> str:
+        return f"""
+    <div class="plan{' feature' if feature else ''}">
+      <span class="plan-name">{escape(name)}</span>
+      <p class="plan-price">{escape(price)}<small>{escape(per)}</small></p>
+      <p class="plan-line">{escape(line)}</p>
+      <a class="plan-cta" href="/dashboard">{escape(cta)}</a>
+    </div>"""
+
+    return f"""
+  <section class="sec" id="pricing">
+    <div class="sec-head"><h2>Pricing</h2></div>
+    <p class="sec-sub">The drawings are free and always will be. The machine-readable
+      version is what costs money.</p>
+    <div class="plans">
+      {card("Free", "$0", "", f"{s.free_tier_monthly_calls} API calls per month", "Get a key", False)}
+      {card("Full dataset", f"${s.dataset_price_usd}", " once", dataset_line, "Buy the data", True)}
+      {card("Pro", f"${s.pro_price_usd}", "/month", f"{_compact(s.pro_tier_monthly_calls)} API calls per month", "Go Pro", False)}
+    </div>
+    <p class="plan-note">No card is taken on this site. Payment is by e-transfer or
+      PayPal and access is unlocked by hand — usually within 24 hours.</p>
+  </section>"""
+
+
+def _demo_section() -> str:
+    """A ticker box wired to the live API, for someone who wants to see the JSON
+    before they take a key.
+
+    The markup renders whether or not the demo is configured and whether or not
+    the script arrives; the script only fills the output panel. Nothing on this
+    page's critical path (search, the drawings) depends on it.
+    """
+    from src.config.settings import get_settings
+
+    # Read, not written into the copy -- the panel below reports "1 of 3" from
+    # the same setting, and a sentence promising five above a counter that stops
+    # at three is the sort of small lie that costs a reader their trust in the
+    # numbers this whole site is about.
+    limit = get_settings().demo_calls_per_ip_per_day
+    return f"""
+  <section class="sec" id="demo">
+    <div class="sec-head"><h2>Live demo</h2></div>
+    <p class="sec-sub">The real endpoint, the real data, no key needed.
+      {limit} {plural(limit, "company", "companies")} a day from one address.</p>
+    <form class="search" id="demo-form">
+      <label class="slabel" for="demo-ticker">Ticker</label>
+      <div class="sfield">
+        <input id="demo-ticker" name="ticker" type="text" value="JPM"
+          placeholder="JPM" autocomplete="off" autocapitalize="characters"
+          spellcheck="false" maxlength="16" enterkeyhint="go">
+        <button type="submit" id="demo-btn">Call the API</button>
+      </div>
+    </form>
+    <p class="formnote" id="demo-note" role="status" aria-live="polite"></p>
+    <pre class="code json" id="demo-out" hidden><code></code></pre>
+  </section>"""
+
+
 def _summary_line(stats: dict) -> str:
     """One line of scale, and a jump to the explanation further down.
 
@@ -520,8 +594,10 @@ def render_home(
     {search_form()}
   </header>
   {_accuracy_banner()}
+  {_pricing(stats or {})}
   {_summary_line(stats or {})}
   {gallery}
+  {_demo_section()}
 
   <div class="fold" id="how"></div>
   {_example_figure()}
@@ -536,7 +612,11 @@ def render_home(
       rel="noopener">source on GitHub</a>.
     <span class="foot-admin"><a href="/admin">Admin</a></span>
   </footer>
-</main>"""
+</main>
+
+<!-- In the body, not the shell: the shell is shared with /dashboard and the
+     search pages, and none of those have a demo box to drive. -->
+<script src="/static/home.js?v={asset_version()}" defer></script>"""
     return _shell("To Scale — filed financial statements, drawn to scale", body)
 
 

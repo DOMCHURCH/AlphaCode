@@ -86,6 +86,13 @@ def render_dashboard(
       </div>
     </form>
     <p class="formnote" id="reg-note" role="status" aria-live="polite"></p>
+    <!-- Shown only after a 409, i.e. only for an address that IS registered.
+         The key is mailed to that address, never rendered here. -->
+    <div class="resend" id="resend-box" hidden>
+      <p>Lost the key for that address? It can be emailed to you.</p>
+      <button type="button" class="btn" id="resend-btn">Resend my key</button>
+      <p class="formnote" id="resend-note" role="status" aria-live="polite"></p>
+    </div>
     <p class="formnote">Already have one?
       <button type="button" class="linkish" id="paste-key">Paste an existing key</button>
     </p>

@@ -149,6 +149,45 @@ def register(email: str) -> Account:
 # Authentication
 # ---------------------------------------------------------------------------
 
+def is_demo(account: Account) -> bool:
+    """The shared demo account, which is barred from the ordinary keyed API."""
+    from src.demo import DEMO_EMAIL
+
+    return account.email == DEMO_EMAIL
+
+
+# Per-address cooldown for key recovery, held in process memory. Unlike the call
+# meter this does NOT need to survive a restart: the worst a bounce can buy an
+# abuser is one extra email per container, which is noise next to the global
+# hourly gate in front of it. A table for that would be storage spent on nothing.
+_resend_seen: dict[str, float] = {}
+
+
+def resend_cooldown_remaining(email: str) -> int:
+    """Seconds until this address may be mailed again. 0 if it may be now."""
+    import time
+
+    window = get_settings().resend_cooldown_s
+    if window <= 0:
+        return 0
+    last = _resend_seen.get(normalise_email(email))
+    if last is None:
+        return 0
+    left = window - (time.monotonic() - last)
+    return int(left) if left > 0 else 0
+
+
+def mark_resent(email: str) -> None:
+    import time
+
+    _resend_seen[normalise_email(email)] = time.monotonic()
+
+
+def reset_resend_cooldowns() -> None:
+    """Test helper: forget every cooldown."""
+    _resend_seen.clear()
+
+
 def fingerprint(key: str | None) -> str:
     """Enough of a key to identify it in a log, never enough to use it.
 
@@ -177,6 +216,16 @@ def lookup(api_key: str) -> Account | None:
         return _snapshot(row) if row is not None else None
 
 
+def by_email(email: str) -> Account | None:
+    """The account for an address, or None. Used only by key recovery, which
+    mails the result rather than returning it."""
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == normalise_email(email))
+        ).scalar_one_or_none()
+        return _snapshot(row) if row is not None else None
+
+
 def get_current_user(
     x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
 ) -> Account:
@@ -186,6 +235,19 @@ def get_current_user(
     lookup never touches the event loop.
     """
     account = lookup(x_api_key or "")
+    if account is not None and is_demo(account):
+        # The demo key is a real key that the home page's demo route uses on
+        # every visitor's behalf. If it ever escapes -- and a key used that
+        # often eventually does -- it must not also be a working key for the
+        # ordinary API, where there is no per-address ceiling to stop it.
+        log.warning("demo_key_used_on_api", path="header-auth")
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                "That is the public demo key. It works only on /api/demo/"
+                "{ticker}. Get your own free key at /dashboard."
+            ),
+        )
     if account is None:
         log.warning(
             "api_key_rejected", source="header", key=fingerprint(x_api_key)

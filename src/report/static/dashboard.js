@@ -157,11 +157,50 @@
           note($("reg-note"), "");
           return refresh();
         }
+        /* 409 is the lost-key case, and it is the ONLY branch that offers a
+           resend. The key is never shown here -- it goes to the registered
+           inbox -- so offering the button to an address that is not registered
+           would tell a stranger that the address exists. */
+        if (r.status === 409) {
+          note($("reg-note"), detailOf(r.data, "That address already has a key."), "bad");
+          showResend(email);
+          return;
+        }
         note($("reg-note"), detailOf(r.data, "Could not create a key."), "bad");
       })
       .catch(function () {
         btn.disabled = false;
         note($("reg-note"), "Could not reach the server.", "bad");
+      });
+  }
+
+  function showResend(email) {
+    var box = $("resend-box");
+    box.hidden = false;
+    var btn = $("resend-btn");
+    btn.disabled = false;
+    btn.onclick = function () { resend(email); };
+  }
+
+  function resend(email) {
+    var btn = $("resend-btn");
+    btn.disabled = true;
+    note($("resend-note"), "Sending…");
+    api("/api/auth/resend-key", { method: "POST", body: { email: email } })
+      .then(function (r) {
+        /* 503 means SMTP is not configured, and the server's message already
+           names who to contact instead. Not an error the visitor can fix, so
+           it is stated rather than styled as a failure of theirs. */
+        if (r.status === 503) {
+          note($("resend-note"), detailOf(r.data, "Email is not configured."), "bad");
+          return;
+        }
+        btn.disabled = false;
+        note($("resend-note"), detailOf(r.data, "Sent, if that address has a key."), "good");
+      })
+      .catch(function () {
+        btn.disabled = false;
+        note($("resend-note"), "Could not reach the server.", "bad");
       });
   }
 

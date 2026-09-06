@@ -110,3 +110,42 @@
   .sheet{padding:24px 18px 20px}
   .keybox{font-size:12px;padding:12px 14px}
 }
+
+/* ---- pricing (home page) ---- */
+/* Three cards on the same sheet as everything else. The middle one is raised
+   further rather than tinted, because tinting it would spend colour on a
+   marketing emphasis and the only colour on this site is data. */
+.plans{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:14px}
+.plan{background:var(--bg);border-radius:var(--r2);box-shadow:var(--up-sm);
+  padding:20px 20px 18px;display:flex;flex-direction:column;gap:4px}
+.plan.feature{box-shadow:var(--up-lg)}
+.plan-name{font-size:11.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink2)}
+.plan-price{margin:2px 0 0;font:700 30px/1.05 var(--disp);letter-spacing:-.02em;
+  color:var(--ink)}
+.plan-price small{font:500 13px/1 var(--disp);color:var(--ink2);margin-left:3px;
+  letter-spacing:0}
+.plan-line{margin:6px 0 14px;font-size:14.5px;line-height:1.45;color:var(--ink2)}
+.plan-cta{margin-top:auto;align-self:flex-start;font:600 13.5px/1 var(--disp);
+  color:var(--ink);text-decoration:none;padding:12px 18px;border-radius:999px;
+  box-shadow:var(--up-sm);transition:box-shadow .18s,transform .1s}
+.plan-cta:hover{box-shadow:var(--up);transform:translateY(-1px)}
+.plan-cta:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.plan-note{margin:0;padding:0 4px;font-size:12.5px;line-height:1.55;color:var(--dim)}
+
+/* ---- live demo output ---- */
+/* Capped and scrollable: a full balance sheet is a few hundred lines of JSON,
+   and letting it push the rest of the page below the fold would bury the very
+   thing the demo is meant to sell. */
+.code.json{max-height:340px;overflow:auto;margin-top:14px}
+.code.json code{white-space:pre;font-size:11.5px;line-height:1.65}
+
+/* ---- resend-key panel (dashboard) ---- */
+.resend{margin-top:14px;padding:16px 18px;border-radius:var(--r2);
+  background:var(--well);box-shadow:var(--in-sm)}
+.resend p{margin:0 0 12px;font-size:14px;line-height:1.5;color:var(--ink2)}
+.resend .formnote{margin-bottom:0}
+
+@media(min-width:620px){
+  .plans{grid-template-columns:repeat(3,1fr)}
+}

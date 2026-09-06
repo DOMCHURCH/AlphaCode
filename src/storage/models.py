@@ -597,6 +597,39 @@ class AdminAction(Base):
     detail: Mapped[str | None] = mapped_column(String(300))
 
 
+def current_day(now: dt.datetime | None = None) -> str:
+    """The UTC day a demo call counts against, as "2026-09-06". UTC for the same
+    reason `current_month` is: a server whose timezone moves would hand somebody
+    a second allowance."""
+    return (now or _utcnow()).strftime("%Y-%m-%d")
+
+
+class DemoUsage(Base):
+    """One row per anonymous demo call, keyed by address digest and UTC day.
+
+    A table rather than a dict in process memory, for the reason `llm_usage`
+    gives: this platform restarts containers freely, and an in-memory limiter
+    resets to zero on every restart -- so "5 a day" would mean "5 per deploy",
+    which is not a limit. The demo runs on a real key with a real monthly
+    ceiling behind it, so the per-address gate has to survive a bounce.
+
+    `ip_hash` is the same salted digest used for page views: enough to tell two
+    callers apart for a day, not a record of who looked at what.
+    """
+
+    __tablename__ = "demo_usage"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    ip_hash: Mapped[str] = mapped_column(String(32), nullable=False)
+    day: Mapped[str] = mapped_column(String(10), nullable=False)
+    ticker: Mapped[str | None] = mapped_column(String(16))
+    created_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow
+    )
+
+    __table_args__ = (Index("ix_demo_ip_day", "ip_hash", "day"),)
+
+
 ALL_TABLES = [
     UniverseSnapshot,
     DailyBar,
@@ -618,6 +651,7 @@ ALL_TABLES = [
     ApiUser,
     UsageLog,
     AdminAction,
+    DemoUsage,
 ]
 
 __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]

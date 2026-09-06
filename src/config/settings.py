@@ -260,6 +260,33 @@ class Settings(BaseSettings):
     dataset_price_usd: int = Field(default=29, ge=0, alias="DATASET_PRICE_USD")
     pro_price_usd: int = Field(default=49, ge=0, alias="PRO_PRICE_USD")
 
+    # ---------------- Outgoing mail (key recovery only) ----------------
+    # Plain SMTP, no third-party API. Unset SMTP_HOST disables sending entirely
+    # and the dashboard falls back to "contact the owner" -- a recovery flow that
+    # silently drops the mail is worse than one that admits it cannot send.
+    smtp_host: str = Field(default="", alias="SMTP_HOST")
+    smtp_port: int = Field(default=587, ge=1, le=65535, alias="SMTP_PORT")
+    smtp_user: str = Field(default="", alias="SMTP_USER")
+    smtp_pass: str = Field(default="", alias="SMTP_PASS")
+    # Envelope sender. Falls back to SMTP_USER, then ADMIN_EMAIL, because most
+    # relays reject a From: that is not the authenticated mailbox.
+    smtp_from: str = Field(default="", alias="SMTP_FROM")
+    # A registered address is a target: without a ceiling, "resend my key"
+    # is a free email cannon pointed at whoever signed up.
+    resend_rate_per_hour: int = Field(
+        default=10, ge=0, alias="RESEND_RATE_PER_HOUR"
+    )
+    resend_cooldown_s: int = Field(default=600, ge=0, alias="RESEND_COOLDOWN_S")
+
+    # ---------------- Public demo ----------------
+    # The key the home page's live demo runs on, server-side. It is a REAL key
+    # and is never sent to the browser (see src/demo.py); unset simply disables
+    # the demo rather than breaking the page.
+    demo_api_key: str = Field(default="", alias="DEMO_API_KEY")
+    demo_calls_per_ip_per_day: int = Field(
+        default=5, ge=0, alias="DEMO_CALLS_PER_IP_PER_DAY"
+    )
+
     # Business-day buffer added on top of filing_date to model ingestion lag.
     pit_lag_business_days: int = Field(default=2, alias="PIT_LAG_BUSINESS_DAYS")
 

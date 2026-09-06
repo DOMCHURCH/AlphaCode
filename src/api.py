@@ -64,6 +64,18 @@ async def _boot(app: FastAPI) -> None:
     except Exception as exc:  # noqa: BLE001 - health endpoint reports it
         log.error("db_init_failed", error=str(exc)[:300])
 
+    # The demo account, created or refreshed here rather than on first use: a
+    # cold container must not serve the home page before the account behind its
+    # demo exists, and a rotated DEMO_API_KEY should take effect on deploy
+    # instead of whenever the next visitor happens to try it. Runs after
+    # init_db so the table it writes to is there.
+    try:
+        from src.demo import ensure_demo_user
+
+        await asyncio.to_thread(ensure_demo_user)
+    except Exception as exc:  # noqa: BLE001 - a missing demo must not stop boot
+        log.warning("demo_user_setup_skipped", error=str(exc)[:200])
+
     await _verify_ask_model()
 
     # The home page states its own identity pass rate. Computing it walks every
@@ -276,6 +288,10 @@ _reconcile_gate = _RateGate(lambda: get_settings().reconcile_rate_per_hour)
 # per-key limit is only worth as much as a key costs to obtain. This is what
 # makes it cost something.
 _register_gate = _RateGate(lambda: get_settings().register_rate_per_hour)
+# Key recovery sends mail to an address the requester does not have to own, so
+# it is capped globally as well as per-address. Without the global cap, one
+# script walking a list of addresses is a spam run with this service's name on it.
+_resend_gate = _RateGate(lambda: get_settings().resend_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -1466,6 +1482,72 @@ def api_register(body: RegisterRequest) -> JSONResponse:
     )
 
 
+class ResendRequest(BaseModel):
+    email: str
+
+
+@app.post("/api/auth/resend-key")
+def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
+    """Mail somebody the key they already have. Never shows it in the response.
+
+    This is the counterpart to register's 409, and it is safe for the same
+    reason that refusal is: the key travels to the REGISTERED inbox and nowhere
+    else, so typing a stranger's address sends mail to the stranger and teaches
+    the sender nothing.
+
+    The reply is identical whether or not the address is registered. Anything
+    else turns this into an account-enumeration oracle, and it would be a poor
+    trade to close that door on `/register` and open it here.
+
+    Sending happens in a background task: a relay that hangs for its full
+    ten-second timeout must not be a ten-second request.
+    """
+    from src import accounts, mailer
+
+    _enforce_rate(_resend_gate, "key recovery")
+
+    address = accounts.normalise_email(body.email)
+    configured = mailer.is_configured()
+    s = get_settings()
+    where = s.admin_email or "the site owner"
+
+    if not configured:
+        # Told plainly rather than pretending to send. A recovery flow that
+        # accepts the request and drops it leaves somebody waiting on an email
+        # that was never going to arrive.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "sent": False,
+                "detail": f"Email is not configured. Contact {where} to recover your key.",
+            },
+        )
+
+    # Uniform response, computed before any branch on whether the user exists.
+    ok = {
+        "sent": True,
+        "detail": (
+            "If that address has a key, it has just been emailed. Check spam."
+        ),
+    }
+
+    if accounts.valid_email(address):
+        cooling = accounts.resend_cooldown_remaining(address)
+        if cooling:
+            # Still the uniform answer: a distinct "wait" reply for registered
+            # addresses only would leak exactly what the uniform reply hides.
+            log.info("resend_on_cooldown", seconds_left=cooling)
+            return JSONResponse(ok)
+        account = accounts.by_email(address)
+        if account is not None:
+            accounts.mark_resent(address)
+            tasks.add_task(mailer.send_api_key, account.email, account.api_key)
+            log.info("resend_queued", email=address)
+        else:
+            log.info("resend_unknown_address", email=address)
+    return JSONResponse(ok)
+
+
 @app.get("/api/user/status")
 def api_user_status(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     """Your own tier, entitlement and usage. Does not spend a call --
@@ -1513,6 +1595,79 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     accounts.record_call(account, "/api/company")
     payload = jsonable_encoder(asdict(sheet))
     payload["source"] = "SEC Financial Statement Data Sets (as reported)"
+    return JSONResponse(payload)
+
+
+@app.get("/api/demo/{ticker}")
+def api_demo(ticker: str, request: Request) -> JSONResponse:
+    """The home page's live demo: one company, no key required, five a day.
+
+    Same data and same code path as `/api/company/{ticker}` -- it would be a
+    poor demo of an API that returned something the API does not. What differs
+    is only how the caller is identified: the demo account's key is attached
+    here, server-side, and is never sent to the browser.
+
+    Counted per salted address digest per UTC day. Demo calls are recorded in
+    `demo_usage` and NOT in `usage_logs`, so anonymous traffic never appears in
+    a paying customer's usage figures -- including the demo account's own.
+    """
+    from dataclasses import asdict
+
+    from src import demo
+    from src.company.balancesheet import get_balance_sheet
+
+    # Resolving the account is what makes the demo "run on a key" rather than
+    # merely bypass authentication: no demo account, no demo. It also
+    # self-provisions, so the first visitor to a cold container is served
+    # instead of meeting a 503 while the background boot catches up.
+    if demo.account() is None:
+        raise HTTPException(
+            status_code=503,
+            detail="The demo is not configured on this deployment.",
+        )
+
+    ip_hash = _caller_ip_hash(request)
+    limit = get_settings().demo_calls_per_ip_per_day
+    used = demo.calls_today(ip_hash)
+    if limit and used >= limit:
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Demo limit reached: {used}/{limit} calls today. It resets at "
+                "midnight UTC. A free key at /dashboard has its own allowance."
+            ),
+        )
+
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(
+            status_code=422, detail="That does not look like a ticker symbol."
+        )
+    try:
+        sheet = get_balance_sheet(symbol)
+    except Exception as exc:  # noqa: BLE001
+        log.exception("api_demo_failed", ticker=symbol, error=str(exc))
+        raise HTTPException(
+            status_code=500, detail=f"Something went wrong reading it: {exc}"
+        ) from exc
+    if sheet is None:
+        # Not counted: a wrong guess at a ticker must not spend one of five.
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No filed fundamentals for {symbol} in the database, or it "
+                "reports no total for assets."
+            ),
+        )
+
+    demo.record(ip_hash, symbol)
+    payload = jsonable_encoder(asdict(sheet))
+    payload["source"] = "SEC Financial Statement Data Sets (as reported)"
+    payload["demo"] = {
+        "calls_used_today": used + 1,
+        "calls_limit": limit,
+        "note": "Public demo. Get your own key at /dashboard.",
+    }
     return JSONResponse(payload)
 
 
@@ -1634,7 +1789,9 @@ def api_index() -> JSONResponse:
                 "get_a_key": "/dashboard",
                 "endpoints": [
                     "POST /api/auth/register",
+                    "POST /api/auth/resend-key",
                     "GET /api/company/{ticker}",
+                    "GET /api/demo/{ticker}  (no key, 5/day per address)",
                     "GET /api/user/status",
                     "GET /api/download-dataset",
                 ],
