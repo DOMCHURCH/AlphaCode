@@ -25,6 +25,11 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pandas-market-calendars>=4.4
 
+# --- outgoing mail (key recovery) ---
+# Imported lazily by src/mailer.py, so a container that predates this
+# line has key recovery switched off rather than failing to boot.
+agentmail>=0.5,<1
+
 # --- observability ---
 structlog>=24.1
 

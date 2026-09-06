@@ -261,16 +261,15 @@ class Settings(BaseSettings):
     pro_price_usd: int = Field(default=49, ge=0, alias="PRO_PRICE_USD")
 
     # ---------------- Outgoing mail (key recovery only) ----------------
-    # Plain SMTP, no third-party API. Unset SMTP_HOST disables sending entirely
-    # and the dashboard falls back to "contact the owner" -- a recovery flow that
-    # silently drops the mail is worse than one that admits it cannot send.
-    smtp_host: str = Field(default="", alias="SMTP_HOST")
-    smtp_port: int = Field(default=587, ge=1, le=65535, alias="SMTP_PORT")
-    smtp_user: str = Field(default="", alias="SMTP_USER")
-    smtp_pass: str = Field(default="", alias="SMTP_PASS")
-    # Envelope sender. Falls back to SMTP_USER, then ADMIN_EMAIL, because most
-    # relays reject a From: that is not the authenticated mailbox.
-    smtp_from: str = Field(default="", alias="SMTP_FROM")
+    # AgentMail rather than a raw SMTP relay: one HTTP call, no relay
+    # credentials to hold, and no STARTTLS negotiation to debug at 2am.
+    # Unset AGENTMAIL_API_KEY disables sending entirely and the dashboard falls
+    # back to "contact the owner" -- a recovery flow that silently drops the
+    # mail is worse than one that admits it cannot send.
+    agentmail_api_key: str = Field(default="", alias="AGENTMAIL_API_KEY")
+    # Optional. Pins the mailbox to send from; with this unset the service
+    # creates one under a stable client_id and reuses it across restarts.
+    agentmail_inbox_id: str = Field(default="", alias="AGENTMAIL_INBOX_ID")
     # A registered address is a target: without a ceiling, "resend my key"
     # is a free email cannon pointed at whoever signed up.
     resend_rate_per_hour: int = Field(

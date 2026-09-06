@@ -29,7 +29,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("PRO_PRICE_USD", "49")
     monkeypatch.setenv("DEMO_API_KEY", DEMO_KEY)
     monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "3")
-    monkeypatch.setenv("SMTP_HOST", "")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "")
 
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
@@ -125,7 +125,7 @@ def test_recovery_says_the_same_thing_for_known_and_unknown_addresses(
 ):
     """Otherwise this is an account-enumeration oracle, and it would be a poor
     trade to refuse the key on /register and then leak who has one here."""
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
     from src.config.settings import get_settings
 
     get_settings.cache_clear()
@@ -145,7 +145,7 @@ def test_recovery_says_the_same_thing_for_known_and_unknown_addresses(
 
 
 def test_the_recovery_response_never_contains_the_key(client, monkeypatch):
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
     from src.config.settings import get_settings
 
     get_settings.cache_clear()
@@ -158,7 +158,7 @@ def test_the_recovery_response_never_contains_the_key(client, monkeypatch):
     assert key not in r.text
 
 
-def test_recovery_says_so_when_smtp_is_not_configured(client):
+def test_recovery_says_so_when_email_is_not_configured(client):
     """Rather than accepting the request and dropping it, which leaves somebody
     waiting on an email that was never going to be sent."""
     client.post("/api/auth/register", json={"email": "lost@example.com"})
@@ -171,7 +171,7 @@ def test_recovery_says_so_when_smtp_is_not_configured(client):
 def test_one_address_cannot_be_mailed_repeatedly(client, monkeypatch):
     """A registered address is somebody else's inbox. Without a cooldown the
     recovery button is an email cannon aimed at them."""
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
     from src.config.settings import get_settings
 
     get_settings.cache_clear()
@@ -189,40 +189,176 @@ def test_one_address_cannot_be_mailed_repeatedly(client, monkeypatch):
     assert len(sent) == 1
 
 
-def test_the_mail_body_carries_the_key_and_nothing_alarming(monkeypatch):
+def test_the_mail_body_carries_the_key(monkeypatch):
     """The one place the key is legitimately written down."""
     import src.mailer as mailer
     from src.config.settings import get_settings
 
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
-    monkeypatch.setenv("SMTP_FROM", "keys@example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
+    monkeypatch.setenv("AGENTMAIL_INBOX_ID", "inbox_fixed")
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
     get_settings.cache_clear()
+    mailer.reset_inbox_cache()
 
-    captured = {}
-    monkeypatch.setattr(mailer, "_deliver", lambda msg: captured.update(msg=msg))
+    sent = {}
+
+    class FakeMessages:
+        def send(self, inbox_id, **kw):
+            sent.update(inbox_id=inbox_id, **kw)
+
+    class FakeInboxes:
+        messages = FakeMessages()
+
+    class FakeClient:
+        inboxes = FakeInboxes()
+
+    monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
     assert mailer.send_api_key("someone@example.com", "SECRET-KEY-123") is True
 
-    msg = captured["msg"]
-    assert msg["To"] == "someone@example.com"
-    assert msg["From"] == "keys@example.com"
-    assert "SECRET-KEY-123" in msg.get_content()
+    assert sent["inbox_id"] == "inbox_fixed"
+    assert sent["to"] == "someone@example.com"
+    assert sent["subject"] == "Your To Scale API key"
+    assert "SECRET-KEY-123" in sent["text"]
+    assert sent["reply_to"] == "owner@example.com"
     get_settings.cache_clear()
+    mailer.reset_inbox_cache()
 
 
-def test_a_dead_relay_is_a_false_return_not_an_exception(monkeypatch):
+def test_a_failing_upstream_is_a_false_return_not_an_exception(monkeypatch):
     """`send_api_key` runs in a background task with nobody to catch it."""
     import src.mailer as mailer
     from src.config.settings import get_settings
 
-    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
+    monkeypatch.setenv("AGENTMAIL_INBOX_ID", "inbox_fixed")
     get_settings.cache_clear()
+    mailer.reset_inbox_cache()
 
-    def boom(msg):
-        raise OSError("connection refused")
+    class Boom:
+        def send(self, inbox_id, **kw):
+            raise RuntimeError("upstream exploded")
 
-    monkeypatch.setattr(mailer, "_deliver", boom)
+    class FakeInboxes:
+        messages = Boom()
+
+    class FakeClient:
+        inboxes = FakeInboxes()
+
+    monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
     assert mailer.send_api_key("someone@example.com", "k") is False
     get_settings.cache_clear()
+    mailer.reset_inbox_cache()
+
+
+def test_a_missing_sdk_is_off_rather_than_a_crash(monkeypatch):
+    """The import is deferred so a container built before requirements.txt
+    gained the package has recovery switched off, not a failed boot."""
+    import builtins
+
+    import src.mailer as mailer
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
+    get_settings.cache_clear()
+    mailer.reset_inbox_cache()
+
+    real_import = builtins.__import__
+
+    def no_agentmail(name, *a, **kw):
+        if name == "agentmail":
+            raise ImportError("no module named agentmail")
+        return real_import(name, *a, **kw)
+
+    monkeypatch.setattr(builtins, "__import__", no_agentmail)
+    assert mailer._client() is None
+    assert mailer.send_api_key("someone@example.com", "k") is False
+    get_settings.cache_clear()
+
+
+def test_the_inbox_is_resolved_once_and_reused(monkeypatch):
+    """Creating a mailbox per send would mint a new address on every restart.
+    Pinned by config, or created under a stable client_id and cached."""
+    import src.mailer as mailer
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
+    monkeypatch.setenv("AGENTMAIL_INBOX_ID", "")
+    get_settings.cache_clear()
+    mailer.reset_inbox_cache()
+
+    creates = []
+
+    class FakeInbox:
+        inbox_id = "inbox_made"
+        email = "to-scale@agentmail.to"
+        client_id = mailer._INBOX_CLIENT_ID
+
+    class FakeInboxes:
+        def create(self, request=None):
+            creates.append(request)
+            return FakeInbox()
+
+        class messages:  # noqa: N801 - mirrors the SDK's attribute layout
+            @staticmethod
+            def send(inbox_id, **kw):
+                return None
+
+    class FakeClient:
+        inboxes = FakeInboxes()
+
+    client = FakeClient()
+    monkeypatch.setattr(mailer, "_client", lambda: client)
+
+    assert mailer.send_api_key("a@example.com", "k") is True
+    assert mailer.send_api_key("b@example.com", "k") is True
+    assert len(creates) == 1, "the inbox must be created once, not per message"
+    assert creates[0].client_id == mailer._INBOX_CLIENT_ID
+    get_settings.cache_clear()
+    mailer.reset_inbox_cache()
+
+
+def test_an_existing_inbox_is_found_when_create_conflicts(monkeypatch):
+    """A server that answers an existing client_id with a conflict rather than
+    the existing inbox is an equally fair reading of the API. Getting this wrong
+    optimistically would mint a fresh mailbox on every deploy."""
+    import src.mailer as mailer
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
+    monkeypatch.setenv("AGENTMAIL_INBOX_ID", "")
+    get_settings.cache_clear()
+    mailer.reset_inbox_cache()
+
+    class Existing:
+        inbox_id = "inbox_existing"
+        email = "to-scale@agentmail.to"
+        client_id = mailer._INBOX_CLIENT_ID
+
+    class Listing:
+        inboxes = [Existing()]
+
+    sent = {}
+
+    class FakeInboxes:
+        def create(self, request=None):
+            raise RuntimeError("409 conflict: client_id already in use")
+
+        def list(self):
+            return Listing()
+
+        class messages:  # noqa: N801
+            @staticmethod
+            def send(inbox_id, **kw):
+                sent["inbox_id"] = inbox_id
+
+    class FakeClient:
+        inboxes = FakeInboxes()
+
+    monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
+    assert mailer.send_api_key("a@example.com", "k") is True
+    assert sent["inbox_id"] == "inbox_existing"
+    get_settings.cache_clear()
+    mailer.reset_inbox_cache()
 
 
 # ---------------------------------------------------------------------------
@@ -338,3 +474,80 @@ def test_the_demo_account_provisions_itself_rather_than_racing_boot(client):
     assert account.tier == "pro"
     # Never the dataset: the demo shows one company, not the product.
     assert account.has_paid_download is False
+
+
+# ---------------------------------------------------------------------------
+# 4. Contract with the real AgentMail SDK
+# ---------------------------------------------------------------------------
+# Every test above sends through a fake, which proves the mailer's logic and
+# nothing about whether the calls it makes exist. These bind the arguments
+# `src/mailer.py` actually passes against the INSTALLED SDK's signatures, so the
+# next version that renames a parameter fails here rather than in production on
+# the one message a customer is waiting for. No network and no key: binding a
+# signature does not call anything.
+
+def test_the_create_inbox_request_matches_the_installed_sdk():
+    agentmail = pytest.importorskip("agentmail")
+    from agentmail.inboxes import CreateInboxRequest
+
+    import src.mailer as mailer
+
+    req = CreateInboxRequest(
+        client_id=mailer._INBOX_CLIENT_ID, display_name="To Scale"
+    )
+    assert req.client_id == mailer._INBOX_CLIENT_ID
+    # The mailer reads `.inbox_id` and `.client_id` off what comes back.
+    from agentmail.inboxes import Inbox
+
+    assert "inbox_id" in Inbox.model_fields
+    assert "client_id" in Inbox.model_fields
+    assert agentmail is not None
+
+
+def test_the_send_call_matches_the_installed_sdk():
+    pytest.importorskip("agentmail")
+    import inspect
+
+    from agentmail import AgentMail
+
+    client = AgentMail(api_key="not-used-no-network")
+    sig = inspect.signature(client.inboxes.messages.send)
+    # Exactly the call src/mailer.py makes.
+    sig.bind(
+        "inbox_id",
+        to="someone@example.com",
+        subject="Your To Scale API key",
+        text="body",
+        reply_to=None,
+    )
+
+
+def test_the_client_accepts_a_timeout():
+    """A hung upstream must not hold a worker thread open indefinitely."""
+    pytest.importorskip("agentmail")
+    import inspect
+
+    from agentmail import AgentMail
+
+    assert "timeout" in inspect.signature(AgentMail.__init__).parameters
+
+
+def test_an_sdk_error_logs_a_readable_cause():
+    """`str(ApiError)` leads with a header dump, which pushes the status and
+    message past the end of a truncated log line -- the exact shape of log that
+    makes an auth failure look like something else."""
+    pytest.importorskip("agentmail")
+    from agentmail.core.api_error import ApiError
+
+    from src.mailer import _why
+
+    line = _why(ApiError(
+        status_code=401,
+        headers={"content-type": "application/json", "x-cache": "Error from cloudfront"},
+        body={"message": "invalid api key"},
+    ))
+    assert line.startswith("HTTP 401")
+    assert "invalid api key" in line
+    assert "content-type" not in line
+    # A plain exception still says something useful.
+    assert _why(RuntimeError("boom")).startswith("RuntimeError: boom")

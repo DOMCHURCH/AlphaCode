@@ -188,7 +188,7 @@
     note($("resend-note"), "Sending…");
     api("/api/auth/resend-key", { method: "POST", body: { email: email } })
       .then(function (r) {
-        /* 503 means SMTP is not configured, and the server's message already
+        /* 503 means email is not configured, and the server's message already
            names who to contact instead. Not an error the visitor can fix, so
            it is stated rather than styled as a failure of theirs. */
         if (r.status === 503) {

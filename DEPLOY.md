@@ -151,6 +151,24 @@ uvicorn src.api:app --reload
 SQLite is the local default; Postgres is used whenever `DATABASE_URL` points at
 one. Nothing else changes between the two.
 
+## Key recovery (email)
+
+"Resend my key" on `/dashboard` sends through [AgentMail](https://agentmail.to).
+Set `AGENTMAIL_API_KEY` and it works; leave it unset and the button explains
+that email is off and names `ADMIN_EMAIL` instead. Nothing else is required —
+the mailbox is created on first send under a fixed `client_id` and reused, or
+pin one with `AGENTMAIL_INBOX_ID`.
+
+**On the free plan mail leaves from an `@agentmail.to` address.** That message
+carries an API key, so it is a spam-folder candidate from an unfamiliar domain
+— and the entire point is that the person gets their key back. Budget for the
+paid plan and a custom domain before relying on this.
+
+Failures are logged as `agentmail_send_failed` with an `HTTP <status>: <message>`
+line, never a header dump. The request itself returns immediately: sending runs
+in a background task behind a 10s timeout, so a slow upstream costs one worker
+thread and not the response.
+
 ## Granting paid access (the whole billing system)
 
 There is no payment processor. Somebody e-transfers or PayPals you and emails
