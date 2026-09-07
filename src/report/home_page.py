@@ -339,11 +339,24 @@ def _summary_line(stats: dict) -> str:
     )
 
 
-def shell(title: str, body: str) -> str:
-    return _shell(title, body)
+def shell(title: str, body: str, film: str = "still") -> str:
+    return _shell(title, body, film)
 
 
-def _shell(title: str, body: str) -> str:
+def _shell(title: str, body: str, film: str = "still") -> str:
+    """`film` says how much of the backdrop this page may spend.
+
+    "hero"  the film is the point, above the fold  (home, login)
+    "calm"  the still only, veiled hard            (dashboard, company)
+    "none"  no backdrop at all                     (terms, privacy)
+
+    Decided per page rather than globally because it depends on how long
+    somebody reads: a page that is glanced at can afford a sunset, and a page
+    that is worked in for ten minutes cannot.
+    """
+    from src.report.backdrop import render_backdrop
+
+    backdrop = "" if film == "none" else render_backdrop()
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -360,8 +373,14 @@ def _shell(title: str, body: str) -> str:
      dashboard's controls are the only things that use it, and keeping them out
      of company.css keeps the drawing's stylesheet about the drawing. -->
 <link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
+<!-- Last, and only token overrides: this is what turns the whole site dark,
+     drawings included, without a rule being rewritten. -->
+<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
+<meta name="theme-color" content="#0a0a0a">
 </head>
-<body>
+<body data-film="{film}">
+{backdrop}
 <a class="skip" href="#main">Skip to content</a>
 {body}
 </body>
@@ -603,7 +622,7 @@ def render_home(
 {nav}
 
 <main class="wrap" id="main">
-  <header class="hero">
+  <header class="hero glass">
     <h1 class="htitle">To Scale</h1>
     <p class="hlede">Every US public company's balance sheet, drawn at true
       proportion, from what they filed with the SEC.</p>
@@ -629,7 +648,9 @@ def render_home(
      search pages, and none of those have a demo box to drive. -->
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>"""
-    return _shell("To Scale — filed financial statements, drawn to scale", body)
+    return _shell(
+        "To Scale — filed financial statements, drawn to scale", body, film="hero"
+    )
 
 
 def render_matches(

@@ -59,6 +59,7 @@ def _legal_shell(title: str, nav: str, body: str) -> str:
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>""",
+        film="none",
     )
 
 

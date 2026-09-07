@@ -1,0 +1,218 @@
+/* To Scale — the dark treatment.
+   ---------------------------------------------------------------------------
+   Loaded LAST, and it does one thing: redefine tokens. No layout, no markup, no
+   new geometry. Everything below is a value, which is why the whole site --
+   including the drawings, which take their fills as var(--a0)..var(--l3) from
+   Python -- changes ground without a single rule being rewritten.
+
+   THE RULE SURVIVES: the only colour on the page is data. That is harder here
+   than it was on grey, because the brief brings a gold sunset with it, so:
+
+     gold appears ONLY in the veiled scenery behind the page.
+
+   Not on a button, a focus ring, a badge, a tab, a border, or a meter. The sky
+   is not on the page -- it is behind it, under 40-90% black. Equity moves to a
+   cooler lemon (#F7D848) so it cannot be mistaken for the amber horizon: equity
+   is lemon, the sky is amber, and they never touch.
+
+   The failure this whole file is arranged to avoid: chrome winning the eye.
+   Colour and motion are the attention budget, and a floating island at golden
+   hour is more saturated and more animated than any bar on a balance sheet. If
+   a squinted screenshot shows the island before it shows the two columns, the
+   veil is too thin -- not the drawing too quiet.
+*/
+
+:root {
+  color-scheme: dark;
+
+  /* One ground, and the two lights that shape it. The mistake in dark
+     neumorphism is inverting white: a bright highlight on #1a1a1a reads as a
+     smear, not as a lit edge. The highlight is a whisper and the 1px top rule
+     inside each shadow does most of the work. */
+  --bg: #1A1A1A;
+  --hi: #262626;
+  --lo: #0A0A0A;
+  --well: #141414;
+
+  --ink: #EDEDED;
+  --ink2: #A3A3A3;
+  --dim: #6B6B6B;
+
+  /* Split out of --ink so a label on a pale band and the fill of negative
+     equity can move independently of prose. Negative equity becomes the WELL
+     -- a hole with a yellow rule over it -- rather than the near-white slab a
+     naive inversion would have made the loudest thing on the page. */
+  /* The DEFAULT band label stays white: it is written on the saturated tints
+     (a0-a2, l0-l1), which are still dark enough to carry it. Only the pale
+     bands and the lemon equity band need an ink label, and they get one
+     explicitly below -- the light theme reaches for var(--ink) there, which on
+     this ground is near-white and would put white on pale blue. */
+  --band-ink: #FFFFFF;
+  --band-ink-pale: #0B0B0B;
+  --band-neg: var(--well);
+  /* Hairlines between bands glare on dark tints at the light theme's opacity. */
+  --band-rule: rgba(255, 255, 255, .14);
+
+  --up: 6px 6px 14px #0B0B0B, -6px -6px 14px #242424,
+        inset 0 1px 0 rgba(255, 255, 255, .06);
+  --up-sm: 3px 3px 8px #0B0B0B, -3px -3px 8px #222222,
+           inset 0 1px 0 rgba(255, 255, 255, .05);
+  --up-lg: 10px 10px 24px #080808, -10px -10px 24px #262626,
+           inset 0 1px 0 rgba(255, 255, 255, .07);
+  --in: inset 5px 5px 10px #0B0B0B, inset -5px -5px 10px #232323;
+  --in-sm: inset 3px 3px 6px #0B0B0B, inset -3px -3px 6px #212121;
+
+  /* DATA ONLY, from here down.
+     Every tint is lifted, because the contrast that matters is against the
+     stack's well (#141414) and not against the page. Adjacent steps stay ~8 L*
+     apart so a 5%-of-assets band is still legibly its own band. Order is
+     preserved -- a0 darkest through a6 palest -- so the tone logic in
+     company_page.py needs no change. */
+  --a0: #3B56D6; --a1: #4D68E0; --a2: #6680E8; --a3: #8299EF;
+  --a4: #9FB2F4; --a5: #BCC9F8; --a6: #DAE1FC;
+  --l0: #D33A31; --l1: #EA5148; --l2: #F27B72; --l3: #F7AAA4;
+  --yellow: #F7D848;
+  --blue: var(--a1);
+  --red: var(--l1);
+}
+
+body { background: var(--bg); color: var(--ink); }
+
+/* The label on a pale band, and on the lemon equity band. The light theme
+   points these at var(--ink), which inverts with everything else and lands
+   white-on-pale -- the single most likely way this retheme could ship
+   unreadable. Pinned to an ink that does not move. */
+.band.pale .bl,
+.band.eq .bl,
+.exband[style*="--a5"],
+.exband[style*="--a6"],
+.exband[style*="--yellow"] { color: var(--band-ink-pale); }
+/* A negative-equity band is now a well with a yellow rule, so its label is
+   yellow on near-black rather than yellow on ink. */
+.band.neg .bl, .band.keep.loss .bl { color: var(--yellow); }
+
+/* The hatch that marks "not broken out" is a texture, not a colour, and at the
+   light theme's opacity it flares on these lifted tints. */
+.band.rem, .mband.rem, .sw.rem {
+  background-image: repeating-linear-gradient(45deg,
+    rgba(255, 255, 255, .22) 0 2px, transparent 2px 6px) !important;
+}
+
+/* ---------------------------------------------------------------------------
+   Glass
+   ---------------------------------------------------------------------------
+   Only where a moving image is actually behind it. The alpha floor is a
+   readability floor, measured against the worst case -- a white cloud passing
+   under body text: .62 gives 4.2:1 and fails prose, .72 gives 5.9:1, .78 gives
+   7.3:1. Prose panels never go below .72.
+
+   AT MOST THREE glass elements in a viewport. Each backdrop-filter over a
+   playing video is a separate re-blur every frame, and a dozen of them is a
+   slideshow rather than a website. Everything else is opaque and neumorphic.
+*/
+.glass {
+  background: rgba(26, 26, 26, .72);
+  -webkit-backdrop-filter: blur(20px) saturate(1.25);
+  backdrop-filter: blur(20px) saturate(1.25);
+  border: 1px solid rgba(255, 255, 255, .08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06),
+              0 20px 40px rgba(0, 0, 0, .45);
+}
+/* Decorative only, never over prose. */
+.glass-lite {
+  background: rgba(18, 18, 18, .60);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: blur(16px) saturate(1.15);
+  border-bottom: 1px solid rgba(255, 255, 255, .06);
+}
+/* No blur support means no free readability: pay for it in alpha instead. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass { background: rgba(26, 26, 26, .92); }
+  .glass-lite { background: rgba(18, 18, 18, .92); }
+}
+
+/* The hero is the one place the film is allowed to be the point. */
+.hero.glass { border-radius: var(--r3); }
+
+/* Nav sits over the film on the pages that have one. */
+nav { background: transparent; }
+nav .wrap.nav { position: relative; }
+.navlink.on { background: rgba(255, 255, 255, .06); box-shadow: var(--in-sm); }
+.badge { background: rgba(255, 255, 255, .06); }
+
+/* ---------------------------------------------------------------------------
+   Surfaces that must stay OPAQUE
+   ---------------------------------------------------------------------------
+   The drawing above all. A cloud drifting behind a blue band shifts its
+   perceived hue, and the product is a claim about proportion and colour being
+   read accurately. It sits on solid ground, always.
+*/
+.bs, .stack, .card, .tile, .plan, .buy, .compare, .tablewrap,
+.keybox, .code, .sheet, .resend, .banner, .acc, .meter, .planline {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.bs, .card, .tile, .plan, .buy, .tablewrap { background: var(--bg); }
+.keybox, .code, .acc, .planline, .resend, .banner, .meter { background: var(--well); }
+
+/* Links and focus stay ink. Gold would be chrome competing with equity. */
+a { color: var(--ink); }
+.skip { background: var(--ink); color: var(--bg); }
+:focus-visible { outline-color: var(--ink); }
+
+/* The mark reads as a hole punched in the sheet rather than a sticker. */
+.dot { box-shadow: var(--up-sm), inset 0 0 0 1px rgba(255, 255, 255, .06); }
+
+/* Search field: pressed, and lit only along its top edge. */
+.sfield { background: var(--well); }
+.search button { background: var(--ink); color: var(--bg); }
+.search button:hover { box-shadow: var(--up), 0 0 0 1px rgba(255, 255, 255, .10); }
+
+/* Prose on the legal pages, which have no film behind them at all. */
+.legal .callout { background: var(--well); }
+
+/* The example figure's schematic bands use the same lifted data tints. */
+.exband { border-bottom: 1px solid var(--band-rule); }
+
+/* ---------------------------------------------------------------------------
+   The veil, per page
+   ---------------------------------------------------------------------------
+   How much film a page is allowed depends on how long somebody reads it. A
+   home page is glanced at; a dashboard is worked in. `data-film` on <body> says
+   which, and the veil is raised until the page is comfortable.
+*/
+body[data-film="still"] .backdrop-film { display: none; }
+
+body[data-film="calm"] .backdrop-veil,
+body[data-film="still"] .backdrop-veil {
+  background:
+    radial-gradient(120% 80% at 50% 38%,
+      rgba(10, 10, 10, .72) 0%, rgba(10, 10, 10, .88) 60%,
+      rgba(10, 10, 10, .95) 100%),
+    linear-gradient(to bottom,
+      rgba(10, 10, 10, .90) 0%, rgba(10, 10, 10, .86) 40%,
+      rgba(18, 13, 6, .90) 72%, rgba(10, 10, 10, .96) 100%);
+}
+
+/* Below the fold on the home page the reading starts, so the ground solidifies
+   behind it rather than the reader fighting a sunset for a paragraph. */
+body[data-film="hero"] main::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom,
+    rgba(10, 10, 10, 0) 0%, rgba(10, 10, 10, 0) 46%,
+    rgba(10, 10, 10, .86) 78%, rgba(10, 10, 10, .96) 100%);
+}
+
+@media (max-width: 900px) {
+  /* Blur is expensive on a phone and the film is not there to be blurred
+     anyway -- the still is. Keep the look, drop the per-frame cost. */
+  .glass, .glass-lite {
+    -webkit-backdrop-filter: blur(10px);
+    backdrop-filter: blur(10px);
+    background: rgba(26, 26, 26, .84);
+  }
+}

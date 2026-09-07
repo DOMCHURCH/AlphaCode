@@ -41,18 +41,18 @@ def render_login(
         where = escape(admin_email) if admin_email else "the site owner"
         body = f"""{nav or _nav()}
 <main class="wrap" id="main">
-  <header class="hero">
+  <header class="hero glass">
     <h1 class="htitle">Sign in</h1>
     <p class="hlede">Login is not configured on this deployment. Your API key
       still works on every /api route — contact {where} if you have lost it.</p>
   </header>
 {_footer()}
 </main>"""
-        return shell("To Scale — sign in", body)
+        return shell("To Scale — sign in", body, film="hero")
 
     body = f"""{nav or _nav()}
 <main class="wrap" id="main">
-  <header class="hero">
+  <header class="hero glass">
     <h1 class="htitle">Sign in</h1>
     <p class="hlede">No password. Put in your address and a one-time link
       arrives — clicking it signs you in and, if you are new, makes the account.</p>
@@ -127,7 +127,7 @@ def render_login(
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — sign in", body)
+    return shell("To Scale — sign in", body, film="hero")
 
 
 def render_verify(*, token: str, state: str) -> str:
@@ -151,7 +151,7 @@ def render_verify(*, token: str, state: str) -> str:
   </section>
 {_footer()}
 </main>"""
-        return shell("To Scale — link expired", body)
+        return shell("To Scale — link expired", body, film="calm")
 
     body = f"""{_nav()}
 <main class="wrap" id="main">
@@ -173,4 +173,4 @@ def render_verify(*, token: str, state: str) -> str:
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — signing you in", body)
+    return shell("To Scale — signing you in", body, film="calm")

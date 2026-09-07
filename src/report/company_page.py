@@ -34,7 +34,10 @@ _TONE_VARS = {
     "liability": ("--l0", "--l1", "--l2", "--l3"),
 }
 # Tints this pale need ink labels, not white ones.
-_PALE = {"--a4", "--a5", "--a6", "--l3"}
+# Bands pale enough that a white label fails on them and an ink label is needed.
+# --a3 and --l2 join the set for the dark palette, where every tint is lifted:
+# white on #8299EF is 2.7:1, which is not a label, it is a rumour.
+_PALE = {"--a3", "--a4", "--a5", "--a6", "--l2", "--l3"}
 
 
 def _colour(block: dict[str, Any]) -> str:
@@ -42,7 +45,7 @@ def _colour(block: dict[str, Any]) -> str:
         # Negative equity is drawn in ink with a yellow rule, not in the same
         # yellow as a healthy residual. It is a different fact and should not
         # read as a smaller version of the same thing.
-        return "var(--ink)" if block["value"] < 0 else "var(--yellow)"
+        return "var(--band-neg)" if block["value"] < 0 else "var(--yellow)"
     fam = _TONE_VARS[block["kind"]]
     return f"var({fam[min(block['tone'], len(fam) - 1)]})"
 
@@ -358,8 +361,15 @@ def render_company_page(
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
+<meta name="theme-color" content="#0a0a0a">
 </head>
-<body>
+<body data-film="still">
+<div class="backdrop" aria-hidden="true">
+  <div class="backdrop-still"></div><div class="backdrop-veil"></div>
+</div>
 <a class="skip" href="#main">Skip to content</a>
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a
@@ -471,8 +481,15 @@ def render_not_found(ticker: str, reason: str) -> str:
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
+<meta name="theme-color" content="#0a0a0a">
 </head>
-<body>
+<body data-film="still">
+<div class="backdrop" aria-hidden="true">
+  <div class="backdrop-still"></div><div class="backdrop-veil"></div>
+</div>
 <a class="skip" href="#main">Skip to content</a>
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a

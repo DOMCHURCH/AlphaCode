@@ -24,6 +24,12 @@
   --bg:#E7EBF2; --hi:#FFFFFF; --lo:#BFC7D6;
   --well:#E2E7EF;                       /* pressed surfaces read a shade cooler */
   --ink:#22262F; --ink2:#5A6273; --dim:#98A0AF;
+  /* `--ink` was doing three jobs: prose, the label written ON a pale band, and
+     the FILL of negative equity. They only look alike on a light ground -- on a
+     dark one, prose goes near-white and negative equity becomes the brightest
+     slab on the page. Split here so the dark theme can move them apart. */
+  --band-ink:#FFFFFF;                   /* label written on a saturated band */
+  --band-neg:var(--ink);                /* fill for negative equity / a loss */
 
   --disp:"Jost",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"Space Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
@@ -172,10 +178,12 @@ main{padding:6px 0 72px}
    page allowed to be loud, and a pressed frame is what gives it permission. */
 .stack{position:relative;border-radius:var(--r1);overflow:hidden;
   background:var(--well);box-shadow:var(--in-sm)}
-.band{position:relative;overflow:hidden;border-bottom:1px solid rgba(255,255,255,.28)}
+.band{position:relative;overflow:hidden;
+  border-bottom:1px solid var(--band-rule,rgba(255,255,255,.28))}
 .band:last-child{border-bottom:0}
 .band .bl{position:absolute;left:9px;right:9px;top:50%;transform:translateY(-50%);
-  font-size:11.5px;font-weight:600;line-height:1.2;color:#fff;overflow:hidden}
+  font-size:11.5px;font-weight:600;line-height:1.2;color:var(--band-ink);
+  overflow:hidden}
 .band .bl .bn{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .band .bl .bv{display:block;font-family:var(--mono);font-size:10px;font-weight:400;
   opacity:.9;margin-top:1px}
@@ -312,7 +320,8 @@ table.legend{width:100%;border-collapse:collapse;margin:20px 0 0}
 .exstack{display:block;border-radius:var(--r1);overflow:hidden;
   background:var(--well);box-shadow:var(--in-sm)}
 .exband{display:flex;align-items:center;gap:5px;padding:0 10px;font-size:11px;
-  color:#fff;line-height:1.2;border-bottom:1px solid rgba(255,255,255,.28)}
+  color:var(--band-ink);line-height:1.2;
+  border-bottom:1px solid var(--band-rule,rgba(255,255,255,.28))}
 .exband:last-child{border-bottom:0}
 .exband b{font-weight:700}
 /* The palest asset tint and the yellow residual both need ink, not white. */
@@ -397,7 +406,7 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
 .band.keep{background:var(--yellow)}
 .band.keep .bl{color:var(--ink)}
 /* A loss is not a smaller profit. Ink, not a paler yellow. */
-.band.keep.loss{background:var(--ink);border-top:3px solid var(--yellow)}
+.band.keep.loss{background:var(--band-neg);border-top:3px solid var(--yellow)}
 .band.keep.loss .bl{color:var(--yellow)}
 
 /* ---- View 2: company against countries ---- */
