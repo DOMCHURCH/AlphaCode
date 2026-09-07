@@ -343,6 +343,61 @@ async def _run_earnings(_status: dict[str, Any]) -> Outcome:
     return await _run_sec("earnings")
 
 
+def subscriptions_status(session: Any, today: dt.date) -> dict[str, Any]:
+    """Are there Pro subscriptions running out that nobody has been told about?
+
+    Reports `due: False` with a reason when mail is not configured, rather than
+    coming due and failing every twelve hours: /admin renders this state, and a
+    job that is merely switched off should read differently from one that is
+    broken.
+    """
+    from src import accounts
+    from src.config.settings import get_settings
+
+    s = get_settings()
+    if not s.admin_email:
+        return {"due": False, "detail": "ADMIN_EMAIL is not set"}
+    if not s.agentmail_api_key:
+        return {"due": False, "detail": "email is not configured"}
+    try:
+        due = accounts.expiring_soon(s.pro_reminder_days)
+    except Exception as exc:  # noqa: BLE001 - a status read must not throw
+        return {"due": False, "detail": f"check failed: {str(exc)[:80]}"}
+    if not due:
+        return {"due": False, "detail": "no subscriptions expiring soon"}
+    return {
+        "due": True,
+        "detail": f"{len(due)} expiring within {s.pro_reminder_days}d",
+        "emails": [d["email"] for d in due],
+    }
+
+
+async def _run_subscriptions(status: dict[str, Any]) -> Outcome:
+    """Mail the operator one list, then mark those accounts as warned.
+
+    Marked only AFTER the send returns true. Marking first would lose the
+    warning entirely on any day the relay happened to be down -- and there is
+    exactly one warning per subscription period.
+    """
+    from src import accounts, mailer
+    from src.config.settings import get_settings
+
+    s = get_settings()
+    due = await asyncio.to_thread(accounts.expiring_soon, s.pro_reminder_days)
+    if not due:
+        return Outcome(status="ok", rows=0, detail="nothing expiring")
+
+    sent = await asyncio.to_thread(mailer.send_expiry_reminder, s.admin_email, due)
+    if not sent:
+        # "error", not "waiting": a relay that would not take the message
+        # is a fault to back off from and surface on /admin, not an
+        # upstream that has yet to publish something.
+        return Outcome(status="error", rows=0, detail="reminder send failed")
+
+    n = await asyncio.to_thread(accounts.mark_reminded, [d["email"] for d in due])
+    return Outcome(status="ok", rows=n, detail=f"warned about {n}")
+
+
 @dataclass(frozen=True)
 class Job:
     name: str
@@ -391,6 +446,17 @@ JOBS: tuple[Job, ...] = (
         min_hours=lambda s: s.auto_update_sec_recheck_hours,
         wait_hours=lambda s: s.auto_update_sec_recheck_hours,
         description="filing events, newest published quarter",
+    ),
+    Job(
+        name="subscriptions",
+        status=subscriptions_status,
+        run=_run_subscriptions,
+        min_hours=lambda s: s.subscription_check_hours,
+        wait_hours=lambda s: s.subscription_check_hours,
+        description=(
+            "warn the operator about Pro subscriptions about to lapse -- the "
+            "only thing standing between a manual renewal and a silent one"
+        ),
     ),
 )
 

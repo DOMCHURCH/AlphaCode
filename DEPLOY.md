@@ -196,6 +196,29 @@ line, never a header dump. The request itself returns immediately: sending runs
 in a background task behind a 10s timeout, so a slow upstream costs one worker
 thread and not the response.
 
+## Pro subscriptions
+
+`grant_pro` now sets an expiry (`PRO_PERIOD_DAYS`, default 31) and **extends**
+rather than resets — renewing early adds to what is left instead of throwing it
+away. `revoke_pro` backdates the expiry rather than clearing it, because a NULL
+expiry means *never expires* (a comped account), not *expired*.
+
+A lapsed subscription falls back to the **free allowance**, not to nothing: the
+key keeps working at 10 calls/month. Nothing is deleted and nothing is emailed
+to the customer automatically.
+
+See who is due:
+
+```bash
+curl -H "X-Admin-Secret: $ADMIN_SECRET" https://<host>/admin/subscriptions
+```
+
+The `subscriptions` scheduler job mails `ADMIN_EMAIL` **one** message listing
+everybody expiring within `PRO_REMINDER_DAYS`, once per subscription period.
+It needs the scheduler running (`ENV=prod`, or `ENABLE_SCHEDULER=true`) and
+`AGENTMAIL_API_KEY` set; without either it reports itself as off on `/admin`
+rather than failing every twelve hours. **In dev it never runs at all.**
+
 ## Granting paid access (the whole billing system)
 
 There is no payment processor. Somebody e-transfers or PayPals you and emails

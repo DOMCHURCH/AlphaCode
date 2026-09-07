@@ -238,3 +238,52 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
         return False
     log.info("agentmail_link_sent", to=email)
     return True
+
+
+def send_expiry_reminder(to: str, due: list[dict]) -> bool:
+    """Warn the operator that Pro subscriptions are running out.
+
+    ONE message listing everybody due, not one per customer. This is a manual
+    billing system: the operator acts on the whole list in a single sitting, and
+    a mail per subscriber turns a two-minute job into an inbox to triage --
+    which is how reminders end up filtered and then ignored.
+
+    Never raises; the caller is a scheduled job with nobody to report to.
+    """
+    client = _client()
+    if client is None or not to or not due:
+        return False
+    inbox_id = _resolve_inbox(client)
+    if inbox_id is None:
+        log.warning("agentmail_no_inbox", to=to)
+        return False
+
+    rows = "\n".join(
+        f"  {d['email']:<40} {d['days_remaining']}d left"
+        f"  (expires {d['expires_at'].strftime('%Y-%m-%d')})"
+        for d in due
+    )
+    word = "subscription" if len(due) == 1 else "subscriptions"
+    body = (
+        f"{len(due)} To Scale Pro {word} expiring soon:\n\n"
+        f"{rows}\n\n"
+        "To renew one once payment arrives, POST to /admin/grant-access with\n"
+        'action "grant_pro" and their email.\n\n'
+        "Granting EXTENDS from whichever is later -- today, or their current\n"
+        "expiry -- so renewing early does not cost them the days they have\n"
+        "left.\n\n"
+        "Nothing happens automatically when one lapses except the allowance\n"
+        "dropping back to the free tier. Their API key keeps working.\n"
+    )
+    try:
+        client.inboxes.messages.send(
+            inbox_id,
+            to=to,
+            subject=f"To Scale: {len(due)} Pro {word} expiring soon",
+            text=body,
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed send is a log line
+        log.warning("agentmail_reminder_failed", to=to, error=_why(exc))
+        return False
+    log.info("agentmail_reminder_sent", to=to, count=len(due))
+    return True

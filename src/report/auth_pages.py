@@ -51,7 +51,17 @@ def render_login(
       arrives — clicking it signs you in and, if you are new, makes the account.</p>
   </header>
 
-  <section class="sec">
+  <!-- Two ways in, both landing on the same session. The link tab is first
+       because it needs nothing set up; the password tab exists because going
+       to another application and back is a real cost every single time. -->
+  <div class="tabs" id="login-tabs" role="tablist" aria-label="Sign in">
+    <button type="button" class="tab on" role="tab" data-logintab="link"
+      aria-selected="true">Email me a link</button>
+    <button type="button" class="tab" role="tab" data-logintab="password"
+      aria-selected="false">Use a password</button>
+  </div>
+
+  <section class="sec" id="pane-link">
     <form class="search" id="login-form">
       <label class="slabel" for="login-email">Email address</label>
       <div class="sfield">
@@ -65,6 +75,34 @@ def render_login(
     <p class="plan-note">The link is good for 15 minutes and one use. If you
       already have an API key and only want to make calls, you do not need to
       sign in at all — <a href="/dashboard">paste it on the dashboard</a>.</p>
+  </section>
+
+  <section class="sec" id="pane-password" hidden>
+    <form id="pw-form" autocomplete="on">
+      <label class="slabel" for="pw-email">Email address</label>
+      <div class="sfield">
+        <input id="pw-email" name="email" type="email" inputmode="email"
+          placeholder="you@example.com" autocomplete="email" required
+          maxlength="254" spellcheck="false">
+      </div>
+      <label class="slabel" for="pw-pass">Password</label>
+      <div class="sfield">
+        <input id="pw-pass" name="password" type="password"
+          placeholder="Your password" autocomplete="current-password" required
+          maxlength="128" enterkeyhint="go">
+        <button type="submit" id="pw-btn">Sign in</button>
+      </div>
+    </form>
+    <p class="formnote" id="pw-note" role="status" aria-live="polite"></p>
+    <p class="plan-note">
+      <button type="button" class="linkish" id="forgot-btn">Forgot your
+        password?</button> — a sign-in link goes to your inbox, and you can set
+      a new one from the Account tab.
+      No account yet?
+      <button type="button" class="linkish" id="pw-signup">Create one with a
+        password</button>.
+    </p>
+  </section>
   </section>
 </main>
 

@@ -137,7 +137,7 @@
     var pro = s.tier === "pro";
     var planName = pro ? "Pro" : "Free";
 
-    $("s-tier").textContent = planName;
+    $("s-tier").textContent = s.lapsed ? "Free (expired)" : planName;
     $("s-tier-sub").textContent = s.calls_limit
       ? s.calls_limit.toLocaleString() + " calls/month"
       : "no monthly limit";
@@ -158,7 +158,45 @@
     bar.style.width = pct + "%";
     bar.className = pct >= 100 ? "full" : (pct >= 80 ? "warn" : "");
 
+    // Quick-start example, with the real key and host filled in.
+    var qs = $("qs-curl");
+    if (qs) {
+      qs.textContent =
+        'curl -H "X-API-Key: ' + getKey() + '" \\\n  ' +
+        location.origin + "/api/company/JPM";
+    }
+    $("plan-summary").textContent = pro
+      ? "Pro — " + s.calls_limit.toLocaleString() + " calls a month"
+      : "Free — " + s.calls_limit.toLocaleString() + " calls a month";
+
     $("a-email").textContent = s.email;
+    $("a-pw").textContent = s.has_password ? "Set" : "Not set";
+    $("a-pw-sub").textContent = s.has_password
+      ? "you can sign in with it"
+      : "magic links only";
+    if (s.expires_at) {
+      var when = new Date(s.expires_at);
+      $("a-expires").textContent = when.toLocaleDateString();
+      $("a-expires-sub").textContent = s.lapsed
+        ? "expired — renew to restore Pro"
+        : (s.days_remaining + " days left");
+    } else {
+      $("a-expires").textContent = pro ? "Never" : "—";
+      $("a-expires-sub").textContent = pro ? "comped account" : "not on Pro";
+    }
+    // Setting a first password needs no old one; changing needs the current.
+    if (session) {
+      show($("pw-box"), true);
+      show($("pw-hint"), false);
+      $("pw-box-title").textContent =
+        s.has_password ? "Change your password" : "Set a password";
+      show($("curpw-field"), !!s.has_password);
+      $("setpw-btn").textContent = s.has_password ? "Change" : "Save";
+    } else {
+      show($("pw-box"), false);
+      show($("pw-hint"), CFG.loginEnabled);
+    }
+    maybeAnnounceGrant(s);
     $("a-plan").textContent = planName;
     $("a-plan-sub").textContent = pro
       ? "billed monthly, arranged by email"
@@ -401,6 +439,64 @@
     });
   }
 
+  // ---- the grant banner -----------------------------------------------------
+
+  var PLAN_STORE = "toscale.lastplan";
+
+  function maybeAnnounceGrant(s) {
+    /* A grant happens out of band -- somebody pays, the operator runs a curl --
+       so the only sign it worked would otherwise be a number quietly reading
+       differently. This compares against what this browser last saw. */
+    var now = s.tier + "|" + (s.has_paid_download ? "d" : "-");
+    var before = null;
+    try { before = localStorage.getItem(PLAN_STORE); } catch (e) { /* ignore */ }
+    try { localStorage.setItem(PLAN_STORE, now); } catch (e) { /* ignore */ }
+    if (!before || before === now) return;
+
+    var was = before.split("|");
+    var msg = "";
+    if (was[0] !== s.tier && s.tier === "pro") {
+      msg = "Pro unlocked. You now have " +
+        s.calls_limit.toLocaleString() + " API calls a month.";
+    } else if (was[1] !== "d" && s.has_paid_download) {
+      msg = "Full dataset unlocked. Download it from the API tab.";
+    } else if (was[0] === "pro" && s.tier === "free") {
+      msg = "Your Pro subscription has ended. You are back on the free tier — " +
+        "your key still works.";
+    }
+    if (!msg) return;
+    $("banner-text").textContent = msg;
+    show($("grant-banner"), true);
+  }
+
+  function savePassword(ev) {
+    ev.preventDefault();
+    var next = $("newpw").value || "";
+    var cur = $("curpw").value || "";
+    var changing = !$("curpw-field").hidden;
+    var btn = $("setpw-btn");
+    btn.disabled = true;
+    note($("setpw-note"), "Saving…");
+    var path = changing
+      ? "/api/auth/change-password" : "/api/auth/set-password";
+    var body = changing
+      ? { current_password: cur, new_password: next } : { password: next };
+    api(path, { method: "POST", body: body })
+      .then(function (r) {
+        btn.disabled = false;
+        if (r.ok) {
+          $("newpw").value = ""; $("curpw").value = "";
+          note($("setpw-note"), "Saved. You can sign in with it now.", "good");
+          return load();
+        }
+        note($("setpw-note"), detailOf(r.data, "Could not save it."), "bad");
+      })
+      .catch(function () {
+        btn.disabled = false;
+        note($("setpw-note"), "Could not reach the server.", "bad");
+      });
+  }
+
   // ---- wiring ---------------------------------------------------------------
 
   document.addEventListener("DOMContentLoaded", function () {
@@ -428,6 +524,19 @@
         selectTab(b.getAttribute("data-tab"));
       });
     });
+
+    $("setpw-form").addEventListener("submit", savePassword);
+    $("banner-close").addEventListener("click", function () {
+      show($("grant-banner"), false);
+    });
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-goto]"), function (a) {
+        a.addEventListener("click", function (ev) {
+          ev.preventDefault();
+          selectTab(a.getAttribute("data-goto"));
+          window.scrollTo({ top: 0, behavior: "smooth" });
+        });
+      });
 
     load();
   });

@@ -260,6 +260,31 @@ class Settings(BaseSettings):
     dataset_price_usd: int = Field(default=29, ge=0, alias="DATASET_PRICE_USD")
     pro_price_usd: int = Field(default=49, ge=0, alias="PRO_PRICE_USD")
 
+    # How long one Pro payment buys. 31 days rather than a calendar month so
+    # every renewal is the same length and nobody paying in February is short-
+    # changed relative to somebody paying in March.
+    pro_period_days: int = Field(default=31, ge=1, alias="PRO_PERIOD_DAYS")
+    # How many days ahead of expiry the operator is warned. This is a MANUAL
+    # billing system: the warning is the only thing that turns a lapse into a
+    # renewal conversation rather than a surprise downgrade.
+    pro_reminder_days: int = Field(default=3, ge=0, alias="PRO_REMINDER_DAYS")
+    # How often the expiry sweep runs.
+    subscription_check_hours: float = Field(
+        default=12.0, gt=0, alias="SUBSCRIPTION_CHECK_HOURS"
+    )
+
+    # bcrypt work factor. 12 is ~250ms on this class of machine -- slow enough
+    # to make offline cracking expensive, fast enough that a login is not felt.
+    # Raising it later does not invalidate existing hashes: the cost is stored
+    # inside each hash, so old ones keep verifying at the cost they were made at.
+    bcrypt_rounds: int = Field(default=12, ge=4, le=16, alias="BCRYPT_ROUNDS")
+    # Failed password attempts allowed per address per hour. Per ADDRESS rather
+    # than per IP: credential stuffing against one account comes from many
+    # addresses, and an IP cap punishes everyone behind one office NAT.
+    login_attempts_per_hour: int = Field(
+        default=5, ge=1, alias="LOGIN_ATTEMPTS_PER_HOUR"
+    )
+
     # ---------------- Outgoing mail (key recovery only) ----------------
     # AgentMail rather than a raw SMTP relay: one HTTP call, no relay
     # credentials to hold, and no STARTTLS negotiation to debug at 2am.

@@ -248,13 +248,20 @@ def _pricing(stats: dict) -> str:
         f"Download all {rows} rows as CSV" if rows else "Download the whole table as CSV"
     )
 
-    def card(name: str, price: str, per: str, line: str, cta: str, feature: bool) -> str:
+    def card(
+        name: str, price: str, per: str, line: str, cta: str, feature: bool
+    ) -> str:
+        # Every plan starts at sign-in now, not the dashboard. The dashboard
+        # shows an account; somebody who has not got one yet needs the step
+        # before that, and landing on a page telling you to go elsewhere is the
+        # commonest way a signup is lost.
+        href = "/login"
         return f"""
     <div class="plan{' feature' if feature else ''}">
       <span class="plan-name">{escape(name)}</span>
       <p class="plan-price">{escape(price)}<small>{escape(per)}</small></p>
       <p class="plan-line">{escape(line)}</p>
-      <a class="plan-cta" href="/dashboard">{escape(cta)}</a>
+      <a class="plan-cta" href="{href}">{escape(cta)}</a>
     </div>"""
 
     return f"""

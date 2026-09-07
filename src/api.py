@@ -1675,6 +1675,194 @@ def api_regenerate_key(request: Request) -> JSONResponse:
     return JSONResponse({"api_key": new_key})
 
 
+class PasswordLogin(BaseModel):
+    email: str
+    password: str
+
+
+class PasswordOnly(BaseModel):
+    password: str
+
+
+class PasswordChange(BaseModel):
+    current_password: str = ""
+    new_password: str
+
+
+def _uniform_login_failure() -> HTTPException:
+    """One reply for every way a password login can fail.
+
+    Wrong address, wrong password, and an account that only uses magic links
+    all land here. Telling them apart -- "no password set for this account" --
+    would confirm the address is registered, which is exactly what the uniform
+    replies on /register and /magic-link exist to prevent.
+    """
+    return HTTPException(
+        status_code=401, detail="Incorrect email or password."
+    )
+
+
+@app.post("/api/auth/login")
+def api_password_login(body: PasswordLogin) -> JSONResponse:
+    """Sign in with a password. Same cookie a magic link would have set."""
+    from src import auth
+
+    if not auth.is_enabled():
+        raise auth.LoginDisabled()
+
+    email = body.email.strip()
+    if auth.login_attempts_remaining(email) <= 0:
+        # Counted per ADDRESS: stuffing one account comes from many IPs, and an
+        # IP cap would lock out everyone behind a single office connection.
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed attempts. Try again in an hour, or use a magic link.",
+        )
+
+    account = auth.authenticate(email, body.password)
+    if account is None:
+        auth.record_failed_login(email)
+        log.info("password_login_failed", email=accounts_norm(email))
+        raise _uniform_login_failure()
+
+    auth.reset_login_attempts(email)
+    response = JSONResponse({"ok": True, "email": account.email})
+    auth.issue_session(response, account.email)
+    log.info("session_started", email=account.email, via="password")
+    return response
+
+
+def accounts_norm(email: str) -> str:
+    from src import accounts
+
+    return accounts.normalise_email(email)
+
+
+@app.post("/api/auth/register-password", status_code=201)
+def api_register_password(body: PasswordLogin) -> JSONResponse:
+    """Create an account with a password and sign in immediately.
+
+    409 on an existing address, for the same reason /register gives one: this
+    endpoint takes no proof of the address, so letting it SET a password on an
+    account that already exists would hand that account to anyone who knew the
+    email.
+    """
+    from src import accounts, auth
+
+    if not auth.is_enabled():
+        raise auth.LoginDisabled()
+    _enforce_rate(_register_gate, "registration")
+
+    address = accounts.normalise_email(body.email)
+    if not accounts.valid_email(address):
+        raise HTTPException(
+            status_code=422, detail="That does not look like an email address."
+        )
+    auth.check_password_shape(body.password)
+    try:
+        account = accounts.register(address)
+    except accounts.EmailTaken:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "That address already has an account. Sign in, or use "
+                "“forgot password” to get a link."
+            ),
+        ) from None
+
+    auth.set_password(address, body.password)
+    response = JSONResponse(
+        status_code=201,
+        content={
+            "ok": True,
+            "email": account.email,
+            "api_key": account.api_key,
+        },
+    )
+    auth.issue_session(response, account.email)
+    log.info("account_created_with_password", email=address)
+    return response
+
+
+@app.post("/api/auth/set-password")
+def api_set_password(body: PasswordOnly, request: Request) -> JSONResponse:
+    """Set a first password. Session only -- the session already proves the
+    address, which is the same bar a password reset would clear."""
+    from src import auth
+
+    account = auth.require_account(request)
+    if account.has_password:
+        raise HTTPException(
+            status_code=409,
+            detail="This account already has a password. Use change-password.",
+        )
+    auth.set_password(account.email, body.password)
+    return JSONResponse({"ok": True, "has_password": True})
+
+
+@app.post("/api/auth/change-password")
+def api_change_password(body: PasswordChange, request: Request) -> JSONResponse:
+    """Replace an existing password. Requires the current one.
+
+    Asked for even though the session alone would do, because a session is a
+    thing that can be left open on a shared machine and a password change is
+    the one action that locks the real owner out.
+    """
+    from src import auth
+
+    account = auth.require_account(request)
+    if not account.has_password:
+        raise HTTPException(
+            status_code=409,
+            detail="This account has no password yet. Use set-password.",
+        )
+    if auth.authenticate(account.email, body.current_password) is None:
+        raise HTTPException(status_code=401, detail="Current password is incorrect.")
+    auth.set_password(account.email, body.new_password)
+    return JSONResponse({"ok": True, "has_password": True})
+
+
+@app.post("/api/auth/forgot-password")
+def api_forgot_password(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
+    """Forgotten passwords are recovered with a magic link, not a reset token.
+
+    Deliberately the same machinery as signing in: one token type, one expiry,
+    one set of edge cases. Clicking the link signs you in, and a new password is
+    set from the Account tab -- so there is no separate reset page that has to
+    be secured all over again.
+    """
+    return api_magic_link(MagicLinkRequest(email=body.email), tasks)
+
+
+@app.get("/admin/subscriptions")
+def admin_subscriptions(
+    request: Request,
+    x_admin_secret: str | None = Header(default=None, alias="X-Admin-Secret"),
+) -> JSONResponse:
+    """Who is on Pro, and when each one runs out. Soonest first.
+
+    The list a manual billing system cannot work without: renewals here are a
+    thing the operator does, so they have to be a thing the operator can SEE.
+    Lapsed subscriptions are included rather than filtered -- one that ran out
+    yesterday is the most urgent row on the page, not a row to hide.
+    """
+    from src import accounts
+
+    accounts.verify_admin_secret(
+        x_admin_secret, ip_hash=_caller_ip_hash(request)
+    )
+    rows = accounts.subscriptions()
+    return JSONResponse(
+        {
+            "count": len(rows),
+            "lapsed": sum(1 for r in rows if r["lapsed"]),
+            "period_days": get_settings().pro_period_days,
+            "reminder_days": get_settings().pro_reminder_days,
+            "subscriptions": rows,
+        }
+    )
+
+
 @app.get("/api/user/status")
 def api_user_status(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     """Your own tier, entitlement and usage. Does not spend a call --
@@ -2024,7 +2212,11 @@ def api_index() -> JSONResponse:
                     "POST /api/auth/register",
                     "POST /api/auth/resend-key",
                     "POST /api/auth/magic-link  (dashboard login)",
+                    "POST /api/auth/login  (password)",
+                    "POST /api/auth/register-password",
+                    "POST /api/auth/forgot-password",
                     "GET  /api/auth/me  (session)",
+                    "GET  /admin/subscriptions  (admin secret)",
                     "GET /api/company/{ticker}",
                     "GET /api/demo/{ticker}  (no key, 5/day per address)",
                     "GET /api/user/status",

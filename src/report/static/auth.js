@@ -113,7 +113,92 @@
     go();
   }
 
+  // ---- login tabs + password sign-in -----------------------------------------
+
+  function showPane(which) {
+    var link = which === "link";
+    $("pane-link").hidden = !link;
+    $("pane-password").hidden = link;
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-logintab]"), function (b) {
+        var on = b.getAttribute("data-logintab") === which;
+        b.classList.toggle("on", on);
+        b.setAttribute("aria-selected", on ? "true" : "false");
+      });
+  }
+
+  function wirePasswordPane() {
+    var form = $("pw-form");
+    if (!form) return;
+
+    Array.prototype.forEach.call(
+      document.querySelectorAll("[data-logintab]"), function (b) {
+        b.addEventListener("click", function () {
+          showPane(b.getAttribute("data-logintab"));
+        });
+      });
+
+    /* Creating an account and signing in are the same two fields, so they are
+       the same form with a different endpoint rather than a second page. */
+    var mode = "login";
+    $("pw-signup").addEventListener("click", function () {
+      mode = mode === "login" ? "register" : "login";
+      $("pw-btn").textContent = mode === "login" ? "Sign in" : "Create account";
+      $("pw-pass").setAttribute(
+        "autocomplete", mode === "login" ? "current-password" : "new-password");
+      note($("pw-note"),
+        mode === "login" ? "" : "Pick a password of at least 8 characters.");
+      $("pw-signup").textContent =
+        mode === "login" ? "Create one with a password" : "I already have an account";
+    });
+
+    form.addEventListener("submit", function (ev) {
+      ev.preventDefault();
+      var email = ($("pw-email").value || "").trim();
+      var pass = $("pw-pass").value || "";
+      if (!email || !pass) return;
+      var btn = $("pw-btn");
+      btn.disabled = true;
+      note($("pw-note"), mode === "login" ? "Signing in…" : "Creating your account…");
+      var path = mode === "login"
+        ? "/api/auth/login" : "/api/auth/register-password";
+      postJson(path, { email: email, password: pass })
+        .then(function (r) {
+          if (r.ok) { window.location.replace("/dashboard"); return; }
+          btn.disabled = false;
+          note($("pw-note"), detailOf(r.data, "That did not work."), "bad");
+        })
+        .catch(function () {
+          btn.disabled = false;
+          note($("pw-note"), "Could not reach the server.", "bad");
+        });
+    });
+
+    $("forgot-btn").addEventListener("click", function () {
+      var email = ($("pw-email").value || "").trim();
+      if (!email) {
+        note($("pw-note"), "Put your address in first, then press it again.", "bad");
+        $("pw-email").focus();
+        return;
+      }
+      note($("pw-note"), "Sending…");
+      /* Recovery is a magic link, not a reset token: click it, then set a new
+         password from the Account tab. One token system, not two. */
+      postJson("/api/auth/forgot-password", { email: email })
+        .then(function (r) {
+          note($("pw-note"),
+            detailOf(r.data, "Check your email.") +
+            " Sign in with it, then set a new password on the Account tab.",
+            r.status === 503 ? "bad" : "good");
+        })
+        .catch(function () {
+          note($("pw-note"), "Could not reach the server.", "bad");
+        });
+    });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    wirePasswordPane();
     var login = $("login-form");
     if (login) wireLogin(login);
     var verify = $("verify-form");

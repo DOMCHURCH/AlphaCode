@@ -927,10 +927,21 @@ def test_status_and_admin_report_the_auto_updater(client):
         auto = body["auto_update"]
         assert [j["name"] for j in auto["jobs"]] == [
             "bars", "filings", "fundamentals", "earnings",
+            # The renewal warning is reported like any other job, so
+            # /admin shows whether it is due, off, or failing.
+            "subscriptions",
         ]
         assert "enabled" in auto and "tick_minutes" in auto
-        # An empty test database is behind on everything, and says so.
-        assert all(j["due"] is True for j in auto["jobs"])
+        # An empty test database is behind on every DATA job, and says so.
+        data_jobs = [j for j in auto["jobs"] if j["name"] != "subscriptions"]
+        assert all(j["due"] is True for j in data_jobs)
+        # The renewal warning is the exception, and correctly so: an empty
+        # database has no subscriptions to warn about. It reports itself as not
+        # due WITH A REASON, which is what distinguishes "nothing to do" from
+        # "quietly broken" on /admin.
+        subs = next(j for j in auto["jobs"] if j["name"] == "subscriptions")
+        assert subs["due"] is False
+        assert subs["now"], "the reason must be shown, not just the false"
         assert all(j["last_success_at"] is None for j in auto["jobs"])
 
 

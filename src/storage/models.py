@@ -537,6 +537,19 @@ class ApiUser(Base):
     has_paid_download: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # bcrypt hash, or NULL for an account that only ever uses magic links.
+    # Nullable is the whole point: passwords are an ALTERNATIVE here, not a
+    # requirement, and an account that never sets one must stay usable.
+    password_hash: Mapped[str | None] = mapped_column(String(128))
+    # When Pro lapses. NULL means "never" -- which covers both a free account
+    # and a comped one, and is the only safe reading for the rows that existed
+    # before this column did. Treating NULL as "already expired" would have
+    # silently demoted every Pro customer on deploy.
+    pro_expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Set when the operator has been warned this subscription is nearly up, and
+    # cleared by every grant. Without it the daily job mails the same warning
+    # every day for three days running.
+    pro_reminder_sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow
     )

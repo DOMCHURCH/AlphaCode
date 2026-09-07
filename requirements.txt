@@ -25,6 +25,11 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 pandas-market-calendars>=4.4
 
+# --- password hashing ---
+# The one compiled dependency here; ships manylinux wheels, so nixpacks
+# installs a binary rather than building it.
+bcrypt>=4.1,<6
+
 # --- signed session cookies ---
 # Used directly (URLSafeTimedSerializer), not via Starlette's
 # SessionMiddleware: the cookie flags and lifetime belong to this app,

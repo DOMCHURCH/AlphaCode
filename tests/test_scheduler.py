@@ -392,6 +392,9 @@ def test_report_describes_every_job_before_anything_has_run(db):
     rep = scheduler.report()
     assert [j["name"] for j in rep["jobs"]] == [
         "bars", "filings", "fundamentals", "earnings",
+        # The renewal warning is reported like any other job, so
+        # /admin shows whether it is due, off, or failing.
+        "subscriptions",
     ]
     bars = rep["jobs"][0]
     assert bars["due"] is True  # empty database

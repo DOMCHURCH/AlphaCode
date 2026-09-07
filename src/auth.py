@@ -1,11 +1,18 @@
-"""Dashboard login: magic links in, a signed cookie out.
+"""Dashboard login: a magic link or a password, and a signed cookie either way.
 
-There is no password here and there never will be. The thing being protected is
-a read-only key over public filings, and a password would add a credential to
-store, a reset flow to build, and a thing for people to reuse from elsewhere --
-all to guard something a fifteen-minute email already guards.
+Magic links came first and remain the path that needs nothing set up. Passwords
+were added because signing in should not require going to another application
+and back, which is a real cost every time and not a theoretical one.
 
-Two separate authentications now exist and they are deliberately not the same:
+They share one session and one reset story. There is no password-reset token:
+"forgot password" sends a magic link, and setting a new password is something
+you do once signed in. One token system with one expiry beats two that have to
+be kept in agreement.
+
+A password is optional forever. `password_hash` is nullable and nothing here
+requires it, so an account that only ever uses links stays fully usable.
+
+Three separate authentications now exist and they are deliberately not the same:
 
 * **The API key** authenticates machines, on `X-API-Key`, per request. Unchanged.
 * **The session cookie** authenticates a person looking at `/dashboard`. It is
@@ -293,3 +300,152 @@ def regenerate_key(email: str) -> str:
         user.updated_at = dt.datetime.now(dt.UTC)
     log.info("api_key_regenerated", email=address)
     return new_key
+
+
+# ---------------------------------------------------------------------------
+# Passwords
+# ---------------------------------------------------------------------------
+# An ALTERNATIVE to magic links, never a replacement. An account that never
+# sets one stays fully usable, which is why `password_hash` is nullable and why
+# nothing here ever requires it.
+#
+# There is deliberately no separate password-reset token. "Forgot password"
+# sends a magic link, and setting a new password is something you do once
+# signed in. One token system with one expiry and one set of edge cases beats
+# two that must be kept in agreement.
+
+# bcrypt silently truncates at 72 BYTES. Silently is the problem: two different
+# passwords sharing a 72-byte prefix would be interchangeable, and the longer
+# one's owner would never know. Rejected explicitly instead.
+MAX_PASSWORD_BYTES = 72
+MIN_PASSWORD_CHARS = 8
+
+# Failed attempts per address per hour, in process memory. Unlike the call
+# meter this need not survive a restart: an attacker cannot make the container
+# bounce, and the window is an hour. Per ADDRESS rather than per IP because
+# credential stuffing against one account arrives from many addresses, while an
+# IP cap would lock out everyone behind one office.
+_failed: dict[str, list[float]] = {}
+
+# Verified against when no account exists, so a missing address costs the same
+# time as a wrong password. Without it, "which of these emails is registered"
+# is answerable with a stopwatch.
+_DUMMY_HASH = (
+    b"$2b$12$Ns8xNqXQ3rN0m8Zc3H1kIeQ0m1kzZ0m8Zc3H1kIeQ0m1kzZ0m8Zc3"
+)
+
+
+class PasswordRejected(HTTPException):
+    def __init__(self, why: str) -> None:
+        super().__init__(status_code=422, detail=why)
+
+
+def check_password_shape(password: str) -> None:
+    """Length only. No composition rules -- they push people toward
+    `Password1!` and buy nothing a length floor does not."""
+    if len(password) < MIN_PASSWORD_CHARS:
+        raise PasswordRejected(
+            f"Password must be at least {MIN_PASSWORD_CHARS} characters."
+        )
+    if len(password.encode("utf-8")) > MAX_PASSWORD_BYTES:
+        raise PasswordRejected(
+            f"Password must be at most {MAX_PASSWORD_BYTES} bytes "
+            "(bcrypt cannot see past that, and silently ignoring the rest "
+            "would make a longer password no stronger)."
+        )
+
+
+def hash_password(password: str) -> str:
+    import bcrypt
+
+    rounds = get_settings().bcrypt_rounds
+    return bcrypt.hashpw(
+        password.encode("utf-8"), bcrypt.gensalt(rounds=rounds)
+    ).decode("ascii")
+
+
+def verify_password(password: str, hashed: str | None) -> bool:
+    """Constant-ish time whether or not a hash exists.
+
+    A missing hash still runs a real bcrypt comparison against a dummy, so an
+    account with no password set cannot be told apart from a wrong password by
+    timing -- and neither can an address with no account at all.
+    """
+    import bcrypt
+
+    candidate = (hashed or "").encode("ascii") or _DUMMY_HASH
+    try:
+        ok = bcrypt.checkpw(password.encode("utf-8"), candidate)
+    except (ValueError, TypeError):
+        return False
+    return bool(ok) and bool(hashed)
+
+
+def login_attempts_remaining(email: str) -> int:
+    from src import accounts
+
+    limit = get_settings().login_attempts_per_hour
+    key = accounts.normalise_email(email)
+    now = time.monotonic()
+    hits = [t for t in _failed.get(key, []) if now - t < 3600]
+    _failed[key] = hits
+    return max(0, limit - len(hits))
+
+
+def record_failed_login(email: str) -> None:
+    from src import accounts
+
+    key = accounts.normalise_email(email)
+    _failed.setdefault(key, []).append(time.monotonic())
+
+
+def reset_login_attempts(email: str | None = None) -> None:
+    """Cleared on a successful login, and wholesale by the tests."""
+    from src import accounts
+
+    if email is None:
+        _failed.clear()
+    else:
+        _failed.pop(accounts.normalise_email(email), None)
+
+
+def authenticate(email: str, password: str):
+    """The account behind an email/password pair, or None.
+
+    Returns None identically for: no such address, wrong password, and an
+    account that only uses magic links. The caller must not distinguish them --
+    "no password set for this account" would confirm the address exists, which
+    is precisely what the uniform reply everywhere else in this codebase
+    refuses to do.
+    """
+    from src import accounts
+
+    address = accounts.normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        stored = row.password_hash if row is not None else None
+        # Always runs, even with no row, so the timing does not answer
+        # "is this address registered".
+        ok = verify_password(password, stored)
+        if not ok or row is None:
+            return None
+        return accounts._snapshot(row)
+
+
+def set_password(email: str, password: str) -> None:
+    """Set or replace the hash for an existing account."""
+    from src import accounts
+
+    check_password_shape(password)
+    hashed = hash_password(password)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == accounts.normalise_email(email))
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(status_code=404, detail="No such account.")
+        row.password_hash = hashed
+        row.updated_at = dt.datetime.now(dt.UTC)
+    log.info("password_set", email=accounts.normalise_email(email))

@@ -78,12 +78,30 @@ class Account:
     id: str
     email: str
     api_key: str
+    # The tier that is IN FORCE, not the column. A subscription whose date has
+    # passed reads "free" here, so every caller gets the right answer without
+    # remembering to check the expiry itself -- which is the sort of thing one
+    # caller always forgets.
     tier: str
     has_paid_download: bool
+    pro_expires_at: dt.datetime | None = None
+    # True when the column says pro but the date has passed. Distinct from
+    # plain "free" so the dashboard can say "expired 2 days ago" rather than
+    # silently downgrading and leaving somebody to wonder what happened.
+    lapsed: bool = False
+    has_password: bool = False
 
     @property
     def call_limit(self) -> int:
         return tier_limit(self.tier)
+
+    @property
+    def days_remaining(self) -> int | None:
+        """Whole days of Pro left. None means it never expires."""
+        if self.pro_expires_at is None:
+            return None
+        delta = _aware(self.pro_expires_at) - dt.datetime.now(dt.UTC)
+        return max(0, delta.days)
 
 
 def tier_limit(tier: str) -> int:
@@ -105,13 +123,37 @@ def generate_api_key() -> str:
     return secrets.token_urlsafe(32)
 
 
+def _aware(when: dt.datetime) -> dt.datetime:
+    """Naive timestamps come back from some backends; compare on one footing."""
+    return when if when.tzinfo else when.replace(tzinfo=dt.UTC)
+
+
+def effective_tier(row: ApiUser, now: dt.datetime | None = None) -> str:
+    """The tier actually in force, expiry included.
+
+    A NULL `pro_expires_at` means NEVER EXPIRES, not "already expired". That is
+    the only safe reading: every Pro account that existed before the column did
+    has NULL, and the other interpretation would have demoted all of them the
+    moment this deployed. It also gives comped accounts a natural spelling.
+    """
+    if row.subscription_tier != "pro":
+        return "free"
+    if row.pro_expires_at is None:
+        return "pro"
+    return "pro" if _aware(row.pro_expires_at) > (now or dt.datetime.now(dt.UTC)) else "free"
+
+
 def _snapshot(row: ApiUser) -> Account:
+    live = effective_tier(row)
     return Account(
         id=row.id,
         email=row.email,
         api_key=row.api_key,
-        tier=row.subscription_tier,
+        tier=live,
         has_paid_download=bool(row.has_paid_download),
+        pro_expires_at=row.pro_expires_at,
+        lapsed=row.subscription_tier == "pro" and live == "free",
+        has_password=bool(row.password_hash),
     )
 
 
@@ -457,16 +499,31 @@ def apply_admin_action(
                 status_code=404,
                 detail=f"No account for {address}. They must register first.",
             )
+        _now = dt.datetime.now(dt.UTC)
         before = (user.subscription_tier, bool(user.has_paid_download))
         if action == "grant_download":
             user.has_paid_download = True
         elif action == "revoke_download":
             user.has_paid_download = False
         elif action == "grant_pro":
+            # EXTEND, never reset. A customer who renews three days early would
+            # otherwise lose those three days -- the one billing bug a paying
+            # customer notices and remembers. max() makes an early renewal add
+            # to what is left and a late one start from today.
+            period = dt.timedelta(days=get_settings().pro_period_days)
+            current = (
+                _aware(user.pro_expires_at) if user.pro_expires_at else _now
+            )
             user.subscription_tier = "pro"
+            user.pro_expires_at = max(current, _now) + period
+            # A fresh period deserves a fresh warning.
+            user.pro_reminder_sent_at = None
         elif action == "revoke_pro":
+            # Backdated rather than nulled: NULL means "never expires", so
+            # setting it to None here would UPGRADE them to a comped account.
             user.subscription_tier = "free"
-        user.updated_at = dt.datetime.now(dt.UTC)
+            user.pro_expires_at = _now - dt.timedelta(days=1)
+        user.updated_at = _now
         session.flush()
         after = (user.subscription_tier, bool(user.has_paid_download))
         snapshot = _snapshot(user)
@@ -493,4 +550,100 @@ def status_payload(account: Account) -> dict:
         "calls_limit": account.call_limit,
         "calls_remaining": max(0, account.call_limit - used),
         "month": current_month(),
+        "expires_at": (
+            _aware(account.pro_expires_at).isoformat()
+            if account.pro_expires_at
+            else None
+        ),
+        "days_remaining": account.days_remaining,
+        "lapsed": account.lapsed,
+        "has_password": account.has_password,
     }
+
+
+# ---------------------------------------------------------------------------
+# Subscriptions
+# ---------------------------------------------------------------------------
+
+def subscriptions() -> list[dict]:
+    """Every account whose column says pro, soonest expiry first.
+
+    Includes the lapsed ones. A subscription that ran out yesterday is exactly
+    what the operator needs to see -- filtering to the still-valid ones would
+    hide the renewals that have already been missed.
+    """
+    now = dt.datetime.now(dt.UTC)
+    with session_scope() as session:
+        rows = list(
+            session.execute(
+                select(ApiUser).where(ApiUser.subscription_tier == "pro")
+            ).scalars()
+        )
+    out = []
+    for row in rows:
+        expires = _aware(row.pro_expires_at) if row.pro_expires_at else None
+        out.append({
+            "email": row.email,
+            "expires_at": expires.isoformat() if expires else None,
+            "days_remaining": (
+                "never" if expires is None else max(0, (expires - now).days)
+            ),
+            "lapsed": bool(expires and expires <= now),
+            "reminder_sent_at": (
+                _aware(row.pro_reminder_sent_at).isoformat()
+                if row.pro_reminder_sent_at
+                else None
+            ),
+        })
+    # None sorts last: a comped account never needs attention, so it belongs at
+    # the bottom of a list whose whole purpose is "what needs doing next".
+    out.sort(key=lambda r: (r["expires_at"] is None, r["expires_at"] or ""))
+    return out
+
+
+def expiring_soon(within_days: int) -> list[dict]:
+    """Pro accounts running out inside `within_days` that nobody has been
+    warned about yet. Marking them warned is a separate step, so a send that
+    fails does not silently consume the one reminder."""
+    now = dt.datetime.now(dt.UTC)
+    horizon = now + dt.timedelta(days=within_days)
+    with session_scope() as session:
+        rows = list(
+            session.execute(
+                select(ApiUser)
+                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.pro_expires_at.is_not(None))
+                .where(ApiUser.pro_reminder_sent_at.is_(None))
+            ).scalars()
+        )
+    due = [
+        {
+            "email": r.email,
+            "expires_at": _aware(r.pro_expires_at),
+            "days_remaining": max(0, (_aware(r.pro_expires_at) - now).days),
+        }
+        for r in rows
+        if now < _aware(r.pro_expires_at) <= horizon
+    ]
+    due.sort(key=lambda r: r["expires_at"])
+    return due
+
+
+def mark_reminded(emails: list[str]) -> int:
+    """Record that the operator has been warned about these subscriptions.
+
+    Called only after the mail is away. The order matters: marking first and
+    sending second would lose the warning entirely whenever the relay is down.
+    """
+    if not emails:
+        return 0
+    now = dt.datetime.now(dt.UTC)
+    with session_scope() as session:
+        rows = list(
+            session.execute(
+                select(ApiUser).where(ApiUser.email.in_(emails))
+            ).scalars()
+        )
+        for row in rows:
+            row.pro_reminder_sent_at = now
+        return len(rows)

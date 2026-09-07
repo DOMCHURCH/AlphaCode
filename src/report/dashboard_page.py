@@ -125,6 +125,16 @@ def render_dashboard(
     </p>
   </section>
 
+  <!-- Filled and revealed by the script when the plan changed since this
+       browser last looked. A grant happens out of band -- somebody pays, the
+       operator runs a curl -- so without this the only sign it worked is a
+       number quietly reading differently. -->
+  <div class="banner keyed" id="grant-banner" hidden role="status">
+    <span class="banner-tick" aria-hidden="true">&#10003;</span>
+    <span id="banner-text"></span>
+    <button type="button" class="linkish" id="banner-close">Dismiss</button>
+  </div>
+
   <!-- Everything below appears once there is a session or a key. -->
   <div class="tabs keyed" id="tabs" hidden role="tablist" aria-label="Dashboard">
     <button type="button" class="tab" role="tab" data-tab="search">Search</button>
@@ -183,6 +193,24 @@ def render_dashboard(
     <pre class="code"><code id="curl-example">curl -H "X-API-Key: YOUR_KEY" \\
   https://HOST/api/company/JPM</code></pre>
 
+    <!-- Three steps, shown until the first call lands. A key with no worked
+         example is a string somebody has to go and read documentation about. -->
+    <ol class="quickstart" id="quickstart">
+      <li>Copy your key above.</li>
+      <li>Run it:
+        <pre class="code"><code id="qs-curl">curl -H "X-API-Key: YOUR_KEY"   https://HOST/api/company/JPM</code></pre>
+      </li>
+      <li>Watch the count move on this tab.</li>
+    </ol>
+
+    <!-- The plan, restated where the key is, because this is the tab somebody
+         is on when they discover the allowance is the thing stopping them. -->
+    <div class="planline">
+      <span id="plan-summary">—</span>
+      <a class="linkish" href="#" data-goto="billing" id="to-billing">Upgrade to Pro</a>
+      <a class="linkish" href="#" data-goto="billing" id="to-billing-data">Buy full dataset</a>
+    </div>
+
     <button type="button" class="btn wide" id="dl-btn">Download full dataset</button>
     <p class="formnote" id="dl-note" role="status" aria-live="polite"></p>
 
@@ -213,6 +241,42 @@ def render_dashboard(
         <span class="tsub" id="a-plan-sub"></span>
       </div>
     </div>
+    <div class="tiles">
+      <div class="tile">
+        <span class="tlabel">Password</span>
+        <b class="tval sm" id="a-pw">—</b>
+        <span class="tsub" id="a-pw-sub"></span>
+      </div>
+      <div class="tile">
+        <span class="tlabel">Pro expires</span>
+        <b class="tval sm" id="a-expires">—</b>
+        <span class="tsub" id="a-expires-sub"></span>
+      </div>
+    </div>
+
+    <!-- Session-gated, both of them. Setting a first password needs no old one
+         because the session already proves the address; changing an existing
+         one does, because a session left open on a shared machine is exactly
+         how somebody else would lock the owner out. -->
+    <div class="resend" id="pw-box" hidden>
+      <p id="pw-box-title">Set a password</p>
+      <form id="setpw-form">
+        <div class="sfield" id="curpw-field" hidden>
+          <input id="curpw" type="password" placeholder="Current password"
+            autocomplete="current-password" maxlength="128">
+        </div>
+        <div class="sfield">
+          <input id="newpw" type="password" placeholder="New password (8+ characters)"
+            autocomplete="new-password" maxlength="128" required>
+          <button type="submit" class="btn" id="setpw-btn">Save</button>
+        </div>
+      </form>
+      <p class="formnote" id="setpw-note" role="status" aria-live="polite"></p>
+    </div>
+    <p class="formnote" id="pw-hint" hidden>
+      <a href="/login">Sign in</a> to set a password for this account.
+    </p>
+
     <p class="plan-note">Changing the address is not self-serve yet — email
       {contact} and it will be moved by hand.</p>
     <p class="formnote">
@@ -234,6 +298,27 @@ def render_dashboard(
         <b class="tval" id="b-dataset">—</b>
         <span class="tsub" id="b-dataset-sub"></span>
       </div>
+    </div>
+
+    <div class="tablewrap">
+      <table class="compare">
+        <caption class="vh">What each plan includes</caption>
+        <thead>
+          <tr><th scope="col">Feature</th><th scope="col">Free</th>
+              <th scope="col">Pro</th></tr>
+        </thead>
+        <tbody>
+          <tr><th scope="row">API calls / month</th>
+              <td>{free_limit}</td><td>{_compact(pro_limit)}</td></tr>
+          <tr><th scope="row">Full dataset export</th>
+              <td><span class="no" aria-label="no">&#10007;</span></td>
+              <td>${dataset_price} once</td></tr>
+          <tr><th scope="row">Drawings &amp; search</th>
+              <td>Unlimited</td><td>Unlimited</td></tr>
+          <tr><th scope="row">Support</th><td>Email</td><td>Priority email</td></tr>
+          <tr><th scope="row">Price</th><td>$0</td><td>${pro_price}/month</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="buyrow">

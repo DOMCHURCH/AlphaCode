@@ -252,3 +252,46 @@
 @media(max-width:620px){
   .who-email{max-width:30vw}
 }
+
+/* ---- grant banner ---- */
+/* Pressed, not shouted. Something good happened; it does not need to be the
+   loudest thing on a page whose whole point is the figures. */
+.banner{display:flex;align-items:center;gap:12px;margin:0 0 20px;padding:14px 18px;
+  border-radius:var(--r2);background:var(--well);box-shadow:var(--in-sm);
+  font-size:14.5px;line-height:1.45;color:var(--ink)}
+.banner-tick{flex:none;width:24px;height:24px;border-radius:999px;
+  display:flex;align-items:center;justify-content:center;font-size:13px;
+  color:var(--bg);background:var(--blue)}
+.banner .linkish{margin-left:auto;flex:none;font-size:12.5px;color:var(--ink2)}
+
+/* ---- quick start ---- */
+.quickstart{margin:20px 0 0;padding-left:22px;font-size:14.5px;line-height:1.6;
+  color:var(--ink2)}
+.quickstart li{margin-bottom:10px}
+.quickstart .code{margin:8px 0 0}
+
+.planline{display:flex;flex-wrap:wrap;align-items:center;gap:8px 16px;
+  margin:18px 0;padding:14px 16px;border-radius:var(--r1);background:var(--well);
+  box-shadow:var(--in-sm);font-size:13.5px;color:var(--ink)}
+.planline .linkish{font-size:13px;color:var(--ink2)}
+
+/* ---- comparison table ---- */
+/* Scrolls inside its own box rather than widening the page: five rows of two
+   columns still overflow a 320px phone once the words are real. */
+.tablewrap{overflow-x:auto;margin:4px 0 18px;border-radius:var(--r2);
+  background:var(--bg);box-shadow:var(--up-sm)}
+.compare{width:100%;border-collapse:collapse;font-size:14px;min-width:320px}
+.compare th,.compare td{padding:12px 14px;text-align:left;
+  border-bottom:1px solid var(--lo)}
+.compare thead th{font-size:11.5px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--ink2)}
+.compare tbody th{font-weight:500;color:var(--ink2)}
+.compare td{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.compare tr:last-child th,.compare tr:last-child td{border-bottom:0}
+.compare .no{color:var(--dim)}
+
+/* ---- login tabs ---- */
+#login-tabs{margin-bottom:20px}
+#pw-form .sfield+.slabel{margin-top:14px}
+#pw-form .sfield{margin-bottom:0}
+#setpw-form .sfield{margin-bottom:10px}
