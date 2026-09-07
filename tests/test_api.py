@@ -1017,12 +1017,30 @@ def test_api_page_examples_use_the_scheme_the_reader_arrived_on(client):
 
 
 # ------------------------------------------------- Search Console verification
-def test_google_verification_serves_a_file_that_exists(client):
-    r = client.get("/google123456789.html")
+# The real token Search Console issued for toscale.pro. Named here so that
+# deleting or renaming the file breaks a test rather than breaking verification
+# quietly -- Google re-checks this URL periodically, not just once, and a
+# property silently un-verifying is exactly the kind of thing nobody notices.
+GOOGLE_TOKEN = "f4785b6e9e0fc14d"
+
+
+def test_google_verification_serves_the_file_byte_for_byte(client):
+    """Google compares the body exactly. The file is committed verbatim as it
+    was downloaded -- 53 bytes, no trailing newline -- and served as-is rather
+    than reconstructed, because a reconstruction that adds a newline passes
+    every test here and fails at Google."""
+    from pathlib import Path
+
+    r = client.get(f"/google{GOOGLE_TOKEN}.html")
 
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
-    assert r.text == "google-site-verification: google123456789.html"
+    assert r.text == f"google-site-verification: google{GOOGLE_TOKEN}.html"
+
+    on_disk = (
+        Path("src/report/static/verify") / f"google{GOOGLE_TOKEN}.html"
+    ).read_bytes()
+    assert r.content == on_disk, "served bytes must be the committed bytes"
 
 
 def test_google_verification_refuses_a_token_nobody_put_there(client):
@@ -1030,6 +1048,7 @@ def test_google_verification_refuses_a_token_nobody_put_there(client):
     so a route that generated it would hand the property to anyone who found
     this endpoint. Only a file somebody committed counts as proof."""
     assert client.get("/google999999999.html").status_code == 404
+    assert client.get("/google123456789.html").status_code == 404
 
 
 def test_google_verification_cannot_be_walked_out_of_its_directory(client):
