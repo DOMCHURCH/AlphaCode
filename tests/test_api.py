@@ -7,6 +7,7 @@ file-backed DB shared between the seeding and the app, and FastAPI's TestClient.
 from __future__ import annotations
 
 import datetime as dt
+import json
 
 import pytest
 
@@ -1035,3 +1036,16 @@ def test_google_verification_refuses_a_token_nobody_put_there(client):
 def test_google_verification_cannot_be_walked_out_of_its_directory(client):
     for token in ("..%2f..%2fapi", "..", "a/b"):
         assert client.get(f"/google{token}.html").status_code == 404
+
+
+def test_status_says_which_optional_switches_the_process_can_see(client):
+    """"I set that variable" and "the running container can see that variable"
+    are different claims. Booleans only -- never a value, and nothing that is
+    not already inferable from a 503 on the endpoint each one gates."""
+    body = client.get("/status").json()
+
+    assert set(body["features"]) == {"demo", "email", "login"}
+    for name, value in body["features"].items():
+        assert isinstance(value, bool), name
+    # The keys are the state, never the secret.
+    assert "key" not in json.dumps(body["features"]).lower()

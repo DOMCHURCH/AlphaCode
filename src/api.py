@@ -465,16 +465,47 @@ async def _backfill_bg(kind: str, days: int) -> None:
             log.exception("backfill_failed", kind=kind, error=str(exc))
 
 
+def mailer_is_configured() -> bool:
+    """Whether outbound mail would actually send, without trying to send."""
+    from src import mailer
+
+    try:
+        return mailer.is_configured()
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return False
+
+
+def auth_is_enabled() -> bool:
+    from src import auth
+
+    try:
+        return auth.is_enabled()
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @app.get("/status")
 def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness."""
     from sqlalchemy import func
 
+    from src import demo
     from src.backfill import get_backfill_state
     from src.storage.models import UniverseSnapshot
 
     out: dict[str, Any] = {"backfill_running": _backfill_lock.locked()}
     out["backfill"] = get_backfill_state()
+    # Whether the optional switches this deployment reads are actually reaching
+    # the process. Booleans only -- never a value, and nothing here that is not
+    # already inferable from a 503 on the endpoint it gates. It exists because
+    # "I set that variable" and "the running container can see that variable"
+    # are different claims, and telling them apart otherwise needs the admin
+    # secret to reach /admin.
+    out["features"] = {
+        "demo": demo.is_enabled(),
+        "email": mailer_is_configured(),
+        "login": auth_is_enabled(),
+    }
     # What is keeping the data current, and what it is waiting on. Cheap (DB
     # reads only), and the first thing to look at when a number looks old.
     out["auto_update"] = scheduler.report()
