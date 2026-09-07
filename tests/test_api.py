@@ -1128,3 +1128,113 @@ def test_a_long_demo_key_fits_the_column_it_is_stored_in(api_db):
         c.type.length for c in ApiUser.__table__.columns if c.name == "api_key"
     )
     assert length >= 128, "a hand-picked key needs more room than a generated one"
+
+
+# ------------------------------------------------------------------ sitemap
+def test_sitemap_lists_only_companies_with_something_to_draw(client):
+    """The site's own rule, applied to what it asks Google to index: a ticker
+    with facts but no positive total for assets renders the empty state, and
+    six thousand of those in a sitemap is asking a crawler to index nothing."""
+    import datetime as dt
+
+    from src import sitemap
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as s:
+        s.add(Fundamental(
+            ticker="DRAW", metric="total_assets", value=1_000e6,
+            period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+            filing_date=dt.date(2026, 8, 1), source="sec",
+        ))
+        # Present, but nothing to scale a drawing to.
+        s.add(Fundamental(
+            ticker="EMPTY", metric="cash", value=5e6,
+            period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+            filing_date=dt.date(2026, 8, 1), source="sec",
+        ))
+    sitemap.reset_cache()
+
+    body = client.get("/sitemap.xml").text
+
+    assert "/company/DRAW" in body
+    assert "/company/EMPTY" not in body
+
+
+def test_sitemap_dates_a_company_page_by_its_newest_filing(client):
+    """lastmod is a claim. A crawler that catches you making a false one stops
+    reading the field, so the date is the last time the page actually changed
+    -- never today, and never a stamp applied to look fresh."""
+    import datetime as dt
+
+    from src import sitemap
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as s:
+        for filed in (dt.date(2025, 3, 3), dt.date(2026, 8, 6)):
+            s.add(Fundamental(
+                ticker="DATED", metric="total_assets", value=1_000e6,
+                period_end=filed, fiscal_period="Q2",
+                filing_date=filed, source="sec",
+            ))
+    sitemap.reset_cache()
+
+    body = client.get("/sitemap.xml").text
+    block = body.split("/company/DATED", 1)[1].split("</url>", 1)[0]
+
+    assert "2026-08-06" in block, "the newest filing, not the oldest"
+    assert "2025-03-03" not in block
+    assert dt.date.today().isoformat() not in block, "never stamped today"
+
+
+def test_sitemap_is_valid_xml_and_well_formed(client):
+    from xml.etree import ElementTree
+
+    r = client.get("/sitemap.xml")
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("application/xml")
+    root = ElementTree.fromstring(r.content)
+    assert root.tag.endswith("urlset")
+    for url in root:
+        assert url.find("{http://www.sitemaps.org/schemas/sitemap/0.9}loc") is not None
+
+
+def test_sitemap_omits_the_search_endpoint(client):
+    """/search with no query answers 400. A URL in a sitemap that returns 400 is
+    reported in Search Console as a submitted URL that failed -- so listing it
+    would put an error in the console the sitemap exists to feed."""
+    body = client.get("/sitemap.xml").text
+
+    assert "/search" not in body
+    assert client.get("/search").status_code == 400, "the reason it is omitted"
+
+
+def test_sitemap_names_the_host_the_crawler_asked_on(client):
+    """One process answers on toscale.pro and on the Railway hostname. A sitemap
+    that advertised the other one would fail Search Console's cross-submission
+    check, and the memo is keyed on the host so it cannot serve one to the
+    other."""
+    from src import sitemap
+
+    sitemap.reset_cache()
+    a = client.get("/sitemap.xml", headers={"host": "toscale.pro",
+                                            "x-forwarded-proto": "https"}).text
+    b = client.get("/sitemap.xml", headers={"host": "example.invalid",
+                                            "x-forwarded-proto": "https"}).text
+
+    assert "https://toscale.pro/" in a
+    assert "example.invalid" not in a
+    assert "https://example.invalid/" in b
+
+
+def test_robots_points_at_the_sitemap(client):
+    """A sitemap nobody is told about is found only if it is submitted by hand."""
+    r = client.get("/robots.txt", headers={"host": "toscale.pro",
+                                           "x-forwarded-proto": "https"})
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/plain")
+    assert "Sitemap: https://toscale.pro/sitemap.xml" in r.text
+    assert "Disallow: /admin" in r.text

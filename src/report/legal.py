@@ -34,6 +34,11 @@ from src.report.company_page import asset_version
 from src.report.home_page import shell
 
 LAST_UPDATED = "6 September 2026"
+# The same day in the form a machine wants it. Written next to the prose
+# date rather than derived from it, so the two cannot drift: the sitemap
+# tells crawlers when these documents last changed, and a lastmod that
+# disagrees with the page is a claim the crawler can catch you making.
+LAST_UPDATED_ISO = "2026-09-06"
 
 # One sentence, used in three places, so the disclaimer cannot drift between
 # the banner, the terms and the footer.

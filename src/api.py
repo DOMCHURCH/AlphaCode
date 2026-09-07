@@ -2347,6 +2347,37 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{request.url.netloc}"
 
 
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap_xml(request: Request) -> Response:
+    """Every page worth indexing, with a date on each one that is true.
+
+    Deliberately NOT here: /search. With no query it answers 400, and a URL in
+    a sitemap that returns 400 is reported in Search Console as a submitted URL
+    that failed -- so listing it would put an error in the console this file
+    exists to feed. Nothing is lost: the search box is on the home page, which
+    is the first entry.
+    """
+    from src import sitemap
+
+    return Response(
+        content=sitemap.xml(_public_origin(request)),
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/robots.txt", include_in_schema=False)
+def robots_txt(request: Request) -> Response:
+    """Names the sitemap, which is how every crawler that is not Google finds it."""
+    from src import sitemap
+
+    return Response(
+        content=sitemap.robots(_public_origin(request)),
+        media_type="text/plain",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
 @app.get("/google{token}.html", include_in_schema=False)
 def google_site_verification(token: str) -> Response:
     """Google Search Console's HTML-file check.
