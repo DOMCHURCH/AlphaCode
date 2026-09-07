@@ -527,7 +527,12 @@ class ApiUser(Base):
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
-    api_key: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+    # 128, not 64. The keys this service ISSUES are token_urlsafe(32) -- 43
+    # characters -- but DEMO_API_KEY is chosen by whoever runs the
+    # deployment, and a longer one is a perfectly reasonable thing to pick.
+    # At 64 it failed the insert with StringDataRightTruncation, which
+    # surfaced to the reader as "the demo is not configured".
+    api_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
     # "free" | "pro". A plain string, not a SQLAlchemy Enum: a native Postgres
     # enum type cannot be widened by the additive ALTER that `init_db` runs, so
     # adding a third tier later would need a real migration to add a word.

@@ -114,6 +114,52 @@ def _sync_added_columns(engine: Engine) -> None:
                 )
 
 
+# Columns whose declared length has GROWN since the table was first created.
+# `_sync_added_columns` deliberately never retypes anything -- a silent retype
+# is how data gets truncated -- so a widening is listed here by hand, one line
+# per change, and each one is a decision somebody made rather than a diff.
+#
+# Widening a varchar is metadata-only on Postgres (no table rewrite) and a
+# no-op on SQLite, which does not enforce declared lengths at all.
+_WIDENED_COLUMNS: tuple[tuple[str, str, int], ...] = (
+    # DEMO_API_KEY is operator-chosen and a long one would not fit in 64.
+    ("api_users", "api_key", 128),
+)
+
+
+def _widen_columns(engine: Engine) -> None:
+    """Grow the columns in `_WIDENED_COLUMNS` if the live table is narrower.
+
+    Only ever grows. A column already at or above the target is left alone, so
+    this is idempotent and cannot shorten anything.
+    """
+    if engine.dialect.name != "postgresql":
+        return  # SQLite ignores varchar lengths entirely
+    insp = inspect(engine)
+    for table, column, want in _WIDENED_COLUMNS:
+        if not insp.has_table(table):
+            continue
+        try:
+            current = next(
+                (c for c in insp.get_columns(table) if c["name"] == column), None
+            )
+            if current is None:
+                continue
+            have = getattr(current["type"], "length", None)
+            if have is None or have >= want:
+                continue
+            with engine.begin() as conn:
+                conn.execute(text(
+                    f'ALTER TABLE "{table}" ALTER COLUMN "{column}" '
+                    f"TYPE VARCHAR({want})"
+                ))
+            log.info("column_widened", table=table, column=column,
+                     from_=have, to=want)
+        except Exception as exc:  # noqa: BLE001 - a failed widen must not stall boot
+            log.warning("column_widen_failed", table=table, column=column,
+                        error=str(exc)[:200])
+
+
 def init_db(engine: Engine | None = None) -> None:
     """Create all tables, sync added columns, and build performance indexes.
 
@@ -124,6 +170,7 @@ def init_db(engine: Engine | None = None) -> None:
     engine = engine or get_engine()
     Base.metadata.create_all(engine)
     _sync_added_columns(engine)
+    _widen_columns(engine)
     with engine.begin() as conn:
         for name, ddl in EXTRA_INDEXES:
             try:

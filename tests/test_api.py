@@ -1069,3 +1069,43 @@ def test_a_pasted_secret_keeps_its_surrounding_junk_off_the_comparison(
     for raw in ('  "abc123"  ', "abc123\n", "'abc123'", " abc123 "):
         monkeypatch.setenv("DEMO_API_KEY", raw)
         assert Settings().demo_api_key == "abc123", raw
+
+
+def test_widening_a_column_only_ever_grows_it(monkeypatch):
+    """A silent retype is how data gets truncated. The widening list may only
+    make a column longer, and must be a no-op once it already is."""
+    from src.storage.db import _WIDENED_COLUMNS, _widen_columns
+    from src.storage.models import Base
+
+    declared = {
+        (t.name, c.name): getattr(c.type, "length", None)
+        for t in Base.metadata.sorted_tables
+        for c in t.columns
+    }
+    for table, column, want in _WIDENED_COLUMNS:
+        model_len = declared.get((table, column))
+        assert model_len is not None, f"{table}.{column} is not a sized column"
+        assert model_len >= want, (
+            f"{table}.{column} is declared {model_len} but the widening asks "
+            f"for {want} -- the model is the source of truth"
+        )
+
+    # SQLite does not enforce lengths, so the step must simply do nothing.
+    class _Fake:
+        class dialect:
+            name = "sqlite"
+
+    _widen_columns(_Fake())  # must not raise
+
+
+def test_a_long_demo_key_fits_the_column_it_is_stored_in(api_db):
+    """The failure this prevents, in full: DEMO_API_KEY is operator-chosen, the
+    column was 64, and a longer key failed the INSERT with
+    StringDataRightTruncation -- which reached the reader as "the demo is not
+    configured" on a deployment where the variable was plainly set."""
+    from src.storage.models import ApiUser
+
+    length = next(
+        c.type.length for c in ApiUser.__table__.columns if c.name == "api_key"
+    )
+    assert length >= 128, "a hand-picked key needs more room than a generated one"
