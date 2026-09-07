@@ -400,7 +400,7 @@ def test_the_landing_page_puts_search_before_showing_off(client):
 
     assert body.index('action="/search"') < fold
     assert body.index('href="/company/JPM"') < fold
-    assert body.index('class="summary"') < fold
+    assert body.index('class="strip"') < fold
     for later in ("Why it's harder than it looks", "What you're looking at",
                   "What this doesn't do", "The numbers behind it",
                   'class="example"'):
@@ -443,7 +443,7 @@ def test_admin_is_reachable_without_typing_a_url(client):
     assert 'href="/admin"' not in home.split("<nav>", 1)[1].split("</nav>", 1)[0]
 
 
-def test_the_landing_page_states_its_scale_in_one_line(client):
+def test_the_landing_page_states_its_scale_above_the_fold(client):
     from src.company.stats import identity
 
     _seed("JPM", _drawable(), sector="Financials")
@@ -457,18 +457,28 @@ def test_the_landing_page_states_its_scale_in_one_line(client):
 
     body = client.get("/").text
 
-    assert 'class="summary"' in body
-    assert "12 facts from SEC filings" in body
-    assert "2 companies" in body
-    assert "100.0% reconcile" in body
+    # A strip of ruled cells rather than one sentence of middle dots. Same
+    # figures, same rule that each is counted live rather than written down.
+    strip = body.split('class="strip"', 1)[1].split("</div></div>", 1)[0]
+    assert ">12<" in strip, "the fact count"
+    assert ">2<" in strip, "the company count"
+    assert "100.0%" in strip, "the reconcile rate"
     assert 'href="#how"' in body
 
 
-def test_the_summary_line_drops_clauses_it_cannot_fill(client):
-    """An empty database gets a short line, not a boastful one about nothing."""
+def test_the_status_strip_drops_cells_it_cannot_fill(client):
+    """An empty database gets a short strip, not a boastful one about nothing.
+
+    A figure that cannot be counted is omitted rather than shown as zero: "0
+    facts" and "we could not read the table" look identical to a reader and
+    have completely different fixes.
+    """
     body = client.get("/").text
 
-    assert "facts from SEC filings" not in body
+    strip = body.split('class="strip"', 1)[1].split("</div></div>", 1)[0]
+    for absent in ("Facts", "Companies", "Reconciles"):
+        assert absent not in strip, f"{absent} must be dropped, not zeroed"
+    assert "SEC EDGAR" in strip, "what is always true still shows"
     assert 'href="#how"' in body, "the way to the explanation always shows"
 
 
@@ -635,6 +645,48 @@ def test_the_hard_part_is_stated_with_the_real_numbers(client):
     assert "$641 billion instead of $4.4 trillion" in body
     assert "ExcludingAccruedInterest" in body
     assert "confirmed against the raw filing data" in body
+
+
+def test_the_fold_opens_on_a_real_balance_sheet(client):
+    """The brief for this page is real output above the fold. A headline saying
+    the drawings are accurate is a weaker argument than a drawing."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+    fold = body.index('id="how"')
+
+    assert body.index('hero-bs') < fold
+    # A full-size drawing, not the 88px thumbnail the gallery uses.
+    hero = body.split('hero-bs', 1)[1].split("</section>", 1)[0]
+    assert 'class="stack"' in hero
+    assert 'class="legend"' in hero, "the numbers, not only the shape"
+    assert 'href="/company/JPM"' in hero
+
+
+def test_the_hero_shows_nothing_rather_than_a_placeholder(client, monkeypatch):
+    """Same rule the thumbnails follow: a drawing that will not build is
+    absent. A frame with nothing in it is a picture of nothing presented as a
+    company."""
+    import src.company.view1 as v1
+
+    _seed("JPM", _drawable(), sector="Financials")
+    monkeypatch.setattr(v1, "build_view1", lambda *a, **kw: None)
+
+    r = client.get("/")
+
+    assert r.status_code == 200
+    assert 'hero-bs' not in r.text
+    assert 'class="strip"' in r.text, "the rest of the page still stands"
+
+
+def test_the_status_strip_never_states_a_freshness_it_cannot_read(client):
+    """An unknown age must not render as a confident one."""
+    from src.report.home_page import _pipeline_age, _status_strip
+
+    assert _status_strip({}, "").count("Pipeline") == 0
+    assert "Pipeline" in _status_strip({}, "3h ago")
+    # Never raises, whatever the scheduler is doing.
+    assert isinstance(_pipeline_age(), str)
 
 
 def test_the_suggestions_say_why_each_one_is_there(client):

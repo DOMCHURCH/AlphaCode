@@ -1,0 +1,468 @@
+/* To Scale — the terminal treatment.
+   ---------------------------------------------------------------------------
+   Loaded LAST, after dark.css, and it does the same job that sheet did: it
+   redefines tokens. Neumorphism lived almost entirely in five variables --
+   --up, --up-sm, --up-lg, --in, --in-sm -- so setting those to `none` removes
+   it from every surface on the site at once, including surfaces this file has
+   never heard of.
+
+   What replaces it is the opposite idea. Neumorphism says "this is a physical
+   object, lit from above". A terminal says "this is a region of a screen".
+   Regions are separated by a line, not by a shadow, and the line is the
+   cheapest possible mark: 1px, low contrast, no radius to speak of.
+
+   THE RULE STILL HOLDS, with one stated exception: the only colour on the page
+   is data. The exception is a single accent, and it is CYAN rather than the
+   gold the brief offered, for a reason worth writing down:
+
+     gold (#F0A500) sits four degrees of hue from the equity band (#F7D848)
+     and inside the film's own amber horizon. An accent that reads as equity
+     is not an accent, it is a fourth data colour that means nothing.
+
+   Cyan collides with nothing in the palette -- not the indigo assets, not the
+   red liabilities, not the lemon equity -- and it is native to the thing being
+   imitated. It appears in exactly three roles: the live status figure, the
+   active navigation item, and the focus ring. Nowhere else.
+
+   Contrast, measured rather than eyeballed (WCAG, against #0A0A0A):
+     cyan #22D3EE   10.96:1        ink #EDEDED   16.91:1
+     ink2 #A3A3A3    7.85:1        hairline       1.50:1 against its panel
+*/
+
+:root {
+  /* ---- ground ---------------------------------------------------------- */
+  /* Flat. Two values, and the difference between them is 1.07:1 -- which is
+     deliberately almost nothing, because the separation is the border's job
+     now and a panel that also gets a lighter fill reads as a card again. */
+  --bg: #0A0A0A;
+  --panel: #141414;
+  --well: #141414;
+  --hi: #1C1C1C;
+  --lo: #050505;
+
+  /* The line that does all the structural work. Two weights: one for the edge
+     of a region, one for a divider inside it. */
+  --hair: rgba(255, 255, 255, .14);
+  --hair-soft: rgba(255, 255, 255, .07);
+
+  --ink: #EDEDED;
+  --ink2: #A3A3A3;
+  --dim: #6B6B6B;
+
+  /* The accent. Three uses, listed at the top of this file. */
+  --acc: #22D3EE;
+  --acc-dim: rgba(34, 211, 238, .16);
+
+  /* ---- the end of neumorphism ------------------------------------------ */
+  /* Every raised and pressed surface on the site reads from these. */
+  --up: none;
+  --up-sm: none;
+  --up-lg: none;
+  --in: none;
+  --in-sm: none;
+
+  /* A terminal has corners. Not zero -- an input with a hard 90° corner reads
+     as broken rather than as precise -- but close enough to be a corner. */
+  --r1: 2px;
+  --r2: 3px;
+  --r3: 3px;
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+}
+
+/* ---------------------------------------------------------------------------
+   Regions
+   ---------------------------------------------------------------------------
+   The same exhaustive list dark.css uses to keep surfaces opaque, because it
+   is the same set of things: everything that was a raised slab is now a ruled
+   region. Listed rather than globbed so a new element has to be a deliberate
+   decision about which it is.
+*/
+.hero, .chead, .bs, .card, .tile, .plan, .buy, .compare, .tablewrap,
+.keybox, .code, .sheet, .resend, .banner, .acc, .meter, .planline,
+.empty, .stack, .ep, .stat, .shape, .glass, .glass-lite {
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+}
+
+/* The film is scenery now, not a material. No blur over it, no translucency,
+   no per-frame re-composite -- which also returns the cost a 2,400px blurred
+   hero was charging every frame on a wide monitor. */
+.glass, .glass-lite {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+.glass-lite { background: transparent; border: 0; }
+
+/* Dividers inside a region are softer than its edge, or the inside of a panel
+   reads as a grid of boxes rather than as one region with rules in it. */
+.legend + .legend,
+.hardrow,
+.compare th, .compare td {
+  border-color: var(--hair-soft);
+}
+.legend + .legend { box-shadow: none; padding-top: 14px; }
+.hardrow { box-shadow: none; }
+.dot { box-shadow: none; }
+.band { border-bottom-color: var(--hair-soft); }
+
+/* ---------------------------------------------------------------------------
+   Numbers
+   ---------------------------------------------------------------------------
+   Tabular figures everywhere a number appears. Not a stylistic preference: a
+   column of proportional digits changes width as it updates, and a figure that
+   jitters is a figure the reader stops trusting.
+*/
+.stat b, .bignum b, .tval, .price, .compare td, .lv, .lp, .ep-p,
+.statk, .sline b, .bs-cap b, .band .bv, .num, code, kbd, samp {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+.stat b, .bignum b, .tval, .price { letter-spacing: -.01em; }
+
+/* ---------------------------------------------------------------------------
+   The status strip
+   ---------------------------------------------------------------------------
+   The first thing on the page, and the piece that has to carry "this is a live
+   system" on its own. Cells divided by rules rather than by middle dots -- the
+   brief calls middle-dot meta strings out by name, and a terminal separates
+   fields with a line anyway.
+*/
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin: 0 0 18px;
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  background: var(--panel);
+  overflow: hidden;
+}
+.scell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 11px 18px;
+  border-right: 1px solid var(--hair-soft);
+  min-width: 0;
+}
+.scell:last-child { border-right: 0; }
+.sk {
+  font-size: 10px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.sv {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+/* Use one. The reconcile rate is the number this whole product is an argument
+   about, so it is the number that gets the colour. */
+.sv.live { color: var(--acc); }
+/* A dot that says the pipeline is running, next to the freshness figure. It
+   pulses once a second and is the only thing on the site that moves besides
+   the film -- and it stops moving for anybody who asked for less motion. */
+.pulse {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: var(--acc);
+  margin-right: 7px;
+  vertical-align: middle;
+  animation: pulse 2s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .25 } }
+@media (prefers-reduced-motion: reduce) {
+  .pulse { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Chrome
+   ---------------------------------------------------------------------------
+   Buttons and tabs were raised slabs; they are outlined regions now. The
+   pressed/raised distinction they used to carry is carried by fill instead.
+*/
+.btn, .tab, .navlink, .search button, .linkish {
+  border-radius: var(--r1);
+  box-shadow: none;
+}
+.btn {
+  background: var(--panel);
+  border: 1px solid var(--hair);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+}
+.btn:hover { background: #1C1C1C; border-color: rgba(255, 255, 255, .26); }
+.btn:active { transform: none; }
+.btn[disabled] { color: var(--dim); border-color: var(--hair-soft); }
+.btn.ghost { background: transparent; color: var(--ink2); }
+.btn.ghost:hover { background: var(--panel); color: var(--ink); }
+
+.search button {
+  background: var(--ink);
+  color: var(--bg);
+  border: 1px solid var(--ink);
+  font-family: var(--mono);
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.search button:hover { background: #FFFFFF; border-color: #FFFFFF; }
+
+.sfield {
+  background: var(--bg);
+  border: 1px solid var(--hair);
+  border-radius: var(--r1);
+}
+.sfield:focus-within { border-color: var(--acc); }
+.sfield input { font-family: var(--mono); }
+
+.tab {
+  background: transparent;
+  border: 1px solid transparent;
+  border-bottom: 2px solid transparent;
+  border-radius: 0;
+  color: var(--ink2);
+  font-family: var(--mono);
+  font-size: 12.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+}
+.tab.on {
+  color: var(--ink);
+  background: transparent;
+  border-bottom-color: var(--acc);
+}
+
+nav { border-bottom: 1px solid var(--hair); }
+.navlink { color: var(--ink2); background: transparent; }
+.navlink:hover { color: var(--ink); }
+.navlink.on { color: var(--acc); background: transparent; box-shadow: none; }
+.navlink.off:hover { color: var(--dim); }
+.badge { background: transparent; border: 1px solid var(--hair-soft); }
+
+/* Keyboard focus has to be unmissable, and it is the third and last use of
+   the accent. */
+:focus-visible {
+  outline: 2px solid var(--acc);
+  outline-offset: 2px;
+}
+.skip { background: var(--acc); color: #001014; }
+
+/* ---------------------------------------------------------------------------
+   Density and alignment
+   ---------------------------------------------------------------------------
+   Left-aligned, and tighter. A data page earns its density: the reader is
+   comparing rows, and every extra 8px of padding is one fewer row on screen.
+*/
+.hero { padding: 26px 26px 24px; }
+.htitle {
+  font-size: clamp(26px, 3vw, 38px);
+  font-weight: 600;
+  letter-spacing: -.02em;
+  max-width: 22ch;
+}
+.hlede { font-size: 15px; max-width: 56ch; color: var(--ink2); }
+.empty { text-align: left; }
+.sec { margin: 0 0 26px; }
+.sec-head h2 {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+.sec-head { border-bottom: 1px solid var(--hair-soft); padding-bottom: 7px; }
+
+.tile, .card, .plan { padding: 14px 16px; }
+.tlabel {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .11em;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+.compare th, .compare td { padding: 8px 14px; }
+.compare thead th {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  color: var(--dim);
+}
+.lrow > * { padding: 6px 2px; }
+/* A dense table earns a row highlight: it is how you keep your place across a
+   1,100px span. No colour, just a lift. */
+.lrow:hover { background: rgba(255, 255, 255, .035); }
+
+/* Links are ink with a rule under them, the way a terminal underlines. */
+a { color: var(--ink); }
+.legal a, .plan-note a, .formnote a, .foot-links a {
+  text-decoration: none;
+  border-bottom: 1px solid var(--hair);
+}
+.legal a:hover, .plan-note a:hover, .formnote a:hover, .foot-links a:hover {
+  border-bottom-color: var(--acc);
+}
+
+/* ---------------------------------------------------------------------------
+   The film, behind all of it
+   ---------------------------------------------------------------------------
+   Subtle now, and that is a change of role rather than of taste. Under glass
+   it was a material the page was made of; behind a flat terminal it is a
+   window the terminal happens to sit in front of. So the veil comes up on
+   every page, the hero included.
+*/
+.backdrop-veil,
+body[data-film="hero"] .backdrop-veil,
+body[data-film="calm"] .backdrop-veil,
+body[data-film="still"] .backdrop-veil {
+  background:
+    radial-gradient(130% 90% at 50% 30%,
+      rgba(8, 8, 8, .80) 0%, rgba(8, 8, 8, .90) 55%,
+      rgba(8, 8, 8, .98) 100%),
+    linear-gradient(to bottom,
+      rgba(8, 8, 8, .88) 0%, rgba(8, 8, 8, .84) 34%,
+      rgba(16, 12, 6, .90) 68%, rgba(8, 8, 8, .98) 100%);
+}
+
+/* Under glass the film was a material the page was made of, and it could be
+   bright because the panels were translucent and the two read as one surface.
+   A flat terminal has no such relationship with it: at that brightness the
+   clouds simply compete with the data, and the page loses. Roughly a tenth of
+   the film comes through now -- enough to see that something is moving behind
+   the screen, not enough to read as scenery. This is the one value to change
+   if it wants to be more or less present. */
+
+@media (max-width: 620px) {
+  .scell { padding: 9px 13px; }
+  .sv { font-size: 13.5px; }
+  .hero { padding: 20px 16px 18px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Data & method
+   ---------------------------------------------------------------------------
+   Six short blocks rather than four long sections. For a technical reader
+   deciding whether to trust a financial dataset this does more work than any
+   other part of the page, so it is laid out to be SCANNED -- headings you can
+   find the one you care about in, not prose you have to read through.
+*/
+.trust {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1px;
+  background: var(--hair-soft);
+  border: 1px solid var(--hair);
+  border-radius: var(--r2);
+  overflow: hidden;
+}
+.tblock { background: var(--panel); padding: 15px 17px; }
+.tblock h3 {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--acc);
+}
+.tblock p {
+  margin: 0;
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--ink2);
+  max-width: 58ch;
+}
+.tblock a { color: var(--ink); border-bottom: 1px solid var(--hair); }
+@media (min-width: 760px) { .trust { grid-template-columns: 1fr 1fr; } }
+@media (min-width: 1400px) { .trust { grid-template-columns: repeat(3, 1fr); } }
+
+/* The hero drawing's dateline. Where the numbers came from and when, said
+   next to them rather than in a footnote. */
+.sec-head { flex-wrap: wrap; }
+.bs-meta {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink2);
+  margin-left: auto;
+  padding: 3px 8px;
+  background: var(--panel);
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r1);
+}
+.bs-meta .ckind {
+  color: var(--ink2);
+  border: 1px solid var(--hair-soft);
+  border-radius: var(--r1);
+  padding: 1px 6px;
+  margin: 0 5px;
+}
+.hero-bs .bs { padding: 18px 18px 4px; }
+
+/* The hero is now a heading and a search field, and nothing else -- the
+   drawing below it is the real hero. So it stops being a slab. */
+.hero { background: transparent; border: 0; padding: 4px 0 18px; }
+.hero .summary { margin: 12px 0 0; font-size: 12.5px; }
+.hero .summary a { color: var(--ink2); border-bottom: 1px solid var(--hair); }
+.hero .summary a:hover { color: var(--ink); border-bottom-color: var(--acc); }
+
+/* ---------------------------------------------------------------------------
+   No pills
+   ---------------------------------------------------------------------------
+   A capsule is a soft, friendly, consumer shape and there are thirty of them
+   in this codebase. Listed rather than reset with a wildcard, because a few
+   things genuinely SHOULD stay round -- the brand mark, the pipeline dot, the
+   legend swatches -- and a blanket rule would square those too.
+*/
+.tag, .tags span, .chip, .badge, .tabs, .tab, .navlink, .btn, .plan-cta,
+.search button, .sfield, .back, .sugg a, .ckind, .mini, .act, .linkish,
+.meter, .meter i, .bar, .bar > i, .sbar, .sbar i, .ask input, .ask button {
+  border-radius: var(--r1);
+}
+/* The exceptions, stated so they cannot be squared by accident later. */
+.dot, .pulse, .banner-tick { border-radius: 999px; }
+
+/* The tab bar was a pill containing pills. It is a ruled row now, and the
+   active tab is marked by the line under it rather than by a fill. */
+.tabs {
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+  gap: 2px;
+  border-bottom: 1px solid var(--hair);
+  border-radius: 0;
+}
+
+/* Chips that carry a fact -- a period end, a filing date -- read as data, so
+   they get the data face. */
+.tag { font-family: var(--mono); font-size: 11.5px; color: var(--ink2);
+       background: var(--panel); border: 1px solid var(--hair-soft); }
+
+/* Two light-theme leftovers that survive the token reset because they were
+   written as literal values rather than as var(--up-sm). */
+.sw { box-shadow: none; border: 1px solid var(--hair-soft); }
+
+/* The headline figure was centred, which is the one alignment a data page does
+   not use. Left, with the sentence beside it rather than under it. */
+.bignum { text-align: left; display: flex; align-items: baseline; gap: 18px;
+  flex-wrap: wrap; background: var(--panel); border: 1px solid var(--hair);
+  border-radius: var(--r2); padding: 16px 18px; }
+.bignum b { font-size: clamp(30px, 4vw, 46px); line-height: 1; }
+.bignum span { max-width: 52ch; font-size: 13.5px; color: var(--ink2); }
+.bignum b { display: inline; }
+.bignum span { display: inline; margin: 0; }

@@ -20,7 +20,13 @@ import structlog
 
 from src.company.suggest import Suggestion
 from src.company.view1 import View1
-from src.report.company_page import asset_version, block_colour, money
+from src.report.company_page import (
+    _band,
+    _legend_rows,
+    asset_version,
+    block_colour,
+    money,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -377,6 +383,9 @@ def _shell(title: str, body: str, film: str = "still") -> str:
      drawings included, without a rule being rewritten. -->
 <link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
+<!-- Last of all, and token overrides again: this is what removes neumorphism
+     from every surface at once and rules the page like a terminal. -->
+<link rel="stylesheet" href="/static/terminal.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
 </head>
 <body data-film="{film}">
@@ -568,6 +577,227 @@ def _limits() -> str:
   </section>"""
 
 
+# The hero drawing is full size, not a thumbnail. The brief for this page is
+# "real output above the fold", and 300px is the column the company page uses
+# -- so what a visitor sees first is literally the product, at the size the
+# product is served at.
+_HERO_COLUMN_PX = 300.0
+
+
+def _pipeline_age() -> str:
+    """How long ago the loader last succeeded, as a person would say it.
+
+    Read from the updater's own state rather than from a build-time constant,
+    so it cannot claim freshness the data does not have. Any failure to read it
+    returns "", and the cell is simply not rendered -- an unknown age must not
+    be shown as a confident one.
+    """
+    import datetime as dt
+
+    try:
+        from src import scheduler
+
+        newest = None
+        for job in scheduler.report().get("jobs", []):
+            when = job.get("last_success_at")
+            if not when:
+                continue
+            stamp = dt.datetime.fromisoformat(when)
+            if stamp.tzinfo is None:
+                stamp = stamp.replace(tzinfo=dt.UTC)
+            if newest is None or stamp > newest:
+                newest = stamp
+        if newest is None:
+            return ""
+        mins = (dt.datetime.now(dt.UTC) - newest).total_seconds() / 60.0
+        if mins < 2:
+            return "just now"
+        if mins < 90:
+            return f"{int(mins)}m ago"
+        hours = mins / 60.0
+        if hours < 36:
+            return f"{int(hours)}h ago"
+        return f"{int(hours / 24)}d ago"
+    except Exception as exc:  # noqa: BLE001 - the home page must still render
+        log.warning("pipeline_age_failed", error=str(exc)[:200])
+        return ""
+
+
+def _status_strip(stats: dict, freshness: str = "") -> str:
+    """The line across the top: what is loaded, how fresh, and how well it adds up.
+
+    Cells with rules between them rather than one sentence with middle dots in
+    it. Every figure is counted live, and any figure that cannot be counted is
+    dropped -- a strip reporting "0" for something it merely failed to read
+    would be worse than a shorter strip.
+
+    `data-countup` marks the figures the single animation on this site touches.
+    """
+    cells: list[str] = []
+
+    def cell(key: str, value: str, live: bool = False, count: str = "") -> None:
+        attr = f' data-countup="{count}"' if count else ""
+        cls = "sv live" if live else "sv"
+        cells.append(
+            f'<div class="scell"><span class="sk">{escape(key)}</span>'
+            f'<span class="{cls}"{attr}>{value}</span></div>'
+        )
+
+    cell("Source", "SEC EDGAR")
+    if stats.get("facts"):
+        cell("Facts", escape(_compact(stats["facts"])), count=str(stats["facts"]))
+    if stats.get("companies"):
+        cell("Companies", escape(fmt_int(stats["companies"])),
+             count=str(stats["companies"]))
+    if stats.get("latest_filing"):
+        cell("Latest filing", escape(str(stats["latest_filing"])))
+    ident = stats.get("identity") or {}
+    if ident.get("pass_rate_pct") is not None:
+        # The number this whole product is an argument about, and so the one
+        # thing on the page that is allowed the accent colour.
+        cell("Reconciles", f"{ident['pass_rate_pct']}%", live=True)
+    if freshness:
+        cells.append(
+            '<div class="scell"><span class="sk">Pipeline</span>'
+            '<span class="sv"><i class="pulse" aria-hidden="true"></i>'
+            f"{escape(freshness)}</span></div>"
+        )
+    return f'<div class="strip">{"".join(cells)}</div>'
+
+
+def _hero_drawing(view: View1 | None, kind: str = "") -> str:
+    """A real company's real balance sheet, drawn and tabulated, above the fold.
+
+    There is no placeholder when there is nothing to draw: the page falls back
+    to the strip and the search box, which is a smaller page rather than a page
+    showing a picture of nothing and calling it an example.
+    """
+    if view is None:
+        return ""
+
+    d = view.as_dict()
+    total = d["total_assets"]
+    px = _HERO_COLUMN_PX / 100.0
+
+    assets_html = "".join(_band(b, px) for b in d["assets"])
+    above = [b for b in d["claims"]
+             if not (b["kind"] == "equity" and b["value"] < 0)]
+    below = [b for b in d["claims"] if b["kind"] == "equity" and b["value"] < 0]
+    claims_html = "".join(_band(b, px) for b in above)
+    below_html = "".join(_band(b, px) for b in below)
+
+    liab = sum(b["value"] for b in d["claims"] if b["kind"] != "equity")
+    eq = sum(b["value"] for b in d["claims"] if b["kind"] == "equity")
+    name = escape(d["company_name"] or d["ticker"])
+    ticker = escape(d["ticker"])
+    # The card this hero replaces said in one word why the company was on the
+    # list. Dropping that would make the choice look arbitrary.
+    why = f'<span class="ckind">{escape(kind)}</span>' if kind else ""
+    below_block = (
+        f'<div class="baseline"></div><div class="stack">{below_html}</div>'
+        if below_html else ""
+    )
+
+    return f"""
+  <section class="sec hero-bs">
+    <div class="sec-head">
+      <h2>Live from the filings</h2>
+      <span class="bs-meta">{ticker} {why} quarter ended {escape(d["period_end"])},
+        filed {escape(d["filing_date"])}</span>
+    </div>
+    <div class="bs">
+      <div class="bs-cols">
+        <div class="bs-cap"><span>{name} owns</span><b>{money(total)}</b></div>
+        <div class="bs-cap"><span>Owed &amp; owned</span>
+          <b>{money(liab)} + {money(eq)}</b></div>
+        <div class="bs-col" role="img" aria-label="What {name} owns, drawn to scale &mdash; total assets {money(total)}. Line-by-line amounts in the table below.">
+          <div class="stack">{assets_html}</div>
+        </div>
+        <div class="bs-col" role="img" aria-label="Who has a claim on it, drawn to scale &mdash; liabilities {money(liab)}, equity {money(eq)}. Line-by-line amounts in the table below.">
+          <div class="stack">{claims_html}</div>
+          {below_block}
+        </div>
+      </div>
+      <table class="legend"><caption class="vh">Assets, line by line</caption>
+        <tbody>{_legend_rows(d["assets"], total)}</tbody></table>
+      <table class="legend"><caption class="vh">Liabilities and equity, line by line</caption>
+        <tbody>{_legend_rows(d["claims"], total)}</tbody></table>
+    </div>
+    <p class="plan-note">Both columns are the same height because they are the
+      same money, counted twice: once by what it is, once by who it belongs to.
+      <a href="/company/{ticker}">Open the full page for {ticker}</a>.</p>
+  </section>"""
+
+
+def _trust(stats: dict) -> str:
+    """Where the data comes from, how fresh it is, and how it is derived.
+
+    Pulled into one section near the top rather than left implied across four
+    sections further down. For a technical reader deciding whether to trust a
+    financial dataset this is the section that does the work -- so it states
+    the unflattering parts too, because a methodology note that lists only
+    strengths is marketing wearing a lab coat.
+    """
+    ident = stats.get("identity") or {}
+    rate = ident.get("pass_rate_pct")
+    checkable = ident.get("checkable")
+
+    identity_line = (
+        f"{rate}% of the {fmt_int(checkable)} companies with a complete balance "
+        "sheet satisfy assets = liabilities + equity to within 1%."
+        if rate is not None and checkable
+        else "Every drawing is checked against assets = liabilities + equity."
+    )
+    span = (
+        f"Most recent filing in the load: {escape(str(stats['latest_filing']))}."
+        if stats.get("latest_filing") else ""
+    )
+
+    return f"""
+  <section class="sec" id="trust">
+    <div class="sec-head"><h2>Data &amp; method</h2></div>
+    <div class="trust">
+      <div class="tblock">
+        <h3>Source</h3>
+        <p>SEC's own
+          <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"
+             rel="noopener">Financial Statement Data Sets</a>, plus the XBRL
+          frames API for anything filed since the last quarterly dataset
+          published. Nothing is scraped, bought, or estimated.</p>
+      </div>
+      <div class="tblock">
+        <h3>Freshness</h3>
+        <p>The loader decides it is behind by asking the database, not by
+          watching a clock, so a container that was down for a week closes the
+          gap on its next tick instead of waiting for a schedule. {span}</p>
+      </div>
+      <div class="tblock">
+        <h3>As reported, never restated</h3>
+        <p>Where a figure has been filed more than once, the earliest filing
+          wins. You see what the company said at the time, not what it said
+          later about the same quarter.</p>
+      </div>
+      <div class="tblock">
+        <h3>The check</h3>
+        <p>{identity_line} The rest are drawn with what is missing named,
+          rather than quietly balanced.</p>
+      </div>
+      <div class="tblock">
+        <h3>One row, not twenty-three</h3>
+        <p>SEC's data carries the same figure many times per filing &mdash; by
+          segment, by geography, by legal entity. Exactly one of them is the
+          consolidated company, and isolating it is most of what this does.</p>
+      </div>
+      <div class="tblock">
+        <h3>What it doesn't do</h3>
+        <p>It draws what was filed and says so when it cannot. Nothing here
+          is an opinion about what a company is worth, or about what it is
+          going to do next.</p>
+      </div>
+    </div>
+  </section>"""
+
+
 def render_home(
     pairs: list[tuple[Suggestion, View1 | None]],
     stats: dict | None = None,
@@ -587,15 +817,37 @@ def render_home(
     )
     disclaimer = render_disclaimer()
 
+    # The first company that actually has something to draw becomes the hero.
+    # Not simply pairs[0]: that one may have failed to build, and the fold is
+    # the last place to show a gap.
+    hero_pair = next(((sg, v) for sg, v in pairs if v is not None), None)
+    hero_view = hero_pair[1] if hero_pair else None
+    hero_bs = _hero_drawing(hero_view, hero_pair[0].kind if hero_pair else "")
+    freshness = _pipeline_age()
+
     facts = headline_facts([v for _s, v in pairs], component_coverage())
+    # The gallery is the OTHER companies -- showing the hero's own drawing
+    # again a screen below itself reads as a bug rather than as a set. Unless
+    # it is the only one there is, in which case dropping it would leave an
+    # empty section and no way to reach the one page that exists.
+    #
+    # `skip` is compared by identity, so it must never be None: a card whose
+    # view failed to build is also None, and `v is not skip` would then drop
+    # every undrawable company from the gallery -- which is exactly the set
+    # that most needs to stay offered, since a bare card is the only way to
+    # reach a page that can say what is missing.
+    drawable = sum(1 for _s, v in pairs if v is not None)
+    skip = hero_view if (drawable > 1 and hero_view is not None) else object()
     cards = "".join(
-        _card(s, v, fact) for (s, v), fact in zip(pairs, facts, strict=True)
+        _card(s, v, fact)
+        for (s, v), fact in zip(pairs, facts, strict=True)
+        if v is not skip
     )
 
     if pairs:
         gallery = f"""
   <section class="sec">
-    <div class="sec-head"><h2>Five companies, same scale rules</h2></div>
+    <div class="sec-head"><h2>Same scale rules, other companies</h2></div>
     <p class="sec-sub">Each drawing is that company's own balance sheet at its
       own proportions. They look nothing alike because they are nothing alike.</p>
     <div class="cards">{cards}</div>
@@ -622,17 +874,24 @@ def render_home(
 {nav}
 
 <main class="wrap" id="main">
-  <header class="hero glass">
-    <h1 class="htitle">To Scale</h1>
-    <p class="hlede">Every US public company's balance sheet, drawn at true
-      proportion, from what they filed with the SEC.</p>
-    {search_form()}
+  <!-- Above the fold, in this order: what is loaded, what you can ask it, and
+       one real company's real balance sheet. No marketing headline standing
+       between the reader and the output -- the output IS the argument, and a
+       sentence claiming the drawings are accurate is weaker than a drawing. -->
+  {_status_strip(stats or {}, freshness)}
+  <header class="hero">
+    <h1 class="htitle">Every balance sheet, drawn to scale</h1>
+    <p class="hlede">Filed figures from SEC EDGAR, at true proportion. Search
+      any US public company by ticker or by name.</p>
+    {search_form(autofocus=True)}
+    <p class="summary"><a href="#how">How this works</a></p>
   </header>
-  {_accuracy_banner()}
+  {hero_bs}
 {disclaimer}
-  {_pricing(stats or {})}
-  {_summary_line(stats or {})}
+  {_trust(stats or {})}
+  {_accuracy_banner()}
   {gallery}
+  {_pricing(stats or {})}
   {_demo_section()}
 
   <div class="fold" id="how"></div>
@@ -647,7 +906,8 @@ def render_home(
 <!-- In the body, not the shell: the shell is shared with /dashboard and the
      search pages, and none of those have a demo box to drive. -->
 <script src="/static/nav.js?v={asset_version()}" defer></script>
-<script src="/static/home.js?v={asset_version()}" defer></script>"""
+<script src="/static/home.js?v={asset_version()}" defer></script>
+<script src="/static/countup.js?v={asset_version()}" defer></script>"""
     return _shell(
         "To Scale — filed financial statements, drawn to scale", body, film="hero"
     )

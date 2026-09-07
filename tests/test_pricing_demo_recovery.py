@@ -103,8 +103,11 @@ def test_the_demo_blurb_quotes_the_real_daily_limit(client):
 
 def test_pricing_sits_under_the_accuracy_banner(client):
     html = client.get("/").text
+    # Method first, then the claim about accuracy, then the price. Naming a
+    # price before saying where the numbers come from is the wrong order for a
+    # reader deciding whether to trust a financial dataset at all.
+    assert html.index('id="trust"') < html.index('class="acc"')
     assert html.index('class="acc"') < html.index('id="pricing"')
-    assert html.index('id="pricing"') < html.index('class="summary"')
 
 
 def test_the_dataset_card_counts_the_rows_it_is_selling(client):

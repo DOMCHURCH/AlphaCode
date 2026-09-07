@@ -364,6 +364,7 @@ def render_company_page(
 <link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/terminal.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
 </head>
 <body data-film="still">
@@ -484,6 +485,7 @@ def render_not_found(ticker: str, reason: str) -> str:
 <link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
+<link rel="stylesheet" href="/static/terminal.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
 </head>
 <body data-film="still">
