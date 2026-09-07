@@ -47,10 +47,11 @@
      left, so the frame is held down and across rather than centred -- what
      the reader gets behind the text is sky, and the subject stays clear of
      it. */
-  background-position: 74% 64%;
+  background-position: 70% 62%;
   background-repeat: no-repeat;
-  /* Very slight scale so the blur in the veil never reveals a hard edge. */
-  transform: scale(1.04);
+  /* No transform. The scale that used to sit here hid a soft edge under the
+     old veil; the veil is a flat gradient now, and scaling a fixed full-screen
+     layer is a compositing cost paid on every frame for nothing. */
 }
 
 /* Older Safari and Firefox that do not do image-set() fall back to the JPEG. */
@@ -69,8 +70,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 74% 64%;
-  transform: scale(1.04);
+  object-position: 70% 62%;
   opacity: 0;
   transition: opacity 1.2s ease;
 }
