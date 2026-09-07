@@ -392,6 +392,10 @@ def test_report_describes_every_job_before_anything_has_run(db):
     rep = scheduler.report()
     assert [j["name"] for j in rep["jobs"]] == [
         "bars", "filings", "fundamentals", "earnings",
+        # Company names, which is what makes searching by name rather than
+        # by ticker work. Due on an empty database like every other data
+        # job, because zero names IS name search being off.
+        "names",
         # The renewal warning is reported like any other job, so
         # /admin shows whether it is due, off, or failing.
         "subscriptions",
@@ -505,3 +509,33 @@ def test_report_covers_the_filings_job(db):
     job = next(j for j in rep["jobs"] if j["name"] == "filings")
     assert job["due"] is True
     assert "frames" in job["does"]
+
+
+# --------------------------------------------------------------- company names
+def test_names_job_is_due_when_no_company_names_are_stored(db):
+    """Zero names is not "no match" -- it is name search being switched off,
+    and it looks identical to a reader typing something that does not exist.
+    The job exists so that state cannot persist unnoticed."""
+    from src import scheduler
+    from src.storage.db import session_scope
+
+    with session_scope() as s:
+        status = scheduler.names_status(s, dt.date(2026, 9, 7))
+
+    assert status["due"] is True
+    assert "name search" in status["detail"]
+
+
+def test_names_job_is_not_due_once_names_are_fresh(db):
+    from src import scheduler
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    today = dt.date(2026, 9, 7)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(as_of_date=today, ticker="WMT", name="Walmart Inc."))
+
+    with session_scope() as s:
+        assert scheduler.names_status(s, today)["due"] is False
+        # A week later the listing set has moved on and it is worth re-reading.
+        assert scheduler.names_status(s, today + dt.timedelta(days=8))["due"] is True

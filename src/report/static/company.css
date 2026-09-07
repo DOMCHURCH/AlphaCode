@@ -54,7 +54,8 @@ body{margin:0;background:var(--bg);color:var(--ink);
   font:16px/1.55 var(--disp);-webkit-font-smoothing:antialiased;color-scheme:light;
   overflow-x:hidden}
 a{color:var(--ink)}
-.wrap{max-width:720px;margin:0 auto;padding:0 18px}
+.wrap{width:100%;max-width:100%;margin:0 auto;
+  padding:0 clamp(18px,4vw,64px)}
 
 /* Visually hidden, but read by assistive tech: table captions, the ask-box
    label, and anything else a screen reader needs and the eye does not. */
@@ -441,3 +442,20 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
   .search button{padding:14px 18px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---- wide screens ---- */
+/* The page is full-width now, which is a container decision and not a typography
+   one: a 2,400px line of prose is unreadable however much room there is. So the
+   width is spent on the two things that can actually use it -- larger display
+   type, and grids that get another column -- while every measure stays a
+   measure. Nothing here changes below 1400px. */
+@media (min-width: 1400px) {
+  .htitle{font-size:clamp(44px,3.6vw,64px);max-width:16ch}
+  .hlede{font-size:18px;max-width:52ch}
+  .sec-sub{font-size:16px;max-width:64ch}
+  .hero{padding:44px 46px 40px}
+  .sec{margin:0 0 44px}
+  /* Endpoint cards and example thumbnails are short and self-contained: two
+     up reads as a set, one up reads as a list of mostly-empty boxes. */
+  .eps{grid-template-columns:1fr 1fr;gap:14px}
+}

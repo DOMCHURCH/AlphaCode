@@ -54,8 +54,9 @@ def render_login(
 <main class="wrap" id="main">
   <header class="hero glass">
     <h1 class="htitle">Sign in</h1>
-    <p class="hlede">No password. Put in your address and a one-time link
-      arrives — clicking it signs you in and, if you are new, makes the account.</p>
+    <p class="hlede">A one-time link, or a password if you have set one.
+      The link needs nothing set up in advance: it signs you in and, if you are
+      new, makes the account.</p>
   </header>
 
   <!-- Two ways in, both landing on the same session. The link tab is first
@@ -115,7 +116,9 @@ def render_login(
     <p class="plan-note">
       <button type="button" class="linkish" id="forgot-btn">Forgot your
         password?</button> — a sign-in link goes to your inbox, and you can set
-      a new one from the Account tab.
+      a new one from the Account tab. <strong>Signed up with a link and never
+      set a password?</strong> Same answer: use the link tab, then set one
+      from Account.
       No account yet?
       <button type="button" class="linkish" id="pw-signup">Create one with a
         password</button>.

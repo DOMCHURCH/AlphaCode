@@ -82,12 +82,24 @@ def test_health_ok(client):
 
 
 def test_api_index_lists_the_surviving_endpoints(client):
-    body = client.get("/api").json()
+    # /api is the human page now; the index it used to be is at /api.json.
+    body = client.get("/api.json").json()
     assert "/admin" in body["endpoints"]
     assert "/admin/balance-sheet" in body["endpoints"]
     # The funnel is gone; nothing may advertise a run or a report.
     joined = " ".join(body["endpoints"])
     assert "/run" not in joined and "/report" not in joined
+
+
+def test_api_is_a_page_not_a_payload(client):
+    """The nav bar links here, so it has to answer in HTML."""
+    r = client.get("/api")
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert "X-API-Key" in r.text
+    assert "/api/company/{ticker}" in r.text
+    # The admin routes are on the JSON index and stay off the public page.
+    assert "/admin/raw-facts" not in r.text
 
 
 def test_favicon_is_served(client):
@@ -927,6 +939,10 @@ def test_status_and_admin_report_the_auto_updater(client):
         auto = body["auto_update"]
         assert [j["name"] for j in auto["jobs"]] == [
             "bars", "filings", "fundamentals", "earnings",
+            # Company names, which is what makes searching by name rather than
+            # by ticker work. Due on an empty database like every other data
+            # job, because zero names IS name search being off.
+            "names",
             # The renewal warning is reported like any other job, so
             # /admin shows whether it is due, off, or failing.
             "subscriptions",

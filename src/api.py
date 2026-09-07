@@ -1398,10 +1398,16 @@ def search(q: str = Query("", max_length=64)) -> Response:
         )
     # Nothing resolved. A ticker-shaped query still goes to /company/{SYMBOL}:
     # that is the canonical, shareable URL for a company, and it is the one
-    # page that can say what is missing about that specific symbol. Only a
-    # query that cannot be a ticker at all is answered here.
+    # page that can say what is missing about that specific symbol.
+    #
+    # But only a SHORT one. "Walmart" is alphanumeric and so passed this test,
+    # which sent somebody who typed a company name to /company/WALMART -- a
+    # page about a symbol that does not exist and never will, presented as
+    # though the site had understood them. Real tickers are one to five
+    # characters (plus a class suffix); anything longer that resolved to
+    # nothing is a name that did not match, and gets told so.
     symbol = _clean_ticker(raw)
-    if _is_ticker_shaped(symbol):
+    if _is_ticker_shaped(symbol) and len(symbol.replace(".", "").replace("-", "")) <= 5:
         return RedirectResponse(url=f"/company/{symbol}", status_code=303)
 
     if found.kind == "no_names":
@@ -1412,7 +1418,9 @@ def search(q: str = Query("", max_length=64)) -> Response:
     from src.report.company_page import render_not_found
 
     return HTMLResponse(
-        render_not_found(raw[:40], "No ticker or company name matches that."),
+        render_not_found(
+            raw[:40], f"No companies found matching “{raw[:40]}”."
+        ),
         status_code=404,
     )
 
@@ -1733,9 +1741,19 @@ def _uniform_login_failure() -> HTTPException:
     all land here. Telling them apart -- "no password set for this account" --
     would confirm the address is registered, which is exactly what the uniform
     replies on /register and /magic-link exist to prevent.
+
+    So the message covers the third case instead of detecting it. Somebody who
+    signed up with a link and has never set a password reads this and knows
+    exactly what to do; somebody probing for registered addresses learns
+    nothing, because everybody gets the same sentence.
     """
     return HTTPException(
-        status_code=401, detail="Incorrect email or password."
+        status_code=401,
+        detail=(
+            "Incorrect email or password. If you signed up with a magic link "
+            "you may not have set a password yet — sign in with a link and "
+            "set one from the Account tab."
+        ),
     )
 
 
@@ -2261,7 +2279,32 @@ def dashboard(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/api")
+@app.get("/api", response_class=HTMLResponse)
+def api_page(request: Request) -> HTMLResponse:
+    """The API reference, as a page.
+
+    /api is in the navigation bar, and a nav link that answers with raw JSON
+    asks a reader to parse a payload to find out what the product does. The
+    index that used to live here is unchanged and now at /api.json, which is
+    where something that wants to read it by machine will look anyway.
+    """
+    from src.report.api_page import render_api
+
+    s = get_settings()
+    return HTMLResponse(
+        _versioned(
+            render_api(
+                nav=_nav_for(request, "api"),
+                base_url=str(request.base_url).rstrip("/"),
+                free_calls=s.free_tier_monthly_calls,
+                pro_calls=s.pro_tier_monthly_calls,
+                dataset_price=f"${s.dataset_price_usd}",
+            )
+        )
+    )
+
+
+@app.get("/api.json")
 def api_index() -> JSONResponse:
     return JSONResponse(
         {
@@ -2271,6 +2314,7 @@ def api_index() -> JSONResponse:
             ),
             "endpoints": [
                 "/", "/search?q=TICKER", "/company/{ticker}",
+                "/api  (this index, as a page)", "/api.json",
                 "/health", "/status", "/reconcile",
                 "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
                 "/admin/universe-check",

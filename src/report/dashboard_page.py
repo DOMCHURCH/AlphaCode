@@ -242,6 +242,20 @@ def render_dashboard(
 
   <section class="sec keyed panel" id="panel-account" data-panel="account" hidden>
     <div class="sec-head"><h2>Account</h2></div>
+
+    <!-- Shown only to an account with no password, which is every account that
+         arrived by magic link. Those people cannot use the password tab on
+         /login and there is nothing on that page that can tell them so without
+         confirming to a stranger that their address is registered -- so the
+         place it CAN be said plainly is here, behind the session. Ships hidden
+         and revealed by dashboard.js, so it is never briefly wrong. -->
+    <div class="banner nopw" id="nopw-callout" hidden>
+      <p><strong>You have no password yet.</strong> You signed in with a
+        link, which will keep working. Set one below if you would rather not
+        wait for an email every time.</p>
+      <button type="button" class="btn" id="nopw-btn">Set a password</button>
+    </div>
+
     <div class="tiles">
       <div class="tile">
         <span class="tlabel">Email</span>

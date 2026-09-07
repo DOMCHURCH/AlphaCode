@@ -59,6 +59,9 @@ log = structlog.get_logger(__name__)
 # a whole quarterly dataset has been loaded.
 _QUARTER_LOADED_MIN_ROWS = 25
 
+# Listings and delistings, not prices. A week-old ticker list is current.
+_NAMES_MAX_AGE_DAYS = 7
+
 
 def _utcnow() -> dt.datetime:
     """Naive UTC, matching what every DateTime column in this schema stores."""
@@ -398,6 +401,58 @@ async def _run_subscriptions(status: dict[str, Any]) -> Outcome:
     return Outcome(status="ok", rows=n, detail=f"warned about {n}")
 
 
+def names_status(session: Any, today: dt.date) -> dict[str, Any]:
+    """Are company names loaded, and are they from a recent SEC list?
+
+    Name search reads `universe.name`. With nothing there, typing "Walmart"
+    cannot match anything -- and the failure is silent, because "no match" and
+    "the name column is empty" look identical to a reader. This job is what
+    stops that being a permanent state that nobody notices.
+
+    Costs one cached SEC file, so it re-runs weekly rather than daily: the
+    ticker list changes with listings and delistings, not with the market.
+    """
+    from src.storage.models import UniverseSnapshot
+
+    loaded = int(
+        session.execute(
+            select(func.count(func.distinct(UniverseSnapshot.ticker))).where(
+                UniverseSnapshot.name.isnot(None),
+                UniverseSnapshot.name != "",
+            )
+        ).scalar_one()
+        or 0
+    )
+    if loaded == 0:
+        return {"due": True, "detail": "no company names stored — name search is off"}
+    newest = session.execute(
+        select(func.max(UniverseSnapshot.as_of_date)).where(
+            UniverseSnapshot.name.isnot(None)
+        )
+    ).scalar_one_or_none()
+    age = (today - newest).days if newest else 9999
+    if age >= _NAMES_MAX_AGE_DAYS:
+        return {"due": True, "detail": f"names are {age}d old", "loaded": loaded}
+    return {
+        "due": False,
+        "detail": f"{loaded:,} names, {age}d old",
+        "loaded": loaded,
+    }
+
+
+async def _run_names(_status: dict[str, Any]) -> Outcome:
+    from src.backfill import backfill_company_names
+
+    # No BACKFILL lock here: `tick` already holds it around every attempt, and
+    # asyncio.Lock is not reentrant -- taking it again would hang the updater.
+    rows = await backfill_company_names()
+    if rows == 0:
+        # Not an error: SEC serving an empty list is an upstream state to wait
+        # out, the same way an unpublished quarter is.
+        return Outcome(status="waiting", rows=0, detail="SEC returned no names")
+    return Outcome(status="ok", rows=rows, detail=f"{rows:,} company names")
+
+
 @dataclass(frozen=True)
 class Job:
     name: str
@@ -446,6 +501,17 @@ JOBS: tuple[Job, ...] = (
         min_hours=lambda s: s.auto_update_sec_recheck_hours,
         wait_hours=lambda s: s.auto_update_sec_recheck_hours,
         description="filing events, newest published quarter",
+    ),
+    Job(
+        name="names",
+        status=names_status,
+        run=_run_names,
+        min_hours=lambda s: 24.0,
+        wait_hours=lambda s: 24.0,
+        description=(
+            "company names from SEC's own ticker list -- what makes searching "
+            "\"Walmart\" rather than \"WMT\" work at all"
+        ),
     ),
     Job(
         name="subscriptions",

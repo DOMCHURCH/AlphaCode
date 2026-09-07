@@ -192,8 +192,14 @@
         s.has_password ? "Change your password" : "Set a password";
       show($("curpw-field"), !!s.has_password);
       $("setpw-btn").textContent = s.has_password ? "Change" : "Save";
+      /* The nudge, and only for an account that has never set one. Anybody who
+         arrived by magic link cannot be told this on /login -- saying it there
+         would confirm to a stranger that the address is registered -- so the
+         Account tab is where it gets said. */
+      show($("nopw-callout"), !s.has_password);
     } else {
       show($("pw-box"), false);
+      show($("nopw-callout"), false);
       show($("pw-hint"), CFG.loginEnabled);
     }
     maybeAnnounceGrant(s);
@@ -511,6 +517,13 @@
     $("dl-btn").addEventListener("click", download);
     $("regen-btn").addEventListener("click", regenerate);
     $("logout-btn").addEventListener("click", logout);
+    // The callout's button does not do the work -- the form below it does. It
+    // scrolls to it and puts the cursor in it, so the nudge lands somewhere.
+    $("nopw-btn").addEventListener("click", function () {
+      var box = $("pw-box");
+      if (box.scrollIntoView) box.scrollIntoView({ behavior: "smooth", block: "center" });
+      $("newpw").focus();
+    });
     $("buy-pro").addEventListener("click", function () {
       openPayModal(payText("Pro", "$" + CFG.proPrice + " a month"));
     });

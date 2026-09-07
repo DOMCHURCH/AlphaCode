@@ -89,13 +89,13 @@
       rgba(10, 10, 10, 0.90) 100%);
 }
 
-/* No film on a narrow screen, and no film for somebody who asked for less
-   motion. Both are enforced in the script as well -- this is belt and braces,
-   because a rule that only lives in CSS is one media-query rewrite away from
-   quietly costing a phone 250 KB. */
+/* No film on a narrow screen. Enforced in the script as well -- this is belt
+   and braces, because a rule that only lives in CSS is one media-query rewrite
+   away from quietly costing a phone 250 KB.
+
+   The `prefers-reduced-motion` rule that sat here has been removed alongside
+   the matching check in backdrop.js; see the note at the top of that file for
+   why, and for how to put both back. */
 @media (max-width: 900px) {
-  .backdrop-film { display: none; }
-}
-@media (prefers-reduced-motion: reduce) {
   .backdrop-film { display: none; }
 }

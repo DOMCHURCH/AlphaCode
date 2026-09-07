@@ -328,3 +328,36 @@
 /* The clauses somebody skimming must not miss. */
 .legal .callout{padding:16px 18px;border-radius:var(--r2);background:var(--well);
   box-shadow:var(--in-sm);color:var(--ink)}
+
+/* ---- the API reference ---- */
+/* An endpoint is a signature and two sentences. Laid out as a list of pressed
+   wells rather than a table, because the interesting column -- the path -- is
+   the only one a reader scans, and a table would give it a third of the width
+   and spend the rest on prose that is read once. */
+.eps{display:grid;gap:12px;margin-top:4px}
+.ep{padding:16px 18px;border-radius:var(--r2);background:var(--well);
+  box-shadow:var(--in-sm)}
+.ep-sig{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.ep-m{font:700 10.5px/1 var(--mono);letter-spacing:.09em;color:var(--ink2);
+  padding:5px 8px;border-radius:var(--r1);background:var(--bg);
+  box-shadow:var(--up-sm);flex:none}
+.ep-p{font-family:var(--mono);font-size:13.5px;color:var(--ink);
+  overflow-wrap:anywhere}
+.ep-auth{margin:9px 0 0;font-size:12px;color:var(--dim)}
+.ep-b{margin:7px 0 0;font-size:14px;line-height:1.6;color:var(--ink2);
+  max-width:64ch}
+.ep-b code{font-family:var(--mono);font-size:12.5px;color:var(--ink)}
+.api-cta{display:flex;gap:10px;flex-wrap:wrap;margin-top:4px}
+/* A second action that must not read as a second choice of equal weight. */
+.btn.ghost{box-shadow:var(--in-sm);color:var(--ink2)}
+.btn.ghost:hover{box-shadow:var(--in-sm);color:var(--ink)}
+.api-code{white-space:pre;overflow-x:auto}
+
+/* ---- the "you have no password" nudge ---- */
+/* Loud enough to be seen on arrival, quiet enough not to read as a problem:
+   nothing is wrong with a magic-link account, there is just a faster way in. */
+.banner.nopw{display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+  margin:0 0 18px}
+.banner.nopw p{margin:0;flex:1 1 260px;font-size:14px;line-height:1.55;
+  color:var(--ink2)}
+.banner.nopw strong{color:var(--ink)}

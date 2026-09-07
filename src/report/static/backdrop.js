@@ -7,9 +7,19 @@
 
      - the viewport is desktop-width (a phone gets the still, full stop)
      - the page has finished loading (the film never competes with the content)
-     - reduced motion has not been asked for
      - the connection is not metered, saving data, or 2g/3g
      - the tab is actually visible
+
+   `prefers-reduced-motion` used to be on that list and deliberately is not any
+   more. On Windows, turning OFF "Show animations in Windows" -- which is a
+   performance setting people reach for, not an accessibility one -- makes
+   Chrome report `reduce` permanently. The result was that a large group of
+   desktop users who had never asked for anything saw a still image and
+   concluded the site was broken, which is what actually happened here. This is
+   the owner's call, made knowing the trade: the film is a silent, slow,
+   looping background at low contrast under a heavy veil, and it is the one
+   piece of motion on the site. Restoring the gate is one line in `eligible()`
+   and one media query in backdrop.css.
 
    And it is undone the moment any of that stops being true: the film is paused
    off-screen, and torn down entirely when the page is left. That last part is
@@ -24,12 +34,6 @@
   var MIN_WIDTH = 901;          // matches the CSS breakpoint
   var film = null;
 
-  function reducedMotion() {
-    try {
-      return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-    } catch (e) { return false; }
-  }
-
   /* Connection hints are advisory and not everywhere, so an absent API means
      "no reason to refuse" rather than "refuse". Present and saying the
      connection is poor is taken at its word. */
@@ -42,9 +46,7 @@
   }
 
   function eligible() {
-    return window.innerWidth >= MIN_WIDTH &&
-      !reducedMotion() &&
-      connectionIsCheap();
+    return window.innerWidth >= MIN_WIDTH && connectionIsCheap();
   }
 
   function build() {

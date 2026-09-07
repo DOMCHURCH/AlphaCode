@@ -673,11 +673,26 @@ def test_search_for_an_unknown_ticker_still_reaches_the_page_that_can_say_so(cli
     place that can explain and offer alternatives."""
     _seed("JPM", _drawable(), sector="Financials")
 
-    r = client.get("/search", params={"q": "NOSUCH"}, follow_redirects=True)
+    # Five characters or fewer, because that is what a US ticker is. Longer
+    # than that and the query is treated as a name -- see the test below.
+    r = client.get("/search", params={"q": "NOSUX"}, follow_redirects=True)
 
     assert r.status_code == 404
-    assert "Nothing to draw for NOSUCH" in r.text
+    assert "Nothing to draw for NOSUX" in r.text
     assert 'href="/company/JPM"' in r.text, "offer one that exists"
+
+
+def test_a_long_word_is_a_name_not_a_ticker(client):
+    """The Walmart bug: "Walmart" is alphanumeric, so the ticker-shaped
+    fallthrough sent it to /company/WALMART -- a page about a symbol that does
+    not exist, presented as though the site had understood the reader."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    r = client.get("/search", params={"q": "Walmart"})
+
+    assert r.status_code == 404
+    assert "/company/WALMART" not in r.text
+    assert r.headers.get("location") != "/company/WALMART"
 
 
 def test_search_with_nothing_typed_asks_for_a_ticker(client):
@@ -878,7 +893,8 @@ def test_a_name_matching_nothing_says_so_and_offers_the_examples(client):
     r = client.get("/search", params={"q": "not a real company plc"})
 
     assert r.status_code == 404
-    assert "No ticker or company name matches that" in r.text
+    assert "No companies found matching" in r.text
+    assert "not a real company plc" in r.text
     assert 'href="/company/WMT"' in r.text
 
 
@@ -928,4 +944,4 @@ def test_the_service_is_branded_to_scale(client):
 
     assert "To&nbsp;Scale" in client.get("/").text
     assert "To&nbsp;Scale" in client.get("/company/JPM").text
-    assert client.get("/api").json()["service"] == "To Scale"
+    assert client.get("/api.json").json()["service"] == "To Scale"
