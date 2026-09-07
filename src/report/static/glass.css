@@ -1,0 +1,508 @@
+/* To Scale — the glass treatment.
+   ---------------------------------------------------------------------------
+   Loaded LAST, after dark.css, and it REPLACES terminal.css rather than
+   stacking on it. Layering would have meant undoing 2px radii, hairline
+   borders, uppercase mono headings and thirty squared pills one rule at a
+   time, and every rule missed would be a visual bug hunted with another
+   override. terminal.css is still on disk: swapping the one <link> back
+   returns the ruled treatment and changes nothing else.
+
+   THE ALPHA IS MEASURED, NOT CHOSEN. Glass is the one style where taste and
+   legibility genuinely conflict: every point of transparency that makes the
+   panel prettier makes the text on it harder to read, and the backdrop is
+   MOVING, so the worst case arrives for two seconds and leaves. Sampling the
+   film's brightest 4px block (250, 208, 182 — the cream horizon just above
+   the cloud line) and compositing forward:
+
+     veil 42%, glass rgba(22,24,38,.70)  ->  body 4.75:1, headings 10.2:1
+     the same glass at .62               ->  body 4.17:1, FAILS
+     a neutral #1A1A1A glass at .68      ->  body 4.54:1, and reads warm
+                                             against a blue-violet sky
+
+   So: veil 42%, glass .70, tinted toward the sky rather than away from it.
+   Those two numbers are load-bearing. Lowering either is a legibility change
+   dressed as a styling one.
+
+   THE ACCENT IS GONE, and that is the point. The terminal round used cyan; on
+   a blue-violet backdrop cyan is no longer a signal, it is camouflage. Glass
+   does not accent with hue anyway — look at any of the reference frames and
+   the emphasis is carried by WHITE and by blur, which is exactly what the
+   original rule for this site wanted: the only colour on the page is data.
+   White for focus, white for the active item, and the balance sheet keeps
+   every colour there is.
+*/
+
+:root {
+  color-scheme: dark;
+
+  /* Deep and slightly blue, so the page reads as the same night as the film
+     rather than as a black rectangle sitting on top of it. */
+  --bg: #0B0C12;
+  --panel: rgba(22, 24, 38, .70);
+  --panel-solid: #14161F;
+  --well: #10121A;
+  --hi: #1B1E2A;
+  --lo: #06070B;
+
+  --edge: rgba(255, 255, 255, .14);
+  --edge-soft: rgba(255, 255, 255, .07);
+
+  --ink: #F2F1F7;
+  --ink2: #ADAFC0;
+  --dim: #71748A;
+
+  /* White is the accent. */
+  --acc: #FFFFFF;
+
+  /* Neumorphism stays gone. Glass has its own light: a soft drop below and a
+     1px highlight along the top edge, which is the whole trick -- it is what
+     makes a translucent rectangle read as a pane rather than as a hole. */
+  --up: none;
+  --up-sm: none;
+  --up-lg: none;
+  --in: none;
+  --in-sm: none;
+
+  --lift: 0 24px 60px rgba(0, 0, 0, .38), inset 0 1px 0 rgba(255, 255, 255, .12);
+  --lift-sm: 0 10px 28px rgba(0, 0, 0, .30), inset 0 1px 0 rgba(255, 255, 255, .09);
+
+  /* Soft. The brief asked for rounded and tasteful over dense, and this is
+     most of it -- a 22px corner on a panel changes the character of a page
+     more than any other single value. */
+  --r1: 14px;
+  --r2: 22px;
+  --r3: 30px;
+}
+
+body { background: var(--bg); color: var(--ink); }
+
+/* ---------------------------------------------------------------------------
+   Glass, and where it is allowed
+   ---------------------------------------------------------------------------
+   FOUR panes on the whole site, and never more than three in one viewport.
+   Each backdrop-filter over a playing video is a separate re-blur every frame;
+   a dozen of them is a slideshow with a stylesheet. So the glass goes on the
+   few surfaces that sit over the film and hold prose, and everything else --
+   above all the drawing -- is solid.
+*/
+.strip, .trust, .plans, .hero-bs .bs, .card, .acc, .ep, .sheet, .buy {
+  border-radius: var(--r2);
+}
+
+.strip, .trust, .plans {
+  background: var(--panel);
+  -webkit-backdrop-filter: blur(28px) saturate(1.4);
+  backdrop-filter: blur(28px) saturate(1.4);
+  border: 1px solid var(--edge);
+  box-shadow: var(--lift);
+}
+
+/* No blur support means no free readability, so buy it back in alpha. */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .strip, .trust, .plans { background: rgba(22, 24, 38, .93); }
+}
+
+/* Everything else that used to be a slab is a solid soft panel: same corner,
+   same edge highlight, no per-frame cost. */
+.chead, .bs, .card, .tile, .plan, .buy, .compare, .tablewrap, .keybox,
+.code, .sheet, .resend, .banner, .acc, .meter, .planline, .empty, .ep,
+.stat, .shape, .bignum, .glass, .glass-lite {
+  background: var(--panel-solid);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r2);
+  box-shadow: var(--lift-sm);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+/* The drawing sits on solid ground, always. A cloud drifting behind a blue
+   band shifts its perceived hue, and the product is a claim about proportion
+   and colour being read accurately. */
+.bs, .stack, .hero-bs .bs { background: var(--panel-solid); }
+.stack { border-radius: var(--r1); border: 1px solid var(--edge-soft); }
+
+/* The hero is type over the film and nothing else. Putting it on glass would
+   be a fifth pane and would box in the one part of the page that should feel
+   open. */
+.hero, .glass-lite { background: transparent; border: 0; box-shadow: none; }
+
+/* ---------------------------------------------------------------------------
+   Air
+   ---------------------------------------------------------------------------
+   "More tasteful, less data-packed." Density in the terminal round came from
+   three things: 10px uppercase labels, 8px cell padding, and headings set in
+   mono. All three are undone here. The sections and the figures are the same;
+   they are given room.
+*/
+.sec { margin: 0 0 40px; }
+.sec-head {
+  border-bottom: 0;
+  padding-bottom: 0;
+  margin-bottom: 14px;
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.sec-head h2 {
+  font-family: var(--disp);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+  text-transform: none;
+  color: var(--ink);
+}
+.sec-sub { font-size: 15.5px; line-height: 1.65; max-width: 62ch; }
+
+.htitle {
+  font-size: clamp(34px, 4.4vw, 60px);
+  font-weight: 600;
+  letter-spacing: -.03em;
+  max-width: 15ch;
+  line-height: 1.04;
+}
+.hlede { font-size: 17px; line-height: 1.6; max-width: 46ch; color: var(--ink2); }
+.hero { padding: 28px 0 26px; }
+
+.tile, .card, .plan, .ep { padding: 20px 22px; }
+.compare th, .compare td { padding: 13px 18px; }
+.lrow > * { padding: 11px 4px; }
+.hero-bs .bs { padding: 24px 24px 10px; }
+
+/* ---------------------------------------------------------------------------
+   The status strip
+   ---------------------------------------------------------------------------
+   One pane, and the first pane: it is what proves the glass is glass, because
+   the sky moves behind it. Cells with generous room and hairlines between
+   them -- still a strip of facts, no longer a strip of small print.
+*/
+.strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  margin: 0 0 30px;
+  overflow: hidden;
+}
+.scell {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 26px;
+  border-right: 1px solid var(--edge-soft);
+  min-width: 0;
+}
+.scell:last-child { border-right: 0; }
+.sk {
+  font-size: 11px;
+  letter-spacing: .09em;
+  text-transform: uppercase;
+  color: var(--dim);
+  white-space: nowrap;
+}
+.sv {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+}
+/* The reconcile figure is the number this product is an argument about. On
+   glass that is said with weight and white, not with a hue. */
+.sv.live { color: #FFFFFF; }
+.pulse {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 999px;
+  background: #FFFFFF;
+  box-shadow: 0 0 10px rgba(255, 255, 255, .7);
+  margin-right: 9px;
+  vertical-align: middle;
+  animation: pulse 2.4s ease-in-out infinite;
+}
+@keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+@media (prefers-reduced-motion: reduce) { .pulse { animation: none; } }
+
+/* ---------------------------------------------------------------------------
+   Data & method
+   ---------------------------------------------------------------------------
+   ONE pane holding six transparent blocks, rather than six panes. Six
+   backdrop-filters in a grid is six re-blurs a frame for a result that looks
+   worse -- the blocks read as one surface with rules in it, which is what they
+   are.
+*/
+.trust {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 0;
+  overflow: hidden;
+}
+.tblock {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--edge-soft);
+  padding: 22px 26px;
+}
+.tblock h3 {
+  margin: 0 0 8px;
+  font-family: var(--disp);
+  font-size: 14.5px;
+  font-weight: 600;
+  letter-spacing: -.005em;
+  text-transform: none;
+  color: var(--ink);
+}
+.tblock p { margin: 0; font-size: 14.5px; line-height: 1.65; color: var(--ink2);
+  max-width: 54ch; }
+.tblock a { color: var(--ink); border-bottom: 1px solid var(--edge); }
+@media (min-width: 760px) {
+  .trust { grid-template-columns: 1fr 1fr; }
+  .tblock:nth-child(odd) { border-right: 1px solid var(--edge-soft); }
+  .tblock:nth-last-child(-n+2) { border-bottom: 0; }
+}
+@media (min-width: 1400px) {
+  .trust { grid-template-columns: repeat(3, 1fr); }
+  .tblock:nth-child(odd) { border-right: 1px solid var(--edge-soft); }
+  .tblock:nth-child(3n) { border-right: 0; }
+  .tblock:nth-child(3n+1), .tblock:nth-child(3n+2) {
+    border-right: 1px solid var(--edge-soft);
+  }
+  .tblock:nth-last-child(-n+3) { border-bottom: 0; }
+}
+
+/* Pricing: one pane, three plain columns inside it. */
+.plans { display: grid; grid-template-columns: 1fr; gap: 0; overflow: hidden;
+  margin-bottom: 16px; }
+.plan { background: transparent; border: 0; box-shadow: none;
+  border-bottom: 1px solid var(--edge-soft); padding: 24px 26px; }
+@media (min-width: 760px) {
+  .plans { grid-template-columns: repeat(3, 1fr); }
+  .plan { border-bottom: 0; border-right: 1px solid var(--edge-soft); }
+  .plan:last-child { border-right: 0; }
+}
+
+/* ---------------------------------------------------------------------------
+   Controls
+   ---------------------------------------------------------------------------
+   Pill-shaped again, because on glass a capsule is the right shape: it is what
+   a light-catching edge wraps around. White for the primary action, a frosted
+   outline for everything else.
+*/
+.btn, .plan-cta, .search button, .tab, .navlink, .tag, .chip, .badge,
+.sugg a, .back, .mini, .act, .ckind {
+  border-radius: 999px;
+  box-shadow: none;
+}
+.btn, .plan-cta {
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid var(--edge);
+  color: var(--ink);
+  font-family: var(--disp);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  padding: 13px 22px;
+  transition: background .18s ease, border-color .18s ease, transform .18s ease;
+}
+.btn:hover, .plan-cta:hover {
+  background: rgba(255, 255, 255, .13);
+  border-color: rgba(255, 255, 255, .3);
+  transform: translateY(-1px);
+}
+.btn:active { transform: none; }
+.btn[disabled] { color: var(--dim); border-color: var(--edge-soft);
+  background: transparent; transform: none; }
+.btn.ghost { background: transparent; color: var(--ink2); }
+.btn.ghost:hover { background: rgba(255, 255, 255, .07); color: var(--ink); }
+
+.search button {
+  background: #FFFFFF;
+  color: #0B0C12;
+  border: 1px solid #FFFFFF;
+  font-family: var(--disp);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 13px 24px;
+}
+.search button:hover { background: #FFFFFF; box-shadow: 0 0 24px rgba(255, 255, 255, .28); }
+
+/* The field is a pane of its own, so the search box reads as sitting on the
+   sky rather than cut into it. */
+.sfield {
+  background: rgba(20, 22, 34, .58);
+  -webkit-backdrop-filter: blur(20px) saturate(1.3);
+  backdrop-filter: blur(20px) saturate(1.3);
+  border: 1px solid var(--edge);
+  border-radius: 999px;
+  box-shadow: var(--lift-sm);
+  padding: 7px 7px 7px 10px;
+}
+.sfield:focus-within { border-color: rgba(255, 255, 255, .4); }
+.sfield input { font-family: var(--disp); font-size: 16px; }
+
+.tabs { background: transparent; box-shadow: none; border: 0; padding: 0;
+  gap: 8px; border-radius: 0; }
+.tab {
+  background: rgba(255, 255, 255, .05);
+  border: 1px solid transparent;
+  color: var(--ink2);
+  font-family: var(--disp);
+  font-size: 14px;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 10px 18px;
+}
+.tab.on { background: rgba(255, 255, 255, .14); border-color: var(--edge);
+  color: var(--ink); }
+
+nav { border-bottom: 1px solid var(--edge-soft); background: transparent; }
+.navlink { color: var(--ink2); background: transparent; }
+.navlink:hover { color: var(--ink); }
+.navlink.on { color: var(--ink); background: rgba(255, 255, 255, .10); }
+.navlink.off:hover { color: var(--dim); }
+.badge, .tag, .ckind {
+  background: rgba(255, 255, 255, .07);
+  border: 1px solid var(--edge-soft);
+  color: var(--ink2);
+}
+
+:focus-visible { outline: 2px solid var(--acc); outline-offset: 3px; }
+.skip { background: #FFFFFF; color: #0B0C12; }
+.dot { box-shadow: none; }
+
+/* Numbers keep the mono face and tabular figures. That is not the terminal
+   voice, it is correctness: a column of proportional digits changes width as
+   it updates, and a figure that jitters is one the reader stops trusting. */
+.sv, .stat b, .bignum b, .tval, .price, .lv, .lp, .bs-cap b, .band .bv,
+.compare td, code, kbd, samp {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+}
+
+.bignum { display: flex; align-items: baseline; gap: 20px; flex-wrap: wrap;
+  text-align: left; padding: 22px 26px; }
+.bignum b { display: inline; font-size: clamp(34px, 4.6vw, 52px); line-height: 1; }
+.bignum span { display: inline; margin: 0; max-width: 50ch; font-size: 14.5px; }
+
+.bs-meta {
+  font-family: var(--mono);
+  font-size: 12px;
+  color: var(--ink2);
+  margin-left: auto;
+  padding: 5px 12px;
+  background: rgba(255, 255, 255, .06);
+  border: 1px solid var(--edge-soft);
+  border-radius: 999px;
+}
+
+a { color: var(--ink); }
+.legal a, .plan-note a, .formnote a, .foot-links a, .hero .summary a {
+  text-decoration: none;
+  border-bottom: 1px solid var(--edge);
+}
+.legal a:hover, .plan-note a:hover, .formnote a:hover,
+.foot-links a:hover, .hero .summary a:hover { border-bottom-color: var(--ink); }
+.hero .summary { margin: 18px 0 0; font-size: 13.5px; }
+.hero .summary a { color: var(--ink2); }
+.lrow:hover { background: rgba(255, 255, 255, .03); }
+.sw { box-shadow: none; border: 1px solid var(--edge-soft); }
+
+/* ---------------------------------------------------------------------------
+   The film behind it
+   ---------------------------------------------------------------------------
+   42%, measured above. Much lighter than the terminal round wanted, because
+   the whole point of glass is that there is something to see through it -- a
+   pane over a black rectangle is just a grey rectangle. Below the fold the
+   ground still solidifies, because that is where the reading starts.
+*/
+.backdrop-veil,
+body[data-film="hero"] .backdrop-veil,
+body[data-film="calm"] .backdrop-veil,
+body[data-film="still"] .backdrop-veil {
+  background:
+    radial-gradient(120% 90% at 62% 45%,
+      rgba(6, 7, 12, .30) 0%, rgba(6, 7, 12, .46) 55%,
+      rgba(6, 7, 12, .70) 100%),
+    linear-gradient(to bottom,
+      rgba(6, 7, 12, .42) 0%, rgba(6, 7, 12, .38) 38%,
+      rgba(8, 8, 18, .52) 72%, rgba(6, 7, 12, .82) 100%);
+}
+/* The pages that only get the still are read in for minutes rather than
+   glanced at, so the still goes further back. */
+body[data-film="still"] .backdrop-veil {
+  background:
+    radial-gradient(120% 90% at 62% 45%,
+      rgba(6, 7, 12, .74) 0%, rgba(6, 7, 12, .86) 55%,
+      rgba(6, 7, 12, .95) 100%),
+    linear-gradient(to bottom,
+      rgba(6, 7, 12, .86) 0%, rgba(6, 7, 12, .80) 38%,
+      rgba(8, 8, 18, .88) 72%, rgba(6, 7, 12, .96) 100%);
+}
+body[data-film="hero"] main::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(to bottom,
+    rgba(11, 12, 18, 0) 0%, rgba(11, 12, 18, 0) 44%,
+    rgba(11, 12, 18, .82) 76%, rgba(11, 12, 18, .95) 100%);
+}
+
+@media (max-width: 900px) {
+  /* Blur is expensive on a phone and there is no film there to blur -- the
+     still is. Keep the look, drop the per-frame cost. */
+  .strip, .trust, .plans, .sfield {
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+    background: rgba(22, 24, 38, .88);
+  }
+  .scell { padding: 13px 18px; }
+  .sv { font-size: 16px; }
+  .tblock, .plan { padding: 18px 20px; }
+  .hero-bs .bs { padding: 16px 14px 6px; }
+}
+
+/* ---------------------------------------------------------------------------
+   Two corrections found by looking at it
+   ---------------------------------------------------------------------------
+*/
+/* The strip was full-bleed with five cells at the left and a metre of empty
+   glass to the right, which reads as an unfinished table rather than as a
+   badge. It hugs its contents now and wraps to full width on a phone. */
+.strip { display: inline-flex; max-width: 100%; }
+@media (max-width: 620px) { .strip { display: flex; } }
+
+/* Blur costs per frame only where a frame is changing. On every page but the
+   home page the backdrop is a still image, so the field keeps the look and
+   stops paying for it -- which also keeps the number of live backdrop-filters
+   in any viewport at or under three. */
+body:not([data-film="hero"]) .sfield,
+body:not([data-film="hero"]) .strip,
+body:not([data-film="hero"]) .trust,
+body:not([data-film="hero"]) .plans {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(20, 22, 34, .92);
+}
+
+/* The subject of the film sits at the right of the frame, which is where the
+   section heading's dateline lands. Given its own ground so it never has to
+   compete with her. */
+.hero-bs .sec-head { position: relative; z-index: 1; }
+
+/* Mobile has no film, so the still is a fixed image and the text sits on it
+   permanently rather than for a moment. A little more veil buys that back. */
+@media (max-width: 620px) {
+  .backdrop-veil,
+  body[data-film="hero"] .backdrop-veil {
+    background:
+      radial-gradient(140% 80% at 70% 40%,
+        rgba(6, 7, 12, .52) 0%, rgba(6, 7, 12, .68) 55%,
+        rgba(6, 7, 12, .84) 100%),
+      linear-gradient(to bottom,
+        rgba(6, 7, 12, .62) 0%, rgba(6, 7, 12, .58) 38%,
+        rgba(8, 8, 18, .72) 72%, rgba(6, 7, 12, .92) 100%);
+  }
+}

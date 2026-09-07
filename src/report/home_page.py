@@ -383,9 +383,10 @@ def _shell(title: str, body: str, film: str = "still") -> str:
      drawings included, without a rule being rewritten. -->
 <link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<!-- Last of all, and token overrides again: this is what removes neumorphism
-     from every surface at once and rules the page like a terminal. -->
-<link rel="stylesheet" href="/static/terminal.css?v={asset_version()}">
+<!-- Last of all, and token overrides again: this is what turns the flat
+     surfaces into glass and the corners soft. Swap this one line back to
+     terminal.css to return to the ruled treatment; nothing else changes. -->
+<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
 </head>
 <body data-film="{film}">

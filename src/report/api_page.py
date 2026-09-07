@@ -162,4 +162,4 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — API reference", body, film="none")
+    return shell("To Scale — API reference", body, film="still")

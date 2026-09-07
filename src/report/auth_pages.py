@@ -48,7 +48,7 @@ def render_login(
   </header>
 {_footer()}
 </main>"""
-        return shell("To Scale — sign in", body, film="hero")
+        return shell("To Scale — sign in", body, film="still")
 
     body = f"""{nav or _nav()}
 <main class="wrap" id="main">
@@ -130,7 +130,7 @@ def render_login(
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — sign in", body, film="hero")
+    return shell("To Scale — sign in", body, film="still")
 
 
 def render_verify(*, token: str, state: str) -> str:
@@ -154,7 +154,7 @@ def render_verify(*, token: str, state: str) -> str:
   </section>
 {_footer()}
 </main>"""
-        return shell("To Scale — link expired", body, film="calm")
+        return shell("To Scale — link expired", body, film="still")
 
     body = f"""{_nav()}
 <main class="wrap" id="main">
@@ -176,4 +176,4 @@ def render_verify(*, token: str, state: str) -> str:
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — signing you in", body, film="calm")
+    return shell("To Scale — signing you in", body, film="still")

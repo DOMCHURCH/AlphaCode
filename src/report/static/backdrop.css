@@ -43,7 +43,11 @@
     image-set(url("/static/media/backdrop.webp") type("image/webp"),
               url("/static/media/backdrop.jpg") type("image/jpeg"));
   background-size: cover;
-  background-position: center 42%;   /* the island, not the empty sky */
+  /* The figure sits low and right in this film and the page's content sits
+     left, so the frame is held down and across rather than centred -- what
+     the reader gets behind the text is sky, and the subject stays clear of
+     it. */
+  background-position: 74% 64%;
   background-repeat: no-repeat;
   /* Very slight scale so the blur in the veil never reveals a hard edge. */
   transform: scale(1.04);
@@ -65,7 +69,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: center 42%;
+  object-position: 74% 64%;
   transform: scale(1.04);
   opacity: 0;
   transition: opacity 1.2s ease;
@@ -107,4 +111,12 @@
    why, and for how to put both back. */
 @media (max-width: 900px) {
   .backdrop-film { display: none; }
+}
+
+/* On a phone the frame is tall and narrow, so the same crop that puts the
+   subject clear of the text on a desktop puts her head directly behind the
+   opening paragraph. Pushed further right and down: what sits behind the words
+   is sky, and she is still in shot. */
+@media (max-width: 620px) {
+  .backdrop-still { background-position: 88% 74%; }
 }

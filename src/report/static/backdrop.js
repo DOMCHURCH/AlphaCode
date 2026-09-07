@@ -5,6 +5,9 @@
 
    It is a no unless ALL of these hold:
 
+     - the page asked for it: <body data-film="hero">. Every other page shows
+       the still and nothing else, and CSS alone was not enough -- a hidden
+       <video> still downloads and still decodes.
      - the viewport is desktop-width (a phone gets the still, full stop)
      - the page has finished loading (the film never competes with the content)
      - the connection is not metered, saving data, or 2g/3g
@@ -45,8 +48,15 @@
     return true;
   }
 
+  function wantsFilm() {
+    var body = document.body;
+    return !!body && body.getAttribute("data-film") === "hero";
+  }
+
   function eligible() {
-    return window.innerWidth >= MIN_WIDTH && connectionIsCheap();
+    return wantsFilm() &&
+      window.innerWidth >= MIN_WIDTH &&
+      connectionIsCheap();
   }
 
   function build() {
@@ -68,8 +78,8 @@
     v.disablePictureInPicture = true;
     v.tabIndex = -1;
 
-    // WebM first: it is ~40% smaller here, and any browser that understands it
-    // is the one that should be getting it.
+    // WebM first: 118 KB against the MP4's 190 KB for this source, and any
+    // browser that understands it is the one that should be getting it.
     [[WEBM, "video/webm"], [MP4, "video/mp4"]].forEach(function (pair) {
       var s = document.createElement("source");
       s.src = pair[0];
