@@ -465,6 +465,17 @@ async def _backfill_bg(kind: str, days: int) -> None:
             log.exception("backfill_failed", kind=kind, error=str(exc))
 
 
+def demo_is_working() -> bool:
+    """Whether /api/demo would answer -- the account resolves, not merely that
+    DEMO_API_KEY is present."""
+    from src import demo
+
+    try:
+        return demo.account() is not None
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return False
+
+
 def mailer_is_configured() -> bool:
     """Whether outbound mail would actually send, without trying to send."""
     from src import mailer
@@ -502,7 +513,12 @@ def status() -> dict[str, Any]:
     # are different claims, and telling them apart otherwise needs the admin
     # secret to reach /admin.
     out["features"] = {
-        "demo": demo.is_enabled(),
+        # Not `is_enabled()`: that only says the variable arrived. This says
+        # the endpoint would actually answer, which is the question being
+        # asked -- the two came apart once already, and a flag reading True
+        # next to a 503 is worse than no flag.
+        "demo": demo_is_working(),
+        "demo_key_set": demo.is_enabled(),
         "email": mailer_is_configured(),
         "login": auth_is_enabled(),
     }

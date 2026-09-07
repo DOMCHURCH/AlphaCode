@@ -340,6 +340,25 @@ class Settings(BaseSettings):
     # Concurrency
     http_concurrency: int = Field(default=10, alias="HTTP_CONCURRENCY")
 
+    @field_validator("demo_api_key", "admin_secret", "agentmail_api_key")
+    @classmethod
+    def _clean_secret(cls, v: str) -> str:
+        """Strip what a paste into a dashboard field leaves behind.
+
+        A value copied into Railway's UI arrives with a trailing newline often
+        enough, and wrapped in quotes often enough, that both are worth taking
+        off. It matters here more than for most settings because the demo key
+        is COMPARED: `accounts.lookup` strips the key it is given, so a stored
+        "abc
+" and a looked-up "abc" never match, and the failure surfaces as
+        "the demo is not configured" on a deployment where the variable is
+        plainly set.
+        """
+        v = (v or "").strip()
+        if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+            v = v[1:-1].strip()
+        return v
+
     @field_validator("database_url")
     @classmethod
     def _normalise_pg_scheme(cls, v: str) -> str:

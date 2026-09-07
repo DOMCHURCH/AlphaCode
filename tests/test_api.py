@@ -1044,8 +1044,25 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
     not already inferable from a 503 on the endpoint each one gates."""
     body = client.get("/status").json()
 
-    assert set(body["features"]) == {"demo", "email", "login"}
+    assert set(body["features"]) == {"demo", "demo_key_set", "email", "login"}
     for name, value in body["features"].items():
         assert isinstance(value, bool), name
-    # The keys are the state, never the secret.
-    assert "key" not in json.dumps(body["features"]).lower()
+    # State, never a secret. Booleans only -- a string here would mean a value
+    # had been rendered where a flag belongs.
+    assert not any(isinstance(v, str) for v in body["features"].values())
+    assert json.dumps(body["features"]).count('"') == 2 * len(body["features"])
+
+
+def test_a_pasted_secret_keeps_its_surrounding_junk_off_the_comparison(
+    monkeypatch,
+):
+    """A value copied into a dashboard field arrives with a trailing newline,
+    or wrapped in quotes, often enough to matter -- and the demo key is
+    COMPARED. `accounts.lookup` strips the key it is handed, so a stored
+    "abc\n" against a looked-up "abc" never matches, and the deployment
+    reports "the demo is not configured" while the variable is plainly set."""
+    from src.config.settings import Settings
+
+    for raw in ('  "abc123"  ', "abc123\n", "'abc123'", " abc123 "):
+        monkeypatch.setenv("DEMO_API_KEY", raw)
+        assert Settings().demo_api_key == "abc123", raw
