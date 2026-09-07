@@ -1,0 +1,101 @@
+/* To Scale — the cinematic backdrop.
+   ---------------------------------------------------------------------------
+   Three layers stacked in one fixed box behind everything. Each is a complete
+   answer by itself, so a layer that never arrives costs atmosphere and nothing
+   else:
+
+     gradient  painted by this file, 0 bytes, always
+     still     ~57 KB WebP, loaded by CSS, every device
+     film      added by backdrop.js, desktop only, after load
+
+   The gradient is not a grey placeholder. It carries the film's own palette --
+   near-black at the top, warm gold at the horizon -- so somebody who only ever
+   sees this layer still gets the intended mood rather than an empty screen
+   waiting to be filled.
+*/
+
+:root {
+  --bd-base: #0a0a0a;
+  --bd-surface: #1a1a1a;
+  --bd-gold: #f0a500;
+}
+
+/* Fixed and behind everything. `pointer-events:none` because this is scenery:
+   it must never eat a click meant for the page. */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--bd-base);
+}
+
+/* Layer 1 + 2 in one element: the gradient paints instantly and the still is
+   composited over it as soon as it decodes, so there is no flash of a
+   different colour between them. */
+.backdrop-still {
+  position: absolute;
+  inset: 0;
+  background-color: var(--bd-base);
+  background-image:
+    image-set(url("/static/media/backdrop.webp") type("image/webp"),
+              url("/static/media/backdrop.jpg") type("image/jpeg"));
+  background-size: cover;
+  background-position: center 42%;   /* the island, not the empty sky */
+  background-repeat: no-repeat;
+  /* Very slight scale so the blur in the veil never reveals a hard edge. */
+  transform: scale(1.04);
+}
+
+/* Older Safari and Firefox that do not do image-set() fall back to the JPEG. */
+@supports not (background-image: image-set(url("x.webp") type("image/webp"))) {
+  .backdrop-still {
+    background-image: url("/static/media/backdrop.jpg");
+  }
+}
+
+/* Layer 3. Inserted by the script, faded in so the swap from still to film is
+   not a visible cut. Same framing as the still, so nothing shifts. */
+.backdrop-film {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center 42%;
+  transform: scale(1.04);
+  opacity: 0;
+  transition: opacity 1.2s ease;
+}
+.backdrop-film.on { opacity: 1; }
+
+/* The veil is what makes text readable over a moving image, and it is doing
+   three jobs at once: a flat dark wash for contrast, a vignette so the corners
+   fall away from the content, and a warm lift at the horizon that keeps the
+   gold rather than muddying it to grey. */
+.backdrop-veil {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(120% 80% at 50% 38%,
+      rgba(10, 10, 10, 0.30) 0%,
+      rgba(10, 10, 10, 0.66) 55%,
+      rgba(10, 10, 10, 0.88) 100%),
+    linear-gradient(to bottom,
+      rgba(10, 10, 10, 0.78) 0%,
+      rgba(10, 10, 10, 0.42) 42%,
+      rgba(26, 18, 8, 0.55) 72%,
+      rgba(10, 10, 10, 0.90) 100%);
+}
+
+/* No film on a narrow screen, and no film for somebody who asked for less
+   motion. Both are enforced in the script as well -- this is belt and braces,
+   because a rule that only lives in CSS is one media-query rewrite away from
+   quietly costing a phone 250 KB. */
+@media (max-width: 900px) {
+  .backdrop-film { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .backdrop-film { display: none; }
+}
