@@ -7,7 +7,6 @@ file-backed DB shared between the seeding and the app, and FastAPI's TestClient.
 from __future__ import annotations
 
 import datetime as dt
-import json
 
 import pytest
 
@@ -1040,17 +1039,21 @@ def test_google_verification_cannot_be_walked_out_of_its_directory(client):
 
 def test_status_says_which_optional_switches_the_process_can_see(client):
     """"I set that variable" and "the running container can see that variable"
-    are different claims. Booleans only -- never a value, and nothing that is
-    not already inferable from a 503 on the endpoint each one gates."""
+    are different claims, and telling them apart otherwise needs the admin
+    secret. Flags and one error string -- never a value, and nothing here that
+    is not already inferable from a 503 on the endpoint each one gates."""
     body = client.get("/status").json()
 
-    assert set(body["features"]) == {"demo", "demo_key_set", "email", "login"}
-    for name, value in body["features"].items():
-        assert isinstance(value, bool), name
-    # State, never a secret. Booleans only -- a string here would mean a value
-    # had been rendered where a flag belongs.
-    assert not any(isinstance(v, str) for v in body["features"].values())
-    assert json.dumps(body["features"]).count('"') == 2 * len(body["features"])
+    assert set(body["features"]) == {
+        "demo", "demo_key_set", "demo_error", "email", "login",
+    }
+    # State, never a secret. A string among the flags would mean a value had
+    # been rendered where a boolean belongs.
+    flags = {k: v for k, v in body["features"].items() if k != "demo_error"}
+    assert all(isinstance(v, bool) for v in flags.values())
+    # demo_error carries a database message or nothing -- never a key.
+    err = body["features"]["demo_error"]
+    assert err is None or isinstance(err, str)
 
 
 def test_a_pasted_secret_keeps_its_surrounding_junk_off_the_comparison(

@@ -33,6 +33,17 @@ log = structlog.get_logger(__name__)
 DEMO_EMAIL = "demo@to-scale.internal"
 
 
+# Why the demo last failed to provision. Kept in memory rather than only in the
+# log because the log is on the platform and the person debugging this is
+# looking at /status: a swallowed exception that only a log sees is a fault
+# nobody can act on. Never holds a key -- only the database's complaint.
+_last_error: str = ""
+
+
+def last_error() -> str:
+    return _last_error
+
+
 def is_enabled() -> bool:
     return bool(get_settings().demo_api_key)
 
@@ -48,9 +59,12 @@ def ensure_demo_user() -> bool:
     sitting on the free tier would go dark for everybody on the tenth call of
     the month, which reads as a broken site rather than as a spent allowance.
     """
+    global _last_error
+
     s = get_settings()
     if not s.demo_api_key:
-        log.info("demo_disabled", reason="DEMO_API_KEY is not set")
+        _last_error = "DEMO_API_KEY is not set"
+        log.info("demo_disabled", reason=_last_error)
         return False
     try:
         with session_scope() as session:
@@ -73,8 +87,10 @@ def ensure_demo_user() -> bool:
                 # Never the dataset. The demo shows one company, not the product.
                 user.has_paid_download = False
     except Exception as exc:  # noqa: BLE001 - a missing demo must not stop boot
-        log.warning("demo_user_setup_failed", error=str(exc)[:200])
+        _last_error = f"{type(exc).__name__}: {str(exc)[:220]}"
+        log.warning("demo_user_setup_failed", error=_last_error)
         return False
+    _last_error = ""
     return True
 
 
@@ -95,13 +111,26 @@ def account():
     """
     from src import accounts
 
+    global _last_error
+
     key = get_settings().demo_api_key
     if not key:
+        _last_error = "DEMO_API_KEY is not set"
         return None
     found = accounts.lookup(key)
     if found is None:
         ensure_demo_user()
         found = accounts.lookup(key)
+        if found is None and not _last_error:
+            # Provisioning reported success and the row still is not findable,
+            # which means the key was written under a value that does not
+            # compare equal to the one being looked up. Say that, rather than
+            # leaving "not configured" to stand for it.
+            _last_error = (
+                "provisioned without error, but no account matches the key "
+                f"({len(key)} characters) -- the stored value and the "
+                "configured value differ"
+            )
     return found
 
 

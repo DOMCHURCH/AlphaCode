@@ -519,6 +519,10 @@ def status() -> dict[str, Any]:
         # next to a 503 is worse than no flag.
         "demo": demo_is_working(),
         "demo_key_set": demo.is_enabled(),
+        # Present only when the two above disagree, and it is the database's
+        # complaint rather than anything configured -- the length of the key at
+        # most, never the key.
+        "demo_error": demo.last_error() or None,
         "email": mailer_is_configured(),
         "login": auth_is_enabled(),
     }
