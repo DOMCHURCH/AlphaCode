@@ -2296,6 +2296,32 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{request.url.netloc}"
 
 
+@app.get("/google{token}.html", include_in_schema=False)
+def google_site_verification(token: str) -> Response:
+    """Google Search Console's HTML-file check.
+
+    Serves ONLY a file that has actually been put in `static/verify/`. The
+    obvious shortcut -- echo back "google-site-verification: google{token}.html"
+    for whatever token is asked for -- would hand the property to anybody who
+    can read this route, because the content Google looks for is derivable from
+    the filename it asks for. Ownership has to be proved by somebody with write
+    access to the repository, which is the whole point of the check.
+
+    `token` is narrowed to the alphanumeric shape Google issues before it is
+    used in a path, so nothing here can be walked out of the directory.
+    """
+    if not token.isalnum():
+        raise HTTPException(status_code=404, detail="Not found")
+    path = _STATIC_DIR / "verify" / f"google{token}.html"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(
+        content=path.read_bytes(),
+        media_type="text/html",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/api", response_class=HTMLResponse)
 def api_page(request: Request) -> HTMLResponse:
     """The API reference, as a page.

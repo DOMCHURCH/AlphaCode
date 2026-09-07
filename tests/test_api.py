@@ -1014,3 +1014,24 @@ def test_api_page_examples_use_the_scheme_the_reader_arrived_on(client):
 
     assert "https://" in r.text
     assert "http://testserver" not in r.text
+
+
+# ------------------------------------------------- Search Console verification
+def test_google_verification_serves_a_file_that_exists(client):
+    r = client.get("/google123456789.html")
+
+    assert r.status_code == 200
+    assert r.headers["content-type"].startswith("text/html")
+    assert r.text == "google-site-verification: google123456789.html"
+
+
+def test_google_verification_refuses_a_token_nobody_put_there(client):
+    """The content Google looks for is derivable from the filename it asks for,
+    so a route that generated it would hand the property to anyone who found
+    this endpoint. Only a file somebody committed counts as proof."""
+    assert client.get("/google999999999.html").status_code == 404
+
+
+def test_google_verification_cannot_be_walked_out_of_its_directory(client):
+    for token in ("..%2f..%2fapi", "..", "a/b"):
+        assert client.get(f"/google{token}.html").status_code == 404
