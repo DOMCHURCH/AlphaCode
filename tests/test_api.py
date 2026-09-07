@@ -1004,3 +1004,13 @@ def test_a_failing_auto_update_job_is_surfaced_as_an_error():
     assert v["headline"] == "Auto-update failing: fundamentals"
     assert "sec.gov 429" in v["detail"]
     assert "retrying" in v["action"]
+
+
+def test_api_page_examples_use_the_scheme_the_reader_arrived_on(client):
+    """Railway terminates TLS in front of the container, so the app's own view
+    of the scheme is the internal http hop. An example rendered from that gives
+    the reader a curl that answers with a redirect."""
+    r = client.get("/api", headers={"x-forwarded-proto": "https"})
+
+    assert "https://" in r.text
+    assert "http://testserver" not in r.text

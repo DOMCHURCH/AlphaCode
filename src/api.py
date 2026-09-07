@@ -2279,6 +2279,23 @@ def dashboard(request: Request) -> HTMLResponse:
     )
 
 
+def _public_origin(request: Request) -> str:
+    """The origin as the READER sees it, which is not what the app sees.
+
+    Railway terminates TLS in front of the container and the start command runs
+    uvicorn without --proxy-headers, so `request.url.scheme` is the plain http
+    of the internal hop. Rendering that into a curl example gives somebody a
+    command that answers with a redirect instead of JSON -- on a page whose
+    whole promise is that its examples paste and run. The proxy tells us the
+    real scheme; the header is trusted because nothing else can reach this
+    process.
+    """
+    scheme = request.headers.get("x-forwarded-proto", "").split(",")[0].strip()
+    if scheme not in ("http", "https"):
+        scheme = request.url.scheme
+    return f"{scheme}://{request.url.netloc}"
+
+
 @app.get("/api", response_class=HTMLResponse)
 def api_page(request: Request) -> HTMLResponse:
     """The API reference, as a page.
@@ -2295,7 +2312,7 @@ def api_page(request: Request) -> HTMLResponse:
         _versioned(
             render_api(
                 nav=_nav_for(request, "api"),
-                base_url=str(request.base_url).rstrip("/"),
+                base_url=_public_origin(request),
                 free_calls=s.free_tier_monthly_calls,
                 pro_calls=s.pro_tier_monthly_calls,
                 dataset_price=f"${s.dataset_price_usd}",
