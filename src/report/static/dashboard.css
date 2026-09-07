@@ -295,3 +295,36 @@
 #pw-form .sfield+.slabel{margin-top:14px}
 #pw-form .sfield{margin-bottom:0}
 #setpw-form .sfield{margin-bottom:10px}
+
+/* ---- disclaimer, footer links, acceptance ---- */
+/* Stated where the numbers are, not only in a document nobody opens. Quiet:
+   it is a standing fact about the whole site, not an alert. */
+.disclaim{margin:0 0 22px;padding:0 4px;font-size:12.5px;line-height:1.5;
+  color:var(--dim)}
+
+.foot-links{display:block;margin-top:10px}
+.foot-links a{color:var(--ink2);text-decoration:none;
+  border-bottom:1px solid var(--lo);margin-right:14px}
+.foot-links a:hover{color:var(--ink);border-bottom-color:var(--ink)}
+.foot-disc{display:block;margin-top:8px;color:var(--dim);font-size:12px}
+
+.accept{margin:14px 2px 0;font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.accept label{display:flex;align-items:flex-start;gap:9px;cursor:pointer}
+.accept input{margin-top:3px;width:17px;height:17px;flex:none;accent-color:var(--ink)}
+.accept a{color:var(--ink)}
+
+/* ---- the legal documents ---- */
+/* Prose measure, not the app's. These are read top to bottom rather than
+   scanned, and a 56ch line is where that stops being work. */
+.legal .doc{max-width:62ch}
+.legal h2{margin:30px 0 10px;font-size:17px;font-weight:600;letter-spacing:-.01em}
+.legal h2:first-child{margin-top:0}
+.legal p,.legal li{font-size:15px;line-height:1.65;color:var(--ink2)}
+.legal p{margin:0 0 14px}
+.legal ul{margin:0 0 16px;padding-left:22px}
+.legal li{margin-bottom:8px}
+.legal strong{color:var(--ink)}
+.legal a{color:var(--ink)}
+/* The clauses somebody skimming must not miss. */
+.legal .callout{padding:16px 18px;border-radius:var(--r2);background:var(--well);
+  box-shadow:var(--in-sm);color:var(--ink)}

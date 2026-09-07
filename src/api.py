@@ -1430,11 +1430,39 @@ from src.accounts import get_current_user_flexible as _DOWNLOAD_DEP  # noqa: E40
 
 class RegisterRequest(BaseModel):
     email: str
+    accept_terms: bool = False
 
 
 class GrantRequest(BaseModel):
     email: str
     action: str
+
+
+def _stamp_terms_quietly(email: str) -> None:
+    from src import auth
+
+    try:
+        auth.stamp_terms(email)
+    except Exception as exc:  # noqa: BLE001 - the account exists either way
+        log.warning("terms_stamp_failed", error=str(exc)[:120])
+
+
+def _require_terms(accepted: bool) -> None:
+    """Refuse to create an account without acceptance.
+
+    Enforced on the server because a checkbox is otherwise decoration: the
+    endpoints are public JSON and anybody can post to them without ever having
+    seen the form. The point of asking is to be able to say afterwards that it
+    was asked and answered.
+    """
+    if not accepted:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Please accept the Terms of Service and Privacy Policy to "
+                "create an account."
+            ),
+        )
 
 
 def _caller_ip_hash(request: Request) -> str:
@@ -1461,6 +1489,7 @@ def api_register(body: RegisterRequest) -> JSONResponse:
     # this endpoint for free by sending addresses it knows will be rejected.
     _enforce_rate(_register_gate, "registration")
 
+    _require_terms(body.accept_terms)
     address = accounts.normalise_email(body.email)
     if not accounts.valid_email(address):
         raise HTTPException(
@@ -1476,6 +1505,7 @@ def api_register(body: RegisterRequest) -> JSONResponse:
                 "here -- contact the site owner if you have lost yours."
             ),
         ) from None
+    _stamp_terms_quietly(address)
     log.info("api_user_registered", email=address)
     return JSONResponse(
         status_code=201,
@@ -1557,6 +1587,7 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
 
 class MagicLinkRequest(BaseModel):
     email: str
+    accept_terms: bool = False
 
 
 class VerifyRequest(BaseModel):
@@ -1594,7 +1625,7 @@ def api_magic_link(body: MagicLinkRequest, tasks: BackgroundTasks) -> JSONRespon
     if address == demo.DEMO_EMAIL or not accounts.valid_email(address):
         return ok
 
-    token = auth.create_link(address)
+    token = auth.create_link(address, accept_terms=body.accept_terms)
     if token is None:
         log.info("magic_link_on_cooldown")  # uniform reply regardless
         return ok
@@ -1622,12 +1653,14 @@ def api_verify(body: VerifyRequest) -> JSONResponse:
     if not auth.is_enabled():
         raise auth.LoginDisabled()
 
-    email = auth.consume_token(body.token.strip())
+    token = body.token.strip()
+    accepted = auth.token_accepted_terms(token)
+    email = auth.consume_token(token)
     if email is None:
         raise HTTPException(
             status_code=401, detail="Invalid or expired magic link"
         )
-    account = auth.account_for_login(email)
+    account = auth.account_for_login(email, accepted_terms=accepted)
     response = JSONResponse({"ok": True, "email": account.email})
     auth.issue_session(response, account.email)
     log.info("session_started", email=account.email)
@@ -1678,6 +1711,10 @@ def api_regenerate_key(request: Request) -> JSONResponse:
 class PasswordLogin(BaseModel):
     email: str
     password: str
+    # Only read where an ACCOUNT IS CREATED. Sign-in does not re-ask: you
+    # accepted when you signed up, and a login form that demands it again is
+    # asking for consent it already has.
+    accept_terms: bool = False
 
 
 class PasswordOnly(BaseModel):
@@ -1758,6 +1795,7 @@ def api_register_password(body: PasswordLogin) -> JSONResponse:
         raise HTTPException(
             status_code=422, detail="That does not look like an email address."
         )
+    _require_terms(body.accept_terms)
     auth.check_password_shape(body.password)
     try:
         account = accounts.register(address)
@@ -1771,6 +1809,7 @@ def api_register_password(body: PasswordLogin) -> JSONResponse:
         ) from None
 
     auth.set_password(address, body.password)
+    auth.stamp_terms(address)
     response = JSONResponse(
         status_code=201,
         content={
@@ -1831,7 +1870,9 @@ def api_forgot_password(body: ResendRequest, tasks: BackgroundTasks) -> JSONResp
     set from the Account tab -- so there is no separate reset page that has to
     be secured all over again.
     """
-    return api_magic_link(MagicLinkRequest(email=body.email), tasks)
+    return api_magic_link(
+        MagicLinkRequest(email=body.email, accept_terms=True), tasks
+    )
 
 
 @app.get("/admin/subscriptions")
@@ -2092,6 +2133,34 @@ def logout_form(request: Request) -> RedirectResponse:
     return response
 
 
+@app.get("/terms", response_class=HTMLResponse)
+def terms_page(request: Request) -> HTMLResponse:
+    from src.report.legal import render_terms
+
+    return HTMLResponse(
+        _versioned(
+            render_terms(
+                nav=_nav_for(request, "terms"),
+                contact=get_settings().admin_email,
+            )
+        )
+    )
+
+
+@app.get("/privacy", response_class=HTMLResponse)
+def privacy_page(request: Request) -> HTMLResponse:
+    from src.report.legal import render_privacy
+
+    return HTMLResponse(
+        _versioned(
+            render_privacy(
+                nav=_nav_for(request, "privacy"),
+                contact=get_settings().admin_email,
+            )
+        )
+    )
+
+
 @app.get("/login", response_class=HTMLResponse)
 def login_page(request: Request) -> HTMLResponse:
     from src import auth
@@ -2150,12 +2219,14 @@ async def verify_submit(request: Request) -> Response:
     # one field and no file upload, so a dependency for it would be a whole
     # package to parse `token=...`.
     raw = (await request.body()).decode("utf-8", "replace")
-    email = auth.consume_token(parse_qs(raw).get("token", [""])[0].strip())
+    token = parse_qs(raw).get("token", [""])[0].strip()
+    accepted = auth.token_accepted_terms(token)
+    email = auth.consume_token(token)
     if email is None:
         return HTMLResponse(
             _versioned(render_verify(token="", state="dead")), status_code=410
         )
-    account = auth.account_for_login(email)
+    account = auth.account_for_login(email, accepted_terms=accepted)
     response = RedirectResponse("/dashboard", status_code=303)
     auth.issue_session(response, account.email)
     log.info("session_started", email=account.email, path="form")

@@ -68,7 +68,7 @@ def token_for(email: str) -> str:
 
 
 def sign_in(client, email="user@example.com") -> str:
-    r = client.post("/api/auth/magic-link", json={"email": email})
+    r = client.post("/api/auth/magic-link", json={"email": email, "accept_terms": True})
     assert r.status_code == 200, r.text
     tok = token_for(email)
     assert tok
@@ -82,9 +82,9 @@ def sign_in(client, email="user@example.com") -> str:
 
 def test_the_reply_is_the_same_for_known_and_unknown_addresses(client):
     """Otherwise the login box is an account-enumeration oracle."""
-    client.post("/api/auth/register", json={"email": "known@example.com"})
-    a = client.post("/api/auth/magic-link", json={"email": "known@example.com"})
-    b = client.post("/api/auth/magic-link", json={"email": "stranger@example.com"})
+    client.post("/api/auth/register", json={"email": "known@example.com", "accept_terms": True})
+    a = client.post("/api/auth/magic-link", json={"email": "known@example.com", "accept_terms": True})
+    b = client.post("/api/auth/magic-link", json={"email": "stranger@example.com", "accept_terms": True})
     assert a.status_code == b.status_code == 200
     assert a.json() == b.json()
 
@@ -93,7 +93,7 @@ def test_one_address_cannot_be_mailed_repeatedly(client):
     """A login link goes to an inbox the requester need not own."""
     for _ in range(4):
         assert client.post(
-            "/api/auth/magic-link", json={"email": "target@example.com"}
+            "/api/auth/magic-link", json={"email": "target@example.com", "accept_terms": True}
         ).status_code == 200
     from sqlalchemy import func, select
 
@@ -114,7 +114,7 @@ def test_the_demo_account_cannot_be_logged_into(client, monkeypatch):
     monkeypatch.setenv("DEMO_API_KEY", "demo-key-xyz")
     get_settings.cache_clear()
     assert client.post(
-        "/api/auth/magic-link", json={"email": DEMO_EMAIL}
+        "/api/auth/magic-link", json={"email": DEMO_EMAIL, "accept_terms": True}
     ).status_code == 200          # uniform reply...
     assert token_for(DEMO_EMAIL) == ""   # ...but no link was ever issued
 
@@ -127,7 +127,7 @@ def test_a_link_survives_being_looked_at(client):
     """Mail scanners and prefetchers GET every URL in a message. If the GET
     consumed the token the recipient's own click would always arrive second, to
     an already-used link."""
-    client.post("/api/auth/magic-link", json={"email": "user@example.com"})
+    client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     tok = token_for("user@example.com")
 
     for _ in range(3):   # three prefetchers
@@ -137,7 +137,7 @@ def test_a_link_survives_being_looked_at(client):
 
 
 def test_a_link_works_exactly_once(client):
-    client.post("/api/auth/magic-link", json={"email": "user@example.com"})
+    client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     tok = token_for("user@example.com")
     assert client.post("/api/auth/verify", json={"token": tok}).status_code == 200
     again = client.post("/api/auth/verify", json={"token": tok})
@@ -151,7 +151,7 @@ def test_an_expired_link_is_refused(client):
     from src.storage.db import session_scope
     from src.storage.models import MagicLink
 
-    client.post("/api/auth/magic-link", json={"email": "user@example.com"})
+    client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     tok = token_for("user@example.com")
     with session_scope() as s:
         row = s.execute(
@@ -180,7 +180,7 @@ def test_verifying_creates_the_account_on_first_login(client):
 
 
 def test_the_no_javascript_form_post_also_signs_in(client):
-    client.post("/api/auth/magic-link", json={"email": "user@example.com"})
+    client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     tok = token_for("user@example.com")
     r = client.post("/auth/verify", data={"token": tok}, follow_redirects=False)
     assert r.status_code == 303
@@ -195,7 +195,7 @@ def test_the_no_javascript_form_post_also_signs_in(client):
 def test_the_session_cookie_is_locked_down(client):
     """This cookie can be exchanged for the account's API key at /api/auth/me,
     so it is a credential and has to be flagged like one."""
-    client.post("/api/auth/magic-link", json={"email": "user@example.com"})
+    client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     r = client.post("/api/auth/verify", json={"token": token_for("user@example.com")})
     raw = r.headers["set-cookie"].lower()
     assert "httponly" in raw
@@ -290,7 +290,7 @@ def test_login_is_dead_not_open_without_a_session_secret(client, monkeypatch):
     get_settings.cache_clear()
 
     assert client.post(
-        "/api/auth/magic-link", json={"email": "user@example.com"}
+        "/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True}
     ).status_code == 503
     assert client.post(
         "/api/auth/verify", json={"token": "anything"}
@@ -305,7 +305,7 @@ def test_login_says_so_when_email_is_not_configured(client, monkeypatch):
 
     monkeypatch.setenv("AGENTMAIL_API_KEY", "")
     get_settings.cache_clear()
-    r = client.post("/api/auth/magic-link", json={"email": "user@example.com"})
+    r = client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     assert r.status_code == 503
     assert "owner@example.com" in r.json()["message"]
 
@@ -424,3 +424,147 @@ def test_the_nav_offers_no_sign_in_when_login_is_disabled(client, monkeypatch):
     assert 'href="/login"' not in nav
     # ...but the Dashboard item still says what it is.
     assert 'id="nav-dash-off"' in nav
+
+
+# ---------------------------------------------------------------------------
+# Terms, privacy, and the acceptance gate
+# ---------------------------------------------------------------------------
+
+def test_the_legal_pages_render(client):
+    for path, marker in (("/terms", "Terms of Service"),
+                         ("/privacy", "Privacy Policy")):
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert marker in r.text
+        assert "Last updated" in r.text
+
+
+def test_the_privacy_policy_describes_this_service_and_not_a_template(client):
+    """A policy that names data flows a service does not have is not merely
+    useless -- it is a false statement to users about where their data goes.
+    Four claims here are corrections to the brief, and each must survive."""
+    text = client.get("/privacy").text
+
+    # There is no payment processor in this codebase at all.
+    assert "Stripe" not in text
+    assert "No payment information" in text
+
+    # We store salted digests, never addresses. That is stronger AND true.
+    assert "We do not store IP addresses" in text
+
+    # API keys are NOT encrypted, and the policy must not pretend they are.
+    assert "not encrypted or hashed" in text
+
+    # The question box is the one place user-typed text leaves the service.
+    assert "OpenRouter" in text
+
+
+def test_the_terms_carry_the_clauses_that_matter(client):
+    import re
+
+    # Collapsed, because these are wrapped prose and a line break inside a
+    # sentence is not a change to the sentence.
+    text = re.sub(r"\s+", " ", client.get("/terms").text)
+    assert "Not financial advice" in text
+    assert "as-is" in text
+    assert "Ontario" in text
+    assert "18 years old" in text
+    assert "non-refundable" in text
+    # Liability capped at what was actually paid, which for a free account is 0.
+    assert "the amount you have paid" in text and "that amount is zero" in text
+
+
+def test_an_account_cannot_be_created_without_accepting(client):
+    """The checkbox is enforced on the SERVER. These endpoints are public JSON
+    and anyone can post to them without ever having seen the form."""
+    r = client.post("/api/auth/register", json={"email": "nope@example.com"})
+    assert r.status_code == 422
+    assert "Terms of Service" in r.json()["detail"]
+
+    r = client.post(
+        "/api/auth/register-password",
+        json={"email": "nope2@example.com", "password": "correct horse battery"},
+    )
+    assert r.status_code == 422
+
+    from src import accounts
+
+    assert accounts.by_email("nope@example.com") is None
+    assert accounts.by_email("nope2@example.com") is None
+
+
+def test_a_magic_link_signup_needs_acceptance_too(client):
+    """The account is created when the link is CLICKED, so acceptance has to
+    travel on the token -- there is no checkbox at that moment."""
+    from src import accounts
+
+    client.post("/api/auth/magic-link", json={"email": "unticked@example.com"})
+    tok = token_for("unticked@example.com")
+    r = client.post("/api/auth/verify", json={"token": tok})
+    assert r.status_code == 422
+    assert accounts.by_email("unticked@example.com") is None
+
+    client.post(
+        "/api/auth/magic-link",
+        json={"email": "ticked@example.com", "accept_terms": True},
+    )
+    tok = token_for("ticked@example.com")
+    assert client.post("/api/auth/verify", json={"token": tok}).status_code == 200
+    assert accounts.by_email("ticked@example.com") is not None
+
+
+def test_signing_in_again_does_not_re_ask(client):
+    """You accepted at signup. A login form demanding it again is asking for
+    consent it already has."""
+    from src import accounts
+
+    client.post(
+        "/api/auth/magic-link",
+        json={"email": "again@example.com", "accept_terms": True},
+    )
+    client.post("/api/auth/verify", json={"token": token_for("again@example.com")})
+    client.post("/api/auth/logout")
+
+    # No acceptance this time; the account exists, so it signs in fine.
+    client.post("/api/auth/magic-link", json={"email": "again@example.com"})
+    from src import auth
+
+    auth.reset_cooldowns()
+    client.post("/api/auth/magic-link", json={"email": "again@example.com"})
+    tok = token_for("again@example.com")
+    assert client.post("/api/auth/verify", json={"token": tok}).status_code == 200
+    assert accounts.by_email("again@example.com") is not None
+
+
+def test_acceptance_is_recorded_not_just_checked(client):
+    """The value of asking is being able to say afterwards that it was asked
+    and answered."""
+    client.post(
+        "/api/auth/register-password",
+        json={"email": "rec@example.com", "password": "correct horse battery",
+              "accept_terms": True},
+    )
+    from sqlalchemy import select
+
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    with session_scope() as s:
+        user = s.execute(
+            select(ApiUser).where(ApiUser.email == "rec@example.com")
+        ).scalar_one()
+        assert user.terms_accepted_at is not None
+
+
+def test_every_page_carries_the_footer_links(client):
+    for path in ("/", "/login", "/dashboard", "/terms", "/privacy"):
+        html = client.get(path).text
+        assert 'href="/terms"' in html, path
+        assert 'href="/privacy"' in html, path
+        assert "github.com" in html, path
+
+
+def test_the_homepage_shows_the_disclaimer(client):
+    html = client.get("/").text
+    assert "Not financial advice" in html
+    assert 'class="disclaim"' in html

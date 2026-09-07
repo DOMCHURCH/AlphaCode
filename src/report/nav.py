@@ -120,3 +120,45 @@ def render_nav(
 </div>
 <p class="navnote" id="nav-note" role="status" aria-live="polite" hidden></p>
 </nav>"""
+
+
+# The repository the site is built from. A link rather than a claim: "open
+# source" is checkable, and this is where it is checked.
+SOURCE_URL = "https://github.com/domchurch/alphacode"
+
+
+def render_footer(extra: str = "") -> str:
+    """The same footer on every page, legal links included.
+
+    One definition for the same reason the nav has one: these links have to be
+    reachable from everywhere, and four hand-written copies is four places for
+    one of them to quietly go missing.
+
+    `extra` is whatever that page already said in its footer, kept rather than
+    replaced -- the source attribution on the reader-facing pages is part of the
+    argument the site is making, not decoration.
+    """
+    from src.report.legal import SHORT_DISCLAIMER
+
+    lead = f"{extra} " if extra else ""
+    return f"""
+  <footer>
+    {lead}<span class="foot-links">
+      <a href="/terms">Terms</a>
+      <a href="/privacy">Privacy</a>
+      <a href="{SOURCE_URL}" rel="noopener">Source</a>
+    </span>
+    <span class="foot-disc">{SHORT_DISCLAIMER}</span>
+  </footer>"""
+
+
+def render_disclaimer() -> str:
+    """The one-line warning above the drawings.
+
+    Stated where the numbers are, not only in a document nobody opens: this is
+    a site full of financial figures, and the single most important thing to
+    know about them is that they are not advice.
+    """
+    from src.report.legal import SHORT_DISCLAIMER
+
+    return f'  <p class="disclaim" role="note">{SHORT_DISCLAIMER}</p>'

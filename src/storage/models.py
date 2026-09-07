@@ -537,6 +537,11 @@ class ApiUser(Base):
     has_paid_download: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+    # When this account accepted the terms. Recorded rather than assumed: the
+    # whole value of an acceptance checkbox is being able to say afterwards that
+    # it was ticked, and a box enforced only in the browser can be skipped with
+    # one curl.
+    terms_accepted_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
     # bcrypt hash, or NULL for an account that only ever uses magic links.
     # Nullable is the whole point: passwords are an ALTERNATIVE here, not a
     # requirement, and an account that never sets one must stay usable.
@@ -665,6 +670,14 @@ class MagicLink(Base):
     )
     expires_at: Mapped[dt.datetime] = mapped_column(DateTime, nullable=False)
     used: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    # Whether the terms were accepted when this link was ASKED for. Carried on
+    # the token because the account is created when the link is CLICKED, and
+    # there is no checkbox at that moment -- the person is reading their email.
+    # Requiring acceptance on the request instead would mean asking existing
+    # users to re-consent on every sign-in.
+    terms_accepted: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow
     )

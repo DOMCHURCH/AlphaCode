@@ -130,14 +130,14 @@ def test_recovery_says_the_same_thing_for_known_and_unknown_addresses(
 
     get_settings.cache_clear()
 
-    client.post("/api/auth/register", json={"email": "known@example.com"})
+    client.post("/api/auth/register", json={"email": "known@example.com", "accept_terms": True})
     sent = []
     monkeypatch.setattr(
         "src.mailer.send_api_key", lambda e, k: sent.append((e, k)) or True
     )
 
-    a = client.post("/api/auth/resend-key", json={"email": "known@example.com"})
-    b = client.post("/api/auth/resend-key", json={"email": "nobody@example.com"})
+    a = client.post("/api/auth/resend-key", json={"email": "known@example.com", "accept_terms": True})
+    b = client.post("/api/auth/resend-key", json={"email": "nobody@example.com", "accept_terms": True})
     assert a.status_code == b.status_code == 200
     assert a.json() == b.json()
     # ...and only the registered one actually produced an email.
@@ -152,17 +152,17 @@ def test_the_recovery_response_never_contains_the_key(client, monkeypatch):
     monkeypatch.setattr("src.mailer.send_api_key", lambda e, k: True)
 
     key = client.post(
-        "/api/auth/register", json={"email": "keeper@example.com"}
+        "/api/auth/register", json={"email": "keeper@example.com", "accept_terms": True}
     ).json()["api_key"]
-    r = client.post("/api/auth/resend-key", json={"email": "keeper@example.com"})
+    r = client.post("/api/auth/resend-key", json={"email": "keeper@example.com", "accept_terms": True})
     assert key not in r.text
 
 
 def test_recovery_says_so_when_email_is_not_configured(client):
     """Rather than accepting the request and dropping it, which leaves somebody
     waiting on an email that was never going to be sent."""
-    client.post("/api/auth/register", json={"email": "lost@example.com"})
-    r = client.post("/api/auth/resend-key", json={"email": "lost@example.com"})
+    client.post("/api/auth/register", json={"email": "lost@example.com", "accept_terms": True})
+    r = client.post("/api/auth/resend-key", json={"email": "lost@example.com", "accept_terms": True})
     assert r.status_code == 503
     assert r.json()["sent"] is False
     assert "owner@example.com" in r.json()["detail"]
@@ -180,10 +180,10 @@ def test_one_address_cannot_be_mailed_repeatedly(client, monkeypatch):
         "src.mailer.send_api_key", lambda e, k: sent.append(e) or True
     )
 
-    client.post("/api/auth/register", json={"email": "target@example.com"})
+    client.post("/api/auth/register", json={"email": "target@example.com", "accept_terms": True})
     for _ in range(4):
         r = client.post(
-            "/api/auth/resend-key", json={"email": "target@example.com"}
+            "/api/auth/resend-key", json={"email": "target@example.com", "accept_terms": True}
         )
         assert r.status_code == 200  # the reply never changes
     assert len(sent) == 1

@@ -185,7 +185,7 @@ def _purge_expired() -> None:
         log.warning("magic_link_purge_failed", error=str(exc)[:200])
 
 
-def create_link(email: str) -> str | None:
+def create_link(email: str, accept_terms: bool = False) -> str | None:
     """Issue a login token for an address, or None if it is on cooldown.
 
     Deliberately issued for addresses that have never registered: verifying the
@@ -205,7 +205,10 @@ def create_link(email: str) -> str | None:
         seconds=get_settings().magic_link_ttl_s
     )
     with session_scope() as session:
-        session.add(MagicLink(email=address, token=token, expires_at=expires))
+        session.add(MagicLink(
+            email=address, token=token, expires_at=expires,
+            terms_accepted=bool(accept_terms),
+        ))
     _last_sent[address] = time.monotonic()
     log.info("magic_link_created", email=address)
     return token
@@ -231,6 +234,15 @@ def peek_token(token: str) -> str | None:
 def consume_token(token: str) -> str | None:
     """Spend a token and return its address, or None if it is not spendable."""
     return _resolve(token, consume=True)
+
+
+def token_accepted_terms(token: str) -> bool:
+    """Did the person who asked for this link tick the box?"""
+    with session_scope() as session:
+        row = session.execute(
+            select(MagicLink).where(MagicLink.token == token)
+        ).scalar_one_or_none()
+        return bool(row and row.terms_accepted)
 
 
 def _resolve(token: str, *, consume: bool) -> str | None:
@@ -262,7 +274,7 @@ def _resolve(token: str, *, consume: bool) -> str | None:
         return row.email
 
 
-def account_for_login(email: str):
+def account_for_login(email: str, accepted_terms: bool = False):
     """The account behind a verified link, created if this is a first login.
 
     A verified link is proof of the address, which is exactly the bar
@@ -275,7 +287,18 @@ def account_for_login(email: str):
     existing = accounts.by_email(address)
     if existing is not None:
         return existing
+    # First sign-in for this address is a signup, so it needs the same
+    # acceptance a signup form would have asked for.
+    if not accepted_terms:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Please accept the Terms of Service and Privacy Policy, then "
+                "request a new link."
+            ),
+        )
     account = accounts.register(address)
+    stamp_terms(address)
     log.info("account_created_via_magic_link", email=address)
     return account
 
@@ -449,3 +472,15 @@ def set_password(email: str, password: str) -> None:
         row.password_hash = hashed
         row.updated_at = dt.datetime.now(dt.UTC)
     log.info("password_set", email=accounts.normalise_email(email))
+
+
+def stamp_terms(email: str) -> None:
+    """Record when this account accepted the terms."""
+    from src import accounts
+
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == accounts.normalise_email(email))
+        ).scalar_one_or_none()
+        if row is not None:
+            row.terms_accepted_at = dt.datetime.now(dt.UTC)

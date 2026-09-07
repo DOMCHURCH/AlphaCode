@@ -58,7 +58,7 @@ def client(tmp_path, monkeypatch):
 
 
 def register(client, email="buyer@example.com"):
-    r = client.post("/api/auth/register", json={"email": email})
+    r = client.post("/api/auth/register", json={"email": email, "accept_terms": True})
     assert r.status_code == 201, r.text
     return r.json()["api_key"]
 
@@ -77,7 +77,7 @@ def grant(client, action, email="buyer@example.com", secret=ADMIN_SECRET):
 
 def test_register_returns_a_key_on_the_free_tier(client):
     body = client.post(
-        "/api/auth/register", json={"email": "New.Buyer@Example.com "}
+        "/api/auth/register", json={"email": "New.Buyer@Example.com ", "accept_terms": True}
     ).json()
     assert body["tier"] == "free"
     assert body["email"] == "new.buyer@example.com"  # trimmed and lowercased
@@ -89,7 +89,7 @@ def test_registering_a_known_address_never_returns_the_existing_key(client):
     it answered with the key, anyone who knew a customer's address could take
     their paid access by typing it in."""
     first = register(client)
-    again = client.post("/api/auth/register", json={"email": "buyer@example.com"})
+    again = client.post("/api/auth/register", json={"email": "buyer@example.com", "accept_terms": True})
     assert again.status_code == 409
     assert first not in again.text
 
@@ -105,15 +105,15 @@ def test_registration_itself_is_rate_limited(client, monkeypatch):
     get_settings.cache_clear()
     _register_gate.reset()
 
-    assert client.post("/api/auth/register", json={"email": "a@example.com"}).status_code == 201
-    assert client.post("/api/auth/register", json={"email": "b@example.com"}).status_code == 201
-    third = client.post("/api/auth/register", json={"email": "c@example.com"})
+    assert client.post("/api/auth/register", json={"email": "a@example.com", "accept_terms": True}).status_code == 201
+    assert client.post("/api/auth/register", json={"email": "b@example.com", "accept_terms": True}).status_code == 201
+    third = client.post("/api/auth/register", json={"email": "c@example.com", "accept_terms": True})
     assert third.status_code == 429
     assert "Retry-After" in third.headers
 
 
 def test_a_malformed_address_is_refused(client):
-    assert client.post("/api/auth/register", json={"email": "not-an-email"}).status_code == 422
+    assert client.post("/api/auth/register", json={"email": "not-an-email", "accept_terms": True}).status_code == 422
 
 
 # ---------------------------------------------------------------------------

@@ -557,6 +557,16 @@ def render_home(
 ) -> str:
     """`pairs` is (suggestion, its view or None), in the order to show them."""
     from src.company.stats import component_coverage
+    from src.report.nav import render_disclaimer, render_footer
+
+    # The page keeps what it always said; the shared part is added around it.
+    footer = render_footer(
+        'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
+        ' rel="noopener">SEC Financial Statement Data Sets</a>. Built by '
+        'Dominique Church.'
+        '<span class="foot-admin"><a href="/admin">Admin</a></span>'
+    )
+    disclaimer = render_disclaimer()
 
     facts = headline_facts([v for _s, v in pairs], component_coverage())
     cards = "".join(
@@ -600,6 +610,7 @@ def render_home(
     {search_form()}
   </header>
   {_accuracy_banner()}
+{disclaimer}
   {_pricing(stats or {})}
   {_summary_line(stats or {})}
   {gallery}
@@ -611,13 +622,7 @@ def render_home(
   {_hard()}
   {_limits()}
 
-  <footer>
-    Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"
-      rel="noopener">SEC Financial Statement Data Sets</a>. Built by Dominique
-    Church — <a href="https://github.com/domchurch/alphacode"
-      rel="noopener">source on GitHub</a>.
-    <span class="foot-admin"><a href="/admin">Admin</a></span>
-  </footer>
+{footer}
 </main>
 
 <!-- In the body, not the shell: the shell is shared with /dashboard and the

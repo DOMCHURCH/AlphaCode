@@ -276,6 +276,10 @@ def render_company_page(
     scale: View2 | None = None,
     ask_available: bool = False,
 ) -> str:
+    # Imported here, not at module level: nav imports legal, and legal
+    # imports this module for asset_version -- a cycle at import time.
+    from src.report.nav import render_footer
+
     d = view.as_dict()
     total = d["total_assets"]
 
@@ -418,18 +422,19 @@ def render_company_page(
   {_scale_html(scale)}
   {_ask_html(d["ticker"], ask_available)}
 
-  <footer>
-    Every figure is as reported to the SEC for the quarter ended
-    {escape(d["period_end"])}, filed {escape(d["filing_date"])}. Nothing is
-    estimated. This describes what a company reported; it is not advice and
-    makes no prediction.
-    <span class="foot-admin"><a href="/admin">Admin</a></span>
-  </footer>
+{render_footer(
+    f'Every figure is as reported to the SEC for the quarter ended '
+    f'{escape(d["period_end"])}, filed {escape(d["filing_date"])}. Nothing is '
+    f'estimated. This describes what a company reported; it is not advice and '
+    f'makes no prediction.'
+    f'<span class="foot-admin"><a href="/admin">Admin</a></span>'
+)}
 </main>
 {'<script src="/static/company.js?v=' + asset_version() + '" defer></script>'
  if ask_available else ''}
 </body>
 </html>"""
+
 
 
 def render_not_found(ticker: str, reason: str) -> str:

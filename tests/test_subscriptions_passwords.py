@@ -90,7 +90,7 @@ def sign_in(client, email):
     from src.storage.db import session_scope
     from src.storage.models import MagicLink
 
-    client.post("/api/auth/magic-link", json={"email": email})
+    client.post("/api/auth/magic-link", json={"email": email, "accept_terms": True})
     with session_scope() as s:
         tok = s.execute(
             select(MagicLink).where(MagicLink.email == email)
@@ -109,7 +109,7 @@ def test_a_null_expiry_means_comped_not_expired(client):
     that as "already expired" would have demoted all of them on deploy."""
     from src import accounts
 
-    client.post("/api/auth/register", json={"email": "comped@example.com"})
+    client.post("/api/auth/register", json={"email": "comped@example.com", "accept_terms": True})
     grant(client, "grant_pro", "comped@example.com")
     set_expiry("comped@example.com", None)
 
@@ -123,7 +123,7 @@ def test_a_null_expiry_means_comped_not_expired(client):
 def test_a_lapsed_subscription_falls_back_to_free(client):
     from src import accounts
 
-    client.post("/api/auth/register", json={"email": "lapsed@example.com"})
+    client.post("/api/auth/register", json={"email": "lapsed@example.com", "accept_terms": True})
     grant(client, "grant_pro", "lapsed@example.com")
     set_expiry("lapsed@example.com", dt.datetime.now(dt.UTC) - dt.timedelta(days=2))
 
@@ -138,7 +138,7 @@ def test_a_lapsed_subscription_falls_back_to_free(client):
 def test_renewing_early_extends_rather_than_resets(client):
     """The one billing bug a paying customer notices: renewing three days early
     and losing those three days."""
-    client.post("/api/auth/register", json={"email": "renew@example.com"})
+    client.post("/api/auth/register", json={"email": "renew@example.com", "accept_terms": True})
     grant(client, "grant_pro", "renew@example.com")
     first = row("renew@example.com").pro_expires_at
     grant(client, "grant_pro", "renew@example.com")
@@ -147,7 +147,7 @@ def test_renewing_early_extends_rather_than_resets(client):
 
 
 def test_renewing_late_starts_from_today(client):
-    client.post("/api/auth/register", json={"email": "late@example.com"})
+    client.post("/api/auth/register", json={"email": "late@example.com", "accept_terms": True})
     grant(client, "grant_pro", "late@example.com")
     set_expiry("late@example.com", dt.datetime.now(dt.UTC) - dt.timedelta(days=40))
     grant(client, "grant_pro", "late@example.com")
@@ -162,7 +162,7 @@ def test_revoke_backdates_rather_than_nulling(client):
     """NULL means "never expires", so nulling on revoke would UPGRADE them."""
     from src import accounts
 
-    client.post("/api/auth/register", json={"email": "rev@example.com"})
+    client.post("/api/auth/register", json={"email": "rev@example.com", "accept_terms": True})
     grant(client, "grant_pro", "rev@example.com")
     grant(client, "revoke_pro", "rev@example.com")
     assert row("rev@example.com").pro_expires_at is not None
@@ -171,7 +171,7 @@ def test_revoke_backdates_rather_than_nulling(client):
 
 def test_status_reports_the_expiry(client):
     key = client.post(
-        "/api/auth/register", json={"email": "st@example.com"}
+        "/api/auth/register", json={"email": "st@example.com", "accept_terms": True}
     ).json()["api_key"]
     grant(client, "grant_pro", "st@example.com")
     body = client.get("/api/user/status", headers={"X-API-Key": key}).json()
@@ -188,7 +188,7 @@ def test_status_reports_the_expiry(client):
 
 def test_subscriptions_lists_pro_users_soonest_first(client):
     for name, days in (("a", 20), ("b", 2), ("c", 40)):
-        client.post("/api/auth/register", json={"email": f"{name}@example.com"})
+        client.post("/api/auth/register", json={"email": f"{name}@example.com", "accept_terms": True})
         grant(client, "grant_pro", f"{name}@example.com")
         set_expiry(f"{name}@example.com", dt.datetime.now(dt.UTC) + dt.timedelta(days=days))
 
@@ -208,7 +208,7 @@ def test_subscriptions_needs_the_admin_secret(client):
 
 def test_lapsed_subscriptions_stay_in_the_list(client):
     """One that ran out yesterday is the most urgent row, not a row to hide."""
-    client.post("/api/auth/register", json={"email": "old@example.com"})
+    client.post("/api/auth/register", json={"email": "old@example.com", "accept_terms": True})
     grant(client, "grant_pro", "old@example.com")
     set_expiry("old@example.com", dt.datetime.now(dt.UTC) - dt.timedelta(days=1))
     body = client.get(
@@ -221,7 +221,7 @@ def test_lapsed_subscriptions_stay_in_the_list(client):
 def test_the_reminder_fires_once_per_period(client):
     from src import accounts
 
-    client.post("/api/auth/register", json={"email": "soon@example.com"})
+    client.post("/api/auth/register", json={"email": "soon@example.com", "accept_terms": True})
     grant(client, "grant_pro", "soon@example.com")
     set_expiry("soon@example.com", dt.datetime.now(dt.UTC) + dt.timedelta(days=2))
 
@@ -237,7 +237,7 @@ def test_the_reminder_fires_once_per_period(client):
 def test_a_subscription_outside_the_window_is_not_reported(client):
     from src import accounts
 
-    client.post("/api/auth/register", json={"email": "far@example.com"})
+    client.post("/api/auth/register", json={"email": "far@example.com", "accept_terms": True})
     grant(client, "grant_pro", "far@example.com")
     set_expiry("far@example.com", dt.datetime.now(dt.UTC) + dt.timedelta(days=20))
     assert accounts.expiring_soon(3) == []
@@ -264,7 +264,7 @@ def test_the_reminder_marks_only_after_a_successful_send(client, monkeypatch):
     from src import accounts
     from src.scheduler import _run_subscriptions
 
-    client.post("/api/auth/register", json={"email": "fail@example.com"})
+    client.post("/api/auth/register", json={"email": "fail@example.com", "accept_terms": True})
     grant(client, "grant_pro", "fail@example.com")
     set_expiry("fail@example.com", dt.datetime.now(dt.UTC) + dt.timedelta(days=1))
 
@@ -287,7 +287,7 @@ def test_the_reminder_is_one_email_for_everybody(client, monkeypatch):
     from src.scheduler import _run_subscriptions
 
     for n in ("x", "y", "z"):
-        client.post("/api/auth/register", json={"email": f"{n}@example.com"})
+        client.post("/api/auth/register", json={"email": f"{n}@example.com", "accept_terms": True})
         grant(client, "grant_pro", f"{n}@example.com")
         set_expiry(f"{n}@example.com", dt.datetime.now(dt.UTC) + dt.timedelta(days=1))
 
@@ -307,7 +307,7 @@ def test_the_reminder_is_one_email_for_everybody(client, monkeypatch):
 def test_register_with_a_password_signs_you_in(client):
     r = client.post(
         "/api/auth/register-password",
-        json={"email": "pw@example.com", "password": "correct horse battery"},
+        json={"email": "pw@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     assert r.status_code == 201
     assert client.get("/api/auth/me").json()["has_password"] is True
@@ -316,12 +316,12 @@ def test_register_with_a_password_signs_you_in(client):
 def test_password_login_works(client):
     client.post(
         "/api/auth/register-password",
-        json={"email": "pw@example.com", "password": "correct horse battery"},
+        json={"email": "pw@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     client.post("/api/auth/logout")
     r = client.post(
         "/api/auth/login",
-        json={"email": "pw@example.com", "password": "correct horse battery"},
+        json={"email": "pw@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     assert r.status_code == 200
     assert client.get("/api/auth/me").json()["email"] == "pw@example.com"
@@ -332,18 +332,18 @@ def test_every_login_failure_looks_identical(client):
     indistinguishable -- otherwise the error message is an account oracle."""
     client.post(
         "/api/auth/register-password",
-        json={"email": "has@example.com", "password": "correct horse battery"},
+        json={"email": "has@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     client.post("/api/auth/logout")
-    client.post("/api/auth/register", json={"email": "nopw@example.com"})
+    client.post("/api/auth/register", json={"email": "nopw@example.com", "accept_terms": True})
 
     replies = [
         client.post("/api/auth/login",
-                    json={"email": "has@example.com", "password": "wrong"}),
+                    json={"email": "has@example.com", "password": "wrong", "accept_terms": True}),
         client.post("/api/auth/login",
-                    json={"email": "ghost@example.com", "password": "wrong"}),
+                    json={"email": "ghost@example.com", "password": "wrong", "accept_terms": True}),
         client.post("/api/auth/login",
-                    json={"email": "nopw@example.com", "password": "wrong"}),
+                    json={"email": "nopw@example.com", "password": "wrong", "accept_terms": True}),
     ]
     assert {r.status_code for r in replies} == {401}
     assert len({r.text for r in replies}) == 1, "the bodies must not differ"
@@ -351,10 +351,10 @@ def test_every_login_failure_looks_identical(client):
 
 def test_registering_a_password_on_a_taken_address_is_refused(client):
     """Otherwise this endpoint hands over any account whose email is known."""
-    client.post("/api/auth/register", json={"email": "taken@example.com"})
+    client.post("/api/auth/register", json={"email": "taken@example.com", "accept_terms": True})
     r = client.post(
         "/api/auth/register-password",
-        json={"email": "taken@example.com", "password": "correct horse battery"},
+        json={"email": "taken@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     assert r.status_code == 409
     assert row("taken@example.com").password_hash is None
@@ -367,23 +367,23 @@ def test_login_attempts_are_capped_per_address(client, monkeypatch):
     get_settings.cache_clear()
     client.post(
         "/api/auth/register-password",
-        json={"email": "brute@example.com", "password": "correct horse battery"},
+        json={"email": "brute@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     client.post("/api/auth/logout")
     for _ in range(3):
         assert client.post(
             "/api/auth/login",
-            json={"email": "brute@example.com", "password": "no"},
+            json={"email": "brute@example.com", "password": "no", "accept_terms": True},
         ).status_code == 401
     r = client.post(
-        "/api/auth/login", json={"email": "brute@example.com", "password": "no"}
+        "/api/auth/login", json={"email": "brute@example.com", "password": "no", "accept_terms": True}
     )
     assert r.status_code == 429
     # The real password is refused too while the cap holds -- otherwise the cap
     # is only a speed bump for somebody who guesses right on attempt four.
     assert client.post(
         "/api/auth/login",
-        json={"email": "brute@example.com", "password": "correct horse battery"},
+        json={"email": "brute@example.com", "password": "correct horse battery", "accept_terms": True},
     ).status_code == 429
 
 
@@ -392,13 +392,13 @@ def test_a_successful_login_clears_the_counter(client):
 
     client.post(
         "/api/auth/register-password",
-        json={"email": "clr@example.com", "password": "correct horse battery"},
+        json={"email": "clr@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     client.post("/api/auth/logout")
-    client.post("/api/auth/login", json={"email": "clr@example.com", "password": "no"})
+    client.post("/api/auth/login", json={"email": "clr@example.com", "password": "no", "accept_terms": True})
     client.post(
         "/api/auth/login",
-        json={"email": "clr@example.com", "password": "correct horse battery"},
+        json={"email": "clr@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     assert auth.login_attempts_remaining("clr@example.com") == 5
 
@@ -406,14 +406,14 @@ def test_a_successful_login_clears_the_counter(client):
 def test_short_and_overlong_passwords_are_refused(client):
     short = client.post(
         "/api/auth/register-password",
-        json={"email": "s@example.com", "password": "abc"},
+        json={"email": "s@example.com", "password": "abc", "accept_terms": True},
     )
     assert short.status_code == 422
     # bcrypt truncates silently at 72 bytes; two passwords sharing a prefix
     # would otherwise be interchangeable and nobody would ever know.
     long = client.post(
         "/api/auth/register-password",
-        json={"email": "l@example.com", "password": "x" * 100},
+        json={"email": "l@example.com", "password": "x" * 100, "accept_terms": True},
     )
     assert long.status_code == 422
     assert "72" in long.json()["detail"]
@@ -432,7 +432,7 @@ def test_changing_a_password_needs_the_current_one(client):
     the one action that locks the real owner out."""
     client.post(
         "/api/auth/register-password",
-        json={"email": "ch@example.com", "password": "correct horse battery"},
+        json={"email": "ch@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     bad = client.post(
         "/api/auth/change-password",
@@ -448,7 +448,7 @@ def test_changing_a_password_needs_the_current_one(client):
     client.post("/api/auth/logout")
     assert client.post(
         "/api/auth/login",
-        json={"email": "ch@example.com", "password": "another good one"},
+        json={"email": "ch@example.com", "password": "another good one", "accept_terms": True},
     ).status_code == 200
 
 
@@ -469,10 +469,10 @@ def test_forgot_password_sends_a_magic_link(client):
 
     client.post(
         "/api/auth/register-password",
-        json={"email": "forgot@example.com", "password": "correct horse battery"},
+        json={"email": "forgot@example.com", "password": "correct horse battery", "accept_terms": True},
     )
     client.post("/api/auth/logout")
-    r = client.post("/api/auth/forgot-password", json={"email": "forgot@example.com"})
+    r = client.post("/api/auth/forgot-password", json={"email": "forgot@example.com", "accept_terms": True})
     assert r.status_code == 200
     with session_scope() as s:
         assert s.execute(

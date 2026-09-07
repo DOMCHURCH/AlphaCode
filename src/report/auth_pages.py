@@ -19,6 +19,12 @@ from src.report.company_page import asset_version
 from src.report.home_page import shell
 
 
+def _footer() -> str:
+    from src.report.nav import render_footer
+
+    return render_footer()
+
+
 def _nav(active: str = "login") -> str:
     """The shared bar. Nobody reaching these pages has a session -- /login is
     where you go without one, and /auth/verify runs before the cookie is set."""
@@ -40,6 +46,7 @@ def render_login(
     <p class="hlede">Login is not configured on this deployment. Your API key
       still works on every /api route — contact {where} if you have lost it.</p>
   </header>
+{_footer()}
 </main>"""
         return shell("To Scale — sign in", body)
 
@@ -54,6 +61,17 @@ def render_login(
   <!-- Two ways in, both landing on the same session. The link tab is first
        because it needs nothing set up; the password tab exists because going
        to another application and back is a real cost every single time. -->
+  <!-- One checkbox above both panes: it is the same consent whichever way you
+       come in, and two of them would be two things to keep in step. Only read
+       when an account is actually created -- signing in does not re-ask. -->
+  <p class="accept">
+    <label>
+      <input type="checkbox" id="accept-terms">
+      I agree to the <a href="/terms">Terms of Service</a> and
+      <a href="/privacy">Privacy Policy</a>
+    </label>
+  </p>
+
   <div class="tabs" id="login-tabs" role="tablist" aria-label="Sign in">
     <button type="button" class="tab on" role="tab" data-logintab="link"
       aria-selected="true">Email me a link</button>
@@ -104,6 +122,7 @@ def render_login(
     </p>
   </section>
   </section>
+{_footer()}
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
@@ -130,6 +149,7 @@ def render_verify(*, token: str, state: str) -> str:
       <div class="sugg"><a href="/login">Send a new one</a></div>
     </div>
   </section>
+{_footer()}
 </main>"""
         return shell("To Scale — link expired", body)
 
@@ -148,6 +168,7 @@ def render_verify(*, token: str, state: str) -> str:
       </form>
     </div>
   </section>
+{_footer()}
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>

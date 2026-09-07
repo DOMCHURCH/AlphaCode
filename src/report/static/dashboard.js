@@ -271,7 +271,11 @@
     var btn = $("reg-btn");
     btn.disabled = true;
     note($("reg-note"), "Creating your key…");
-    api("/api/auth/register", { method: "POST", body: { email: email } })
+    var box = $("accept-terms");
+    api("/api/auth/register", {
+      method: "POST",
+      body: { email: email, accept_terms: !box || box.checked }
+    })
       .then(function (r) {
         btn.disabled = false;
         if (r.ok && r.data.api_key) {

@@ -76,11 +76,17 @@ def render_dashboard(
     login_enabled: bool = True,
     nav: str = "",
 ) -> str:
+    from src.report.nav import render_footer
+
     contact = _contact(admin_email)
     facts = (
         f"{_compact(fact_count)} as-reported facts"
         if fact_count
         else "every as-reported fact in the database"
+    )
+    footer = render_footer(
+        'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
+        f' rel="noopener">SEC Financial Statement Data Sets</a>. Questions: {contact}.'
     )
     quick = "".join(
         f'<a href="/company/{t}">{t} <small>{escape(k)}</small></a>'
@@ -111,6 +117,13 @@ def render_dashboard(
         <button type="submit" id="reg-btn">Get API key</button>
       </div>
     </form>
+    <p class="accept">
+      <label>
+        <input type="checkbox" id="accept-terms">
+        I agree to the <a href="/terms">Terms of Service</a> and
+        <a href="/privacy">Privacy Policy</a>
+      </label>
+    </p>
     <p class="formnote" id="reg-note" role="status" aria-live="polite"></p>
     <!-- Shown only after a 409, i.e. only for an address that IS registered.
          A login link rather than a key resend: it lands the person on a working
@@ -340,11 +353,7 @@ def render_dashboard(
       24 hours. Payment history will appear here once there is any.</p>
   </section>
 
-  <footer>
-    Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"
-      rel="noopener">SEC Financial Statement Data Sets</a>.
-    Questions: {contact}.
-  </footer>
+{footer}
 </main>
 
 <div class="modal" id="pay-modal" hidden>

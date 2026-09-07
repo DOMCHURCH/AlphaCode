@@ -28,6 +28,11 @@
     return fallback;
   }
 
+  function accepted() {
+    var box = $("accept-terms");
+    return !box || box.checked;
+  }
+
   function postJson(path, body) {
     return fetch(path, {
       method: "POST",
@@ -50,7 +55,7 @@
       var btn = $("login-btn");
       btn.disabled = true;
       note($("login-note"), "Sending…");
-      postJson("/api/auth/magic-link", { email: email })
+      postJson("/api/auth/magic-link", { email: email, accept_terms: accepted() })
         .then(function (r) {
           if (r.status === 503) {
             btn.disabled = false;
@@ -162,7 +167,9 @@
       note($("pw-note"), mode === "login" ? "Signing in…" : "Creating your account…");
       var path = mode === "login"
         ? "/api/auth/login" : "/api/auth/register-password";
-      postJson(path, { email: email, password: pass })
+      postJson(path, {
+        email: email, password: pass, accept_terms: accepted()
+      })
         .then(function (r) {
           if (r.ok) { window.location.replace("/dashboard"); return; }
           btn.disabled = false;
