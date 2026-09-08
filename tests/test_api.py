@@ -1064,15 +1064,22 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
     body = client.get("/status").json()
 
     assert set(body["features"]) == {
-        "demo", "demo_key_set", "demo_error", "email", "login", "billing",
+        "demo", "demo_key_set", "demo_error", "email", "login",
+        "billing", "billing_error",
     }
     # State, never a secret. A string among the flags would mean a value had
     # been rendered where a boolean belongs.
-    flags = {k: v for k, v in body["features"].items() if k != "demo_error"}
+    flags = {
+        k: v for k, v in body["features"].items()
+        if k not in ("demo_error", "billing_error")
+    }
     assert all(isinstance(v, bool) for v in flags.values())
     # demo_error carries a database message or nothing -- never a key.
     err = body["features"]["demo_error"]
     assert err is None or isinstance(err, str)
+    # billing_error carries Stripe's enumerated error code or nothing.
+    billing_err = body["features"]["billing_error"]
+    assert billing_err is None or isinstance(billing_err, str)
 
 
 def test_a_pasted_secret_keeps_its_surrounding_junk_off_the_comparison(

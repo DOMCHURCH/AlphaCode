@@ -520,6 +520,16 @@ def _billing_api_version() -> str:
         return ""
 
 
+def billing_last_error() -> str:
+    """Stripe's code for the last refused checkout, or "" if none has been."""
+    from src import billing
+
+    try:
+        return billing.last_error()
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return ""
+
+
 @app.get("/status")
 def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness."""
@@ -555,6 +565,14 @@ def status() -> dict[str, Any]:
         # checkout and take a payment it will never hear about, which is the
         # one state worth telling apart from "off".
         "billing": billing_is_configured(),
+        # Present when the last checkout was refused by Stripe, as Stripe's own
+        # error CODE and the field it complained about -- "resource_missing
+        # (line_items[0][price])" and nothing more. All four variables can be
+        # set (so the flag above reads True) while the Price ids belong to the
+        # other mode, and without this the only place that says so is a
+        # container log. Enumerated values only: never Stripe's message, which
+        # is free text.
+        "billing_error": billing_last_error() or None,
     }
     # What is keeping the data current, and what it is waiting on. Cheap (DB
     # reads only), and the first thing to look at when a number looks old.
@@ -2568,6 +2586,8 @@ def api_index() -> JSONResponse:
                 "/admin/universe-check",
                 "POST /backfill", "POST /admin/reload-fundamentals",
                 "POST /admin/raw-facts",
+                "/pricing  (redirects to the plans)",
+                "POST /api/billing/checkout",
             ],
             "keyed_api": {
                 "get_a_key": "/dashboard",

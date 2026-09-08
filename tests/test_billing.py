@@ -63,11 +63,15 @@ def client(tmp_path, monkeypatch):
     init_db()
 
     from src.api import _checkout_gate, _register_gate, app
+    from src.billing import reset_last_error
     from src.dataset import reset_count_cache
 
     _register_gate.reset()
     _checkout_gate.reset()
     reset_count_cache()
+    # Why the last checkout failed is module state, so one test's Stripe
+    # failure would otherwise be reported on /status by the next.
+    reset_last_error()
 
     with TestClient(app) as c:
         yield c
@@ -518,3 +522,64 @@ def test_pricing_redirects_to_the_plans_on_the_home_page(client):
     r = client.get("/pricing", follow_redirects=False)
     assert r.status_code == 307
     assert r.headers["location"] == "/#pricing"
+
+
+# ---------------------------------------------------------------------------
+# When Stripe refuses
+# ---------------------------------------------------------------------------
+
+def test_a_refused_checkout_is_502_and_tells_the_operator_only_the_code(
+    client, monkeypatch
+):
+    """All four variables can be set while the Price ids are the other mode.
+
+    That state reads `billing: true` and fails every purchase, and the first
+    time it happened the only place that said so was a container log: the
+    buyer got a deliberately vague 502 (right -- a stranger must not be told
+    the deployment's configuration) and so did the operator (useless). So the
+    code and the field Stripe named are surfaced, and its free-text message,
+    which has historically quoted credentials back, is not.
+    """
+    import stripe
+
+    def _refuse(**params):
+        raise stripe.InvalidRequestError(
+            "No such price: 'price_1UDDMePlpgbONcUzFWRiwAhU'",
+            "line_items[0][price]",
+            code="resource_missing",
+            http_status=400,
+        )
+
+    monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(_refuse))
+
+    r = client.post("/api/billing/checkout", json={"plan": "dataset"})
+    assert r.status_code == 502
+    # The caller is told nothing about the configuration.
+    assert "price" not in r.json()["detail"]
+
+    features = client.get("/status").json()["features"]
+    # The flag stays true -- every variable IS set -- and the error says why
+    # that is not the same as working.
+    assert features["billing"] is True
+    assert features["billing_error"] == "resource_missing (line_items[0][price])"
+    # Enumerated fields only. Stripe's message never reaches the page.
+    assert "No such price" not in features["billing_error"]
+
+
+def test_a_working_checkout_clears_the_last_error(client, stripe_calls, monkeypatch):
+    """A stale complaint next to a working endpoint is worse than none."""
+    from src import billing
+
+    monkeypatch.setattr(billing, "_last_error", "resource_missing (price)")
+    assert client.get("/status").json()["features"]["billing_error"] is not None
+
+    r = client.post("/api/billing/checkout", json={"plan": "pro"})
+    assert r.status_code == 200
+    assert client.get("/status").json()["features"]["billing_error"] is None
+
+
+def test_the_index_lists_the_checkout_endpoint(client):
+    """/api.json is written by hand, so a new route is only there if it is added."""
+    listed = " ".join(client.get("/api.json").json()["endpoints"])
+    assert "POST /api/billing/checkout" in listed
+    assert "/pricing" in listed

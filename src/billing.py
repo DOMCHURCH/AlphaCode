@@ -85,6 +85,46 @@ def _why(exc: Exception) -> str:
     return f"{type(exc).__name__}: {message[:150]}"
 
 
+# Why the last attempt to open a checkout failed, for /status. Stripe's own
+# error CODE and PARAM only -- never its message. The code is an enumerated
+# value ("resource_missing", "api_key_expired") and the param is a field name,
+# so neither can carry a secret, whereas the message is free text that has
+# historically quoted parts of the credential back at you. It is the difference
+# between a reader learning "the Price id is wrong" and a reader learning
+# anything about the key.
+_last_error: str = ""
+
+
+def last_error() -> str:
+    """The code for the last failed checkout, or "" if the last one worked."""
+    return _last_error
+
+
+def reset_last_error() -> None:
+    """Test helper, and the escape hatch after the configuration is fixed."""
+    global _last_error
+    _last_error = ""
+
+
+def _note_failure(exc: Exception) -> None:
+    """Record the safe half of a Stripe error and nothing else.
+
+    This exists because the first time these Price ids were wrong, the only
+    place that said so was the container log -- the caller got a deliberately
+    vague 502 (correct: a stranger must not be told the deployment's
+    configuration) and the operator got the same 502 (useless: they are the
+    one person who needs to know). Two enumerated fields close that gap
+    without opening the other one.
+    """
+    global _last_error
+    code = str(getattr(exc, "code", "") or "")
+    param = str(getattr(exc, "param", "") or "")
+    if not code:
+        _last_error = type(exc).__name__
+    else:
+        _last_error = f"{code} ({param})" if param else code
+
+
 def _sdk():
     """The `stripe` module, configured from settings, or None if not installed.
 
@@ -296,6 +336,7 @@ def create_checkout_session(
     try:
         session = stripe.checkout.Session.create(**params)
     except Exception as exc:  # noqa: BLE001 - upstream failure is a 502, not a 500
+        _note_failure(exc)
         log.warning("stripe_checkout_failed", plan=wanted, error=_why(exc))
         raise HTTPException(
             status_code=502,
@@ -308,6 +349,7 @@ def create_checkout_session(
         raise HTTPException(
             status_code=502, detail="Stripe returned a checkout with no address."
         )
+    reset_last_error()
     log.info("stripe_checkout_opened", plan=wanted, email=address or "-")
     return {"url": url, "id": str(_field(session, "id", "") or ""), "plan": wanted}
 
