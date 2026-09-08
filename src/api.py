@@ -295,6 +295,12 @@ _resend_gate = _RateGate(lambda: get_settings().resend_rate_per_hour)
 # Login links go to inboxes the requester does not have to own, so the same
 # global ceiling applies as for key recovery.
 _magic_link_gate = _RateGate(lambda: get_settings().magic_link_rate_per_hour)
+# Opening a Checkout Session is an open POST that costs a call to Stripe, so it
+# is capped like the others. NOT the webhook: that one is authenticated by a
+# signature, and rate-limiting it would drop deliveries this service has to act
+# on -- Stripe retries, but a limit hit during a burst is a queue of unfulfilled
+# payments waiting on a counter.
+_checkout_gate = _RateGate(lambda: get_settings().checkout_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -495,6 +501,25 @@ def auth_is_enabled() -> bool:
         return False
 
 
+def billing_is_configured() -> bool:
+    """Whether a card purchase would complete, not merely whether a key is set."""
+    from src import billing
+
+    try:
+        return billing.is_configured()
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return False
+
+
+def _billing_api_version() -> str:
+    from src import billing
+
+    try:
+        return billing.api_version()
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return ""
+
+
 @app.get("/status")
 def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness."""
@@ -525,6 +550,11 @@ def status() -> dict[str, Any]:
         "demo_error": demo.last_error() or None,
         "email": mailer_is_configured(),
         "login": auth_is_enabled(),
+        # True only when a purchase would complete end to end -- key, webhook
+        # secret and both Price ids. A deployment with the key alone can open a
+        # checkout and take a payment it will never hear about, which is the
+        # one state worth telling apart from "off".
+        "billing": billing_is_configured(),
     }
     # What is keeping the data current, and what it is waiting on. Cheap (DB
     # reads only), and the first thing to look at when a number looks old.
@@ -589,6 +619,25 @@ def _config_report() -> list[dict[str, Any]]:
     rows.append(opt("FINNHUB_API_KEY", bool(s.finnhub_api_key), "optional — estimates/earnings"))
     rows.append(opt("FRED_API_KEY", bool(s.fred_api_key), "optional — macro regime tilt"))
     rows.append(opt("REDIS_URL", bool(s.redis_url), "optional — shared rate limits"))
+    # Card checkout, listed one variable at a time. A single "billing: missing"
+    # row would be true and useless: three of these four being set is the state
+    # that takes a payment and never hears about it, and the operator needs to
+    # see which one is the gap.
+    rows.append(opt("STRIPE_SECRET_KEY", bool(s.stripe_secret_key),
+                    "card checkout — unset disables it"))
+    rows.append(opt("STRIPE_WEBHOOK_SECRET", bool(s.stripe_webhook_secret),
+                    "verifies webhooks — unset means payments are never fulfilled"))
+    rows.append(opt("STRIPE_PRICE_PRO", bool(s.stripe_price_pro), "Price id for Pro"))
+    rows.append(opt("STRIPE_PRICE_DATASET", bool(s.stripe_price_dataset),
+                    "Price id for the dataset"))
+    rows.append({
+        "name": "STRIPE_API_VERSION", "status": "info",
+        # The version the webhook is actually parsed in, which is the SDK's own
+        # pin unless somebody set the variable. Worth showing rather than
+        # inferring: an event whose shape has moved between versions reads as a
+        # handler bug until you know which dialect it arrived in.
+        "note": _billing_api_version() or "unknown — SDK not installed",
+    })
     return rows
 
 
@@ -2140,9 +2189,11 @@ def admin_grant_access(
 ) -> JSONResponse:
     """The manual payment switch. Authenticated by ADMIN_SECRET, nothing else.
 
-    This is the entire billing system: a payment notice arrives by email, and
-    one curl marks the account paid. Unset ADMIN_SECRET is 503 (fail closed),
-    a wrong one is 403 and an audit row.
+    The other half of the billing system -- the Stripe webhook calls the same
+    function this does. This one stays because a comp, a refund, a chargeback
+    and a customer whose payment went sideways all need a switch that does not
+    involve a card. Unset ADMIN_SECRET is 503 (fail closed), a wrong one is 403
+    and an audit row.
 
         curl -X POST https://<host>/admin/grant-access \\
           -H "X-Admin-Secret: $ADMIN_SECRET" \\
@@ -2166,6 +2217,78 @@ def admin_grant_access(
             },
         }
     )
+
+
+class CheckoutRequest(BaseModel):
+    plan: str
+    email: str | None = None
+
+
+@app.post("/api/billing/checkout")
+def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONResponse:
+    """Open a Stripe Checkout Session and hand back where to send the buyer.
+
+    Returns the URL rather than redirecting to it. A 303 from here would be
+    followed by anything that prefetches a link -- and every follow costs a
+    Checkout Session on the Stripe account -- so the caller does the navigating
+    and this endpoint stays a thing you have to mean.
+
+    The address is optional and only ever a convenience: it prefills and locks
+    the email on Stripe's page so the account that gets the grant is the account
+    that started the purchase. Fulfilment happens on the webhook, so nothing
+    here grants anything, and a caller who lies about the address buys access
+    for that address rather than for themselves.
+    """
+    from src import auth, billing
+
+    _enforce_rate(_checkout_gate, "checkout")
+    # A signed-in reader's own address beats whatever was posted: the session
+    # cookie is proof and the body is not.
+    account = auth.current_account(request)
+    email = account.email if account is not None else (body.email or "")
+    return JSONResponse(
+        billing.create_checkout_session(
+            plan=body.plan, origin=_public_origin(request), email=email or None
+        )
+    )
+
+
+@app.post("/api/billing/webhook", include_in_schema=False)
+async def api_billing_webhook(request: Request) -> JSONResponse:
+    """Stripe's side of a payment. The only unauthenticated write in the app.
+
+    Authenticated by SIGNATURE, over the RAW body -- so the body is read with
+    `request.body()` and never through a parsed model. Re-serialising the JSON
+    changes a byte somewhere (key order, spacing, unicode escaping) and the
+    signature stops verifying, which presents as "Stripe is sending bad
+    webhooks" and is not.
+
+    A bad signature is 400 and nothing else is -- `billing.handle_event` makes
+    that call, next to the verification it describes. Everything handled,
+    ignored, or already seen answers 200; anything that actually broke raises,
+    and the 500 is what makes Stripe deliver the event again.
+
+    Run in a worker thread because the handler is blocking SQLAlchemy, like
+    every other database call in this file.
+    """
+    from src import billing
+
+    payload = await request.body()
+    signature = request.headers.get("stripe-signature")
+    result = await asyncio.to_thread(billing.handle_event, payload, signature)
+    return JSONResponse(result)
+
+
+@app.get("/pricing", include_in_schema=False)
+def pricing() -> RedirectResponse:
+    """The plans live on the home page. This is the URL people type.
+
+    It is also the `cancel_url` of every Checkout Session, so somebody who backs
+    out of paying lands on the prices rather than on a 404. 307 rather than 301:
+    the prices could get a page of their own later, and a permanent redirect is
+    cached by browsers for a very long time.
+    """
+    return RedirectResponse("/#pricing", status_code=307)
 
 
 def _nav_for(request: Request, active: str) -> str:

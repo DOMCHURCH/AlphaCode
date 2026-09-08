@@ -6,11 +6,13 @@ an omission, because a privacy policy that describes data flows a service does
 not have is not merely useless -- it is a false statement to its users about
 where their data goes:
 
-* **No Stripe, and no payment processor at all.** Billing is manual: money
-  arrives by e-transfer or PayPal and an operator runs one authenticated
-  request. Nothing about a card ever reaches this service, so the policy says
-  no payment information is collected rather than naming a processor that is
-  not wired up.
+* **Stripe takes the card; this service never sees it.** Payment goes through
+  Stripe Checkout, which is Stripe's own page on Stripe's own domain. No card
+  number, expiry or CVC is ever posted to this service and none is stored in
+  its database -- what comes back is an event saying a payment settled, and an
+  email address. So the policy names Stripe as a processor AND still says no
+  payment information is collected here, because both are true and the second
+  is the one people are actually asking about.
 * **IP addresses are never stored.** What is kept is a salted digest
   (`analytics.hash_ip`), which is a stronger and truer claim than the usual
   "we collect IP addresses".
@@ -33,12 +35,12 @@ from __future__ import annotations
 from src.report.company_page import asset_version
 from src.report.home_page import shell
 
-LAST_UPDATED = "6 September 2026"
+LAST_UPDATED = "8 September 2026"
 # The same day in the form a machine wants it. Written next to the prose
 # date rather than derived from it, so the two cannot drift: the sitemap
 # tells crawlers when these documents last changed, and a lastmod that
 # disagrees with the page is a claim the crawler can catch you making.
-LAST_UPDATED_ISO = "2026-09-06"
+LAST_UPDATED_ISO = "2026-09-08"
 
 # One sentence, used in three places, so the disclaimer cannot drift between
 # the banner, the terms and the footer.
@@ -125,14 +127,19 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
 
     <h2>6. Paid plans and refunds</h2>
     <p>Pro is a monthly allowance. The full-dataset download is a one-time
-      purchase of a file. Payment is arranged directly with {who} — no card
-      details are taken on this site.</p>
+      purchase of a file. Payment is taken by
+      <a href="https://stripe.com" rel="noopener">Stripe</a> on Stripe's own
+      checkout page. <strong>No card details are entered on this site or held
+      by us</strong> — we receive confirmation that a payment succeeded and the
+      email address it was made with, and nothing else.</p>
     <p><strong>Digital products are non-refundable</strong> once access has been
       granted or the dataset has been downloaded. If something goes wrong on our
       side, contact {who} and we will make it right.</p>
-    <p>A Pro subscription runs for a fixed period and does not renew
-      automatically. When it lapses, your account returns to the free allowance
-      — your key keeps working, nothing is deleted.</p>
+    <p>Pro renews monthly through Stripe until it is cancelled. To cancel,
+      email {who} — self-serve cancellation is not built yet. Access continues
+      to the end of the period already paid for; when it lapses your account
+      returns to the free allowance — your key keeps working, nothing is
+      deleted. A one-time dataset purchase does not renew.</p>
 
     <h2>7. Termination</h2>
     <p>We may suspend or revoke access if these terms are broken, or if an
@@ -183,8 +190,8 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
     body = f"""
   <section class="sec doc">
     <p class="callout">The short version: an email address if you want an API
-      key, a count of the calls you make, and no payment details at all. We do
-      not sell anything to anyone.</p>
+      key, a count of the calls you make, and no card details at all — those go
+      to Stripe and never to us. We do not sell anything to anyone.</p>
 
     <h2>1. What we collect</h2>
     <ul>
@@ -207,10 +214,15 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
     </ul>
 
     <h2>2. What we do not collect</h2>
-    <p><strong>No payment information, of any kind.</strong> There is no payment
-      processor on this site and no card form. Payment is arranged directly with
-      {who} by e-transfer or PayPal, so card and banking details never reach
-      this service and are never stored by it.</p>
+    <p><strong>No payment information, of any kind.</strong> There is no card
+      form on this site. Paying takes you to
+      <a href="https://stripe.com" rel="noopener">Stripe</a>'s own checkout
+      page, where your card details are given to Stripe — they are never posted
+      to this service, never pass through it, and are not in its database. What
+      comes back to us is that a payment succeeded, the email address it was
+      made with, and Stripe's own identifiers for the customer and the
+      subscription, which is what lets your access be granted and later
+      cancelled.</p>
     <p>No tracking cookies, no advertising identifiers, no third-party
       analytics, and no cross-site tracking of any kind.</p>
 
@@ -231,6 +243,12 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
         run there.</li>
       <li><strong>AgentMail</strong> — email delivery. Receives your address and
         the message when we send you a login link or an account email.</li>
+      <li><strong>Stripe</strong> — payments, and only if you buy something.
+        Your card details go to Stripe and not to us; Stripe receives your
+        email address and holds the payment record. Stripe is the data
+        controller for what it collects on its own page, under its
+        <a href="https://stripe.com/privacy" rel="noopener">privacy policy</a>.
+        If you never buy anything, nothing is sent to Stripe.</li>
       <li><strong>OpenRouter</strong> — only if you use the optional question
         box on a company page. Your question and the filed figures for that
         company are sent to a language model to answer it. Do not type anything

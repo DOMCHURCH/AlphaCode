@@ -445,8 +445,13 @@ def test_the_privacy_policy_describes_this_service_and_not_a_template(client):
     Four claims here are corrections to the brief, and each must survive."""
     text = client.get("/privacy").text
 
-    # There is no payment processor in this codebase at all.
-    assert "Stripe" not in text
+    # Cards go to Stripe and nowhere else, so Stripe is NAMED as a processor
+    # and linked -- a policy that hid the one third party handling money would
+    # be the exact false statement this test exists to catch. The second claim
+    # survives beside it because both are true: nothing about a card is posted
+    # to this service or stored in its database.
+    assert "Stripe" in text
+    assert "https://stripe.com/privacy" in text
     assert "No payment information" in text
 
     # We store salted digests, never addresses. That is stronger AND true.

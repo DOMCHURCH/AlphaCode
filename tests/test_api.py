@@ -1064,7 +1064,7 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
     body = client.get("/status").json()
 
     assert set(body["features"]) == {
-        "demo", "demo_key_set", "demo_error", "email", "login",
+        "demo", "demo_key_set", "demo_error", "email", "login", "billing",
     }
     # State, never a secret. A string among the flags would mean a value had
     # been rendered where a boolean belongs.

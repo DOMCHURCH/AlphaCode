@@ -416,9 +416,10 @@
 
   function payText(what, price) {
     return (
-      what + " is " + price + ". Send it by e-transfer or PayPal to " +
-      (CFG.adminEmail || "the site owner") + ", then email the same address " +
-      "with your API key. It is unlocked by hand, usually within 24 hours."
+      what + " is " + price + ", paid by card through Stripe. Email " +
+      (CFG.adminEmail || "the site owner") + " with your API key and you will " +
+      "be sent a checkout link. Card details are entered on Stripe's page and " +
+      "never reach this site."
     );
   }
 

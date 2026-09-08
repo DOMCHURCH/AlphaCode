@@ -1,11 +1,11 @@
 """API accounts: who may call, how much, and what they have paid for.
 
-There is no payment processor in this service, on purpose. Money arrives out of
-band -- an e-transfer or a PayPal notice in an inbox -- and access is granted by
-one authenticated POST to `/admin/grant-access`. That is the whole billing
-system. It has no webhooks to verify, no card data to hold, and no third party
-that can lock the account; the cost is that a purchase is not instant, which is
-stated plainly to the buyer rather than hidden.
+Access is granted by exactly one function, `apply_admin_action`, and two things
+call it: `POST /admin/grant-access`, which an operator runs by hand, and the
+Stripe webhook in `src/billing.py`, which runs it when a payment settles. That
+is the whole billing system. Keeping the card path and the manual path on one
+switch is what makes a comp, a refund and a chargeback the same operation, and
+it means nothing in this module has to know whether money was involved.
 
 Two things are metered and they are deliberately different:
 
@@ -416,8 +416,8 @@ def require_paid_download(account: Account) -> None:
         status_code=402,
         detail=(
             f"Payment required. The full dataset is a one-time "
-            f"${s.dataset_price_usd}. Contact {where} to purchase, quoting "
-            "your API key, and it is unlocked by hand."
+            f"${s.dataset_price_usd}, paid by card through Stripe. Contact "
+            f"{where}, quoting your API key, to be sent a checkout link."
         ),
     )
 

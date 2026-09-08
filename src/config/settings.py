@@ -235,7 +235,7 @@ class Settings(BaseSettings):
     # doesn't fail settings validation. Safe to leave unset.
     api_key: str = Field(default="", alias="API_KEY")
 
-    # ---------------- Paid access (manual, no payment processor) ----------------
+    # ---------------- Paid access (Stripe, plus the manual switch) ----------------
     # The shared secret for POST /admin/grant-access. UNSET MEANS THE ENDPOINT IS
     # DEAD, not open: an empty secret that compared equal to an empty header
     # would hand the grant switch to the whole internet the moment the variable
@@ -334,13 +334,51 @@ class Settings(BaseSettings):
         default=5, ge=0, alias="DEMO_CALLS_PER_IP_PER_DAY"
     )
 
+    # ---------------- Stripe Checkout ----------------
+    # The card path. Unset STRIPE_SECRET_KEY disables checkout entirely -- the
+    # endpoint answers 503 and the webhook refuses to verify -- rather than
+    # half-working, because a checkout that opens and a webhook that cannot
+    # verify is the one combination that takes money and grants nothing.
+    stripe_secret_key: str = Field(default="", alias="STRIPE_SECRET_KEY")
+    # The signing secret for the endpoint registered in the Stripe dashboard.
+    # UNSET MEANS THE WEBHOOK IS DEAD, not open, for the same reason
+    # ADMIN_SECRET is: an unverified webhook body is an unauthenticated request
+    # to the grant switch, and anybody who can reach the URL can post one.
+    stripe_webhook_secret: str = Field(default="", alias="STRIPE_WEBHOOK_SECRET")
+    # The two Prices, created in the Stripe dashboard. Ids rather than amounts:
+    # the price a buyer is charged is Stripe's copy, and quoting a number here
+    # that Stripe does not agree with is how a checkout page and a receipt end
+    # up saying different things.
+    stripe_price_dataset: str = Field(default="", alias="STRIPE_PRICE_DATASET")
+    stripe_price_pro: str = Field(default="", alias="STRIPE_PRICE_PRO")
+    # Empty means "whatever version the installed SDK is pinned to", which is
+    # the right default: the SDK and its pinned version are upgraded together,
+    # and a stale string here would ask a new library to speak an old dialect.
+    # Set it only to hold a deployment on a version deliberately.
+    stripe_api_version: str = Field(default="", alias="STRIPE_API_VERSION")
+    # Creating a Checkout Session is an unauthenticated POST that costs a call
+    # to Stripe, so it is capped like the other open POSTs. Generous for a
+    # human, low enough that a loop cannot use this service to make a thousand
+    # sessions on the account.
+    checkout_rate_per_hour: int = Field(
+        default=60, ge=0, alias="CHECKOUT_RATE_PER_HOUR"
+    )
+
     # Business-day buffer added on top of filing_date to model ingestion lag.
     pit_lag_business_days: int = Field(default=2, alias="PIT_LAG_BUSINESS_DAYS")
 
     # Concurrency
     http_concurrency: int = Field(default=10, alias="HTTP_CONCURRENCY")
 
-    @field_validator("demo_api_key", "admin_secret", "agentmail_api_key")
+    @field_validator(
+        "demo_api_key",
+        "admin_secret",
+        "agentmail_api_key",
+        "stripe_secret_key",
+        "stripe_webhook_secret",
+        "stripe_price_dataset",
+        "stripe_price_pro",
+    )
     @classmethod
     def _clean_secret(cls, v: str) -> str:
         """Strip what a paste into a dashboard field leaves behind.

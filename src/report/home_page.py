@@ -280,8 +280,8 @@ def _pricing(stats: dict) -> str:
       {card("Full dataset", f"${s.dataset_price_usd}", " once", dataset_line, "Buy the data", True)}
       {card("Pro", f"${s.pro_price_usd}", "/month", f"{_compact(s.pro_tier_monthly_calls)} API calls per month", "Go Pro", False)}
     </div>
-    <p class="plan-note">No card is taken on this site. Payment is by e-transfer or
-      PayPal and access is unlocked by hand — usually within 24 hours.</p>
+    <p class="plan-note">Paid plans go through Stripe. Your card details are
+      entered on Stripe's page and never reach this site.</p>
   </section>"""
 
 

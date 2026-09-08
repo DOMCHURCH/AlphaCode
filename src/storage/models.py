@@ -511,10 +511,13 @@ def current_month(now: dt.datetime | None = None) -> str:
 class ApiUser(Base):
     """One row per API key. The whole access-control state of one caller.
 
-    Access is granted by hand: there is no payment processor in this service.
-    Money arrives out of band (e-transfer, PayPal) and `POST /admin/grant-access`
-    flips the two fields below. That is the entire billing system, and keeping
-    it two plain columns is what makes it safe to operate from a phone.
+    Access is two plain fields, flipped by exactly one function
+    (`accounts.apply_admin_action`). Two things call it: `POST
+    /admin/grant-access`, which an operator runs by hand, and the Stripe
+    webhook, which runs it when a payment settles. Keeping the card path and
+    the manual path on one switch means a refund, a comp and a chargeback are
+    all the same operation, and the state of an account can still be read and
+    changed from a phone.
 
     `api_key` is stored in the clear rather than hashed. It is a read-only key
     over data that is already public (SEC filings), the worst case of a leak is
@@ -560,11 +563,48 @@ class ApiUser(Base):
     # cleared by every grant. Without it the daily job mails the same warning
     # every day for three days running.
     pro_reminder_sent_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # Stripe's side of the same account. Both nullable, because most accounts
+    # never pay and a dataset buyer who checks out as a guest has a customer
+    # but no subscription. They exist so a webhook that arrives with nothing
+    # but a customer id -- which is all `customer.subscription.deleted` carries
+    # about the person -- can still find the row it has to change.
+    #
+    # Deliberately unindexed. `_sync_added_columns` adds a COLUMN to a live
+    # table and never an INDEX, so declaring one here would give a fresh
+    # database an index the production one does not have -- and the lookup runs
+    # at most once per webhook over a table of accounts, which is a scan
+    # nobody will ever feel.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64))
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64))
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow
     )
     updated_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow, onupdate=_utcnow
+    )
+
+
+class StripeEvent(Base):
+    """One row per Stripe event this service has already acted on.
+
+    Stripe delivers at least once, not exactly once: a webhook whose reply is
+    slow, lost, or a 500 is redelivered for three days. Without this table the
+    second delivery of one `checkout.session.completed` adds a second 31-day
+    Pro period for a single payment -- free access nobody paid for, arriving
+    silently.
+
+    The event id is the primary key, so the duplicate is refused by the
+    database rather than by a query that raced. `type` is kept because the
+    first question about a stuck webhook is which kind of event stopped
+    arriving, and `received_at` because the second is when.
+    """
+
+    __tablename__ = "stripe_events"
+
+    event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    type: Mapped[str] = mapped_column(String(64), nullable=False)
+    received_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow, index=True
     )
 
 

@@ -362,9 +362,9 @@ def render_dashboard(
         <button type="button" class="btn" id="buy-data">Buy full dataset</button>
       </div>
     </div>
-    <p class="plan-note">No card is taken on this site. Payment is by e-transfer
-      or PayPal to {contact}, and access is unlocked by hand — usually within
-      24 hours. Payment history will appear here once there is any.</p>
+    <p class="plan-note">Paid plans go through Stripe. Your card details are
+      entered on Stripe's page and never reach this site. Payment history will
+      appear here once there is any.</p>
   </section>
 
 {footer}

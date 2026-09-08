@@ -41,6 +41,13 @@ itsdangerous>=2.1,<3
 # line has key recovery switched off rather than failing to boot.
 agentmail>=0.5,<1
 
+# --- payments ---
+# Imported lazily by src/billing.py, so a container that predates this line has
+# card checkout switched off rather than failing to boot. Pinned exactly: the
+# SDK carries the Stripe API version it speaks, so an unpinned upgrade is a
+# silent change to the dialect the webhook is parsed in.
+stripe==14.4.1
+
 # --- observability ---
 structlog>=24.1
 
