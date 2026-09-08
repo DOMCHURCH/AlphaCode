@@ -125,7 +125,10 @@ def test_root_is_the_home_page(client):
     tool is reachable from it rather than standing in for it."""
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 200
-    assert "Filed financial statements, drawn at true proportion" in r.text
+    # The page's own heading, not the meta description: the description is
+    # copy that gets rewritten for search results, and a test that asserts it
+    # fails every time somebody improves a sentence.
+    assert "Every balance sheet, drawn to scale" in r.text
     assert 'action="/search"' in r.text
     assert 'href="/admin"' in r.text
 

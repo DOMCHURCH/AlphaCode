@@ -161,6 +161,7 @@ person in and, if they are new, creates the account. Requires:
 | `SESSION_SECRET` | `openssl rand -hex 32` &nbsp;**(unset = login disabled, 503)** |
 | `BASE_URL` | `https://alphacode-production.up.railway.app` — the link's base |
 | `AGENTMAIL_API_KEY` | the link is an email; no mail, no login |
+| `SITE_URL` | `https://toscale.pro` — the public address, for canonical tags and social cards. Not the same job as `BASE_URL`; on a preview deployment they differ deliberately. |
 
 Notes that matter when this misbehaves:
 
@@ -173,8 +174,10 @@ Notes that matter when this misbehaves:
 * Links last 15 minutes, work once, and one address can only be mailed every
   20 minutes.
 * The session cookie is `HttpOnly; Secure; SameSite=Lax`. **Secure means it will
-  not be set over plain http**, so local testing needs https or a tolerant
-  browser; on Railway everything is https already.
+  not be set over plain http.** `Secure` is dropped only when `BASE_URL` itself
+  is `http://` — i.e. on a developer's machine, where the flag would otherwise
+  make every login silently fail. On Railway everything is https already, so
+  the flag is always on there.
 * Regenerating an API key needs the session, never the key — the reason to press
   it is that the key leaked, and a key that can rotate itself locks its owner out.
 

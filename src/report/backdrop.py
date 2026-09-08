@@ -18,9 +18,11 @@ balance sheet appears would be indefensible on a site whose whole argument is
 that it respects the reader, so the film is an upgrade that has to earn its
 place on every single visit rather than a cost everybody pays.
 
-Not yet wired into any page — the dark redesign it belongs to has not been
-written. `render_backdrop()` is ready to drop into a page shell when it is, and
-`/static/media/preview.html` shows it working in the meantime.
+Rendered by `src.report._shell.render_page`, so it is on every page on the
+site. What differs per page is the weight of the veil in front of it and
+whether the film is allowed at all -- both keyed off `body[data-film]`, both
+decided once in the shell. `/static/media/preview.html` shows the three layers
+in isolation.
 """
 
 from __future__ import annotations

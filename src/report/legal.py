@@ -49,7 +49,7 @@ SHORT_DISCLAIMER = (
 )
 
 
-def _legal_shell(title: str, nav: str, body: str) -> str:
+def _legal_shell(title: str, nav: str, body: str, path: str = "/") -> str:
     from src.report.nav import render_footer
 
     _footer = render_footer()
@@ -66,11 +66,17 @@ def _legal_shell(title: str, nav: str, body: str) -> str:
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>""",
-        # The still, like every page but the home page. These are long reads
-        # and the veil over the still is heavy, so it costs nothing to be
-        # consistent -- and a legal page that looked like a different site
-        # would be the wrong page to make look untrusted.
-        film="still",
+        # "quiet": the still image only, under the heaviest veil on the site.
+        # These are the two pages somebody reads a thousand words of, and a
+        # moving picture behind a sentence about liability is the one place
+        # where atmosphere costs more than it is worth. A legal page that
+        # looked like a different site would be the wrong page to make look
+        # untrusted, so the backdrop stays -- it is simply turned right down.
+        film="quiet",
+        path=path,
+        description=(
+            f"{title} for To Scale — the SEC financial data API."
+        ),
     )
 
 
@@ -182,7 +188,7 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
     <h2>13. Contact</h2>
     <p>Questions about these terms: {who}.</p>
   </section>"""
-    return _legal_shell("Terms of Service", nav, body)
+    return _legal_shell("Terms of Service", nav, body, path="/terms")
 
 
 def render_privacy(*, nav: str = "", contact: str = "") -> str:
@@ -316,4 +322,4 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
     <h2>11. Contact</h2>
     <p>Privacy questions, access requests and deletion requests: {who}.</p>
   </section>"""
-    return _legal_shell("Privacy Policy", nav, body)
+    return _legal_shell("Privacy Policy", nav, body, path="/privacy")

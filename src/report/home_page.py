@@ -20,6 +20,7 @@ import structlog
 
 from src.company.suggest import Suggestion
 from src.company.view1 import View1
+from src.report._shell import NOINDEX
 from src.report.company_page import (
     _band,
     _legend_rows,
@@ -238,13 +239,27 @@ def _accuracy_banner() -> str:
   </div>"""
 
 
-def _pricing(stats: dict) -> str:
+def _pricing(stats: dict, *, signed_in: bool = False) -> str:
     """Three cards: free, the dataset, Pro.
 
     Every number is read from settings and from the live fact count rather than
     written into the copy. A price quoted in HTML is a price that disagrees with
     the one the API enforces the first time either changes, and on this page the
     disagreement would be with the figure a buyer is about to act on.
+
+    The call to action depends on whether there is a session, and this is the
+    whole of the fix for "clicking Buy sends me to the login page":
+
+      signed out   a link to /login. Correct -- a purchase has to land on an
+                   account, and the account is the step before the payment.
+      signed in    a form that POSTs to /checkout, which opens the Stripe
+                   session against the address in the cookie. A POST rather
+                   than a link because a link to a checkout is followed by
+                   anything that prefetches, and every follow costs a real
+                   Checkout Session on the Stripe account.
+
+    The signed-in path is a plain form, so it works with scripting off; the
+    dashboard's buttons do the same thing through fetch.
     """
     from src.config.settings import get_settings
 
@@ -254,20 +269,29 @@ def _pricing(stats: dict) -> str:
         f"Download all {rows} rows as CSV" if rows else "Download the whole table as CSV"
     )
 
+    def cta(plan: str, label: str) -> str:
+        """The button, and where it goes.
+
+        `plan` is "" for the free tier: there is nothing to buy, so it is a
+        sign-in either way.
+        """
+        if plan and signed_in:
+            return f"""<form class="plan-buy" method="post" action="/checkout">
+        <input type="hidden" name="plan" value="{escape(plan)}">
+        <button type="submit" class="plan-cta">{escape(label)}</button>
+      </form>"""
+        return f'<a class="plan-cta" href="/login">{escape(label)}</a>'
+
     def card(
-        name: str, price: str, per: str, line: str, cta: str, feature: bool
+        name: str, price: str, per: str, line: str, plan: str, label: str,
+        feature: bool,
     ) -> str:
-        # Every plan starts at sign-in now, not the dashboard. The dashboard
-        # shows an account; somebody who has not got one yet needs the step
-        # before that, and landing on a page telling you to go elsewhere is the
-        # commonest way a signup is lost.
-        href = "/login"
         return f"""
     <div class="plan{' feature' if feature else ''}">
       <span class="plan-name">{escape(name)}</span>
       <p class="plan-price">{escape(price)}<small>{escape(per)}</small></p>
       <p class="plan-line">{escape(line)}</p>
-      <a class="plan-cta" href="{href}">{escape(cta)}</a>
+      {cta(plan, label)}
     </div>"""
 
     return f"""
@@ -276,9 +300,9 @@ def _pricing(stats: dict) -> str:
     <p class="sec-sub">The drawings are free and always will be. The machine-readable
       version is what costs money.</p>
     <div class="plans">
-      {card("Free", "$0", "", f"{s.free_tier_monthly_calls} API calls per month", "Get a key", False)}
-      {card("Full dataset", f"${s.dataset_price_usd}", " once", dataset_line, "Buy the data", True)}
-      {card("Pro", f"${s.pro_price_usd}", "/month", f"{_compact(s.pro_tier_monthly_calls)} API calls per month", "Go Pro", False)}
+      {card("Free", "$0", "", f"{s.free_tier_monthly_calls} API calls per month", "", "Get a key", False)}
+      {card("Full dataset", f"${s.dataset_price_usd}", " once", dataset_line, "dataset", "Buy the data", True)}
+      {card("Pro", f"${s.pro_price_usd}", "/month", f"{_compact(s.pro_tier_monthly_calls)} API calls per month", "pro", "Go Pro", False)}
     </div>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site.</p>
@@ -345,56 +369,22 @@ def _summary_line(stats: dict) -> str:
     )
 
 
-def shell(title: str, body: str, film: str = "still") -> str:
-    return _shell(title, body, film)
+def shell(title: str, body: str, film: str = "still", **meta) -> str:
+    """The page shell, kept at this name because four modules import it.
 
-
-def _shell(title: str, body: str, film: str = "still") -> str:
-    """`film` says how much of the backdrop this page may spend.
-
-    "hero"  the film is the point, above the fold  (home, login)
-    "calm"  the still only, veiled hard            (dashboard, company)
-    "none"  no backdrop at all                     (terms, privacy)
-
-    Decided per page rather than globally because it depends on how long
-    somebody reads: a page that is glanced at can afford a sunset, and a page
-    that is worked in for ten minutes cannot.
+    The document itself is built by `src.report._shell`, which every page on the
+    site now goes through -- so the head, the meta tags and the backdrop are one
+    definition rather than four that drift. Anything a page wants to say about
+    itself (its canonical path, whether it should be indexed, its own
+    description) rides through as keyword arguments.
     """
-    from src.report.backdrop import render_backdrop
+    from src.report._shell import render_page
 
-    backdrop = "" if film == "none" else render_backdrop()
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(title)}</title>
-<meta name="description" content="Filed financial statements, drawn at true proportion.">
-<link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
-<!-- Second sheet rather than more of the first: the accuracy banner and the
-     dashboard's controls are the only things that use it, and keeping them out
-     of company.css keeps the drawing's stylesheet about the drawing. -->
-<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
-<!-- Last, and only token overrides: this is what turns the whole site dark,
-     drawings included, without a rule being rewritten. -->
-<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<!-- Last of all, and token overrides again: this is what turns the flat
-     surfaces into glass and the corners soft. Swap this one line back to
-     terminal.css to return to the ruled treatment; nothing else changes. -->
-<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
-<meta name="theme-color" content="#0a0a0a">
-</head>
-<body data-film="{film}">
-{backdrop}
-<a class="skip" href="#main">Skip to content</a>
-{body}
-</body>
-</html>"""
+    return render_page(title=title, body=body, film=film, **meta)
+
+
+def _shell(title: str, body: str, film: str = "still", **meta) -> str:
+    return shell(title, body, film, **meta)
 
 
 def search_form(value: str = "", autofocus: bool = False) -> str:
@@ -804,8 +794,16 @@ def render_home(
     stats: dict | None = None,
     *,
     nav: str = "",
+    signed_in: bool = False,
 ) -> str:
-    """`pairs` is (suggestion, its view or None), in the order to show them."""
+    """`pairs` is (suggestion, its view or None), in the order to show them.
+
+    `signed_in` reaches only the pricing cards, and it decides one thing there:
+    whether a paid plan's button starts a checkout or asks for a sign-in first.
+    Sending somebody who is already signed in to /login was the single worst
+    bug on this page -- it read as being logged out at the exact moment they
+    were trying to pay.
+    """
     from src.company.stats import component_coverage
     from src.report.nav import render_disclaimer, render_footer
 
@@ -892,7 +890,7 @@ def render_home(
   {_trust(stats or {})}
   {_accuracy_banner()}
   {gallery}
-  {_pricing(stats or {})}
+  {_pricing(stats or {}, signed_in=signed_in)}
   {_demo_section()}
 
   <div class="fold" id="how"></div>
@@ -909,8 +907,14 @@ def render_home(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
 <script src="/static/countup.js?v={asset_version()}" defer></script>"""
+    from src.report._shell import home_structured_data
+
     return _shell(
-        "To Scale — filed financial statements, drawn to scale", body, film="hero"
+        "To Scale — 99.9% Accurate SEC Data API for US Public Companies",
+        body,
+        film="hero",
+        path="/",
+        structured_data=home_structured_data(),
     )
 
 
@@ -960,7 +964,14 @@ def render_matches(
   <p class="tryline">Or start with one of these:</p>
   <div class="sugg">{sugg}</div>
 </main>"""
-    return _shell(f"{query} — To Scale", body)
+    # Search results are not pages worth indexing: the content is elsewhere
+    # (on the company pages these link to) and a crawler following every query
+    # string finds an unbounded set of near-duplicates.
+    return _shell(
+        f"{query} — To Scale", body, film="calm", path="/search",
+        robots=NOINDEX,
+        description=f"Companies matching “{query}” on To Scale.",
+    )
 
 
 def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
@@ -992,7 +1003,10 @@ def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
     <div class="sugg">{sugg}</div>
   </div>
 </main>"""
-    return _shell("Search by ticker — To Scale", body)
+    return _shell(
+        "Search by ticker — To Scale", body, film="calm", path="/search",
+        robots=NOINDEX
+    )
 
 
 def render_search_empty(suggestions: list[Suggestion]) -> str:
@@ -1017,4 +1031,6 @@ def render_search_empty(suggestions: list[Suggestion]) -> str:
     <div class="sugg">{sugg}</div>
   </div>
 </main>"""
-    return _shell("To Scale — search", body)
+    return _shell(
+        "To Scale — search", body, film="calm", path="/search", robots=NOINDEX
+    )

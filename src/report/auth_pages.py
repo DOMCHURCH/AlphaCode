@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from html import escape
 
+from src.report._shell import NOINDEX
 from src.report.company_page import asset_version
 from src.report.home_page import shell
 
@@ -33,6 +34,23 @@ def _nav(active: str = "login") -> str:
     return render_nav(active=active, signed_in=False)
 
 
+# The login page is public, so it keeps the film -- it is a page somebody
+# glances at, and it is the first thing a lot of visitors see after the home
+# page. It is NOT indexable: a sign-in form in a search result is a result
+# nobody wanted, and it competes with the page that should have ranked.
+_LOGIN_META = {
+    "film": "hero",
+    "path": "/login",
+    "robots": NOINDEX,
+    "description": (
+        "Sign in to To Scale to get an API key for clean SEC financial data."
+    ),
+}
+# The verify page is reached from a link in an email and exists for about two
+# seconds. Nothing should index it, and it carries a one-time token.
+_VERIFY_META = {"film": "hero", "path": "/auth/verify", "robots": NOINDEX}
+
+
 def render_login(
     *, admin_email: str = "", enabled: bool = True, nav: str = ""
 ) -> str:
@@ -48,7 +66,7 @@ def render_login(
   </header>
 {_footer()}
 </main>"""
-        return shell("To Scale — sign in", body, film="still")
+        return shell("To Scale — sign in", body, **_LOGIN_META)
 
     body = f"""{nav or _nav()}
 <main class="wrap" id="main">
@@ -130,7 +148,7 @@ def render_login(
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — sign in", body, film="still")
+    return shell("To Scale — sign in", body, **_LOGIN_META)
 
 
 def render_verify(*, token: str, state: str) -> str:
@@ -154,7 +172,7 @@ def render_verify(*, token: str, state: str) -> str:
   </section>
 {_footer()}
 </main>"""
-        return shell("To Scale — link expired", body, film="still")
+        return shell("To Scale — link expired", body, **_VERIFY_META)
 
     body = f"""{_nav()}
 <main class="wrap" id="main">
@@ -176,4 +194,4 @@ def render_verify(*, token: str, state: str) -> str:
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — signing you in", body, film="still")
+    return shell("To Scale — signing you in", body, **_VERIFY_META)

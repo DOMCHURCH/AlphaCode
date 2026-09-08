@@ -85,10 +85,20 @@ def _serializer() -> URLSafeTimedSerializer:
 def issue_session(response: Response, email: str) -> None:
     """Sign the address into a cookie and attach it to `response`.
 
-    Secure and HttpOnly are not optional here: this cookie can be exchanged for
-    the account's API key at /api/auth/me, so it is a credential in its own
-    right. SameSite=Lax rather than Strict so that arriving from the emailed
-    link -- a cross-site navigation -- still carries it.
+    HttpOnly is not optional here: this cookie can be exchanged for the
+    account's API key at /api/auth/me, so it is a credential in its own right.
+    SameSite=Lax rather than Strict so that arriving from the emailed link -- a
+    cross-site navigation -- still carries it.
+
+    Secure is on for every deployment that is served over https, which is every
+    real one. It is dropped ONLY when the configured base URL is plain http,
+    which means a developer on localhost: a Secure cookie over http is not
+    stored by the browser at all, so the flag that protects the credential in
+    production is the flag that makes every login silently fail in
+    development -- the session is issued, dropped, and the next page renders
+    signed out with nothing anywhere saying why. Keyed off configuration rather
+    than off the request, so a forged `X-Forwarded-Proto: http` cannot talk a
+    production deployment out of the flag.
     """
     s = get_settings()
     response.set_cookie(
@@ -96,14 +106,31 @@ def issue_session(response: Response, email: str) -> None:
         _serializer().dumps(email),
         max_age=s.session_max_age_s,
         httponly=True,
-        secure=True,
+        secure=cookie_is_secure(),
         samesite="lax",
         path="/",
     )
 
 
+def cookie_is_secure() -> bool:
+    """Whether the session cookie carries `Secure`. True unless BASE_URL is http."""
+    return not get_settings().base_url.lower().startswith("http://")
+
+
 def clear_session(response: Response) -> None:
-    response.delete_cookie(COOKIE_NAME, path="/")
+    """Delete it with the SAME attributes it was set with.
+
+    A cookie is identified by (name, domain, path) and browsers will refuse a
+    deletion whose flags contradict the original often enough that it is not
+    worth finding out which ones do. Logging out has to actually log out.
+    """
+    response.delete_cookie(
+        COOKIE_NAME,
+        path="/",
+        httponly=True,
+        secure=cookie_is_secure(),
+        samesite="lax",
+    )
 
 
 def session_email(request: Request) -> str | None:

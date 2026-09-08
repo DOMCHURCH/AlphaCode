@@ -177,6 +177,13 @@ def robots(base_url: str) -> str:
     this line is how every crawler that is not Google finds it. /admin is
     disallowed because it is an operator console, not a page -- it is already
     behind a secret, and a crawler wasting requests on it helps nobody.
+
+    The private surfaces are listed as well as carrying `noindex` in their own
+    markup, and the two are doing different jobs: `noindex` keeps a page out of
+    the index if it is fetched, and this stops the fetch. Crawling /search with
+    every query string a link ever carried is an unbounded set of near-
+    duplicates, and /dashboard renders the signed-out state to a crawler --
+    neither is worth anybody's request budget.
     """
     base = base_url.rstrip("/")
     return (
@@ -184,6 +191,11 @@ def robots(base_url: str) -> str:
         "Allow: /\n"
         "Disallow: /admin\n"
         "Disallow: /api/\n"
+        "Disallow: /dashboard\n"
+        "Disallow: /login\n"
+        "Disallow: /auth/\n"
+        "Disallow: /search\n"
+        "Disallow: /checkout\n"
         "\n"
         f"Sitemap: {base}/sitemap.xml\n"
     )

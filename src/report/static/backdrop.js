@@ -5,9 +5,13 @@
 
    It is a no unless ALL of these hold:
 
-     - the page asked for it: <body data-film="hero">. Every other page shows
-       the still and nothing else, and CSS alone was not enough -- a hidden
-       <video> still downloads and still decodes.
+     - the page allows it: <body data-film="...">. Every page on the site now
+       does except the legal documents ("quiet") and anything that opts out
+       entirely ("none") -- those get the still and nothing else, and CSS alone
+       was not enough to stop the rest, because a hidden <video> still
+       downloads and still decodes. What DOES differ per page is how hard the
+       film is veiled; that is backdrop.css's job, keyed off the same
+       attribute.
      - the viewport is desktop-width (a phone gets the still, full stop)
      - the page has finished loading (the film never competes with the content)
      - the connection is not metered, saving data, or 2g/3g
@@ -48,9 +52,17 @@
     return true;
   }
 
+  /* The two modes that never get a film. Everything else does: the backdrop
+     is the site's one piece of motion and it belongs on every page, not only
+     the front door. A legal document is the exception worth making -- it is a
+     thousand words somebody actually reads. */
+  var NO_FILM = ["quiet", "none"];
+
   function wantsFilm() {
     var body = document.body;
-    return !!body && body.getAttribute("data-film") === "hero";
+    if (!body) return false;
+    var mode = body.getAttribute("data-film") || "still";
+    return NO_FILM.indexOf(mode) === -1;
   }
 
   function eligible() {

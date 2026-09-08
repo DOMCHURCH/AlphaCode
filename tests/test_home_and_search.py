@@ -15,6 +15,7 @@ The rules being defended here are the product's, not the framework's:
 from __future__ import annotations
 
 import datetime as dt
+import re
 
 import pytest
 
@@ -138,7 +139,10 @@ def test_home_is_the_product_not_a_redirect(client):
 
     assert r.status_code == 200
     body = r.text
-    assert "Filed financial statements, drawn at true proportion" in body
+    # The page's own heading, not its meta description: a description is copy
+    # written for search results and rewritten whenever it is improved, and a
+    # test that asserts it fails on every rewrite.
+    assert "Every balance sheet, drawn to scale" in body
     assert 'action="/search"' in body
     assert 'href="/company/JPM"' in body
 
@@ -371,10 +375,22 @@ def test_no_page_ranks_anything(client, path):
 
     body = _body_without_disclaimers(client, path)
 
-    for word in ("rank", "score", "rating", "best", "top pick", " buy ",
-                 " sell ", "undervalued", "recommend", "outperform",
-                 "predict", "forecast"):
-        assert word not in body, f"{path} must not say {word!r}"
+    # Anchored at the START of a word rather than matched anywhere in the
+    # text: "rating" inside `operatingSystem` -- a schema.org key in the page's
+    # structured data -- is not this page ranking anything, and a plain
+    # substring search cannot tell the difference. Left OPEN at the end on
+    # purpose, so "ratings", "predictions" and "ranking" are all still caught.
+    for word in ("rank", "score", "rating", "best", "top pick", "undervalued",
+                 "recommend", "outperform", "predict", "forecast"):
+        assert not re.search(rf"\b{re.escape(word)}", body), (
+            f"{path} must not say {word!r}"
+        )
+
+    # These two keep their spaces. "Buy the data" is the name of the button
+    # that sells a CSV file, and "buy" inside it is not a view about a
+    # security -- which is the only thing this test is looking for.
+    for phrase in (" buy ", " sell "):
+        assert phrase not in body, f"{path} must not say {phrase!r}"
 
 
 def test_the_page_still_says_what_it_does_not_do(client):

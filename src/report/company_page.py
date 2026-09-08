@@ -279,8 +279,10 @@ def render_company_page(
     scale: View2 | None = None,
     ask_available: bool = False,
 ) -> str:
-    # Imported here, not at module level: nav imports legal, and legal
-    # imports this module for asset_version -- a cycle at import time.
+    # Imported here, not at module level: nav imports legal, and legal imports
+    # this module for asset_version -- and `_shell` reads asset_version from
+    # here too. Either at the top is a cycle at import time.
+    from src.report._shell import render_page
     from src.report.nav import render_footer
 
     d = view.as_dict()
@@ -343,6 +345,9 @@ def render_company_page(
     # rendering bug rather than as missing data.
     has_name = bool((d["company_name"] or "").strip())
     name = escape(d["company_name"]) if has_name else escape(d["ticker"])
+    # The unescaped form, for the meta tags -- they are escaped once, by the
+    # shell, and escaping twice puts `&amp;amp;` in a search result.
+    name_plain = (d["company_name"] or "").strip() or d["ticker"]
     eyebrow = (
         f'<p class="cticker">{escape(d["ticker"])}</p>' if has_name else ""
     )
@@ -350,28 +355,7 @@ def render_company_page(
         f'<span class="chip">{escape(d["sector"])}</span>' if d["sector"] else ""
     )
 
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(d["ticker"])} — what it owns</title>
-<link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
-<meta name="theme-color" content="#0a0a0a">
-</head>
-<body data-film="still">
-<div class="backdrop" aria-hidden="true">
-  <div class="backdrop-still"></div><div class="backdrop-veil"></div>
-</div>
-<a class="skip" href="#main">Skip to content</a>
+    body = f"""
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a
        control. The explicit back link is the difference between a way out and
@@ -442,9 +426,32 @@ def render_company_page(
 )}
 </main>
 {'<script src="/static/company.js?v=' + asset_version() + '" defer></script>'
- if ask_available else ''}
-</body>
-</html>"""
+ if ask_available else ''}"""
+
+    # "calm": the film runs behind this page like every other, under a heavier
+    # veil. This is a page of figures somebody reads line by line, and the
+    # drawing's own colours have to win against whatever is moving behind it.
+    return render_page(
+        title=f"{d['ticker']} — what {name_plain} owns and owes | To Scale",
+        body=body,
+        film="calm",
+        path=f"/company/{d['ticker']}",
+        description=(
+            f"{name_plain} ({d['ticker']}) balance sheet drawn at true "
+            f"proportion, as filed with the SEC for the quarter ended "
+            f"{d['period_end']}. Every figure as reported, nothing estimated."
+        ),
+        og_title=f"{name_plain} — what it owns and owes",
+        og_description=(
+            f"{d['ticker']}'s balance sheet, drawn to scale from its own SEC "
+            f"filing."
+        ),
+        og_type="article",
+        twitter_title=f"{name_plain} — drawn to scale",
+        twitter_description=(
+            f"{d['ticker']}'s filed balance sheet, at true proportion."
+        ),
+    )
 
 
 
@@ -456,6 +463,7 @@ def render_not_found(ticker: str, reason: str) -> str:
     not do.
     """
     from src.company.suggest import suggestions
+    from src.report._shell import NOINDEX, render_page
     from src.report.home_page import search_form
 
     picks = suggestions()
@@ -472,27 +480,7 @@ def render_not_found(ticker: str, reason: str) -> str:
         if picks
         else '<p class="tryline">No filed statements are loaded yet.</p>'
     )
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(ticker)} — nothing to draw</title>
-<link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
-<meta name="theme-color" content="#0a0a0a">
-</head>
-<body data-film="still">
-<div class="backdrop" aria-hidden="true">
-  <div class="backdrop-still"></div><div class="backdrop-veil"></div>
-</div>
-<a class="skip" href="#main">Skip to content</a>
+    body = f"""
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a
        control. The explicit back link is the difference between a way out and
@@ -509,6 +497,16 @@ def render_not_found(ticker: str, reason: str) -> str:
     {search_form()}
     {alternatives}
   </div>
-</main>
-</body>
-</html>"""
+</main>"""
+
+    # Not indexable: there is nothing on it. A crawler that stored this would
+    # be storing an empty state under a ticker that may well have a real page
+    # next quarter.
+    return render_page(
+        title=f"{ticker} — nothing to draw | To Scale",
+        body=body,
+        film="calm",
+        path=f"/company/{ticker}",
+        robots=NOINDEX,
+        description=f"No filed balance sheet is available for {ticker}.",
+    )

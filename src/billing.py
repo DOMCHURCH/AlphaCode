@@ -178,6 +178,30 @@ def missing_config() -> list[str]:
     return gaps
 
 
+def mode() -> str:
+    """"live", "test", or "unset" -- read off the secret key's own prefix.
+
+    Worth reporting because the one thing that cannot be checked from inside
+    this process is whether a deployment is taking real money. Every other
+    Stripe variable is opaque: a Price id looks the same in both modes, and so
+    does a webhook secret. The key does not, and a deployment that believes it
+    went live while still holding `sk_test_` takes no money at all and looks
+    perfectly healthy doing it.
+
+    It is only ever REPORTED. Nothing branches on this: the checkout call and
+    the webhook handler are identical in both modes, which is what makes a test
+    purchase a real rehearsal of a live one.
+    """
+    key = get_settings().stripe_secret_key
+    if not key:
+        return "unset"
+    if key.startswith("sk_live_") or key.startswith("rk_live_"):
+        return "live"
+    if key.startswith("sk_test_") or key.startswith("rk_test_"):
+        return "test"
+    return "unknown"
+
+
 def is_configured() -> bool:
     """Whether a purchase would actually complete, end to end.
 

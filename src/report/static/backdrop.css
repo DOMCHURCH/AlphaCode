@@ -102,6 +102,62 @@
       rgba(10, 10, 10, 0.90) 100%);
 }
 
+/* ---- how hard the veil is, per page --------------------------------------
+   The backdrop is on every page now. What changes per page is how much of it
+   gets through, and the reason is readability rather than taste: the longer
+   somebody has to read through a layer, the less of it they can afford behind
+   the words. `body[data-film]` is set by the shell, so the decision is made
+   once per page in Python and spent once here.
+
+     hero   home and login. The rule above, unchanged -- these are glanced at.
+     still  the API reference and the search results. A little more wash.
+     calm   the dashboard, the company pages. Figures read line by line, and
+            the drawings' own colours have to win against whatever is moving.
+     quiet  terms and privacy. A thousand words of prose; the still is barely
+            there, and backdrop.js never gives these pages a film at all.
+
+   Each rule restates the WHOLE background rather than layering another
+   element on top: one composited layer at one opacity is cheaper per frame
+   than two, and it keeps the warm horizon rather than washing it to grey. */
+body[data-film="still"] .backdrop-veil {
+  background:
+    radial-gradient(120% 80% at 50% 38%,
+      rgba(10, 10, 10, 0.40) 0%,
+      rgba(10, 10, 10, 0.72) 55%,
+      rgba(10, 10, 10, 0.90) 100%),
+    linear-gradient(to bottom,
+      rgba(10, 10, 10, 0.82) 0%,
+      rgba(10, 10, 10, 0.54) 42%,
+      rgba(26, 18, 8, 0.64) 72%,
+      rgba(10, 10, 10, 0.92) 100%);
+}
+
+body[data-film="calm"] .backdrop-veil {
+  background:
+    radial-gradient(120% 80% at 50% 38%,
+      rgba(10, 10, 10, 0.58) 0%,
+      rgba(10, 10, 10, 0.82) 55%,
+      rgba(10, 10, 10, 0.94) 100%),
+    linear-gradient(to bottom,
+      rgba(10, 10, 10, 0.88) 0%,
+      rgba(10, 10, 10, 0.70) 42%,
+      rgba(26, 18, 8, 0.76) 72%,
+      rgba(10, 10, 10, 0.95) 100%);
+}
+
+body[data-film="quiet"] .backdrop-veil {
+  background:
+    radial-gradient(120% 80% at 50% 38%,
+      rgba(10, 10, 10, 0.78) 0%,
+      rgba(10, 10, 10, 0.90) 55%,
+      rgba(10, 10, 10, 0.96) 100%),
+    linear-gradient(to bottom,
+      rgba(10, 10, 10, 0.94) 0%,
+      rgba(10, 10, 10, 0.86) 42%,
+      rgba(26, 18, 8, 0.88) 72%,
+      rgba(10, 10, 10, 0.97) 100%);
+}
+
 /* No film on a narrow screen. Enforced in the script as well -- this is belt
    and braces, because a rule that only lives in CSS is one media-query rewrite
    away from quietly costing a phone 250 KB.

@@ -162,4 +162,17 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — API reference", body, film="still")
+    return shell(
+        "To Scale — API Reference for SEC Financial Data",
+        body,
+        film="still",
+        path="/api",
+        description=(
+            "Endpoints, authentication and rate limits for the To Scale API: "
+            "clean, as-filed SEC balance sheet data for US public companies."
+        ),
+        og_title="To Scale — SEC Data API Reference",
+        og_description=(
+            "Every endpoint, with examples you can paste into a terminal."
+        ),
+    )

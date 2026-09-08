@@ -220,6 +220,9 @@
 
     $("buy-pro").disabled = pro;
     $("buy-data").disabled = !!s.has_paid_download;
+    /* A stale "your session expired" under a panel that has just re-rendered
+       from a live session would be a lie about the current state. */
+    if (session) { note($("billing-note"), ""); show($("billing-signin"), false); }
 
     renderWhoami(s);
     note($("status-note"), "");
@@ -423,6 +426,80 @@
     );
   }
 
+  /* ---- buying ---------------------------------------------------------------
+     One path for both buttons. It used to be neither: both opened a modal
+     telling the buyer to email the owner for a link, on a deployment where
+     Stripe Checkout was already configured.
+
+     `session_required` is what makes a lapsed cookie an error rather than a
+     purchase attributed to whatever address the buyer types on Stripe's page.
+     This page knows the account -- it is showing the key -- so a checkout
+     started from here has to be that account's, or not happen at all.
+
+     The email-the-owner modal is still the answer to a 503, which is what an
+     unconfigured deployment returns. Nothing about that path has changed; it
+     is simply no longer the first thing tried. */
+  function buy(plan, what, price) {
+    var btn = $(plan === "pro" ? "buy-pro" : "buy-data");
+
+    /* Someone working from a pasted key has never been signed in, so telling
+       them their session expired would be a lie about a state they were never
+       in. They are asked for the step they are actually missing. */
+    if (!session) {
+      note($("billing-note"),
+        "Sign in to buy: a purchase has to land on an account, and a pasted " +
+        "key does not say which one.", "bad");
+      show($("billing-signin"), true);
+      return;
+    }
+
+    var was = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = "Opening checkout…";
+
+    function restore() {
+      btn.disabled = false;
+      btn.textContent = was;
+    }
+
+    api("/api/billing/checkout", {
+      method: "POST",
+      body: { plan: plan, session_required: true }
+    }).then(function (r) {
+      if (r.ok && r.data && r.data.url) {
+        // Left disabled: the tab is leaving, and re-enabling it invites a
+        // second click that opens a second Checkout Session.
+        btn.textContent = "Opening checkout…";
+        window.location.href = r.data.url;
+        return;
+      }
+      restore();
+      if (r.status === 503) {
+        // Card checkout is not switched on here. The instructions are still
+        // a real way to pay, so they are still what this says.
+        openPayModal(payText(what, price));
+        return;
+      }
+      if (r.status === 401) {
+        /* The one case this whole function exists for: there WAS a session
+           when the page loaded and there is not one now. Said where the button
+           is, with a link -- never a redirect, which is indistinguishable from
+           "the button is broken". */
+        session = null;
+        note($("billing-note"),
+          detailOf(r.data, "Your session has expired. Sign in again to buy."),
+          "bad");
+        show($("billing-signin"), true);
+        return;
+      }
+      note($("billing-note"),
+        detailOf(r.data, "Could not start the checkout."), "bad");
+    }).catch(function () {
+      restore();
+      note($("billing-note"), "Could not reach the server.", "bad");
+    });
+  }
+
   function download() {
     var btn = $("dl-btn");
     btn.disabled = true;
@@ -526,10 +603,10 @@
       $("newpw").focus();
     });
     $("buy-pro").addEventListener("click", function () {
-      openPayModal(payText("Pro", "$" + CFG.proPrice + " a month"));
+      buy("pro", "Pro", "$" + CFG.proPrice + " a month");
     });
     $("buy-data").addEventListener("click", function () {
-      openPayModal(payText("The full dataset", "a one-time $" + CFG.datasetPrice));
+      buy("dataset", "The full dataset", "a one-time $" + CFG.datasetPrice);
     });
     $("pay-close").addEventListener("click", function () {
       show($("pay-modal"), false);

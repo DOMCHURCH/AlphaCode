@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from html import escape
 
+from src.report._shell import NOINDEX
 from src.report.company_page import asset_version
 from src.report.home_page import shell
 
@@ -362,6 +363,13 @@ def render_dashboard(
         <button type="button" class="btn" id="buy-data">Buy full dataset</button>
       </div>
     </div>
+    <!-- Where a checkout says why it did not happen. `role="status"` so a
+         screen reader hears it without the focus moving: the button that was
+         just pressed is still the right place to be. -->
+    <p class="formnote" id="billing-note" role="status" aria-live="polite"></p>
+    <p class="plan-note" id="billing-signin" hidden>
+      <a href="/login">Sign in</a> and the purchase will pick up where it left
+      off.</p>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site. Payment history will
       appear here once there is any.</p>
@@ -390,4 +398,16 @@ def render_dashboard(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dashboard.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — API access", body, film="still")
+    return shell(
+        "To Scale — API access",
+        body,
+        # Figures, tables and a key to read off the screen. The film still runs
+        # behind it -- it runs behind every page now -- under the heaviest veil
+        # the readable pages use.
+        film="calm",
+        path="/dashboard",
+        # Somebody's account page has no business in a search index, and the
+        # crawler that reached it would see the signed-out state anyway.
+        robots=NOINDEX,
+        description="Your To Scale API key, usage and plan.",
+    )

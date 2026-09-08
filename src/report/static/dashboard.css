@@ -137,6 +137,13 @@
   box-shadow:var(--up-sm);transition:box-shadow .18s,transform .1s}
 .plan-cta:hover{box-shadow:var(--up);transform:translateY(-1px)}
 .plan-cta:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+/* A paid plan's call to action is a FORM when there is a session, so that a
+   click POSTs to /checkout instead of navigating to /login. The form takes over
+   the flex-item role the bare link had -- otherwise the button loses the
+   `margin-top:auto` that pins every card's CTA to the same baseline. */
+.plan-buy{margin-top:auto;align-self:flex-start;display:block}
+.plan-buy .plan-cta{margin-top:0;cursor:pointer;line-height:1;
+  font-family:var(--disp)}
 .plan-note{margin:0;padding:0 4px;font-size:12.5px;line-height:1.55;color:var(--dim)}
 
 /* ---- live demo output ---- */

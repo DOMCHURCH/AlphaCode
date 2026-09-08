@@ -315,6 +315,15 @@ class Settings(BaseSettings):
     session_max_age_s: int = Field(
         default=30 * 24 * 3600, ge=60, alias="SESSION_MAX_AGE_S"
     )
+    # The address the public knows this site by, used for canonical tags, the
+    # Open Graph URL and the JSON-LD. Separate from BASE_URL on purpose:
+    # BASE_URL has to be the origin a login link is followed FROM (a preview
+    # deployment's own host, so the link lands back where it was requested),
+    # while this one has to be the single address search engines and social
+    # cards should agree on. Pointing them both at a preview host would tell
+    # Google the canonical copy of every page lives on a URL that will be gone
+    # next week.
+    site_url: str = Field(default="https://toscale.pro", alias="SITE_URL")
     magic_link_ttl_s: int = Field(default=900, ge=60, alias="MAGIC_LINK_TTL_S")
     # 3 an hour per address, per the same reasoning as key recovery: the link
     # goes to an inbox the requester does not have to own.

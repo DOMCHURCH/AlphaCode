@@ -27,6 +27,7 @@ from fastapi import (
     Request,
 )
 from fastapi.encoders import jsonable_encoder
+from fastapi.exception_handlers import http_exception_handler
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -37,6 +38,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from src.config.settings import get_settings
 from src.locks import BACKFILL
@@ -314,8 +316,38 @@ def _enforce_rate(gate: _RateGate, what: str) -> None:
 
 
 _STATIC_DIR = Path(__file__).parent / "report" / "static"
+
+
+class _CachedStatic(StaticFiles):
+    """Static files with a cache lifetime that depends on how they were asked for.
+
+    Every stylesheet, script and media file this site links carries `?v=<mtime>`
+    (see `report.company_page.asset_version`), so a URL WITH that stamp names one
+    exact build of one file and can be cached for a year -- a deploy changes the
+    stamp, which changes the URL, which is a different cache entry. Without the
+    stamp the same URL will mean something different after the next deploy, so
+    an hour is the most it can safely be given.
+
+    Starlette's own answer is an ETag and a 304, which is correct and still a
+    round trip on every asset on every page load. This removes the round trip
+    for the versioned ones, which is all of them.
+    """
+
+    async def get_response(self, path: str, scope):  # type: ignore[override]
+        response = await super().get_response(path, scope)
+        if response.status_code != 200:
+            return response
+        query = scope.get("query_string", b"").decode("latin-1")
+        stamped = "v=" in query
+        response.headers["Cache-Control"] = (
+            "public, max-age=31536000, immutable" if stamped
+            else "public, max-age=3600"
+        )
+        return response
+
+
 if _STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    app.mount("/static", _CachedStatic(directory=str(_STATIC_DIR)), name="static")
 
 
 # The mark is the drawing in miniature -- owns, owed, left over -- on the same
@@ -338,6 +370,85 @@ def favicon() -> Response:
         media_type="image/svg+xml",
         headers={"Cache-Control": "public, max-age=86400"},
     )
+
+
+@app.get("/apple-touch-icon.png", include_in_schema=False)
+@app.get("/apple-touch-icon-precomposed.png", include_in_schema=False)
+def apple_touch_icon() -> Response:
+    """iOS asks for this at the root whatever the page's <link> says.
+
+    Both names, because older iOS asks for the `-precomposed` one first and
+    logs a 404 for the other. Two decorators rather than two functions: it is
+    the same file under both names.
+    """
+    path = _STATIC_DIR / "apple-touch-icon.png"
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(
+        content=path.read_bytes(),
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.get("/humans.txt", include_in_schema=False)
+def humans_txt() -> Response:
+    """Who built this and what it is built out of.
+
+    A convention rather than a requirement, and the reason to keep it is that
+    the alternative -- a site with no name on it -- is the shape a scraper
+    farm takes. The stack is listed because this is an open-source project and
+    the question "what is it written in" should not require reading the repo.
+    """
+    from src.report.nav import SOURCE_URL
+
+    s = get_settings()
+    body = f"""/* TEAM */
+Founder, engineer: Dominique Church
+Contact: {s.admin_email or "see the site"}
+Source: {SOURCE_URL}
+
+/* SITE */
+Standards: HTML5, CSS3, ES5
+Components: FastAPI, SQLAlchemy, PostgreSQL, Alembic, uvicorn, Stripe
+Data: SEC EDGAR (company facts, financial statement data sets)
+Software: Python 3.11
+"""
+    return Response(
+        content=body,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=86400"},
+    )
+
+
+@app.exception_handler(StarletteHTTPException)
+async def not_found_page(request: Request, exc: StarletteHTTPException):
+    """A 404 as a page for a browser, and as JSON for everything else.
+
+    The switch is the Accept header, and it must be `text/html` EXPLICITLY --
+    not the `*/*` that curl, httpx and every API client send. Answering a
+    machine with a wall of markup because it did not object to receiving one is
+    how a JSON client ends up parsing a stylesheet link, so the default here is
+    the behaviour every existing caller already has.
+
+    Only 404 is rendered. A 401, a 429 or a 500 all mean something the reader
+    can act on and each is already explained where it is raised; a generic
+    pretty page over the top of those would replace the explanation with
+    decoration.
+    """
+    wants_html = "text/html" in request.headers.get("accept", "")
+    is_api = request.url.path.startswith(("/api/", "/admin"))
+    if exc.status_code == 404 and wants_html and not is_api:
+        from src.report.message_page import render_404
+
+        try:
+            nav = _nav_for(request, "")
+        except Exception:  # noqa: BLE001 - a 404 must not depend on the session
+            nav = ""
+        return HTMLResponse(
+            _versioned(render_404(request.url.path, nav=nav)), status_code=404
+        )
+    return await http_exception_handler(request, exc)
 
 
 class HealthResponse(BaseModel):
@@ -520,6 +631,15 @@ def _billing_api_version() -> str:
         return ""
 
 
+def _billing_mode() -> str:
+    from src import billing
+
+    try:
+        return billing.mode()
+    except Exception:  # noqa: BLE001 - /status must render regardless
+        return "unknown"
+
+
 def billing_last_error() -> str:
     """Stripe's code for the last refused checkout, or "" if none has been."""
     from src import billing
@@ -648,6 +768,13 @@ def _config_report() -> list[dict[str, Any]]:
     rows.append(opt("STRIPE_PRICE_PRO", bool(s.stripe_price_pro), "Price id for Pro"))
     rows.append(opt("STRIPE_PRICE_DATASET", bool(s.stripe_price_dataset),
                     "Price id for the dataset"))
+    rows.append({
+        "name": "STRIPE_MODE", "status": "info",
+        # Live or test, read off the secret key's prefix. The one Stripe fact
+        # that cannot be inferred from anything else here, and the one an
+        # operator flipping this deployment to live has to be able to confirm.
+        "note": _billing_mode(),
+    })
     rows.append({
         "name": "STRIPE_API_VERSION", "status": "info",
         # The version the webhook is actually parsed in, which is the SDK's own
@@ -1446,6 +1573,7 @@ def home(request: Request) -> HTMLResponse:
     whose drawing will not build is offered without one -- never with a
     placeholder, which would be a picture of nothing presented as a company.
     """
+    from src import auth
     from src.company.stats import site_stats
     from src.company.suggest import suggestions
     from src.company.view1 import build_view1
@@ -1460,7 +1588,15 @@ def home(request: Request) -> HTMLResponse:
             pairs.append((s, None))
     return HTMLResponse(
         _versioned(
-            render_home(pairs, stats=site_stats(), nav=_nav_for(request, "home"))
+            render_home(
+                pairs,
+                stats=site_stats(),
+                nav=_nav_for(request, "home"),
+                # Decides whether the paid plans start a checkout or ask for a
+                # sign-in first. Read from the same cookie the nav bar reads,
+                # so the two can never disagree about who is looking.
+                signed_in=auth.current_account(request) is not None,
+            )
         )
     )
 
@@ -2237,9 +2373,24 @@ def admin_grant_access(
     )
 
 
+# One sentence, said in three places (the JSON endpoint, the form endpoint and
+# the error page it renders), so a lapsed session always explains itself the
+# same way.
+SESSION_LOST = (
+    "Your session has expired, so we could not tell which account to bill. "
+    "Sign in again and the purchase will pick up where it left off."
+)
+
+
 class CheckoutRequest(BaseModel):
     plan: str
     email: str | None = None
+    # Set by a caller that is buying AS a signed-in account -- the dashboard's
+    # buttons, and nothing else. It turns a missing session from "check out as
+    # a stranger and tell Stripe who you are" into a plain 401 the page can
+    # show, which is the difference between a confusing purchase and a
+    # confusing error. Default False so the anonymous path is unchanged.
+    session_required: bool = False
 
 
 @app.post("/api/billing/checkout")
@@ -2263,12 +2414,86 @@ def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONRespons
     # A signed-in reader's own address beats whatever was posted: the session
     # cookie is proof and the body is not.
     account = auth.current_account(request)
+    if account is None and body.session_required:
+        # Said plainly rather than answered with a redirect. A page that asks
+        # to buy as an account and is bounced to /login instead reads as being
+        # logged out, and the reader has no way to tell a lapsed cookie from a
+        # broken button.
+        raise HTTPException(status_code=401, detail=SESSION_LOST)
     email = account.email if account is not None else (body.email or "")
-    return JSONResponse(
-        billing.create_checkout_session(
-            plan=body.plan, origin=_public_origin(request), email=email or None
-        )
+    result = billing.create_checkout_session(
+        plan=body.plan, origin=_public_origin(request), email=email or None
     )
+    log.info(
+        "checkout_opened",
+        plan=result.get("plan", ""),
+        signed_in=account is not None,
+    )
+    return JSONResponse(result)
+
+
+@app.post("/checkout", include_in_schema=False)
+async def checkout_form(request: Request) -> Response:
+    """Start a checkout from a form, for the pricing cards and for no-script.
+
+    A POST rather than a link, for the same reason the JSON endpoint hands back
+    a URL rather than redirecting: a link to a checkout is followed by anything
+    that prefetches, and every follow costs a real Checkout Session on the
+    Stripe account. A form submission is a deliberate act, so this one may
+    redirect straight to Stripe.
+
+    A missing session is an error PAGE, never a bounce to /login. This route
+    only ever renders a form that was shown to somebody the server believed was
+    signed in, so arriving here without a cookie means the session lapsed
+    between the render and the click -- and silently showing them a login form
+    is what made this look broken in the first place.
+    """
+    from urllib.parse import parse_qs
+
+    from src import auth, billing
+    from src.report.message_page import render_message
+
+    # Parsed by hand for the same reason /auth/verify is: `request.form()`
+    # asserts on python-multipart even for a urlencoded body, and this form has
+    # one field.
+    raw = (await request.body()).decode("utf-8", "replace")
+    plan = parse_qs(raw).get("plan", [""])[0].strip()
+
+    _enforce_rate(_checkout_gate, "checkout")
+    account = auth.current_account(request)
+    if account is None:
+        return HTMLResponse(
+            _versioned(
+                render_message(
+                    title="Sign in to finish this purchase",
+                    message=SESSION_LOST,
+                    nav=_nav_for(request, ""),
+                    action=("Sign in", "/login"),
+                )
+            ),
+            status_code=401,
+        )
+    try:
+        session = billing.create_checkout_session(
+            plan=plan, origin=_public_origin(request), email=account.email
+        )
+    except HTTPException as exc:
+        # Stripe not configured, an unknown plan, or Stripe itself refusing.
+        # Whatever it was, the reader gets the sentence the API would have
+        # returned rather than a JSON body in a browser window.
+        return HTMLResponse(
+            _versioned(
+                render_message(
+                    title="This purchase could not be started",
+                    message=str(exc.detail),
+                    nav=_nav_for(request, ""),
+                    action=("Back to pricing", "/#pricing"),
+                )
+            ),
+            status_code=exc.status_code,
+        )
+    log.info("checkout_opened", plan=plan, signed_in=True, path="form")
+    return RedirectResponse(session["url"], status_code=303)
 
 
 @app.post("/api/billing/webhook", include_in_schema=False)
@@ -2488,6 +2713,32 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{request.url.netloc}"
 
 
+def _docs_origin(request: Request) -> str:
+    """The origin to WRITE INTO an example, which is not always the one served.
+
+    `_public_origin` reports what actually happened, and that is what the
+    Stripe return URLs need. A documented curl command is a different thing: it
+    is read now and pasted later, and `http://` in it is a command that answers
+    with a 301 rather than with JSON on any deployment that redirects to https
+    -- which is every deployment that is not somebody's laptop. So the scheme
+    is raised to https unless the host is genuinely local, where http is real
+    and the example has to keep working.
+    """
+    origin = _public_origin(request)
+    scheme, _, host = origin.partition("://")
+    if scheme == "http" and not _is_local(host):
+        return f"https://{host}"
+    return origin
+
+
+def _is_local(host: str) -> bool:
+    """Is this host a developer's own machine? Then http is real and stays."""
+    name = host.split(":")[0].lower()
+    return name in ("localhost", "127.0.0.1", "::1", "0.0.0.0") or name.endswith(
+        (".local", ".localhost")
+    )
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(request: Request) -> Response:
     """Every page worth indexing, with a date on each one that is true.
@@ -2561,7 +2812,8 @@ def api_page(request: Request) -> HTMLResponse:
         _versioned(
             render_api(
                 nav=_nav_for(request, "api"),
-                base_url=_public_origin(request),
+                # https, so every example on the page pastes and runs.
+                base_url=_docs_origin(request),
                 free_calls=s.free_tier_monthly_calls,
                 pro_calls=s.pro_tier_monthly_calls,
                 dataset_price=f"${s.dataset_price_usd}",
