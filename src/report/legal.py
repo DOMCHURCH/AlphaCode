@@ -66,11 +66,11 @@ def _legal_shell(title: str, nav: str, body: str) -> str:
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>""",
-        # The still, like every page but the home page. These are long reads
-        # and the veil over the still is heavy, so it costs nothing to be
-        # consistent -- and a legal page that looked like a different site
-        # would be the wrong page to make look untrusted.
-        film="still",
+        # The same backdrop as every other page, which is now the point: a
+        # legal page that looked like a different site would be exactly the
+        # wrong page to make look untrusted. It used to say `film="still"` for
+        # the same reason -- consistency with the pages around it -- and the
+        # pages around it have moved.
     )
 
 

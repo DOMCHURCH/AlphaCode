@@ -36,6 +36,7 @@ import datetime as dt
 import math
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
+from itertools import pairwise
 from typing import Any
 
 import pandas as pd
@@ -715,7 +716,7 @@ def _flag_scale_jumps(rows: Sequence[dict[str, Any]], report: ExtractionReport) 
 
     for (ticker, metric), items in series.items():
         items.sort(key=lambda r: r["period_end"])
-        for prev, cur in zip(items, items[1:]):
+        for prev, cur in pairwise(items):
             pv, cv = abs(prev["value"]), abs(cur["value"])
             if pv > 0 and cv > pv * SCALE_JUMP_FACTOR:
                 flag = {

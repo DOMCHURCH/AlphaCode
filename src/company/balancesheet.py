@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
-from typing import Any
 
 import structlog
 
@@ -105,8 +104,9 @@ def get_balance_sheet(
         as_of = dt.date.today()
 
     with session_scope() as session:
-        from src.storage.models import UniverseSnapshot
         from sqlalchemy import select
+
+        from src.storage.models import UniverseSnapshot
 
         # Get company name from universe
         company_name = None
@@ -125,8 +125,9 @@ def get_balance_sheet(
             company_name = univ.name
 
         # Get fundamentals for this ticker, most recent period first
-        from src.storage.models import Fundamental
         from sqlalchemy import and_
+
+        from src.storage.models import Fundamental
 
         fundamentals = session.execute(
             select(Fundamental)

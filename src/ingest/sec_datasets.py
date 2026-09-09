@@ -27,7 +27,6 @@ import zipfile
 from collections.abc import Mapping
 from typing import Any
 
-import httpx
 import pandas as pd
 import structlog
 

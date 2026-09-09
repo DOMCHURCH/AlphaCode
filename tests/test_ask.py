@@ -22,8 +22,8 @@ FD = dt.date(2026, 2, 13)
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    from src.config.settings import get_settings
     from src.company.lookup import reset_cache
+    from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'ask.db'}")
@@ -169,8 +169,8 @@ def test_an_unknown_model_names_itself_and_suggests_neighbours(db, monkeypatch):
 def test_a_missing_key_is_reported_as_such(db, monkeypatch):
     import asyncio
 
-    from src.config.settings import get_settings
     import src.llm.client as client
+    from src.config.settings import get_settings
 
     monkeypatch.setenv("OPENROUTER_API_KEY", "")
     get_settings.cache_clear()
@@ -549,7 +549,6 @@ def test_an_upstream_failure_is_not_leaked_to_the_reader(client, monkeypatch):
 
 def test_a_rate_limited_caller_gets_a_429_and_a_retry_after(client, monkeypatch):
     import src.api as api
-    import src.llm.ask as ask
     from src.config.settings import get_settings
 
     _seed()

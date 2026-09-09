@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import datetime as dt
 from collections import defaultdict
+from itertools import pairwise
 from typing import Any
 
 import structlog
@@ -216,7 +217,7 @@ def run_universe_check(as_of: dt.date | None = None) -> dict[str, Any]:
 
         # --- scale jumps, across consecutive periods ---
         ordered = sorted(periods)
-        for prev_p, cur_p in zip(ordered, ordered[1:]):
+        for prev_p, cur_p in pairwise(ordered):
             a_prev = periods[prev_p].get("total_assets")
             a_cur = periods[cur_p].get("total_assets")
             if not a_prev or not a_cur or a_prev <= 0:

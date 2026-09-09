@@ -831,3 +831,110 @@ def test_a_checkout_started_from_the_home_page_needs_no_account(client, stripe_c
     # customer_email, which it rejects.
     assert "customer_email" not in stripe_calls[0]
     assert stripe_calls[0]["metadata"]["plan"] == "pro"
+
+
+# ---------------------------------------------------------------------------
+# The simulator: a purchase's aftermath, without a purchase
+# ---------------------------------------------------------------------------
+
+SIM = "/admin/simulate-purchase"
+SIM_HEAD = {"X-Admin-Secret": ADMIN_SECRET}
+
+
+def test_simulating_a_purchase_grants_through_the_real_handler(client):
+    """The point of the endpoint is that it is NOT a second implementation.
+
+    A simulator with its own grant logic tests the simulator. This one builds
+    the event Stripe would have sent and puts it through the same dispatch a
+    signed webhook reaches, so what it proves about fulfilment is true of a
+    real payment too.
+    """
+    key = register(client)
+    r = client.post(SIM, headers=SIM_HEAD, json={"email": BUYER, "plan": "pro_annual"})
+    assert r.status_code == 200, r.text
+
+    body = r.json()
+    assert body["simulated"] is True
+    assert body["fulfilment"]["status"] == "granted"
+    assert body["fulfilment"]["event"].startswith("evt_simulated_")
+
+    # The account really is Pro, for a real year.
+    s = status(client, key)
+    assert s["tier"] == "pro"
+    left = dt.datetime.fromisoformat(s["expires_at"]) - dt.datetime.now(dt.UTC)
+    assert left.days >= 360
+
+
+def test_a_simulated_purchase_reaches_stripe_not_at_all(client, stripe_calls):
+    """No money, no Price, no Session. If this ever calls Stripe it is not a
+    simulation, it is a purchase somebody did not expect to make."""
+    client.post(SIM, headers=SIM_HEAD, json={"email": BUYER, "plan": "dataset"})
+    assert stripe_calls == []
+
+
+def test_the_simulator_is_the_grant_switch_and_is_gated_like_it(client):
+    """It hands out real access, so an unauthenticated caller must not reach
+    it -- this is /admin/grant-access wearing a different shape."""
+    r = client.post(SIM, json={"email": BUYER, "plan": "pro"})
+    assert r.status_code == 403
+    assert status(client, register(client))["tier"] == "free"
+
+
+def test_a_simulated_event_cannot_collide_with_a_real_delivery(client):
+    """Two simulations of the same plan for the same person both apply.
+
+    They carry different ids by construction -- a fixed id would be seen as a
+    duplicate the second time and silently do nothing, which would make the
+    endpoint look broken the moment somebody pressed it twice.
+    """
+    key = register(client)
+    a = client.post(SIM, headers=SIM_HEAD, json={"email": BUYER, "plan": "pro"})
+    b = client.post(SIM, headers=SIM_HEAD, json={"email": BUYER, "plan": "pro"})
+
+    assert a.json()["fulfilment"]["event"] != b.json()["fulfilment"]["event"]
+    assert b.json()["fulfilment"]["status"] == "granted"
+    # Two periods, because two grants -- the same as two real payments.
+    left = dt.datetime.fromisoformat(
+        status(client, key)["expires_at"]
+    ) - dt.datetime.now(dt.UTC)
+    assert left.days >= 60
+
+
+def test_pro_and_the_dataset_do_not_overwrite_each_other(client):
+    """The question a buyer asks: if I have Pro and then buy the CSV, or the
+    other way round, does one cancel the other? Two columns, never one.
+    """
+    key = register(client)
+    client.post(SIM, headers=SIM_HEAD, json={"email": BUYER, "plan": "pro_annual"})
+    client.post(SIM, headers=SIM_HEAD, json={"email": BUYER, "plan": "dataset"})
+
+    s = status(client, key)
+    assert s["tier"] == "pro" and s["has_paid_download"] is True
+
+    # And losing Pro does not take away a file they paid for.
+    client.post(
+        "/admin/grant-access",
+        headers=SIM_HEAD,
+        json={"email": BUYER, "action": "revoke_pro"},
+    )
+    s = status(client, key)
+    assert s["tier"] == "free"
+    assert s["has_paid_download"] is True, "a cancelled subscription ate a paid CSV"
+
+
+def test_the_simulator_says_when_a_buyer_would_be_locked_out(client):
+    """The finding this endpoint exists to make visible.
+
+    A first-time buyer's key exists only in an email, and every self-service
+    route to it runs through the same relay -- so with mail unconfigured, a
+    successful grant and an unreachable product look identical in the status
+    payload. The endpoint says which one happened, in words.
+    """
+    r = client.post(
+        SIM, headers=SIM_HEAD, json={"email": "brand-new@example.com", "plan": "pro"}
+    )
+    body = r.json()
+
+    assert body["account_existed_before"] is False
+    assert body["email_configured"] is False
+    assert "locked out" in body["buyer_can_reach_it"]

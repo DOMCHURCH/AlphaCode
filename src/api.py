@@ -38,10 +38,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from sqlalchemy import select
 
+from src import scheduler
 from src.config.settings import get_settings
 from src.locks import BACKFILL
 from src.logging_config import configure_logging
-from src import scheduler
 from src.storage import repository
 from src.storage.db import init_db, session_scope
 from src.storage.models import DailyBar
@@ -912,13 +912,13 @@ def _admin_verdict(
 @app.get("/admin.json")
 def admin_json() -> dict[str, Any]:
     """Everything the /admin page renders, in one cheap payload."""
+    from src.analytics import summary as visit_summary
     from src.backfill import (
         get_extraction_reports,
         get_frames_reports,
         get_raw_facts_state,
         get_reload_state,
     )
-    from src.analytics import summary as visit_summary
     from src.ingest.sec_cache import cache_status
     from src.logging_config import get_recent_logs
 
@@ -1113,7 +1113,7 @@ def admin_balance_sheet(
                 select(Fundamental.metric, func.count(func.distinct(Fundamental.ticker)))
                 .group_by(Fundamental.metric)
             ).all()
-            have = {metric: n for metric, n in rows}
+            have = dict(rows)
 
             coverage = {}
             for concept, metric in sorted(BALANCE_SHEET_CONCEPTS.items()):
@@ -2237,6 +2237,109 @@ def admin_grant_access(
     )
 
 
+class SimulateRequest(BaseModel):
+    email: str
+    plan: str
+
+
+@app.post("/admin/simulate-purchase")
+def admin_simulate_purchase(
+    body: SimulateRequest,
+    request: Request,
+    x_admin_secret: str | None = Header(default=None, alias="X-Admin-Secret"),
+) -> JSONResponse:
+    """Watch what happens AFTER a payment, without taking one.
+
+    Stripe rejects test cards against live keys. That is deliberate on Stripe's
+    part and no amount of code here changes it, so "let me try 4242 on the live
+    site" is not a thing that can be built. What CAN be built is this: the event
+    Stripe would have sent, put through the real handler, so the account is
+    provisioned, the grant applied and the key email sent by exactly the code a
+    paid checkout uses.
+
+    It proves nothing about Stripe's half -- the signature, the amount, the
+    receipt, the payout are all untouched. It answers one question, which is
+    the one that is hard to answer any other way: what does my customer see
+    after their money clears?
+
+        curl -X POST https://<host>/admin/simulate-purchase \
+          -H "X-Admin-Secret: $ADMIN_SECRET" \
+          -H "Content-Type: application/json" \
+          -d '{"email":"you@example.com","plan":"pro_annual"}'
+
+    THIS GRANTS REAL ACCESS. It is the grant switch with a different shape, so
+    it is gated exactly like `/admin/grant-access` -- unset ADMIN_SECRET is a
+    503, a wrong one is a 403 and an audit row -- and every event it creates is
+    prefixed `evt_simulated_` in `stripe_events` so it can never be mistaken
+    afterwards for money having moved. Undo it with `/admin/grant-access` and
+    `revoke_pro` / `revoke_download`.
+    """
+    from src import accounts, billing, mailer
+
+    ip_hash = _caller_ip_hash(request)
+    accounts.verify_admin_secret(x_admin_secret, ip_hash=ip_hash)
+
+    address = accounts.normalise_email(body.email)
+    existed = accounts.by_email(address) is not None
+    mail_ready = mailer.is_configured()
+    result = billing.simulate_checkout(email=address, plan=body.plan)
+
+    account = accounts.by_email(address)
+    origin = _public_origin(request)
+    # The point of the endpoint. A status dict says the grant worked; it does
+    # not say whether the buyer can reach what they bought, and those are
+    # different questions the moment the mail relay is down -- a brand new
+    # buyer's key exists only in an email that was never sent, and every
+    # recovery route runs through the same relay.
+    if not existed and not mail_ready:
+        reachable = (
+            "NO -- this is a first-time buyer and email is not configured, so "
+            "the key was never sent and every self-service route to it "
+            "(resend, magic link, re-register) runs through the same relay. "
+            "They would be locked out of what they paid for."
+        )
+    elif not existed:
+        reachable = (
+            "Only by email. A first-time buyer has no password and no key in "
+            "their browser, so the emailed key is their sole way in -- check "
+            "it actually arrived."
+        )
+    else:
+        reachable = (
+            "Yes. The account already existed, so they sign in as usual. Note "
+            "that an existing buyer is sent NO email by this app on a "
+            "purchase: their only receipt is Stripe's."
+        )
+
+    return JSONResponse(
+        {
+            "ok": True,
+            "simulated": True,
+            "warning": (
+                "No money moved and no Stripe object was created. Access below "
+                "is real -- revoke it with /admin/grant-access when you are done."
+            ),
+            "fulfilment": result,
+            "account_existed_before": existed,
+            "email_configured": mail_ready,
+            "buyer_can_reach_it": reachable,
+            "user": None
+            if account is None
+            else {
+                "email": account.email,
+                "tier": account.tier,
+                "has_paid_download": account.has_paid_download,
+                "expires_at": (
+                    account.pro_expires_at.isoformat()
+                    if account.pro_expires_at
+                    else None
+                ),
+            },
+            "they_land_on": f"{origin}/dashboard?checkout=success",
+        }
+    )
+
+
 class CheckoutRequest(BaseModel):
     plan: str
     email: str | None = None
@@ -2681,6 +2784,7 @@ def api_index() -> JSONResponse:
                 "/pricing  (plans, dataset vs API, FAQ)",
                 "/dataset  (what is in the CSV, and its snapshot date)",
                 "POST /api/billing/checkout",
+                "POST /admin/simulate-purchase  (admin secret; no money moves)",
             ],
             "keyed_api": {
                 "get_a_key": "/dashboard",

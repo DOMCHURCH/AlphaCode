@@ -24,8 +24,8 @@ FD = dt.date(2026, 2, 13)
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
-    from src.config.settings import get_settings
     from src.company.lookup import reset_cache
+    from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'home.db'}")

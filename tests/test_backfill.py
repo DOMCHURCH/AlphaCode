@@ -323,11 +323,12 @@ def test_yahoo_returning_nothing_raises_so_the_chain_moves_on(bf_db, monkeypatch
 def test_yahoo_rows_are_written(bf_db, monkeypatch):
     import asyncio
 
+    from sqlalchemy import func, select
+
     import src.backfill as bf
     from src.ingest import yahoo
     from src.storage.db import session_scope
     from src.storage.models import DailyBar
-    from sqlalchemy import func, select
 
     async def rows(tickers, start, end, **kw):
         return [{"ticker": "AAA", "date": END, "open": 1.0, "high": 2.0,

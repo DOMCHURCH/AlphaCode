@@ -521,18 +521,15 @@ body[data-film="hero"] main::after {
 .strip { display: inline-flex; max-width: 100%; }
 @media (max-width: 620px) { .strip { display: flex; } }
 
-/* Blur costs per frame only where a frame is changing. On every page but the
-   home page the backdrop is a still image, so the field keeps the look and
-   stops paying for it -- which also keeps the number of live backdrop-filters
-   in any viewport at or under three. */
-body:not([data-film="hero"]) .sfield,
-body:not([data-film="hero"]) .strip,
-body:not([data-film="hero"]) .trust,
-body:not([data-film="hero"]) .plans {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: rgba(20, 22, 34, .92);
-}
+/* This rule used to suppress the blur on every page but the home page, on the
+   grounds that a still image does not need re-blurring per frame. Every page
+   carries the film now, so the selector matched nothing -- and dead CSS keyed
+   on a value nothing emits is a trap for whoever reads it next.
+   
+   Removing it costs almost nothing measured: `.trust` and `.plans` already
+   turn their own blur off above, and `.ep` never had one, so the only element
+   this rule was actually holding back was `.sfield` -- one per page. The blur
+   budget of three live backdrop-filters per viewport still holds. */
 
 /* The subject of the film sits at the right of the frame, which is where the
    section heading's dateline lands. Given its own ground so it never has to

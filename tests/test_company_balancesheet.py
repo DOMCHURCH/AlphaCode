@@ -9,9 +9,11 @@ Sample selection:
 """
 
 import datetime as dt
-from src.company.balancesheet import get_balance_sheet, BALANCE_SHEET_CONCEPTS
-from src.storage.db import session_scope
+
 from sqlalchemy import text
+
+from src.company.balancesheet import get_balance_sheet
+from src.storage.db import session_scope
 
 
 def test_balancesheet_query():
@@ -100,7 +102,7 @@ def test_balancesheet_query():
 
         companies_with_data += 1
         print(f"  Period: {bs.period_end} (filed {bs.filing_date})")
-        print(f"\n  ASSETS:")
+        print("\n  ASSETS:")
 
         total_assets = 0
         for name, value in bs.assets.items():
@@ -112,7 +114,7 @@ def test_balancesheet_query():
                 if value.value:
                     total_assets += value.value
 
-        print(f"\n  LIABILITIES:")
+        print("\n  LIABILITIES:")
         total_liabilities = 0
         for name, value in bs.liabilities.items():
             if value.missing:
@@ -123,7 +125,7 @@ def test_balancesheet_query():
                 if value.value:
                     total_liabilities += value.value
 
-        print(f"\n  EQUITY:")
+        print("\n  EQUITY:")
         total_equity = 0
         for name, value in bs.equity.items():
             if value.missing:
@@ -134,7 +136,7 @@ def test_balancesheet_query():
                 if value.value:
                     total_equity += value.value
 
-        print(f"\n  BALANCE CHECK:")
+        print("\n  BALANCE CHECK:")
         print(f"    Total assets:      ${total_assets:>15,.0f}")
         print(f"    Liabilities + Eq:  ${total_liabilities + total_equity:>15,.0f}")
         if total_assets > 0:

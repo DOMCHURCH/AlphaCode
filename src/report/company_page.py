@@ -8,9 +8,8 @@ to hydrate, no half-loaded state.
 from __future__ import annotations
 
 from html import escape
-from typing import Any
-
 from pathlib import Path
+from typing import Any
 
 from src.company.view1 import View1, describe_shape
 from src.company.view2 import View2
@@ -279,6 +278,16 @@ def render_company_page(
     scale: View2 | None = None,
     ask_available: bool = False,
 ) -> str:
+    # The SAME backdrop every other page gets, from the one function that
+    # owns it. This page renders its own <head> and <body> rather than
+    # going through home_page._shell, and it used to carry a hand-copied
+    # copy of the markup -- which is how it ended up as the only page on
+    # the site still showing a still image after every other page moved
+    # to the film: the copy had no id="backdrop" for the script to find,
+    # and never loaded the script anyway.
+    from src.report.backdrop import render_backdrop
+
+    backdrop = render_backdrop()
     # Imported here, not at module level: nav imports legal, and legal
     # imports this module for asset_version -- a cycle at import time.
     from src.report.nav import render_footer
@@ -367,10 +376,8 @@ def render_company_page(
 <link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
 </head>
-<body data-film="still">
-<div class="backdrop" aria-hidden="true">
-  <div class="backdrop-still"></div><div class="backdrop-veil"></div>
-</div>
+<body data-film="hero">
+{backdrop}
 <a class="skip" href="#main">Skip to content</a>
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a
@@ -455,6 +462,16 @@ def render_not_found(ticker: str, reason: str) -> str:
     reader from one empty page to another is the one thing an empty state must
     not do.
     """
+    # The SAME backdrop every other page gets, from the one function that
+    # owns it. This page renders its own <head> and <body> rather than
+    # going through home_page._shell, and it used to carry a hand-copied
+    # copy of the markup -- which is how it ended up as the only page on
+    # the site still showing a still image after every other page moved
+    # to the film: the copy had no id="backdrop" for the script to find,
+    # and never loaded the script anyway.
+    from src.report.backdrop import render_backdrop
+
+    backdrop = render_backdrop()
     from src.company.suggest import suggestions
     from src.report.home_page import search_form
 
@@ -488,10 +505,8 @@ def render_not_found(ticker: str, reason: str) -> str:
 <link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
 </head>
-<body data-film="still">
-<div class="backdrop" aria-hidden="true">
-  <div class="backdrop-still"></div><div class="backdrop-veil"></div>
-</div>
+<body data-film="hero">
+{backdrop}
 <a class="skip" href="#main">Skip to content</a>
 <nav><div class="wrap nav">
   <!-- The wordmark has always linked home, but nobody reads a wordmark as a

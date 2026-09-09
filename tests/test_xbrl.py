@@ -46,7 +46,7 @@ JPM_HEDGE_COMPONENT = -1_426_000_000.0
 
 
 def _num(**kw) -> dict:
-    row = {c: "" for c in NUM_COLS}
+    row = dict.fromkeys(NUM_COLS, "")
     row.update(adsh="j1", version="us-gaap/2025", ddate="20251231", uom="USD")
     row.update(kw)
     return row

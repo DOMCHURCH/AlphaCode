@@ -375,4 +375,4 @@ def render_dashboard(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dashboard.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — API access", body, film="still")
+    return shell("To Scale — API access", body)

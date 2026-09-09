@@ -641,6 +641,113 @@ _HANDLERS = {
 }
 
 
+def _dispatch(event: Any) -> dict[str, Any]:
+    """Act on one already-authenticated event, exactly once.
+
+    Split out of `handle_event` so the simulator can reach it. Everything after
+    the signature check lives here -- handler lookup, the idempotency check,
+    the grant, and the record -- so a simulated purchase runs the SAME code a
+    real one does rather than a second implementation that can drift from it.
+    A simulator that does not exercise the real path tests the simulator.
+    """
+    kind = str(_field(event, "type", "") or "")
+    event_id = str(_field(event, "id", "") or "")
+    handler = _HANDLERS.get(kind)
+    if handler is None:
+        # Not recorded: Stripe sends a great many kinds and the table is for
+        # things that were acted on, not a copy of the account's event log.
+        return {"status": "ignored", "type": kind}
+    if not event_id:
+        log.error("stripe_event_without_id", type=kind)
+        return {"status": "ignored", "type": kind}
+
+    if _already_handled(event_id):
+        log.info("stripe_event_duplicate", event_id=event_id, type=kind)
+        return {"status": "duplicate", "event": event_id, "type": kind}
+
+    obj = _field(_field(event, "data") or {}, "object") or {}
+    result = handler(obj)
+    _record(event_id, kind)
+    result["event"] = event_id
+    result["type"] = kind
+    return result
+
+
+# The event id prefix every simulated purchase carries. Deliberately unlike
+# anything Stripe mints, so a row in `stripe_events` is always attributable to
+# a person pressing the button rather than to money having moved.
+SIMULATED_PREFIX = "evt_simulated_"
+
+
+def simulate_checkout(*, email: str, plan: str) -> dict[str, Any]:
+    """Run a purchase's AFTERMATH without a card, a Price, or a cent.
+
+    Stripe rejects test cards against live keys -- that is by design and no
+    amount of code changes it -- so the only honest way to watch what happens
+    to a buyer on the live deployment is to synthesise the event Stripe would
+    have sent and put it through the real handler. That is exactly what this
+    does: it builds a `checkout.session.completed` in the shape Stripe sends
+    and hands it to `_dispatch`, so the account is provisioned, the ids are
+    attached, the grant is applied and the key email goes out through the same
+    code a paid checkout uses.
+
+    What it does NOT do is take money, so it also proves nothing about Stripe's
+    half: signature verification, the Price amount, the receipt and the payout
+    are all untested by this. It answers "what does my customer experience
+    after the payment clears", and only that.
+
+    Every simulated event carries `SIMULATED_PREFIX` and a fresh UUID, so it is
+    both attributable in `stripe_events` and impossible to collide with a real
+    delivery. The customer and subscription ids are prefixed the same way,
+    which matters: attaching a plausible-looking `cus_...` to an account would
+    make a later real webhook for that customer resolve to the wrong person.
+    """
+    import uuid
+
+    from src import accounts
+
+    wanted = (plan or "").strip().lower()
+    if wanted not in PLANS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown plan {wanted!r}. One of: {', '.join(PLANS)}.",
+        )
+    address = accounts.normalise_email(email or "")
+    if not address or not accounts.valid_email(address):
+        raise HTTPException(
+            status_code=422, detail="That does not look like an email address."
+        )
+
+    tag = uuid.uuid4().hex[:16]
+    event = {
+        "id": f"{SIMULATED_PREFIX}{tag}",
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": f"cs_simulated_{tag}",
+                "object": "checkout.session",
+                "mode": _MODE[wanted],
+                "payment_status": "paid",
+                "customer": f"cus_simulated_{tag}",
+                "subscription": (
+                    f"sub_simulated_{tag}"
+                    if _MODE[wanted] == "subscription"
+                    else None
+                ),
+                "customer_details": {"email": address},
+                "metadata": {"plan": wanted, "email": address},
+            }
+        },
+    }
+    # Loud on purpose. This grants real access on a live deployment, and the
+    # log line is the only thing separating "we tested the flow" from "why does
+    # this account have Pro".
+    log.warning("stripe_purchase_SIMULATED", plan=wanted, email=address)
+    result = _dispatch(event)
+    result["simulated"] = True
+    return result
+
+
 def handle_event(payload: bytes, signature: str | None) -> dict[str, Any]:
     """Verify one webhook delivery and act on it exactly once.
 
@@ -673,24 +780,4 @@ def handle_event(payload: bytes, signature: str | None) -> dict[str, Any]:
         # the very thing that is missing.
         log.warning("stripe_webhook_bad_signature", error=str(exc)[:200])
         raise HTTPException(status_code=400, detail="Bad Stripe signature.") from None
-    kind = str(_field(event, "type", "") or "")
-    event_id = str(_field(event, "id", "") or "")
-    handler = _HANDLERS.get(kind)
-    if handler is None:
-        # Not recorded: Stripe sends a great many kinds and the table is for
-        # things that were acted on, not a copy of the account's event log.
-        return {"status": "ignored", "type": kind}
-    if not event_id:
-        log.error("stripe_event_without_id", type=kind)
-        return {"status": "ignored", "type": kind}
-
-    if _already_handled(event_id):
-        log.info("stripe_event_duplicate", event_id=event_id, type=kind)
-        return {"status": "duplicate", "event": event_id, "type": kind}
-
-    obj = _field(_field(event, "data") or {}, "object") or {}
-    result = handler(obj)
-    _record(event_id, kind)
-    result["event"] = event_id
-    result["type"] = kind
-    return result
+    return _dispatch(event)

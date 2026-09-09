@@ -41,7 +41,7 @@ FUZZY_THRESHOLD = 0.78
 MIN_FUZZY_CHARS = 4
 _NAMES_TTL_S = 1800.0
 
-_named_cache: list["Match"] | None = None
+_named_cache: list[Match] | None = None
 _named_cache_at: float = 0.0
 
 

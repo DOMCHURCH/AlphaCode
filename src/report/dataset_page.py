@@ -186,4 +186,4 @@ def render_dataset(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dataset.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — The full dataset", body, film="still")
+    return shell("To Scale — The full dataset", body)

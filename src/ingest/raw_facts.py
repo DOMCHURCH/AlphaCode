@@ -22,7 +22,6 @@ from typing import Any
 
 import structlog
 
-from src.ingest import sec_datasets
 from src.ingest.xbrl import DIMENSION_COLUMNS
 
 log = structlog.get_logger(__name__)
@@ -99,7 +98,7 @@ def dump_company_facts(
 
         num_header: list[str] = []
         matched: dict[str, list[dict[str, Any]]] = {t: [] for t in tags}
-        counts: dict[str, int] = {t: 0 for t in tags}
+        counts: dict[str, int] = dict.fromkeys(tags, 0)
         for header, row in _stream(zf, "num.txt"):
             num_header = header
             if row.get("adsh") not in adshs:

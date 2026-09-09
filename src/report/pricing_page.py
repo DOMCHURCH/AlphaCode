@@ -426,4 +426,4 @@ def render_pricing(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — Pricing", body, film="still")
+    return shell("To Scale — Pricing", body)

@@ -347,20 +347,30 @@ def _summary_line(stats: dict) -> str:
     )
 
 
-def shell(title: str, body: str, film: str = "still") -> str:
+def shell(title: str, body: str, film: str = "hero") -> str:
     return _shell(title, body, film)
 
 
-def _shell(title: str, body: str, film: str = "still") -> str:
+def _shell(title: str, body: str, film: str = "hero") -> str:
     """`film` says how much of the backdrop this page may spend.
 
-    "hero"  the film is the point, above the fold  (home, login)
-    "calm"  the still only, veiled hard            (dashboard, company)
-    "none"  no backdrop at all                     (terms, privacy)
+    "hero"  the full backdrop: light veil, and the film on desktop
+    "still" the still only, veiled hard
+    "calm"  as "still"
+    "none"  no backdrop at all
 
-    Decided per page rather than globally because it depends on how long
-    somebody reads: a page that is glanced at can afford a sunset, and a page
-    that is worked in for ten minutes cannot.
+    **The site now uses "hero" everywhere**, which is why it is the default and
+    why nothing passes anything else. It used to be decided per page on the
+    theory that a page glanced at can afford a sunset and a page worked in for
+    ten minutes cannot -- and the theory is sound, but the RESULT was that the
+    home page showed a sunset and every other page was nearly black, so the
+    site read as two different products depending which link you followed. One
+    background everywhere is worth more than a per-page optimisation nobody
+    asked for.
+
+    The other values are kept, working, and deliberately unused: the whole
+    treatment goes back to per-page by passing one of them again, and "none"
+    is still the escape hatch for a page that must carry no backdrop at all.
     """
     from src.report.backdrop import render_backdrop
 
@@ -911,9 +921,7 @@ def render_home(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
 <script src="/static/countup.js?v={asset_version()}" defer></script>"""
-    return _shell(
-        "To Scale — filed financial statements, drawn to scale", body, film="hero"
-    )
+    return _shell("To Scale — filed financial statements, drawn to scale", body)
 
 
 def render_matches(

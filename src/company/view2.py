@@ -128,7 +128,7 @@ def build_view2(
     n_above = len(above)
     if n_above == 0:
         view.rank_note = (
-            f"Its annual sales are larger than every economy in this table."
+            "Its annual sales are larger than every economy in this table."
         )
     else:
         view.rank_note = (

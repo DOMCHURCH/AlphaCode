@@ -15,8 +15,8 @@ AS_OF = dt.date(2025, 6, 2)
 
 @pytest.fixture
 def api_db(tmp_path, monkeypatch):
-    from src.config.settings import get_settings
     from src.company.lookup import reset_cache
+    from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'api.db'}")
@@ -387,9 +387,10 @@ def test_verify_reports_coverage(client):
 # ---------------------------------------------------------------------- reload
 def test_reload_refuses_without_confirm(client):
     """An open endpoint that deletes every row must not fire on a stray tap."""
+    from sqlalchemy import func, select
+
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
-    from sqlalchemy import func, select
 
     _seed_reference_company()
     r = client.post("/admin/reload-fundamentals")
@@ -423,10 +424,11 @@ def test_reload_state_is_exposed_for_progress(client):
 
 
 def test_wipe_empties_the_table(client):
+    from sqlalchemy import func, select
+
     from src.backfill import wipe_fundamentals
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
-    from sqlalchemy import func, select
 
     _seed_reference_company()
     deleted = wipe_fundamentals()
@@ -453,7 +455,7 @@ def _msft_zip() -> bytes:
         )
 
     def num(**kw):
-        r = {c: "" for c in num_cols}
+        r = dict.fromkeys(num_cols, "")
         r.update(adsh="m1", version="us-gaap/2025", ddate="20251231", uom="USD")
         r.update(kw)
         return r
