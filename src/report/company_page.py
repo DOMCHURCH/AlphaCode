@@ -445,7 +445,6 @@ def render_company_page(
     f'{escape(d["period_end"])}, filed {escape(d["filing_date"])}. Nothing is '
     f'estimated. This describes what a company reported; it is not advice and '
     f'makes no prediction.'
-    f'<span class="foot-admin"><a href="/admin">Admin</a></span>'
 )}
 </main>
 {'<script src="/static/company.js?v=' + asset_version() + '" defer></script>'

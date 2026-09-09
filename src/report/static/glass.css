@@ -367,7 +367,51 @@ body { background: var(--bg); color: var(--ink); }
   padding: 7px 7px 7px 10px;
 }
 .sfield:focus-within { border-color: rgba(255, 255, 255, .4); }
-.sfield input { font-family: var(--disp); font-size: 16px; }
+
+/* EVERY input in a slot, not just the ones inside `form.search`.
+   `company.css` scopes its input reset to `.search input`, so a field in a
+   bare `.sfield` -- the password pane on /login, the API-key box on /dataset,
+   the two password fields on the dashboard's Account tab -- inherited nothing
+   and rendered as a white browser-default box with black text, floating
+   inside a dark pill. Two of those three are on flows that take money.
+
+   The reset lives here rather than in company.css because this is the last
+   sheet loaded and the one that owns how a field looks. */
+.sfield input,
+.sfield input[type="text"],
+.sfield input[type="email"],
+.sfield input[type="password"] {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--disp);
+  font-size: 16px;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  padding: 12px 10px;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.sfield input::placeholder { color: var(--dim); }
+/* The ring is on the slot (`.sfield:focus-within`), so the input must not draw
+   a second one inside it. */
+.sfield input:focus { outline: 0; }
+
+/* A submit button inside a slot, same problem: `.search button` was the only
+   rule, so `#pw-btn` on /login rendered as a native OS button. */
+.sfield button {
+  flex: none;
+  font: 600 14px/1 var(--disp);
+  letter-spacing: .01em;
+  color: var(--bg);
+  background: var(--ink);
+  border: 0;
+  border-radius: 999px;
+  padding: 13px 20px;
+  cursor: pointer;
+}
+.sfield button:hover { box-shadow: var(--lift-sm); }
+.sfield button:focus-visible { outline: 2px solid var(--ink); outline-offset: 3px; }
 
 .tabs { background: transparent; box-shadow: none; border: 0; padding: 0;
   gap: 8px; border-radius: 0; }
@@ -384,7 +428,21 @@ body { background: var(--bg); color: var(--ink); }
 .tab.on { background: rgba(255, 255, 255, .14); border-color: var(--edge);
   color: var(--ink); }
 
-nav { border-bottom: 1px solid var(--edge-soft); background: transparent; }
+/* NOT transparent. The bar is sticky, so on a company page it rides over the
+   drawing itself rather than over the backdrop -- the white wordmark measured
+   2.56:1 against the pink liabilities band, and "← Search" 1.88:1. A veil
+   dark enough to read against, blurred so the drawing still shows through it
+   as motion rather than as a hard edge. One backdrop-filter, on one element,
+   on a bar 65px tall. */
+nav {
+  border-bottom: 1px solid var(--edge-soft);
+  background: rgba(10, 11, 17, .72);
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  nav { background: rgba(10, 11, 17, .93); }
+}
 .navlink { color: var(--ink2); background: transparent; }
 .navlink:hover { color: var(--ink); }
 .navlink.on { color: var(--ink); background: rgba(255, 255, 255, .10); }

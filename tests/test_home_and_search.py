@@ -437,17 +437,26 @@ def test_about_redirects_onto_the_home_page(client):
     assert r.headers["location"] == "/#how"
 
 
-def test_admin_is_reachable_without_typing_a_url(client):
+def test_admin_is_reachable_from_the_front_door_and_nowhere_else(client):
     """It is not part of the product, so it is a footnote rather than a nav
-    item -- but it has to be reachable from the UI."""
+    item -- but it has to be reachable from the UI.
+
+    ONE footnote, on the home page. It used to sit on every company page as
+    well: 6,167 crawlable links to a URL robots.txt disallows, from the page
+    type search traffic actually lands on. `nofollow`, because a crawler
+    following it learns nothing and the link is for a person who knows what
+    they are looking for.
+    """
     _seed("JPM", _drawable(), sector="Financials")
 
     home = client.get("/").text
     company = client.get("/company/JPM").text
 
-    for page, body in (("/", home), ("/company/JPM", company)):
-        foot = body.split("<footer>", 1)[1]
-        assert 'href="/admin"' in foot, f"no way to admin from {page}"
+    foot = home.split("<footer>", 1)[1]
+    assert 'href="/admin"' in foot, "no way to admin from the home page"
+    assert 'rel="nofollow"' in foot
+
+    assert 'href="/admin"' not in company, "an admin link on every company page"
     # And not in the nav, where it would compete with the product.
     assert 'href="/admin"' not in home.split("<nav>", 1)[1].split("</nav>", 1)[0]
 

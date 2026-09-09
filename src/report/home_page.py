@@ -831,7 +831,13 @@ def render_home(
         'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
         ' rel="noopener">SEC Financial Statement Data Sets</a>. Built by '
         'Dominique Church.'
-        '<span class="foot-admin"><a href="/admin">Admin</a></span>'
+        # `nofollow`, and on the home page ONLY. It used to sit on every
+        # company page too -- 6,167 crawlable links to a URL robots.txt
+        # disallows, from the page type search traffic actually lands on. It
+        # is the operator's way in, so one link from the front door is the
+        # whole requirement.
+        '<span class="foot-admin">'
+        '<a href="/admin" rel="nofollow">Admin</a></span>'
     )
     disclaimer = render_disclaimer()
 

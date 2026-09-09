@@ -471,7 +471,51 @@
     $("pay-body").textContent = message;
     $("pay-key").textContent = getKey();
     show($("pay-modal"), true);
-    $("pay-close").focus();
+    trapFocus($("pay-modal"), $("pay-close"));
+  }
+
+  /* A dialog that says aria-modal="true" has to behave like one.
+
+     It did not: focus moved to the close button and then Tab walked straight
+     out into the nav links behind a 45%-opaque overlay, where the focus ring
+     cannot be seen and the controls are not supposed to be reachable. And on
+     close, focus fell to <body> rather than back to the button that opened it,
+     so a keyboard user landed at the top of the document every time.
+
+     One handler on the dialog, removed when it closes. Escape closes, because
+     a modal that can only be dismissed by finding one button is a trap of a
+     different kind. */
+  var _trapped = null;
+
+  function trapFocus(modal, first) {
+    var opener = document.activeElement;
+    var focusable = modal.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), ' +
+      'select, textarea, [tabindex]:not([tabindex="-1"])'
+    );
+    function onKey(e) {
+      if (e.key === "Escape") { closeModal(modal); return; }
+      if (e.key !== "Tab" || !focusable.length) return;
+      var lo = focusable[0], hi = focusable[focusable.length - 1];
+      // Wrap at both ends, and catch focus that is already outside.
+      if (e.shiftKey && (document.activeElement === lo || !modal.contains(document.activeElement))) {
+        e.preventDefault(); hi.focus();
+      } else if (!e.shiftKey && document.activeElement === hi) {
+        e.preventDefault(); lo.focus();
+      }
+    }
+    modal.addEventListener("keydown", onKey);
+    _trapped = { modal: modal, onKey: onKey, opener: opener };
+    (first || focusable[0] || modal).focus();
+  }
+
+  function closeModal(modal) {
+    modal.hidden = true;
+    if (!_trapped || _trapped.modal !== modal) return;
+    _trapped.modal.removeEventListener("keydown", _trapped.onKey);
+    // Back to whatever opened it, so a keyboard user resumes where they were.
+    if (_trapped.opener && _trapped.opener.focus) _trapped.opener.focus();
+    _trapped = null;
   }
 
   /* Why a checkout could not be opened, in the reader's terms.
@@ -711,7 +755,7 @@
       startCheckout("dataset", "The full dataset");
     });
     $("pay-close").addEventListener("click", function () {
-      show($("pay-modal"), false);
+      closeModal($("pay-modal"));
     });
     document.addEventListener("keydown", function (e) {
       if (e.key === "Escape" && !$("pay-modal").hidden) show($("pay-modal"), false);

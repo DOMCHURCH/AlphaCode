@@ -70,10 +70,38 @@
     });
   }
 
+  /* Same dialog contract as the dashboard's: aria-modal="true" has to mean
+     focus stays inside, Escape closes, and closing puts focus back on whatever
+     opened it. This one had no Escape handler at all. */
+  var _opener = null;
+
+  function onModalKey(e) {
+    var modal = $("pay-modal");
+    if (e.key === "Escape") { closeModal(); return; }
+    if (e.key !== "Tab") return;
+    var f = modal.querySelectorAll('button:not([disabled]), a[href]');
+    if (!f.length) return;
+    var lo = f[0], hi = f[f.length - 1];
+    if (e.shiftKey && (document.activeElement === lo || !modal.contains(document.activeElement))) {
+      e.preventDefault(); hi.focus();
+    } else if (!e.shiftKey && document.activeElement === hi) {
+      e.preventDefault(); lo.focus();
+    }
+  }
+
   function openModal(text) {
+    _opener = document.activeElement;
     $("pay-body").textContent = text;
     $("pay-modal").hidden = false;
+    $("pay-modal").addEventListener("keydown", onModalKey);
     $("pay-close").focus();
+  }
+
+  function closeModal() {
+    $("pay-modal").hidden = true;
+    $("pay-modal").removeEventListener("keydown", onModalKey);
+    if (_opener && _opener.focus) _opener.focus();
+    _opener = null;
   }
 
   // ---- the download ---------------------------------------------------------
@@ -171,8 +199,6 @@
 
     $("ds-btn").addEventListener("click", download);
     $("ds-buy-btn").addEventListener("click", buy);
-    $("pay-close").addEventListener("click", function () {
-      $("pay-modal").hidden = true;
-    });
+    $("pay-close").addEventListener("click", closeModal);
   });
 })();

@@ -135,6 +135,8 @@ body { background: var(--bg); color: var(--ink); }
 .hero.glass { border-radius: var(--r3); }
 
 /* Nav sits over the film on the pages that have one. */
+/* glass.css gives this a real veil; see the note there. Left
+   transparent here so the ruled treatment can still opt out. */
 nav { background: transparent; }
 nav .wrap.nav { position: relative; }
 .navlink.on { background: rgba(255, 255, 255, .06); box-shadow: var(--in-sm); }
