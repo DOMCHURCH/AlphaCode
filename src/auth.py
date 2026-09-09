@@ -404,14 +404,42 @@ def verify_password(password: str, hashed: str | None) -> bool:
     return bool(ok) and bool(hashed)
 
 
+# How many addresses the failed-login table will hold. Past this, the oldest
+# are dropped: the map exists to slow a repeated guess at ONE account, and an
+# attacker spreading across a hundred thousand addresses is not making progress
+# against any of them -- but they were, until this cap, making the process grow
+# without bound.
+_FAILED_MAX = 20_000
+
+
+def _prune_failed(now: float) -> None:
+    """Drop addresses with no live attempts, then the oldest if still too many.
+
+    Called on the write path only. A read must never grow this map.
+    """
+    dead = [k for k, v in _failed.items() if not v or now - v[-1] >= 3600]
+    for k in dead:
+        _failed.pop(k, None)
+    if len(_failed) <= _FAILED_MAX:
+        return
+    for k in sorted(_failed, key=lambda k: _failed[k][-1])[: len(_failed) - _FAILED_MAX]:
+        _failed.pop(k, None)
+
+
 def login_attempts_remaining(email: str) -> int:
+    """How many tries are left for this address. READ ONLY.
+
+    It used to write back the pruned list, which meant merely ASKING about an
+    address created a permanent entry -- so an unauthenticated POST loop with a
+    fresh address each time grew this dict until the process died, and the
+    address was never validated or length-checked on the way in.
+    """
     from src import accounts
 
     limit = get_settings().login_attempts_per_hour
     key = accounts.normalise_email(email)
     now = time.monotonic()
     hits = [t for t in _failed.get(key, []) if now - t < 3600]
-    _failed[key] = hits
     return max(0, limit - len(hits))
 
 
@@ -419,7 +447,11 @@ def record_failed_login(email: str) -> None:
     from src import accounts
 
     key = accounts.normalise_email(email)
-    _failed.setdefault(key, []).append(time.monotonic())
+    now = time.monotonic()
+    # Prune on the write, which is the only path an attacker cannot take for
+    # free -- reaching it costs them a real failed attempt.
+    _prune_failed(now)
+    _failed.setdefault(key, []).append(now)
 
 
 def reset_login_attempts(email: str | None = None) -> None:

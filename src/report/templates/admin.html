@@ -35,10 +35,11 @@
   <div class="gate-card">
     <span class="dot"></span>
     <h1>Admin</h1>
-    <p>Enter the code to continue.</p>
-    <input id="gateInput" type="text" inputmode="numeric" pattern="[0-9]*"
-      maxlength="3" autocomplete="off" aria-label="Access code" autofocus>
-    <div class="gate-msg" id="gateMsg" role="status"></div>
+    <p>Enter the admin secret to continue.</p>
+    <input id="gateInput" type="password" autocomplete="off"
+      aria-label="Admin secret" maxlength="256" autofocus>
+    <button type="button" id="gateGo">Unlock</button>
+    <div class="gate-msg" id="gateMsg" role="status" aria-live="polite"></div>
   </div>
 </div>
 

@@ -420,6 +420,12 @@ class Settings(BaseSettings):
     # the site's own success into a 429 for everyone who arrived after the
     # sixtieth click. 300 still stops a script cold and cannot be reached by
     # people.
+    # GLOBAL, like every other gate here. Password login spends a bcrypt per
+    # call -- the expensive thing an unauthenticated POST can ask for -- and
+    # the per-address cap does not bind a caller who varies the address.
+    login_rate_per_hour: int = Field(
+        default=600, ge=0, alias="LOGIN_RATE_PER_HOUR"
+    )
     checkout_rate_per_hour: int = Field(
         default=300, ge=0, alias="CHECKOUT_RATE_PER_HOUR"
     )

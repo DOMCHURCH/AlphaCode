@@ -456,7 +456,17 @@ def verify_admin_secret(supplied: str | None, ip_hash: str | None = None) -> Non
                 "(ADMIN_SECRET is unset), so nothing can be granted."
             ),
         )
-    if not supplied or not secrets.compare_digest(supplied, s.admin_secret):
+    # `compare_digest` on str raises TypeError the moment either side is not
+    # ASCII, so a non-ASCII header used to be a 500 rather than a 403 -- an
+    # unhandled crash on the authentication path, reachable by anybody. Compare
+    # bytes: every value is encodable, and the comparison stays constant-time.
+    try:
+        ok = bool(supplied) and secrets.compare_digest(
+            (supplied or "").encode("utf-8"), s.admin_secret.encode("utf-8")
+        )
+    except (UnicodeError, TypeError):
+        ok = False
+    if not ok:
         _write_admin_action(
             email="-", action="auth", ok=False,
             ip_hash=ip_hash, detail="bad or missing X-Admin-Secret",

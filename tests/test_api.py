@@ -6,6 +6,12 @@ file-backed DB shared between the seeding and the app, and FastAPI's TestClient.
 
 from __future__ import annotations
 
+ADMIN_SECRET = "test-admin-secret-do-not-use"
+# Every /admin route and every destructive one now requires this. They
+# used to answer anybody; see `api.require_admin`.
+ADMIN = {"X-Admin-Secret": ADMIN_SECRET}
+
+
 import datetime as dt
 
 import pytest
@@ -19,6 +25,7 @@ def api_db(tmp_path, monkeypatch):
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
+    monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'api.db'}")
     monkeypatch.setenv("API_KEY", "")  # open by default
     get_settings.cache_clear()
@@ -135,7 +142,7 @@ def test_admin_page_and_json(client):
     assert page.status_code == 200
     assert "Admin" in page.text
 
-    body = client.get("/admin.json").json()
+    body = client.get("/admin.json", headers=ADMIN).json()
     for key in ("verdict", "data_health", "config", "logs", "actions", "extraction"):
         assert key in body, key
 
@@ -157,28 +164,80 @@ def test_the_code_gate_hides_the_page_before_it_paints(client):
     assert "html.locked body > nav,html.locked body > main{display:none}" in css
 
 
-def test_the_gate_asks_once_per_session_and_takes_only_digits(client):
+def test_the_gate_holds_no_secret_of_its_own(client):
+    """The gate used to compare a three-digit code IN THIS FILE, which is
+    served to anybody who asks for it -- so the code was public and every
+    endpoint behind it answered without it anyway.
+
+    Nothing is compared client-side now. What is typed is the real
+    ADMIN_SECRET, it goes out as a header, and the server decides.
+    """
     js = client.get("/static/admin.js").text
 
-    assert 'GATE_CODE = "473"' in js
-    assert 'sessionStorage.setItem("admin-gate", "ok")' in js
-    assert 'replace(/\\D/g, "")' in js, "digits only, however they arrive"
+    assert "GATE_CODE" not in js, "a secret compared in public JavaScript"
+    assert '"X-Admin-Secret"' in js
+    assert "adminFetch(" in js
     # Unlocking must also start the poller, or /admin.json would be fetched
     # every 10s behind a gate nobody has opened.
     assert "boot();" in js
 
 
-def test_the_gate_is_a_speed_bump_not_authentication(client):
-    """Recorded deliberately, so nobody later mistakes it for access control.
+def test_every_admin_call_in_the_page_carries_the_secret(client):
+    """One wrapper, used everywhere. A bare fetch() to a gated route gets a
+    403 now, so this is what stops a call being added later that quietly goes
+    open."""
+    js = client.get("/static/admin.js").text
 
-    The code lives in the client and /admin.json answers without it. The
-    controls that actually stop damage are server-side, and this asserts the
-    important one is still there.
+    for route in (
+        "/admin.json", "/admin/balance-sheet", "/admin/universe-check",
+        "/admin/verify", "/admin/reload-fundamentals", "/admin/raw-facts",
+        "/reconcile",
+    ):
+        assert f'adminFetch("{route}' in js, route
+
+
+def test_the_admin_surface_is_authenticated(client):
+    """It was not. `/admin.json` served the in-memory log ring -- every
+    structlog field verbatim, so every customer's address, who signed in and
+    who bought -- to anybody who asked. `/admin/reload-fundamentals` DELETED
+    the fundamentals table on the strength of a query parameter the caller
+    supplies. The gate in front of both was three digits compared in public
+    JavaScript.
+
+    `/admin` itself stays open: it is a shell that fetches everything through
+    the gated routes, so it is useless without the secret and has to be
+    reachable for an operator to type one in.
     """
     assert client.get("/admin").status_code == 200
-    assert client.get("/admin.json").status_code == 200
 
-    refused = client.post("/admin/reload-fundamentals")
+    for route in (
+        "/admin.json", "/admin/balance-sheet?tickers=JPM",
+        "/admin/universe-check", "/admin/verify", "/reconcile",
+    ):
+        assert client.get(route).status_code == 403, route
+    for route in ("/admin/reload-fundamentals?confirm=true", "/backfill?kind=bars"):
+        assert client.post(route).status_code == 403, route
+
+    # A wrong secret is refused as firmly as none at all.
+    wrong = {"X-Admin-Secret": "not-the-secret"}
+    assert client.get("/admin.json", headers=wrong).status_code == 403
+
+    # A non-ASCII one is a 403 too, not a 500. `compare_digest` on str raises
+    # TypeError the moment either side leaves ASCII, so this used to be an
+    # unhandled crash on the authentication path. Checked against the guard
+    # directly: httpx refuses to put a non-ASCII value in a header at all.
+    import pytest as _pytest
+    from fastapi import HTTPException
+
+    from src import accounts
+
+    with _pytest.raises(HTTPException) as caught:
+        accounts.verify_admin_secret("paßwort")
+    assert caught.value.status_code == 403
+
+    # And the right one still works, including the confirm guard behind it.
+    assert client.get("/admin.json", headers=ADMIN).status_code == 200
+    refused = client.post("/admin/reload-fundamentals", headers=ADMIN)
     assert refused.status_code == 400
     assert "confirm=true" in refused.json()["detail"]
 
@@ -213,13 +272,13 @@ def test_admin_config_never_prints_secret_values(monkeypatch, client):
     from src.config.settings import get_settings
 
     get_settings.cache_clear()
-    body = client.get("/admin.json").json()
+    body = client.get("/admin.json", headers=ADMIN).json()
     assert "super-secret-value" not in str(body["config"])
     get_settings.cache_clear()
 
 
 def test_admin_verdict_calls_out_an_empty_fundamentals_table(client):
-    body = client.get("/admin.json").json()
+    body = client.get("/admin.json", headers=ADMIN).json()
     assert body["verdict"]["headline"] == "Fundamentals table is empty"
 
 
@@ -237,7 +296,7 @@ def test_funnel_endpoints_are_gone(client):
 
 # --------------------------------------------------------------- balance sheet
 def test_balance_sheet_reports_a_ticker_with_no_data(client):
-    body = client.get("/admin/balance-sheet?tickers=NOPE").json()
+    body = client.get("/admin/balance-sheet?tickers=NOPE", headers=ADMIN).json()
     assert body["company_sheets"]["NOPE"] == {"found": False}
 
 
@@ -247,7 +306,7 @@ def test_balance_sheet_checks_the_accounting_identity(client):
         _fund("JPM", "total_liabilities", 4_062_462_000_000.0),
         _fund("JPM", "total_equity", 362_438_000_000.0),
     ])
-    body = client.get("/admin/balance-sheet?tickers=JPM").json()
+    body = client.get("/admin/balance-sheet?tickers=JPM", headers=ADMIN).json()
     sheet = body["company_sheets"]["JPM"]
 
     assert sheet["found"] is True
@@ -266,7 +325,7 @@ def test_balance_sheet_will_not_call_a_zero_total_balanced(client):
         _fund("ZERO", "total_assets", 0.0),
         _fund("ZERO", "total_equity", -1_426_000_000.0),
     ])
-    check = client.get("/admin/balance-sheet?tickers=ZERO").json()[
+    check = client.get("/admin/balance-sheet?tickers=ZERO", headers=ADMIN).json()[
         "company_sheets"]["ZERO"]["balance_check"]
 
     assert check["balanced"] is False
@@ -280,7 +339,7 @@ def test_balance_sheet_says_so_when_the_identity_is_uncheckable(client):
         _fund("PART", "current_liabilities", 400.0),
         _fund("PART", "total_equity", 500.0),
     ])
-    check = client.get("/admin/balance-sheet?tickers=PART").json()[
+    check = client.get("/admin/balance-sheet?tickers=PART", headers=ADMIN).json()[
         "company_sheets"]["PART"]["balance_check"]
 
     assert check["balanced"] is False
@@ -289,7 +348,7 @@ def test_balance_sheet_says_so_when_the_identity_is_uncheckable(client):
 
 def test_balance_sheet_marks_missing_concepts_rather_than_zero(client):
     _seed_fundamentals([_fund("THIN", "total_assets", 1_000.0)])
-    sheet = client.get("/admin/balance-sheet?tickers=THIN").json()[
+    sheet = client.get("/admin/balance-sheet?tickers=THIN", headers=ADMIN).json()[
         "company_sheets"]["THIN"]
 
     assert sheet["assets"]["goodwill"]["missing"] is True
@@ -303,7 +362,7 @@ def test_balance_sheet_reports_coverage(client):
         _fund("A", "total_equity", 50.0),
         _fund("B", "total_assets", 200.0),
     ])
-    cov = client.get("/admin/balance-sheet?tickers=A,B").json()["coverage"]
+    cov = client.get("/admin/balance-sheet?tickers=A,B", headers=ADMIN).json()["coverage"]
 
     assert cov["tickers_with_any_fundamentals"] == 2
     assert cov["by_concept"]["total_assets"]["tickers_with_data"] == 2
@@ -326,7 +385,7 @@ def _seed_reference_company() -> None:
 
 
 def test_verify_fails_loudly_on_an_empty_table(client):
-    body = client.get("/admin/verify").json()
+    body = client.get("/admin/verify", headers=ADMIN).json()
     assert body["passed"] is False
     assert "FAIL" in body["summary"]
     assert body["companies"]["JPM"]["found"] is False
@@ -334,7 +393,7 @@ def test_verify_fails_loudly_on_an_empty_table(client):
 
 def test_verify_passes_on_the_real_jpm_figures(client):
     _seed_reference_company()
-    jpm = client.get("/admin/verify").json()["companies"]["JPM"]
+    jpm = client.get("/admin/verify", headers=ADMIN).json()["companies"]["JPM"]
 
     assert jpm["passed"] is True
     assert jpm["metrics"]["total_assets"]["actual"] == 4_424_900_000_000.0
@@ -350,7 +409,7 @@ def test_verify_fails_on_the_old_wrong_jpm_figures(client):
         _fund("JPM", "total_assets", 641_190_000_000.0),   # EMEA segment
         _fund("JPM", "total_equity", -1_426_000_000.0),    # hedge component
     ])
-    jpm = client.get("/admin/verify").json()["companies"]["JPM"]
+    jpm = client.get("/admin/verify", headers=ADMIN).json()["companies"]["JPM"]
 
     assert jpm["passed"] is False
     assert jpm["metrics"]["total_assets"]["passed"] is False
@@ -359,7 +418,7 @@ def test_verify_fails_on_the_old_wrong_jpm_figures(client):
 
 def test_verify_flags_an_impossible_total(client):
     _seed_fundamentals([_fund("FCX", "total_assets", -20_400_000_000.0)])
-    fcx = client.get("/admin/verify").json()["companies"]["FCX"]
+    fcx = client.get("/admin/verify", headers=ADMIN).json()["companies"]["FCX"]
 
     assert fcx["passed"] is False
     assert "total assets is" in fcx["impossible"]
@@ -368,7 +427,7 @@ def test_verify_flags_an_impossible_total(client):
 def test_verify_accepts_aals_genuinely_negative_equity(client):
     """A stockholders' deficit is correct for AAL and must not be 'fixed'."""
     _seed_fundamentals([_fund("AAL", "total_equity", -3_900_000_000.0)])
-    aal = client.get("/admin/verify").json()["companies"]["AAL"]
+    aal = client.get("/admin/verify", headers=ADMIN).json()["companies"]["AAL"]
 
     assert aal["passed"] is True
     assert aal["metrics"]["total_equity"]["actual"] < 0
@@ -376,7 +435,7 @@ def test_verify_accepts_aals_genuinely_negative_equity(client):
 
 def test_verify_reports_coverage(client):
     _seed_reference_company()
-    cov = client.get("/admin/verify").json()["coverage"]
+    cov = client.get("/admin/verify", headers=ADMIN).json()["coverage"]
 
     assert cov["tickers_with_any_fundamentals"] == 1
     assert cov["tickers_renderable"] == 1
@@ -393,7 +452,7 @@ def test_reload_refuses_without_confirm(client):
     from src.storage.models import Fundamental
 
     _seed_reference_company()
-    r = client.post("/admin/reload-fundamentals")
+    r = client.post("/admin/reload-fundamentals", headers=ADMIN)
 
     assert r.status_code == 400
     assert "confirm=true" in r.json()["detail"]
@@ -411,7 +470,7 @@ def test_reload_accepts_with_confirm(client, monkeypatch):
         seen.append(quarters)
 
     monkeypatch.setattr(api, "_reload_bg", fake_bg)
-    r = client.post("/admin/reload-fundamentals?confirm=true&quarters=7")
+    r = client.post("/admin/reload-fundamentals?confirm=true&quarters=7", headers=ADMIN)
 
     assert r.status_code == 200
     assert r.json()["accepted"] is True
@@ -419,7 +478,7 @@ def test_reload_accepts_with_confirm(client, monkeypatch):
 
 
 def test_reload_state_is_exposed_for_progress(client):
-    body = client.get("/admin.json").json()
+    body = client.get("/admin.json", headers=ADMIN).json()
     assert body["reload"]["phase"] == "idle"
 
 
@@ -526,7 +585,8 @@ def test_raw_facts_endpoint_accepts_and_backgrounds(client, monkeypatch):
     monkeypatch.setattr(api, "_raw_facts_bg", fake_bg)
     r = client.post(
         "/admin/raw-facts?ticker=MSFT&year=2026&quarter=1"
-        "&tags=Assets,StockholdersEquity&ddate=20251231"
+        "&tags=Assets,StockholdersEquity&ddate=20251231",
+        headers=ADMIN,
     )
     assert r.status_code == 200
     assert r.json()["accepted"] is True
@@ -534,22 +594,26 @@ def test_raw_facts_endpoint_accepts_and_backgrounds(client, monkeypatch):
 
 
 def test_raw_facts_rejects_empty_tags(client):
-    assert client.post("/admin/raw-facts?tags=").status_code == 400
+    assert client.post("/admin/raw-facts?tags=", headers=ADMIN).status_code == 400
 
 
 def test_raw_facts_state_is_exposed(client):
-    assert client.get("/admin.json").json()["raw_facts"]["phase"] == "idle"
+    assert client.get("/admin.json", headers=ADMIN).json()["raw_facts"]["phase"] == "idle"
 
 
 # -------------------------------------------------------------------- backfill
-def test_backfill_needs_no_token(client, monkeypatch):
+def test_backfill_needs_the_admin_secret(client, monkeypatch):
+    """It said "open by design" and meant it, back when this was a data
+    experiment with nothing to lose. It has customers now."""
     import src.api as api
 
     async def fake_bg(kind: str, days: int) -> None:
         return None
 
     monkeypatch.setattr(api, "_backfill_bg", fake_bg)
-    r = client.post("/backfill?kind=bars")
+    assert client.post("/backfill?kind=bars").status_code == 403
+
+    r = client.post("/backfill?kind=bars", headers=ADMIN)
     assert r.status_code == 200
     assert r.json()["accepted"] is True
 
@@ -565,12 +629,14 @@ def test_backfill_dispatches_on_kind_not_always_bars(client, monkeypatch):
     monkeypatch.setattr(api, "_backfill_bg", fake_bg)
     for kind in ("bars", "sectors", "fundamentals", "earnings"):
         api._backfill_gate.reset()
-        assert client.post(f"/backfill?kind={kind}").status_code == 200
+        assert client.post(
+            f"/backfill?kind={kind}", headers=ADMIN
+        ).status_code == 200
     assert seen == ["bars", "sectors", "fundamentals", "earnings"]
 
 
 def test_backfill_rejects_unknown_kind(client):
-    assert client.post("/backfill?kind=nonsense").status_code == 400
+    assert client.post("/backfill?kind=nonsense", headers=ADMIN).status_code == 400
 
 
 def test_backfill_is_rate_limited(client, monkeypatch):
@@ -585,8 +651,8 @@ def test_backfill_is_rate_limited(client, monkeypatch):
         return None
 
     monkeypatch.setattr(api, "_backfill_bg", fake_bg)
-    assert client.post("/backfill?kind=bars").status_code == 200
-    assert client.post("/backfill?kind=bars").status_code == 429
+    assert client.post("/backfill?kind=bars", headers=ADMIN).status_code == 200
+    assert client.post("/backfill?kind=bars", headers=ADMIN).status_code == 429
     get_settings.cache_clear()
 
 
@@ -600,7 +666,7 @@ def test_universe_check_endpoint_reports_the_distribution(client):
         _fund("BAD1", "total_liabilities", 700.0),
         _fund("BAD1", "total_equity", 100.0),
     ])
-    body = client.get("/admin/universe-check").json()
+    body = client.get("/admin/universe-check", headers=ADMIN).json()
 
     assert body["identity"]["checkable"] == 2
     assert body["identity"]["buckets"]["within_1pct"] == 1
@@ -610,7 +676,7 @@ def test_universe_check_endpoint_reports_the_distribution(client):
 
 
 def test_universe_check_survives_an_empty_table(client):
-    body = client.get("/admin/universe-check").json()
+    body = client.get("/admin/universe-check", headers=ADMIN).json()
     assert body["tickers_in_table"] == 0
     assert body["identity"]["checkable"] == 0
     assert body["identity"]["pass_rate_pct"] == 0.0
@@ -654,7 +720,7 @@ def test_msft_now_passes_verification_on_the_confirmed_figures(client):
         _fund("MSFT", "total_assets", 665_302_000_000.0),
         _fund("MSFT", "total_equity", 390_875_000_000.0),
     ])
-    msft = client.get("/admin/verify").json()["companies"]["MSFT"]
+    msft = client.get("/admin/verify", headers=ADMIN).json()["companies"]["MSFT"]
 
     assert msft["passed"] is True
     assert msft["metrics"]["total_assets"]["drift_pct"] == 0.0
@@ -668,7 +734,7 @@ def test_a_confirmed_reference_mismatch_still_fails_the_run(client):
         _fund("MSFT", "total_assets", 100_000_000_000.0),   # nowhere near
         _fund("MSFT", "total_equity", 390_875_000_000.0),
     ])
-    body = client.get("/admin/verify").json()
+    body = client.get("/admin/verify", headers=ADMIN).json()
 
     assert body["companies"]["MSFT"]["passed"] is False
     assert body["passed"] is False
@@ -937,7 +1003,9 @@ def test_status_and_admin_report_the_auto_updater(client):
     """Both surfaces must say what is keeping the data current, and what it is
     waiting on -- otherwise "why is this number old?" has no answer on a phone."""
     for path in ("/status", "/admin.json"):
-        body = client.get(path).json()
+        # /status is public; /admin.json is not, and both must say the same
+        # thing about what is keeping the data current.
+        body = client.get(path, headers=ADMIN).json()
         auto = body["auto_update"]
         assert [j["name"] for j in auto["jobs"]] == [
             "bars", "filings", "fundamentals", "earnings",

@@ -14,6 +14,12 @@ the page being counted.
 
 from __future__ import annotations
 
+ADMIN_SECRET = "test-admin-secret-do-not-use"
+# Every /admin route and every destructive one now requires this. They
+# used to answer anybody; see `api.require_admin`.
+ADMIN = {"X-Admin-Secret": ADMIN_SECRET}
+
+
 import datetime as dt
 
 import pytest
@@ -28,6 +34,7 @@ def db(tmp_path, monkeypatch):
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
+    monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'visits.db'}")
     monkeypatch.setenv("API_KEY", "")
     get_settings.cache_clear()
@@ -79,7 +86,10 @@ def test_the_admin_page_is_never_counted_as_a_visit(client):
     that would make the operator most of the site's traffic."""
     client.get("/admin", headers={"user-agent": BROWSER})
     for _ in range(10):
-        client.get("/admin.json", headers={"user-agent": BROWSER})
+        client.get(
+            "/admin.json",
+            headers={**ADMIN, "user-agent": BROWSER},
+        )
 
     assert _rows() == []
 
@@ -312,7 +322,7 @@ def test_the_admin_panel_reports_the_numbers(client):
     for _ in range(3):
         client.get("/", headers={"user-agent": BROWSER})
 
-    panel = client.get("/admin.json").json()["visitors"]
+    panel = client.get("/admin.json", headers=ADMIN).json()["visitors"]
 
     assert panel["all_time"]["views"] == 3
     assert panel["windows"]["24h"]["addresses"] == 1

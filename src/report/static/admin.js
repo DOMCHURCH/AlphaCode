@@ -34,7 +34,7 @@ function fmtUSD(n) {
 async function load() {
   if (TIMER) { clearTimeout(TIMER); TIMER = null; }
   try {
-    const r = await fetch("/admin.json", { cache: "no-store" });
+    const r = await adminFetch("/admin.json", { cache: "no-store" });
     if (!r.ok) throw new Error("HTTP " + r.status);
     LATEST = await r.json();
     render(LATEST);
@@ -648,7 +648,7 @@ async function testBalanceSheet() {
   btn.disabled = true; btn.classList.add("busy"); btn.textContent = "checking…";
   div.innerHTML = `<div class="loading">reading…</div>`;
   try {
-    const r = await fetch("/admin/balance-sheet?tickers=JPM,AAL,MSFT,WMT,FCX",
+    const r = await adminFetch("/admin/balance-sheet?tickers=JPM,AAL,MSFT,WMT,FCX",
       { cache: "no-store" });
     const data = await r.json();
     BALANCE = data;
@@ -710,7 +710,7 @@ async function runUniverseCheck() {
   btn.disabled = true; btn.classList.add("busy"); btn.textContent = "running…";
   div.innerHTML = `<div class="loading">checking every ticker…</div>`;
   try {
-    const r = await fetch("/admin/universe-check", { cache: "no-store" });
+    const r = await adminFetch("/admin/universe-check", { cache: "no-store" });
     const d = await r.json();
     UNIVERSE = d;
     if (d.error) {
@@ -814,7 +814,7 @@ async function runVerify() {
   btn.disabled = true; btn.classList.add("busy"); btn.textContent = "checking…";
   div.innerHTML = `<div class="loading">reading…</div>`;
   try {
-    const r = await fetch("/admin/verify", { cache: "no-store" });
+    const r = await adminFetch("/admin/verify", { cache: "no-store" });
     const data = await r.json();
     VERIFY = data;
     div.innerHTML = data.error
@@ -841,7 +841,7 @@ async function startReload() {
   btn.disabled = true;
   msg.textContent = "starting reload…";
   try {
-    const r = await fetch("/admin/reload-fundamentals?confirm=true&quarters=7",
+    const r = await adminFetch("/admin/reload-fundamentals?confirm=true&quarters=7",
       { method: "POST" });
     const body = await r.json().catch(() => ({}));
     msg.textContent = r.status === 429
@@ -863,7 +863,7 @@ async function submitRawFacts(params, btn) {
   btn.disabled = true;
   msg.textContent = "starting dump… (downloads ~100MB, takes a minute)";
   try {
-    const r = await fetch("/admin/raw-facts?" + q.toString(), { method: "POST" });
+    const r = await adminFetch("/admin/raw-facts?" + q.toString(), { method: "POST" });
     const body = await r.json().catch(() => ({}));
     msg.textContent = r.status === 429
       ? "Rate limited — " + (body.detail || "try again later.")
@@ -1119,7 +1119,7 @@ async function postAction(action) {
   if (!url) { msg.textContent = "Unknown action: " + action; return; }
   msg.textContent = "sending…";
   try {
-    const r = await fetch(url, { method: "POST" });
+    const r = await adminFetch(url, { method: "POST" });
     const body = await r.json().catch(() => ({}));
     msg.textContent = r.status === 429
       ? "Rate limited — " + (body.detail || "try again later.")
@@ -1135,7 +1135,7 @@ async function runReconcile() {
   const label = btn.textContent;
   btn.disabled = true; btn.classList.add("busy"); btn.textContent = "checking…";
   try {
-    const r = await fetch("/reconcile?sample=15", { cache: "no-store" });
+    const r = await adminFetch("/reconcile?sample=15", { cache: "no-store" });
     if (r.status === 429) {
       const b = await r.json().catch(() => ({}));
       $("actionMsg").textContent = "Rate limited — " + (b.detail || "try again later.");
@@ -1148,13 +1148,48 @@ async function runReconcile() {
 }
 
 // ---------------------------------------------------------------- wire up
-// ---------------------------------------------------------------- code gate
-const GATE_CODE = "473";
+// ---------------------------------------------------------------- the gate
+//
+// This used to be a three-digit code compared IN THIS FILE, which is served
+// to anybody who asks for it -- so the code was public and the endpoints
+// behind it were open. The gate is now the real ADMIN_SECRET, it is never
+// compared here, and the SERVER decides: every fetch below carries it as
+// X-Admin-Secret and a wrong one comes back 403 from `verify_admin_secret`,
+// which also writes an audit row. Held in sessionStorage so it survives a
+// refresh and dies with the tab.
+
+const SECRET_STORE = "toscale.admin_secret";
+
+function secret() {
+  try { return sessionStorage.getItem(SECRET_STORE) || ""; } catch (e) { return ""; }
+}
+
+/* Every admin request goes through here. A bare fetch() to one of these
+   routes now gets a 403, which is the point -- if a call is added later
+   without this wrapper it fails loudly rather than silently going open. */
+async function adminFetch(url, opts) {
+  opts = opts || {};
+  const headers = Object.assign({}, opts.headers, { "X-Admin-Secret": secret() });
+  const r = await fetch(url, Object.assign({}, opts, { headers }));
+  if (r.status === 403 || r.status === 401) {
+    lock("That secret was not accepted.");
+    throw new Error("admin_forbidden");
+  }
+  return r;
+}
+
+function lock(message) {
+  try { sessionStorage.removeItem(SECRET_STORE); } catch (e) { /* private mode */ }
+  document.documentElement.classList.add("locked");
+  const msg = $("gateMsg");
+  if (msg) msg.textContent = message || "";
+  const input = $("gateInput");
+  if (input) { input.value = ""; input.focus(); }
+}
 
 // Unlocking also starts the page. Without this the poll would run behind the
 // gate, hitting /admin.json every 10s for a page nobody is looking at.
 function unlock() {
-  try { sessionStorage.setItem("admin-gate", "ok"); } catch (e) { /* private mode */ }
   document.documentElement.classList.remove("locked");
   boot();
 }
@@ -1162,19 +1197,39 @@ function unlock() {
 function initGate() {
   const input = $("gateInput"), msg = $("gateMsg");
   if (!input) return;
+  const submit = async () => {
+    const typed = input.value.trim();
+    if (!typed) return;
+    msg.textContent = "Checking…";
+    try { sessionStorage.setItem(SECRET_STORE, typed); } catch (e) { /* private mode */ }
+    // The server is the only thing that knows. One cheap, already-gated call
+    // is the check -- there is no separate "is this right" endpoint to add.
+    let r;
+    try {
+      r = await fetch("/admin.json", {
+        cache: "no-store", headers: { "X-Admin-Secret": typed },
+      });
+    } catch (e) {
+      msg.textContent = "Could not reach the server.";
+      return;
+    }
+    if (r.ok) { msg.textContent = ""; unlock(); return; }
+    try { sessionStorage.removeItem(SECRET_STORE); } catch (e) { /* ignore */ }
+    input.classList.add("wrong");
+    msg.textContent = r.status === 503
+      ? "ADMIN_SECRET is not set on this deployment."
+      : "Not that one.";
+    setTimeout(() => { input.value = ""; input.focus(); }, 550);
+  };
   input.addEventListener("input", () => {
-    // Digits only, however they arrive — typed, pasted or autofilled.
-    input.value = input.value.replace(/\D/g, "").slice(0, 3);
     input.classList.remove("wrong");
     msg.textContent = "";
-    if (input.value.length < 3) return;
-    if (input.value === GATE_CODE) { unlock(); return; }
-    input.classList.add("wrong");
-    msg.textContent = "Not that one.";
-    // Clear so the next attempt starts from empty rather than needing a
-    // backspace on a phone keypad.
-    setTimeout(() => { input.value = ""; input.focus(); }, 550);
   });
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+  });
+  const go = $("gateGo");
+  if (go) go.addEventListener("click", submit);
   input.focus();
 }
 

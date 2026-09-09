@@ -12,6 +12,12 @@ The risks worth testing here are not "does it call the API". They are:
 
 from __future__ import annotations
 
+ADMIN_SECRET = "test-admin-secret-do-not-use"
+# Every /admin route and every destructive one now requires this. They
+# used to answer anybody; see `api.require_admin`.
+ADMIN = {"X-Admin-Secret": ADMIN_SECRET}
+
+
 import datetime as dt
 
 import pytest
@@ -26,6 +32,7 @@ def db(tmp_path, monkeypatch):
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
+    monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'ask.db'}")
     monkeypatch.setenv("API_KEY", "")
     monkeypatch.setenv("OPENROUTER_API_KEY", "test-key")
@@ -490,7 +497,7 @@ def test_the_answer_is_recorded_for_admin(client, monkeypatch):
     assert today["prompt_tokens"] == 500
     assert today["cost_usd"] > 0
 
-    panel = client.get("/admin.json").json()["ask"]
+    panel = client.get("/admin.json", headers=ADMIN).json()["ask"]
     assert panel["today"]["requests"] == 1
     assert panel["caps"]["per_day"] > 0
 

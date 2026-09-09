@@ -35,7 +35,7 @@ from fastapi.responses import (
     StreamingResponse,
 )
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 
 from src import scheduler
@@ -306,6 +306,12 @@ _checkout_gate = _RateGate(lambda: get_settings().checkout_rate_per_hour)
 # replaces it: one GLOBAL window, sized so a person never meets it and a loop
 # meets it immediately.
 _demo_gate = _RateGate(lambda: get_settings().demo_rate_per_hour)
+# Password login was the ONLY open POST with no global window in front of it,
+# and every call spends a full bcrypt -- ~0.17s of CPU at 12 rounds. The
+# per-address cap is 5/hour, so a caller who varies the address never meets it
+# and saturates the threadpool instead. This is the ceiling that stops that;
+# it is far above any human rate of typing a password wrong.
+_login_gate = _RateGate(lambda: get_settings().login_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -376,7 +382,34 @@ def health() -> HealthResponse:
 _RECONCILE_CACHE: dict[str, Any] = {"at": None, "data": None}
 
 
-@app.get("/reconcile")
+def require_admin(
+    request: Request,
+    x_admin_secret: str | None = Header(default=None, alias="X-Admin-Secret"),
+) -> None:
+    """Depends() form of the admin gate, for routes that only need the check.
+
+    These endpoints were open. Not by oversight in every case -- `/backfill`
+    said "open by design" and meant it, back when this was a data experiment
+    with nothing to lose. It has customers now, and the same openness reads
+    very differently:
+
+    * `/admin.json` served the in-memory log ring, which copies every structlog
+      field verbatim -- so it published the customer roster, who signed in,
+      who bought, and (because `format_exc_info` runs first) any exception
+      message a handler produced.
+    * `/admin/reload-fundamentals` DELETES the fundamentals table and reloads
+      it, on the say-so of a query parameter the caller supplies.
+
+    `/admin` itself stays open: it is a shell that fetches everything through
+    these routes, so it is useless without the secret and has to be reachable
+    for an operator to type one in.
+    """
+    from src import accounts
+
+    accounts.verify_admin_secret(x_admin_secret, ip_hash=_caller_ip_hash(request))
+
+
+@app.get("/reconcile", dependencies=[Depends(require_admin)])
 async def reconcile_endpoint(sample: int = Query(15, ge=1, le=50)) -> dict[str, Any]:
     """The same checks as `python -m src.reconcile`, over HTTP for phones with no
     shell. Read-only and rate-limited (it makes a few network calls). Nothing is
@@ -395,7 +428,11 @@ _BACKFILL_KINDS = (
 )
 
 
-@app.post("/backfill", response_model=RunResponse)
+@app.post(
+    "/backfill",
+    response_model=RunResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def trigger_backfill(
     background: BackgroundTasks,
     kind: str = "bars",
@@ -934,7 +971,7 @@ def _admin_verdict(
             "action": None}
 
 
-@app.get("/admin.json")
+@app.get("/admin.json", dependencies=[Depends(require_admin)])
 def admin_json() -> dict[str, Any]:
     """Everything the /admin page renders, in one cheap payload."""
     from src.analytics import summary as visit_summary
@@ -1017,7 +1054,7 @@ def admin_page() -> HTMLResponse:
         )
 
 
-@app.get("/admin/balance-sheet")
+@app.get("/admin/balance-sheet", dependencies=[Depends(require_admin)])
 def admin_balance_sheet(
     tickers: str = Query("JPM,AAL,MSFT,WMT,FCX"),
 ) -> dict[str, Any]:
@@ -1177,7 +1214,11 @@ def admin_balance_sheet(
         return {"error": str(exc)[:300], "traceback": traceback.format_exc()[:2000]}
 
 
-@app.post("/admin/reload-fundamentals", response_model=RunResponse)
+@app.post(
+    "/admin/reload-fundamentals",
+    response_model=RunResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def admin_reload_fundamentals(
     background: BackgroundTasks,
     confirm: bool = Query(
@@ -1355,7 +1396,7 @@ async def company_ask(ticker: str, body: AskRequest, request: Request) -> JSONRe
     })
 
 
-@app.get("/admin/universe-check")
+@app.get("/admin/universe-check", dependencies=[Depends(require_admin)])
 def admin_universe_check() -> dict[str, Any]:
     """Run the accounting identity over EVERY ticker, not just the five.
 
@@ -1378,7 +1419,11 @@ def admin_universe_check() -> dict[str, Any]:
         return {"error": str(exc)[:300], "traceback": traceback.format_exc()[:2000]}
 
 
-@app.post("/admin/raw-facts", response_model=RunResponse)
+@app.post(
+    "/admin/raw-facts",
+    response_model=RunResponse,
+    dependencies=[Depends(require_admin)],
+)
 async def admin_raw_facts(
     background: BackgroundTasks,
     ticker: str = Query("MSFT"),
@@ -1429,7 +1474,7 @@ async def _raw_facts_bg(
             log.exception("admin_raw_facts_failed", error=str(exc))
 
 
-@app.get("/admin/verify")
+@app.get("/admin/verify", dependencies=[Depends(require_admin)])
 def admin_verify() -> dict[str, Any]:
     """Check the five reference companies against their known figures.
 
@@ -1860,8 +1905,10 @@ def api_regenerate_key(request: Request) -> JSONResponse:
 
 
 class PasswordLogin(BaseModel):
-    email: str
-    password: str
+    # Bounded, unlike before. An unbounded string here reached a dict key and a
+    # bcrypt call, both from an unauthenticated POST.
+    email: str = Field(max_length=254)
+    password: str = Field(max_length=128)
     # Only read where an ACCOUNT IS CREATED. Sign-in does not re-ask: you
     # accepted when you signed up, and a login form that demands it again is
     # asking for consent it already has.
@@ -1908,6 +1955,10 @@ def api_password_login(body: PasswordLogin) -> JSONResponse:
     if not auth.is_enabled():
         raise auth.LoginDisabled()
 
+    # Global first, per-address second. The per-address cap is the anti-stuffing
+    # control and does not bind somebody who varies the address; this one bounds
+    # how much bcrypt a stranger can buy from the container in an hour.
+    _enforce_rate(_login_gate, "sign-ins")
     email = body.email.strip()
     if auth.login_attempts_remaining(email) <= 0:
         # Counted per ADDRESS: stuffing one account comes from many IPs, and an
