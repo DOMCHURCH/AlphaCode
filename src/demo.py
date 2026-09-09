@@ -146,10 +146,19 @@ def calls_today(ip_hash: str, day: str | None = None) -> int:
         )
 
 
+UNLIMITED = -1
+
+
 def remaining(ip_hash: str) -> int:
+    """Calls left for this address today, or `UNLIMITED`.
+
+    A zero limit means no cap, so it must not report zero REMAINING -- those
+    are opposite states and returning the same number for both is how an
+    uncapped demo would render as an exhausted one.
+    """
     limit = get_settings().demo_calls_per_ip_per_day
     if not limit:
-        return 0
+        return UNLIMITED
     return max(0, limit - calls_today(ip_hash))
 
 

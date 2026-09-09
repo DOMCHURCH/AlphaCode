@@ -585,6 +585,7 @@ def test_the_pricing_page_says_reading_the_site_is_unlimited(client):
     reading as though browsing were rationed."""
     html = client.get("/pricing").text
 
-    assert "Reading this site is free and unlimited" in html
-    assert "Unlimited drawings and search" in html
+    assert "Looking things up is free and unlimited" in html
+    assert "no daily counter" in html
+    assert "Unlimited — look up as many companies as you like" in html
     assert "Drawings &amp; search on this site" in html

@@ -132,11 +132,11 @@ def plan_cards(
     return f"""
     <div class="plans">
       {card(
-        "Free", "$0", "", "Unlimited drawings and search — no key needed",
+        "Free", "$0", "", "Unlimited — look up as many companies as you like",
         (
-            "Every company, every balance sheet, as many as you like",
-            f"{free_limit} API calls a month if you want JSON too",
-            "Live data, same as Pro",
+            "Every company, every balance sheet, no key and no account",
+            "The live demo is uncapped too — try the real endpoint on anything",
+            f"{free_limit} keyed API calls a month if you want JSON in bulk",
             "Best for: reading the site, and evaluating the API",
         ),
         "Get a key",
@@ -396,9 +396,10 @@ def render_pricing(
 
   <section class="sec" id="pricing">
     <div class="sec-head"><h2>Plans</h2></div>
-    <p class="sec-sub"><b>Reading this site is free and unlimited</b> — every
-      drawing, every company, as many as you like, no key and no account. The
-      prices below buy the data in machine-readable form. Every one of them is
+    <p class="sec-sub"><b>Looking things up is free and unlimited</b> — every
+      drawing, every company, the live demo on the front page, as many as you
+      like, no key and no account and no daily counter. The prices below buy
+      the data in machine-readable form, in bulk. Every one of them is
       what Stripe charges; nothing is quoted here that the checkout does not
       agree with.</p>
     {cards}

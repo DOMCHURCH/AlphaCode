@@ -301,6 +301,11 @@ _magic_link_gate = _RateGate(lambda: get_settings().magic_link_rate_per_hour)
 # on -- Stripe retries, but a limit hit during a burst is a queue of unfulfilled
 # payments waiting on a counter.
 _checkout_gate = _RateGate(lambda: get_settings().checkout_rate_per_hour)
+# The demo has no per-address cap any more -- looking companies up is the
+# marketing surface and rationing it only stopped prospects. This is what
+# replaces it: one GLOBAL window, sized so a person never meets it and a loop
+# meets it immediately.
+_demo_gate = _RateGate(lambda: get_settings().demo_rate_per_hour)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -2138,9 +2143,13 @@ def api_demo(ticker: str, request: Request) -> JSONResponse:
             detail="The demo is not configured on this deployment.",
         )
 
+    # Global first, per-address second. The global window is the abuse guard
+    # and is normally the only one in play; the per-address cap defaults to
+    # OFF and exists for a deployment that wants to put one back.
+    _enforce_rate(_demo_gate, "demo lookups")
     ip_hash = _caller_ip_hash(request)
     limit = get_settings().demo_calls_per_ip_per_day
-    used = demo.calls_today(ip_hash)
+    used = demo.calls_today(ip_hash) if limit else 0
     if limit and used >= limit:
         raise HTTPException(
             status_code=429,

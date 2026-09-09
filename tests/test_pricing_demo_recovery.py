@@ -87,7 +87,7 @@ def test_the_home_page_prices_come_from_settings_not_the_copy(client):
     quote a price the API does not enforce."""
     html = client.get("/").text
     assert "$29" in html and "$49" in html and "$0" in html
-    assert "7 API calls a month" in html
+    assert "7 keyed API calls a month" in html
     assert "5,000 API calls per month" in html
     assert "10 API calls" not in html
 
@@ -122,6 +122,51 @@ def test_the_demo_blurb_quotes_the_real_daily_limit(client):
     html = client.get("/").text
     assert "3 companies a day from one address" in html
     assert "Five companies a day" not in html
+
+
+def test_an_uncapped_demo_says_so_rather_than_quoting_a_zero(client, monkeypatch):
+    """0 means NO CAP, which is the shipped default -- looking companies up is
+    the marketing surface and rationing it only stopped prospects halfway
+    through convincing themselves. It must not render as "0 companies a day".
+    """
+    monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "0")
+    from src.config.settings import get_settings
+
+    get_settings.cache_clear()
+    html = client.get("/").text
+
+    assert "no limit on looking" in html
+    assert "0 companies a day" not in html
+
+
+def test_an_uncapped_demo_actually_serves_more_than_a_handful(client, monkeypatch):
+    """The copy and the endpoint must agree. Ten straight lookups from one
+    address, where the old default refused after five."""
+    monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "0")
+    from src.config.settings import get_settings
+
+    get_settings.cache_clear()
+    seed_jpm()
+
+    for n in range(10):
+        r = client.get("/api/demo/JPM")
+        assert r.status_code != 429, f"capped after {n} lookups"
+
+
+def test_the_demo_still_stops_a_loop(client, monkeypatch):
+    """No per-person cap does not mean no cap. The global window is what keeps
+    an uncapped demo from being a free proxy to somebody's script."""
+    monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "0")
+    monkeypatch.setenv("DEMO_RATE_PER_HOUR", "3")
+    from src.api import _demo_gate
+    from src.config.settings import get_settings
+
+    get_settings.cache_clear()
+    _demo_gate.reset()
+    seed_jpm()
+
+    codes = [client.get("/api/demo/JPM").status_code for _ in range(6)]
+    assert 429 in codes, "an uncapped demo with no global gate is a free proxy"
 
 
 def test_pricing_sits_under_the_accuracy_banner(client):

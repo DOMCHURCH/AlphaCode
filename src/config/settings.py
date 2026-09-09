@@ -357,8 +357,28 @@ class Settings(BaseSettings):
     # and is never sent to the browser (see src/demo.py); unset simply disables
     # the demo rather than breaking the page.
     demo_api_key: str = Field(default="", alias="DEMO_API_KEY")
+    # 0 means NO PER-PERSON CAP, and that is the default on purpose.
+    #
+    # Looking companies up is the marketing surface, not the product. The
+    # people this site sells to -- somebody wiring a dashboard, screening a
+    # sector, backtesting on as-reported figures -- are not the people a
+    # five-a-day counter protects anything from, and the only thing it reliably
+    # did was stop a prospect halfway through convincing themselves. The
+    # products are the API's monthly allowance and the CSV; neither is what a
+    # visitor spends by reading.
+    #
+    # Abuse is bounded by `demo_rate_per_hour` below instead, which is a GLOBAL
+    # burst gate rather than a per-person quota: a script is stopped, a person
+    # never notices it exists.
     demo_calls_per_ip_per_day: int = Field(
-        default=5, ge=0, alias="DEMO_CALLS_PER_IP_PER_DAY"
+        default=0, ge=0, alias="DEMO_CALLS_PER_IP_PER_DAY"
+    )
+    # The demo proxies a real keyed call, so it costs this deployment something
+    # per hit. With no per-address cap in front of it, this window is what
+    # stands between the demo and a loop -- generous enough that a room full of
+    # people reading the site never touches it.
+    demo_rate_per_hour: int = Field(
+        default=1_200, ge=0, alias="DEMO_RATE_PER_HOUR"
     )
 
     # ---------------- Stripe Checkout ----------------

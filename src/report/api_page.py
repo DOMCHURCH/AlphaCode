@@ -88,7 +88,7 @@ def render_api(
      "The balance sheet as filed: every line item, its period end, and the "
      "filing it came from. The same numbers the drawing on "
      "<code>/company/{ticker}</code> is built from.")}
-{_ep("GET", "/api/demo/{ticker}", "No key · 5 per day per address",
+{_ep("GET", "/api/demo/{ticker}", "No key · no per-person limit",
      "The same response, ungated, so you can see the shape before deciding "
      "whether to register.")}
 {_ep("GET", "/api/user/status", "X-API-Key required · free",

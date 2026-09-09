@@ -302,11 +302,16 @@ def _demo_section() -> str:
     # at three is the sort of small lie that costs a reader their trust in the
     # numbers this whole site is about.
     limit = get_settings().demo_calls_per_ip_per_day
+    allowance = (
+        f"{limit} {plural(limit, 'company', 'companies')} a day from one address."
+        if limit
+        else "As many companies as you like — there is no limit on looking."
+    )
     return f"""
   <section class="sec" id="demo">
     <div class="sec-head"><h2>Live demo</h2></div>
     <p class="sec-sub">The real endpoint, the real data, no key needed.
-      {limit} {plural(limit, "company", "companies")} a day from one address.</p>
+      {allowance}</p>
     <form class="search" id="demo-form">
       <label class="slabel" for="demo-ticker">Ticker</label>
       <div class="sfield">
