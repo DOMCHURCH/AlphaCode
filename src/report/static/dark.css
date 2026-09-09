@@ -148,11 +148,13 @@ nav .wrap.nav { position: relative; }
    read accurately. It sits on solid ground, always.
 */
 .bs, .stack, .card, .tile, .plan, .buy, .compare, .tablewrap,
-.keybox, .code, .sheet, .resend, .banner, .acc, .meter, .planline {
+.keybox, .code, .sheet, .resend, .banner, .acc, .meter, .planline,
+.split-half, .faq-item {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
 }
-.bs, .card, .tile, .plan, .buy, .tablewrap { background: var(--bg); }
+.bs, .card, .tile, .plan, .buy, .tablewrap,
+.split-half, .faq-item { background: var(--bg); }
 .keybox, .code, .acc, .planline, .resend, .banner, .meter { background: var(--well); }
 
 /* Links and focus stay ink. Gold would be chrome competing with equity. */

@@ -410,14 +410,25 @@ def record_call(account: Account, endpoint: str) -> None:
 def require_paid_download(account: Account) -> None:
     if account.has_paid_download:
         return
+    from src.config.settings import price_label
+
     s = get_settings()
     where = s.admin_email or "the site owner"
+    # `price_label`, never an f-string on the number: the dataset is $79.99 and
+    # a bare interpolation of a rounded value quotes a price Stripe does not
+    # charge -- in a 402 whose whole job is to say what it costs.
+    #
+    # The card path exists now, so this points at the page that takes one
+    # rather than at somebody's inbox. The address stays as the fallback for a
+    # deployment with no Stripe configuration.
     raise HTTPException(
         status_code=402,
         detail=(
             f"Payment required. The full dataset is a one-time "
-            f"${s.dataset_price_usd}, paid by card through Stripe. Contact "
-            f"{where}, quoting your API key, to be sent a checkout link."
+            f"{price_label(s.dataset_price_usd)}, paid by card through Stripe: "
+            f"buy it at /dataset. It is a static snapshot -- for live data, "
+            f"the API is /pricing. Trouble paying? Contact {where}, quoting "
+            f"your API key."
         ),
     )
 
@@ -472,13 +483,20 @@ def _write_admin_action(
 
 
 def apply_admin_action(
-    email: str, action: str, ip_hash: str | None = None
+    email: str, action: str, ip_hash: str | None = None, *, days: int | None = None
 ) -> Account:
     """Grant or revoke, and record that it happened. Raises 404/400 on bad input.
 
     Idempotent by construction: granting what is already granted is a no-op that
     still returns the user, so re-running the curl after a flaky connection is
     safe rather than something the operator has to remember not to do.
+
+    `days` overrides how long a `grant_pro` buys, and exists because the length
+    of a period is a property of the PAYMENT, not of the tier: there is one Pro
+    tier, bought monthly or yearly, and an annual purchase granted 31 days
+    reads "Free (expired)" on day 32 having paid for a year. Ignored by every
+    other action -- a download is not bought for a length of time. Left as
+    None by the manual switch, which still means "one ordinary period".
     """
     address = normalise_email(email)
     if action not in VALID_ACTIONS:
@@ -510,7 +528,7 @@ def apply_admin_action(
             # otherwise lose those three days -- the one billing bug a paying
             # customer notices and remembers. max() makes an early renewal add
             # to what is left and a late one start from today.
-            period = dt.timedelta(days=get_settings().pro_period_days)
+            period = dt.timedelta(days=days or get_settings().pro_period_days)
             current = (
                 _aware(user.pro_expires_at) if user.pro_expires_at else _now
             )

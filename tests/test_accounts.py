@@ -357,7 +357,11 @@ def test_the_dashboard_renders_with_the_configured_prices(client):
     r = client.get("/dashboard")
     assert r.status_code == 200
     assert "owner@example.com" in r.text
-    assert "$29" in r.text and "$49" in r.text
+    # $79.99, with its cents. The dataset price is a float now, and an int
+    # would render "$79" beside a Stripe page that charges 79.99 -- so the
+    # exact string is the point of this assertion, not the rough figure.
+    assert "$79.99" in r.text and "$49" in r.text
+    assert "$490" in r.text
     assert "/static/dashboard.js" in r.text
 
 

@@ -28,7 +28,8 @@ from fastapi.testclient import TestClient
 ADMIN_SECRET = "test-admin-secret-do-not-use"
 WEBHOOK_SECRET = "whsec_test_do_not_use"
 PRICE_PRO = "price_1UDDNJPlpgbONcUzKiSeEp4U"
-PRICE_DATASET = "price_1UDDMePlpgbONcUzFWRiwAhU"
+PRICE_DATASET = "price_1UDmJUBLo93QIBx5vBs6mzaU"
+PRICE_PRO_ANNUAL = "price_1UDmFsBLo93QIBx5ZCJF3ZPt"
 GOOD_SIG = "t=1,v1=this-one-verifies"
 
 BUYER = "buyer@example.com"
@@ -54,6 +55,7 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", WEBHOOK_SECRET)
     monkeypatch.setenv("STRIPE_PRICE_PRO", PRICE_PRO)
     monkeypatch.setenv("STRIPE_PRICE_DATASET", PRICE_DATASET)
+    monkeypatch.setenv("STRIPE_PRICE_PRO_ANNUAL", PRICE_PRO_ANNUAL)
 
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
@@ -145,10 +147,13 @@ def checkout_event(
     session = {
         "id": "cs_test_1",
         "object": "checkout.session",
-        "mode": mode or ("subscription" if plan == "pro" else "payment"),
+        # Both Pro plans are subscriptions; only the file is a one-off
+        # payment. `startswith` rather than `== "pro"` so adding the annual
+        # plan did not quietly make it a `payment` with no subscription on it.
+        "mode": mode or ("subscription" if plan.startswith("pro") else "payment"),
         "payment_status": payment_status,
         "customer": customer,
-        "subscription": subscription if plan == "pro" else None,
+        "subscription": subscription if plan.startswith("pro") else None,
         "customer_details": {"email": email},
     }
     if metadata:
@@ -158,19 +163,23 @@ def checkout_event(
 
 def invoice_event(
     *, event_id="evt_inv", reason="subscription_cycle", customer="cus_1",
-    subscription="sub_1",
+    subscription="sub_1", period_days=None,
 ):
+    obj = {
+        "id": "in_1",
+        "billing_reason": reason,
+        "customer": customer,
+        "subscription": subscription,
+    }
+    if period_days is not None:
+        start = int(dt.datetime.now(dt.UTC).timestamp())
+        obj["lines"] = {
+            "data": [{"period": {"start": start, "end": start + period_days * 86_400}}]
+        }
     return {
         "id": event_id,
         "type": "invoice.payment_succeeded",
-        "data": {
-            "object": {
-                "id": "in_1",
-                "billing_reason": reason,
-                "customer": customer,
-                "subscription": subscription,
-            }
-        },
+        "data": {"object": obj},
     }
 
 
@@ -221,6 +230,125 @@ def test_the_session_carries_the_right_mode_price_and_return_urls(client, stripe
     assert pro["cancel_url"] == "http://testserver/pricing"
     # Locks the address, so the account granted is the account that started it.
     assert pro["customer_email"] == BUYER
+
+
+def test_the_annual_plan_is_a_subscription_on_its_own_price(client, stripe_calls):
+    """`pro_annual` is a THIRD plan, not a flag on the second one.
+
+    It shares Pro's mode and Pro's grant and nothing else: its own Price id,
+    its own metadata, and a checkout that must not quietly bill monthly.
+    """
+    r = client.post(
+        "/api/billing/checkout", json={"plan": "pro_annual", "email": BUYER}
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["plan"] == "pro_annual"
+
+    (call,) = stripe_calls
+    assert call["mode"] == "subscription"
+    assert call["line_items"] == [{"price": PRICE_PRO_ANNUAL, "quantity": 1}]
+    assert call["metadata"]["plan"] == "pro_annual"
+    # Nothing is granted by opening a checkout. Fulfilment is the webhook's.
+    assert status(client, register(client))["tier"] == "free"
+
+
+def test_a_paid_annual_checkout_grants_pro_for_a_YEAR(client, stripe_calls):
+    """One Pro tier, but a year of it -- and the year is the whole test.
+
+    The first invoice of a subscription is deliberately not granted on, and the
+    next `subscription_cycle` invoice for an annual plan is twelve months away,
+    so this checkout grant is the ONLY thing holding the account on Pro until
+    then. Granted the monthly period, a $490 buyer reads "Free (expired)" on
+    day 32 -- indistinguishable from a lapsed monthly subscriber.
+    """
+    key = register(client)
+    r = post_event(client, checkout_event(plan="pro_annual"))
+    assert r.status_code == 200, r.text
+
+    body = status(client, key)
+    assert body["tier"] == "pro"
+    left = dt.datetime.fromisoformat(body["expires_at"]) - dt.datetime.now(dt.UTC)
+    assert left.days >= 360, f"annual bought only {left.days} days"
+
+
+def test_an_annual_renewal_extends_by_a_year_not_a_month(client, stripe_calls):
+    """The renewal reads the period off the invoice rather than assuming one.
+
+    Same code path serves both plans: a monthly renewal carries a ~31-day
+    period and buys a month, a yearly one carries a ~365-day period and buys a
+    year, and neither the account table nor this handler has to know which plan
+    the subscription is on.
+    """
+    key = register(client)
+    post_event(client, checkout_event(plan="pro_annual"))
+    monthly_expiry = status(client, key)["expires_at"]
+
+    r = post_event(
+        client, invoice_event(event_id="evt_annual_renewal", period_days=365)
+    )
+    assert r.status_code == 200, r.text
+
+    body = status(client, key)
+    left = dt.datetime.fromisoformat(body["expires_at"]) - dt.datetime.now(dt.UTC)
+    assert left.days >= 700, f"a year of renewal added only {left.days} days"
+    assert body["expires_at"] > monthly_expiry
+
+
+def test_a_renewal_with_no_line_periods_still_buys_the_ordinary_month(
+    client, stripe_calls
+):
+    """The fallback, which is the old behaviour and is right for monthly.
+
+    "Could not tell" must mean the ordinary period, never a guess: a wrong
+    length here is either free access or a customer cut off early.
+    """
+    key = register(client)
+    post_event(client, checkout_event(plan="pro"))
+    r = post_event(client, invoice_event(event_id="evt_bare_renewal"))
+    assert r.status_code == 200, r.text
+
+    left = dt.datetime.fromisoformat(
+        status(client, key)["expires_at"]
+    ) - dt.datetime.now(dt.UTC)
+    assert 60 <= left.days <= 62, left.days
+
+
+def test_an_untagged_subscription_event_still_grants_pro(client, stripe_calls):
+    """The mode fallback, with two subscription plans instead of one.
+
+    `_PLAN_BY_MODE` used to be `{v: k for k, v in _MODE.items()}`, which with
+    two `subscription` plans resolves every un-tagged subscription to whichever
+    was declared last. It is written out now, and either answer grants Pro --
+    so a Payment Link made by hand in the Stripe dashboard still fulfils.
+    """
+    key = register(client)
+    event = checkout_event(plan="pro_annual", metadata=False)
+    r = post_event(client, event)
+    assert r.status_code == 200, r.text
+
+    assert status(client, key)["tier"] == "pro"
+
+
+def test_an_unconfigured_annual_price_is_503_not_a_broken_checkout(
+    client, stripe_calls, monkeypatch
+):
+    """A deployment selling only the monthly plan is a HEALTHY deployment.
+
+    STRIPE_PRICE_PRO_ANNUAL is deliberately absent from `missing_config()`, so
+    leaving it unset must not flip the billing flag on /status -- but the plan
+    that needs it has to refuse rather than open a checkout with no Price.
+    """
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("STRIPE_PRICE_PRO_ANNUAL", "")
+    get_settings.cache_clear()
+
+    assert client.get("/status").json()["features"]["billing"] is True
+    r = client.post("/api/billing/checkout", json={"plan": "pro_annual"})
+    assert r.status_code == 503
+    assert stripe_calls == []
+    # The monthly plan is untouched by the annual one being unset.
+    assert client.post("/api/billing/checkout", json={"plan": "pro"}).status_code == 200
 
 
 def test_an_unknown_plan_is_422_and_reaches_stripe_not_at_all(client, stripe_calls):
@@ -517,11 +645,52 @@ def test_the_admin_config_report_names_each_stripe_variable(client):
     } <= names
 
 
-def test_pricing_redirects_to_the_plans_on_the_home_page(client):
-    """The cancel_url of every checkout. It must not be a 404."""
+def test_pricing_is_a_real_page_and_answers_the_dataset_vs_api_question(client):
+    """The cancel_url of every checkout, so it is the page somebody lands on at
+    the moment they have decided NOT to buy -- which is exactly when "what is
+    the difference between these two?" is the question to answer.
+
+    It was a 307 to `/#pricing` and is now a page, which is what the redirect's
+    own comment said would happen. The 307 was deliberately never made
+    permanent so this change would not have to fight a year of browser cache.
+    """
     r = client.get("/pricing", follow_redirects=False)
-    assert r.status_code == 307
-    assert r.headers["location"] == "/#pricing"
+    assert r.status_code == 200
+    html = r.text
+
+    # The comparison, and the four rows that carry the actual differentiation.
+    assert "Static (as of download date)" in html
+    assert "Live (updates daily)" in html
+    assert "One-time analysis" in html
+    assert "Ongoing automation" in html
+    # And the FAQ, whose first question is the one the page exists for.
+    assert "difference between the dataset and the API" in html
+
+
+def test_every_plan_is_buyable_from_the_pricing_page(client):
+    """Four cards, three of them a checkout. A pricing page whose buttons do
+    not buy anything is a brochure."""
+    html = client.get("/pricing").text
+
+    for plan in ("dataset", "pro", "pro_annual"):
+        assert f'data-plan="{plan}"' in html, plan
+    # The fallback for a blocked script reaches somewhere a purchase finishes.
+    assert 'href="/dashboard#billing" data-plan=' in html
+
+
+def test_the_dataset_page_states_its_snapshot_date_and_that_it_is_static(client):
+    """The one property that decides whether the dataset is the right purchase.
+
+    It used to be nowhere a buyer could read before paying, which is how
+    somebody buys a photograph believing they bought a window.
+    """
+    html = client.get("/dataset").text
+
+    assert "static snapshot" in html.lower()
+    assert "will never update" in html
+    assert "For live data, use the API" in html
+    # Size and rows, so a large download is a decision rather than a surprise.
+    assert "File size" in html and "Rows" in html
 
 
 # ---------------------------------------------------------------------------
@@ -583,3 +752,82 @@ def test_the_index_lists_the_checkout_endpoint(client):
     listed = " ".join(client.get("/api.json").json()["endpoints"])
     assert "POST /api/billing/checkout" in listed
     assert "/pricing" in listed
+    assert "/dataset" in listed
+
+
+# ---------------------------------------------------------------------------
+# The buy buttons, which used to go to the login page
+# ---------------------------------------------------------------------------
+
+def _navigates_to_login(js: str) -> bool:
+    """Does this script ever NAVIGATE to /login?
+
+    A bare `"/login" in js` is the wrong test and fails honestly: the word
+    appears in prose comments and in a perfectly good "Sign in" link on the
+    Account tab. What must not exist is the browser being SENT there -- which
+    is always some form of assignment to `location`.
+    """
+    import re
+
+    return bool(re.search(r"location(?:\.href|\.assign\(|\s*=)[^;\n]*/login", js))
+
+
+def test_the_paid_pricing_cards_start_a_checkout_not_a_login(client):
+    """"Buy the data" linked to /login, signed in or not.
+
+    It lost the click, told the reader nothing, and looked exactly like being
+    signed out when they were not -- the report that started this. The paid
+    cards now carry the plan, and their href is a fallback that still reaches a
+    place a purchase can be finished.
+    """
+    home = client.get("/").text
+
+    assert 'data-plan="pro"' in home
+    assert 'data-plan="dataset"' in home
+    # The fallback for a blocked script is the billing panel, NOT /login: the
+    # login page is the dead end being fixed, so it must not be the fallback.
+    assert '<a class="plan-cta" href="/dashboard#billing" data-plan=' in home
+    # The free card is a signup and correctly still goes to sign-in.
+    assert '<a class="plan-cta" href="/login">Get a key</a>' in home
+
+
+def test_the_home_script_posts_a_checkout_and_never_redirects_to_login(client):
+    js = client.get("/static/home.js").text
+
+    assert '"/api/billing/checkout"' in js
+    assert 'credentials: "same-origin"' in js
+    assert not _navigates_to_login(js), "a failure path still sends the reader to /login"
+
+
+def test_the_dashboard_buttons_open_a_checkout_and_report_failure_in_place(client):
+    js = client.get("/static/dashboard.js").text
+
+    assert 'startCheckout("pro"' in js
+    assert 'startCheckout("dataset"' in js
+    assert '"/api/billing/checkout"' in js
+    # A 429 from the global gate must read as "wait", not as a dead button.
+    assert "r.status === 429" in js
+    assert not _navigates_to_login(js), "a failure path still sends the reader to /login"
+
+
+def test_the_dashboard_opens_the_billing_tab_when_asked(client):
+    """/dashboard#billing is the no-script fallback, so the hash must win over
+    whichever tab localStorage remembers from a previous visit."""
+    js = client.get("/static/dashboard.js").text
+    assert "location.hash" in js
+    assert 'TABS.indexOf(hash) !== -1' in js
+
+
+def test_a_checkout_started_from_the_home_page_needs_no_account(client, stripe_calls):
+    """Most people who click "Go Pro" have never registered.
+
+    Stripe collects the address on its own page and the webhook provisions it,
+    so an anonymous checkout must be allowed to open rather than demanding a
+    signup first.
+    """
+    r = client.post("/api/billing/checkout", json={"plan": "pro"})
+    assert r.status_code == 200, r.text
+    # Nothing is prefilled, so Stripe asks -- and must not be sent an empty
+    # customer_email, which it rejects.
+    assert "customer_email" not in stripe_calls[0]
+    assert stripe_calls[0]["metadata"]["plan"] == "pro"

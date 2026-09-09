@@ -72,7 +72,64 @@
       });
   }
 
+  /* The pricing cards. Each paid one carries data-plan; the click is turned
+     into a Checkout Session and the browser is sent to Stripe.
+
+     Anonymous on purpose: this runs on the public home page, where most
+     clickers have no account yet. With no address to send, Stripe collects one
+     on its own page, and the webhook registers that address, grants what was
+     bought and mails the key -- so a first purchase needs no signup step
+     before it. Nothing is granted here; this only opens the door.
+
+     The anchor's href is left intact as the fallback, so a blocked script
+     degrades to a working page rather than a dead button. */
+  function planNote(text, kind) {
+    var el = $("plan-note");
+    if (!el) return;
+    el.textContent = text || "";
+    el.className = "formnote" + (kind ? " " + kind : "");
+  }
+
+  function buy(ev, link) {
+    var plan = link.getAttribute("data-plan");
+    if (!plan) return;
+    ev.preventDefault();
+    planNote("Opening a secure checkout on Stripe…");
+    fetch("/api/billing/checkout", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ plan: plan }),
+      credentials: "same-origin"
+    })
+      .then(function (res) {
+        return res.json().catch(function () { return {}; })
+          .then(function (data) { return { ok: res.ok, status: res.status, data: data }; });
+      })
+      .then(function (r) {
+        if (r.ok && r.data && r.data.url) {
+          window.location.href = r.data.url;
+          return;
+        }
+        /* Never a redirect to /login on failure -- that is the behaviour this
+           replaced. Say what happened and leave the button where it is. */
+        planNote(
+          (r.data && r.data.detail) ||
+          "Could not open a checkout just now. Please try again.",
+          "bad"
+        );
+      })
+      .catch(function () {
+        planNote("Could not reach the server. Check your connection.", "bad");
+      });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
+    Array.prototype.forEach.call(
+      document.querySelectorAll(".plan-cta[data-plan]"),
+      function (link) {
+        link.addEventListener("click", function (ev) { buy(ev, link); });
+      }
+    );
     var form = $("demo-form");
     if (!form) return;               // demo section absent; nothing to wire
     form.addEventListener("submit", run);

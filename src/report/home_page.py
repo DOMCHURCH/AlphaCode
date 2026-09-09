@@ -239,49 +239,51 @@ def _accuracy_banner() -> str:
 
 
 def _pricing(stats: dict) -> str:
-    """Three cards: free, the dataset, Pro.
+    """Four cards, rendered by `pricing_page.plan_cards`.
 
-    Every number is read from settings and from the live fact count rather than
-    written into the copy. A price quoted in HTML is a price that disagrees with
-    the one the API enforces the first time either changes, and on this page the
-    disagreement would be with the figure a buyer is about to act on.
+    The markup used to live here. It moved because the home page and /pricing
+    must not be able to disagree about what a plan is -- and they would, the
+    first time one was edited and the other was not. There is now exactly one
+    place a price or a promise about a plan is written, and both pages render
+    it.
+
+    Every number is read from settings and from the live database rather than
+    typed into the copy. A price quoted in HTML is a price that disagrees with
+    the one Stripe charges the first time either changes, and on this page the
+    disagreement would be with the figure a buyer is about to act on. The
+    annual saving is the same: worked out from the two prices, so it cannot
+    survive a change to either one as a claim that is no longer true.
     """
-    from src.config.settings import get_settings
+    from src.config.settings import get_settings, price_label
+    from src.report.pricing_page import plan_cards, snapshot_date
 
     s = get_settings()
     rows = _compact(stats.get("facts") or 0) if stats.get("facts") else None
-    dataset_line = (
-        f"Download all {rows} rows as CSV" if rows else "Download the whole table as CSV"
-    )
-
-    def card(
-        name: str, price: str, per: str, line: str, cta: str, feature: bool
-    ) -> str:
-        # Every plan starts at sign-in now, not the dashboard. The dashboard
-        # shows an account; somebody who has not got one yet needs the step
-        # before that, and landing on a page telling you to go elsewhere is the
-        # commonest way a signup is lost.
-        href = "/login"
-        return f"""
-    <div class="plan{' feature' if feature else ''}">
-      <span class="plan-name">{escape(name)}</span>
-      <p class="plan-price">{escape(price)}<small>{escape(per)}</small></p>
-      <p class="plan-line">{escape(line)}</p>
-      <a class="plan-cta" href="{href}">{escape(cta)}</a>
-    </div>"""
+    saving = max(0, s.pro_price_usd * 12 - s.pro_annual_price_usd)
 
     return f"""
   <section class="sec" id="pricing">
     <div class="sec-head"><h2>Pricing</h2></div>
-    <p class="sec-sub">The drawings are free and always will be. The machine-readable
-      version is what costs money.</p>
-    <div class="plans">
-      {card("Free", "$0", "", f"{s.free_tier_monthly_calls} API calls per month", "Get a key", False)}
-      {card("Full dataset", f"${s.dataset_price_usd}", " once", dataset_line, "Buy the data", True)}
-      {card("Pro", f"${s.pro_price_usd}", "/month", f"{_compact(s.pro_tier_monthly_calls)} API calls per month", "Go Pro", False)}
-    </div>
+    <p class="sec-sub">The drawings are free and always will be. The
+      machine-readable version is what costs money — and it comes two ways. The
+      <b>dataset is a photograph</b>: one CSV, downloaded once, fixed forever.
+      The <b>API is a window</b>: live data, current every time you call it.
+      <a href="/pricing">Full comparison and FAQ</a>.</p>
+    {plan_cards(
+        free_limit=s.free_tier_monthly_calls,
+        pro_limit=s.pro_tier_monthly_calls,
+        pro_price=price_label(s.pro_price_usd),
+        pro_annual_price=price_label(s.pro_annual_price_usd),
+        annual_saving=price_label(saving),
+        dataset_price=price_label(s.dataset_price_usd),
+        dataset_rows=rows or "Every",
+        dataset_as_of=snapshot_date(stats.get("generated")),
+    )}
+    <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
-      entered on Stripe's page and never reach this site.</p>
+      entered on Stripe's page and never reach this site.
+      <a href="/pricing#faq">What is the difference between the dataset and the
+      API?</a></p>
   </section>"""
 
 

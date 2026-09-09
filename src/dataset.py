@@ -22,6 +22,7 @@ import datetime as dt
 import io
 import time
 from collections.abc import Iterator
+from typing import NamedTuple
 
 import structlog
 from sqlalchemy import select
@@ -111,6 +112,7 @@ def iter_csv() -> Iterator[str]:
 
 
 _COUNT_TTL_S = 900.0
+_SHAPE_TTL_S = 900.0
 _count_cache: tuple[float, int] | None = None
 
 
@@ -143,5 +145,108 @@ def row_count() -> int:
 
 def reset_count_cache() -> None:
     """Test helper: forget the memoised count so a new database is counted."""
-    global _count_cache
+    global _count_cache, _shape_cache
     _count_cache = None
+    _shape_cache = None
+
+
+class Shape(NamedTuple):
+    """What the download contains, for the page that sells it.
+
+    Three numbers a buyer asks before paying and could not previously get:
+    how many rows, roughly how big the file is, and -- the one that matters
+    most for a STATIC product -- how current the data in it is.
+    """
+
+    rows: int
+    bytes_estimate: int
+    generated: dt.datetime | None
+    newest_filing: dt.date | None
+
+    @property
+    def size_label(self) -> str:
+        """"~184 MB". Prefixed with a tilde everywhere it is shown, because it
+        is extrapolated and must not read as a byte count."""
+        n = float(self.bytes_estimate)
+        for unit in ("bytes", "KB", "MB", "GB"):
+            if n < 1024 or unit == "GB":
+                return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
+            n /= 1024
+        return f"{n:.1f} GB"
+
+
+_shape_cache: tuple[float, Shape] | None = None
+
+
+def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
+    """Mean encoded CSV bytes per row, measured on a real sample.
+
+    The file is never assembled -- `iter_csv` streams it and nothing on disk
+    has a size to stat -- so an exact figure does not exist to be read. It is
+    written through the same `csv.writer` with the same `_fmt` the download
+    uses, so the estimate is the real encoding rather than a guess at one, and
+    only the extrapolation is approximate.
+    """
+    stmt = (
+        select(
+            Fundamental.ticker,
+            Fundamental.metric,
+            Fundamental.value,
+            Fundamental.period_end,
+            Fundamental.fiscal_period,
+            Fundamental.filing_date,
+            Fundamental.source,
+            Fundamental.restated,
+            Fundamental.ingested_at,
+        )
+        .order_by(Fundamental.ticker, Fundamental.metric, Fundamental.period_end)
+        .limit(sample)
+    )
+    buf = io.StringIO()
+    writer = csv.writer(buf, lineterminator="\n")
+    seen = 0
+    for row in session.execute(stmt):  # type: ignore[attr-defined]
+        writer.writerow([_fmt(v) for v in row])
+        seen += 1
+    if not seen:
+        return 0.0
+    return len(buf.getvalue().encode("utf-8")) / seen
+
+
+def shape() -> Shape:
+    """Rows, size and freshness in one query pass, memoised like `row_count`.
+
+    Same fifteen minutes and the same reasoning: these change when a quarter
+    loads, four times a year, and they decorate a page that should feel
+    instant.
+    """
+    global _shape_cache
+    from sqlalchemy import func
+
+    now = time.monotonic()
+    if _shape_cache is not None and now - _shape_cache[0] < _SHAPE_TTL_S:
+        return _shape_cache[1]
+
+    with session_scope() as session:
+        rows = int(
+            session.execute(
+                select(func.count()).select_from(Fundamental)
+            ).scalar_one()
+        )
+        generated = session.execute(
+            select(func.max(Fundamental.ingested_at))
+        ).scalar_one()
+        newest = session.execute(
+            select(func.max(Fundamental.filing_date))
+        ).scalar_one()
+        per_row = _sample_bytes_per_row(session) if rows else 0.0
+
+    header = len(",".join(COLUMNS).encode("utf-8")) + 1
+    built = Shape(
+        rows=rows,
+        bytes_estimate=int(header + per_row * rows),
+        generated=generated,
+        newest_filing=newest,
+    )
+    _shape_cache = (now, built)
+    return built

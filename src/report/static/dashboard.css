@@ -153,7 +153,14 @@
 .resend .formnote{margin-bottom:0}
 
 @media(min-width:620px){
-  .plans{grid-template-columns:repeat(3,1fr)}
+  /* Two-up at tablet width rather than four-across. Four cards at 620px are
+     four columns of about 140px, which is narrower than the price on them --
+     the bullets wrap to one word a line and the comparison the cards exist to
+     make becomes unreadable. */
+  .plans{grid-template-columns:repeat(2,1fr)}
+}
+@media(min-width:1000px){
+  .plans{grid-template-columns:repeat(4,1fr)}
 }
 
 /* ---- signed-in bar ---- */
@@ -193,6 +200,9 @@
 
 @media(min-width:560px){
   .buyrow{grid-template-columns:1fr 1fr}
+}
+@media(min-width:900px){
+  .buyrow-3{grid-template-columns:repeat(3,1fr)}
 }
 
 /* ---- navigation ---------------------------------------------------------- */
@@ -361,3 +371,87 @@
 .banner.nopw p{margin:0;flex:1 1 260px;font-size:14px;line-height:1.55;
   color:var(--ink2)}
 .banner.nopw strong{color:var(--ink)}
+
+/* ---- plan bullets ---------------------------------------------------------
+   What a plan DOES, under what it costs. The list is the differentiator: a
+   price and a call limit tell somebody who has never bought market data
+   nothing about whether static or live is the thing they need, and these four
+   lines are the answer. Unbulleted -- a disc marker on a card this small reads
+   as a form, and the indent it costs is width the sentences need. */
+.plan-bullets{list-style:none;margin:0 0 16px;padding:0;display:grid;gap:7px}
+.plan-bullets li{position:relative;padding-left:15px;font-size:13px;
+  line-height:1.45;color:var(--ink2)}
+.plan-bullets li::before{content:"";position:absolute;left:0;top:.55em;
+  width:5px;height:5px;border-radius:999px;background:var(--dim)}
+.plan-name .badge{margin-left:8px;vertical-align:1px}
+
+/* ---- dataset vs API, side by side -----------------------------------------
+   The photograph and the window, stated once above everything priced. Two
+   halves rather than a table because at this point the reader has not yet
+   decided WHICH -- they are still finding out that there is a which. */
+.split{display:grid;grid-template-columns:1fr;gap:14px;margin-bottom:4px}
+.split-half{background:var(--bg);border-radius:var(--r2);box-shadow:var(--up-sm);
+  padding:22px 22px 20px}
+.split-lede{margin:6px 0 0;font:700 26px/1.1 var(--disp);letter-spacing:-.02em;
+  color:var(--ink)}
+.split-body{margin:10px 0 0;font-size:14.5px;line-height:1.6;color:var(--ink2)}
+.split-for{margin:12px 0 0;font-size:13.5px;line-height:1.5;color:var(--ink2)}
+.split-for b{color:var(--ink)}
+@media(min-width:760px){
+  .split{grid-template-columns:1fr 1fr;gap:18px}
+}
+
+/* A third column is one more than the two-column comparison was built for, so
+   the header carries the price as a second line rather than widening. */
+.compare-3 thead th small{display:block;margin-top:3px;font-size:11px;
+  font-weight:400;letter-spacing:0;text-transform:none;color:var(--dim)}
+.compare .yes{color:var(--blue)}
+
+/* ---- FAQ ------------------------------------------------------------------
+   <details>, so the four answers cost nothing to skip and nothing to open.
+   The first is open on render: it is the question the pricing page exists to
+   answer, and nobody should have to click to find out the two products differ. */
+.faq{display:grid;gap:10px}
+.faq-item{background:var(--bg);border-radius:var(--r2);box-shadow:var(--up-sm);
+  padding:4px 20px}
+.faq-item summary{cursor:pointer;list-style:none;padding:16px 0;
+  font:600 15px/1.4 var(--disp);color:var(--ink)}
+.faq-item summary::-webkit-details-marker{display:none}
+.faq-item summary::after{content:"+";float:right;margin-left:14px;
+  font-weight:400;color:var(--dim)}
+.faq-item[open] summary::after{content:"\2212"}
+.faq-item summary:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+.faq-a{padding:0 0 16px;max-width:68ch}
+.faq-a p{margin:0 0 12px;font-size:14.5px;line-height:1.65;color:var(--ink2)}
+.faq-a p:last-child{margin-bottom:0}
+.faq-a strong{color:var(--ink)}
+.faq-a .code{margin:12px 0}
+
+/* ---- the static-snapshot warning ------------------------------------------
+   The one property that decides whether the dataset is the right purchase, so
+   it is amber rather than blue: this is not a confirmation, it is a caveat a
+   buyer must read BEFORE paying. Still pressed rather than shouted -- the site
+   spends colour on data, and this is the only exception it makes. */
+.banner.warn{align-items:flex-start}
+/* --yellow is the site's existing warning tint, used on the drawings. The
+   glyph goes to ink rather than the usual --bg: white on #F3C218 is well under
+   any contrast floor, and this is the one banner that has to be read. */
+.banner.warn .banner-tick{background:var(--yellow);color:var(--ink);margin-top:1px}
+.banner.warn strong{color:var(--ink)}
+.banner.live .banner-tick{background:var(--blue)}
+
+/* ---- worked examples ---- */
+.exlabel{margin:18px 0 6px;font-size:11.5px;font-weight:600;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--ink2)}
+.sec-head.sub{margin-top:26px}
+.sec-head.sub h3{margin:0;font:700 19px/1.2 var(--disp);letter-spacing:-.01em;
+  color:var(--ink)}
+
+/* ---- the dataset page's two plain lists ---- */
+.collist{list-style:none;margin:0;padding:0;display:flex;flex-wrap:wrap;gap:8px}
+.collist li code{font-family:var(--mono);font-size:12.5px;color:var(--ink);
+  background:var(--well);box-shadow:var(--in-sm);border-radius:999px;
+  padding:7px 13px;display:inline-block}
+.notelist{margin:0;padding-left:20px;display:grid;gap:12px;font-size:14.5px;
+  line-height:1.6;color:var(--ink2);max-width:70ch}
+.notelist b{color:var(--ink)}

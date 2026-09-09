@@ -510,11 +510,20 @@ def test_the_dashboard_carries_the_new_sections(client):
 
 
 def test_the_comparison_table_reads_from_settings(client):
+    """The table compares the DATASET against the API, not Free against Pro.
+
+    Free-vs-Pro was the wrong axis: it priced two tiers of the same product
+    and left the reader believing the $79.99 file and the $49 subscription
+    were the same thing bought two ways. The row that matters is freshness.
+    """
     html = client.get("/dashboard").text
-    table = html[html.index('class="compare"'):]
+    table = html[html.index('class="compare'):]
     table = table[: table.index("</table>")]
-    assert ">10<" in table and "10k" in table
-    assert "$49/month" in table and "$29 once" in table
+
+    assert "$79.99" in table and "$49" in table
+    assert "10k" in table
+    assert "Static (as of download date)" in table
+    assert "Live (updates daily)" in table
 
 
 def test_the_login_page_offers_both_ways_in(client):

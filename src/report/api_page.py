@@ -40,7 +40,7 @@ def render_api(
     base_url: str = "https://alphacode-production.up.railway.app",
     free_calls: int = 10,
     pro_calls: int = 10000,
-    dataset_price: str = "$29",
+    dataset_price: str = "$79.99",
 ) -> str:
     """The reference. `base_url` is the deployment's own origin so the curl
     examples work from the machine reading them, not from a machine that

@@ -51,12 +51,17 @@ def counts() -> dict[str, Any]:
     # so reporting it as "92 quarters" overstates the load by an order of
     # magnitude. The measurable, honest span is the filing dates themselves.
     with session_scope() as s:
-        facts, companies, earliest_filing, latest_filing = s.execute(
+        # `generated` is when the newest row was WRITTEN, which is not
+        # `latest_filing` -- the newest thing filed. It is the snapshot date the
+        # dataset is sold under ("as of ..."), and the two differ by however
+        # long the load lagged the filing, which is the honest gap to show.
+        facts, companies, earliest_filing, latest_filing, generated = s.execute(
             select(
                 func.count(Fundamental.id),
                 func.count(distinct(Fundamental.ticker)),
                 func.min(Fundamental.filing_date),
                 func.max(Fundamental.filing_date),
+                func.max(Fundamental.ingested_at),
             )
         ).one()
         # "Drawable" is not "present": a company with a handful of facts but no
@@ -77,6 +82,8 @@ def counts() -> dict[str, Any]:
         else None,
         "latest_filing": latest_filing.isoformat()
         if isinstance(latest_filing, dt.date)
+        else None,
+        "generated": generated if isinstance(generated, (dt.date, dt.datetime))
         else None,
     }
 
@@ -219,6 +226,7 @@ def site_stats() -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001 - the page must still render
         log.warning("site_counts_failed", error=str(exc)[:200])
         return {"facts": 0, "companies": 0, "drawable": 0,
-                "earliest_filing": None, "latest_filing": None, "identity": None}
+                "earliest_filing": None, "latest_filing": None,
+                "generated": None, "identity": None}
     out["identity"] = identity()
     return out

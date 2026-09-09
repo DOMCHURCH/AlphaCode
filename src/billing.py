@@ -57,14 +57,32 @@ log = structlog.get_logger(__name__)
 # What can be bought, and the grant each purchase turns into. The action names
 # are `accounts.VALID_ACTIONS` -- deliberately, so a plan that does not map to a
 # real grant fails here rather than at the moment money has already moved.
-PLANS: tuple[str, ...] = ("pro", "dataset")
-_ACTION: dict[str, str] = {"pro": "grant_pro", "dataset": "grant_download"}
-# Subscription for the recurring one, one-off payment for the file. Also the
+PLANS: tuple[str, ...] = ("pro", "pro_annual", "dataset")
+_ACTION: dict[str, str] = {
+    "pro": "grant_pro",
+    # The annual plan is the SAME grant. Nothing downstream of the payment
+    # knows about billing periods -- there is one Pro tier, and how long it was
+    # paid for is Stripe's business. Renewal is what keeps it on: the
+    # subscription-lifecycle events already handled here revoke Pro when a
+    # subscription ends, whether it was billed monthly or yearly.
+    "pro_annual": "grant_pro",
+    "dataset": "grant_download",
+}
+# Subscription for the recurring ones, one-off payment for the file. Also the
 # fallback when an event carries no plan metadata (a Payment Link made in the
-# Stripe dashboard, for instance): with exactly two products, the mode of the
-# session is enough to tell which was bought.
-_MODE: dict[str, str] = {"pro": "subscription", "dataset": "payment"}
-_PLAN_BY_MODE: dict[str, str] = {v: k for k, v in _MODE.items()}
+# Stripe dashboard, for instance).
+_MODE: dict[str, str] = {
+    "pro": "subscription",
+    "pro_annual": "subscription",
+    "dataset": "payment",
+}
+# Written out rather than derived by reversing `_MODE`, which is the bug this
+# line exists to not have: two plans now share the `subscription` mode, so a
+# `{v: k for k, v in _MODE.items()}` would silently resolve every un-tagged
+# subscription to whichever of the two happened to be declared last. The
+# fallback only ever has to name a plan whose GRANT is right -- and both
+# subscriptions grant Pro -- so "pro" is the safe answer for either one.
+_PLAN_BY_MODE: dict[str, str] = {"subscription": "pro", "payment": "dataset"}
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +174,7 @@ def price_for(plan: str) -> str:
     s = get_settings()
     return {
         "pro": s.stripe_price_pro,
+        "pro_annual": s.stripe_price_pro_annual,
         "dataset": s.stripe_price_dataset,
     }.get(plan, "")
 
@@ -296,7 +315,14 @@ def create_checkout_session(
     stripe = _sdk()
     s = get_settings()
     if stripe is None or not s.stripe_secret_key or not price:
-        log.error("stripe_checkout_unconfigured", missing=missing_config())
+        # `missing_config()` deliberately does not list STRIPE_PRICE_PRO_ANNUAL
+        # -- a deployment selling only the monthly plan is a healthy one -- so
+        # name it here, where an operator is looking at the one plan that
+        # failed rather than at the whole feature.
+        gaps = missing_config()
+        if not price and f"STRIPE_PRICE_{wanted.upper()}" not in gaps:
+            gaps.append(f"STRIPE_PRICE_{wanted.upper()}")
+        log.error("stripe_checkout_unconfigured", plan=wanted, missing=gaps)
         raise HTTPException(
             status_code=503,
             detail=(
@@ -448,10 +474,28 @@ def _email_for(*, customer: str = "", subscription: str = "") -> str:
         return row.email if row is not None else ""
 
 
-def _grant(email: str, plan: str) -> dict[str, Any]:
+def period_days(plan: str) -> int | None:
+    """How long one payment for `plan` buys, or None for "one ordinary period".
+
+    The whole reason this function exists: the first invoice of a subscription
+    is deliberately NOT granted on -- `checkout.session.completed` already
+    fulfilled it, and granting on both buys one payment two periods -- so the
+    checkout grant is the ONLY thing holding an annual subscriber on Pro until
+    their next `subscription_cycle` invoice, which is twelve months away. An
+    annual purchase granted the monthly period expires on day 32 having been
+    paid for a year, and the account looks exactly like a lapsed monthly one.
+    """
+    if plan != "pro_annual":
+        return None
+    return get_settings().pro_annual_period_days
+
+
+def _grant(email: str, plan: str, *, days: int | None = None) -> dict[str, Any]:
     from src import accounts
 
-    account = accounts.apply_admin_action(email, _ACTION[plan])
+    account = accounts.apply_admin_action(
+        email, _ACTION[plan], days=days if days is not None else period_days(plan)
+    )
     log.info(
         "stripe_fulfilled",
         plan=plan, email=email, tier=account.tier,
@@ -497,6 +541,33 @@ def _fulfil_checkout(obj: Any) -> dict[str, Any]:
     return _grant(email, plan)
 
 
+def _invoice_period_days(invoice: Any) -> int | None:
+    """The length in days of the period an invoice covers, or None.
+
+    Read from `lines.data[0].period`, which Stripe sends as unix timestamps.
+    None means "could not tell", and every caller treats that as the ordinary
+    monthly period rather than guessing -- a wrong length here is either free
+    access or a customer cut off early, and both are worse than the default.
+
+    Clamped to a year and a bit at the top: a malformed or hostile period must
+    not be able to grant a decade. The floor of 1 keeps a same-day period from
+    granting nothing at all.
+    """
+    lines = _field(invoice, "lines") or {}
+    data = _field(lines, "data") or []
+    if not data:
+        return None
+    period = _field(data[0], "period") or {}
+    start, end = _field(period, "start"), _field(period, "end")
+    try:
+        span = (int(end) - int(start)) // 86_400
+    except (TypeError, ValueError):
+        return None
+    if span < 1:
+        return None
+    return min(span, 400)
+
+
 def _renew(obj: Any) -> dict[str, Any]:
     """A recurring invoice paid: extend Pro by another period.
 
@@ -519,7 +590,12 @@ def _renew(obj: Any) -> dict[str, Any]:
         return {"status": "unknown_customer"}
     if subscription:
         _attach_ids(email, subscription=subscription)
-    return _grant(email, "pro")
+    # Extended by the length of the period that was just paid for, read off the
+    # invoice, so a yearly renewal buys a year and a monthly one buys a month
+    # without this code -- or the account table -- knowing which plan it is.
+    # Falls back to the ordinary period when Stripe sends no line periods,
+    # which is the old behaviour and is right for the monthly plan.
+    return _grant(email, "pro", days=_invoice_period_days(obj))
 
 
 def _cancel(obj: Any) -> dict[str, Any]:

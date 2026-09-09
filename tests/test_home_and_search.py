@@ -356,9 +356,18 @@ _DISCLAIMERS = (
 )
 
 
+# "Best for: one-time analysis, research, Excel work" -- on a PLAN card, about
+# which of two products suits a reader's workflow. It is not a claim about a
+# company, which is the only thing the ban below exists to stop: the failure
+# mode being guarded against is this site telling somebody a stock is a good
+# one. Stripped by the exact phrase and nothing wider, so "best" used as a
+# judgement anywhere else on the page still fails.
+_PRODUCT_FIT = ("best for:",)
+
+
 def _body_without_disclaimers(client, path: str = "/") -> str:
     body = client.get(path).text.lower()
-    for phrase in _DISCLAIMERS:
+    for phrase in _DISCLAIMERS + _PRODUCT_FIT:
         body = body.replace(phrase, "")
     return body
 

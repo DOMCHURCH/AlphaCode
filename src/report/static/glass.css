@@ -118,7 +118,7 @@ body { background: var(--bg); color: var(--ink); }
    same edge highlight, no per-frame cost. */
 .chead, .bs, .card, .tile, .plan, .buy, .compare, .tablewrap, .keybox,
 .code, .sheet, .resend, .banner, .acc, .meter, .planline, .empty, .ep,
-.stat, .shape, .bignum, .glass, .glass-lite {
+.stat, .shape, .bignum, .glass, .glass-lite, .split-half, .faq-item {
   background: var(--panel-solid);
   border: 1px solid var(--edge-soft);
   border-radius: var(--r2);
@@ -280,14 +280,29 @@ body { background: var(--bg); color: var(--ink); }
   .tblock:nth-last-child(-n+3) { border-bottom: 0; }
 }
 
-/* Pricing: one pane, three plain columns inside it. */
+/* Pricing: one pane, plain columns ruled inside it.
+
+   Four plans now, not three, so the breakpoints step 1 -> 2 -> 4 rather than
+   1 -> 3. Four across at 760px is four 170px columns, which is narrower than
+   the bullets they carry; the pair layout in between keeps the comparison
+   readable on a tablet. The rules follow the same arithmetic -- at two columns
+   the right-hand rule falls on every second card, and the bottom rule has to
+   come back for the row above. */
 .plans { display: grid; grid-template-columns: 1fr; gap: 0; overflow: hidden;
   margin-bottom: 16px; }
 .plan { background: transparent; border: 0; box-shadow: none;
   border-bottom: 1px solid var(--edge-soft); padding: 24px 26px; }
-@media (min-width: 760px) {
-  .plans { grid-template-columns: repeat(3, 1fr); }
+.plan:last-child { border-bottom: 0; }
+@media (min-width: 620px) {
+  .plans { grid-template-columns: repeat(2, 1fr); }
+  .plan { border-right: 1px solid var(--edge-soft); }
+  .plan:nth-child(2n) { border-right: 0; }
+  .plan:nth-last-child(-n+2) { border-bottom: 0; }
+}
+@media (min-width: 1000px) {
+  .plans { grid-template-columns: repeat(4, 1fr); }
   .plan { border-bottom: 0; border-right: 1px solid var(--edge-soft); }
+  .plan:nth-child(2n) { border-right: 1px solid var(--edge-soft); }
   .plan:last-child { border-right: 0; }
 }
 

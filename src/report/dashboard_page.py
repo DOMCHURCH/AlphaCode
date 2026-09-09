@@ -13,9 +13,14 @@ When both are present the session wins, because it is the stronger claim: a
 session proves control of the address, a pasted key proves only that somebody
 has the string.
 
-Payment instructions stay plain text. Nothing here takes a card; the buyer sends
-money out of band and is told, in the same breath, that unlocking is a person
-reading an inbox rather than an instant.
+The billing tab takes a card. Its three buy buttons open a Stripe Checkout
+Session and the browser leaves for Stripe; fulfilment happens on the webhook,
+never on the return URL. The plain-text "email the owner" path survives only as
+the fallback for a deployment with no Stripe configuration at all.
+
+The API tab lives in `api_tab.py`. It was extracted when it stopped being "show
+a key" and became "teach the API where the key is", which is more markup than
+belongs inside another module's f-string.
 """
 
 from __future__ import annotations
@@ -68,14 +73,25 @@ def _js(value: str) -> str:
 def render_dashboard(
     *,
     admin_email: str = "",
-    dataset_price: int = 29,
-    pro_price: int = 49,
+    dataset_price: str = "$79.99",
+    pro_price: str = "$49",
+    pro_annual_price: str = "$490",
+    annual_saving: str = "$98",
     free_limit: int = 10,
     pro_limit: int = 10_000,
     fact_count: int | None = None,
+    dataset_as_of: str = "",
     login_enabled: bool = True,
     nav: str = "",
 ) -> str:
+    """Prices arrive as RENDERED STRINGS ("$79.99"), not as numbers.
+
+    They used to be ints, which is how a $79.99 dataset renders as "$79" next
+    to a Stripe page that charges 79.99 -- the one disagreement on this site a
+    buyer reads as a bait and switch. Formatting happens once, in
+    `settings.price_label`, and every page is handed the result.
+    """
+    from src.report.api_tab import render_api_tab
     from src.report.nav import render_footer
 
     contact = _contact(admin_email)
@@ -88,6 +104,11 @@ def render_dashboard(
         'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
         f' rel="noopener">SEC Financial Statement Data Sets</a>. Questions: {contact}.'
     )
+    # " as of 8 September 2026" -- the STATIC-ness of the dataset is the
+    # thing the buy button cannot say on its own, and the date is what makes it
+    # concrete rather than a disclaimer.
+    as_of_clause = f", as of {escape(dataset_as_of)}" if dataset_as_of else ""
+    api_tab = render_api_tab()
     quick = "".join(
         f'<a href="/company/{t}">{t} <small>{escape(k)}</small></a>'
         for t, k in _QUICK
@@ -173,72 +194,7 @@ def render_dashboard(
     <div class="sugg">{quick}</div>
   </section>
 
-  <section class="sec keyed panel" id="panel-api" data-panel="api" hidden>
-    <div class="sec-head"><h2>Your key</h2></div>
-    <p class="sec-sub">Send it as an <code>X-API-Key</code> header. Kept in this
-      browser; signing in fetches it for you instead.</p>
-    <div class="keyrow">
-      <code class="keybox" id="key-value">—</code>
-      <button type="button" class="btn" id="copy-key">Copy</button>
-    </div>
-    <p class="formnote" id="copy-note" role="status" aria-live="polite"></p>
-
-    <div class="tiles">
-      <div class="tile">
-        <span class="tlabel">Plan</span>
-        <b class="tval" id="s-tier">—</b>
-        <span class="tsub" id="s-tier-sub"></span>
-      </div>
-      <div class="tile">
-        <span class="tlabel">Calls this month</span>
-        <b class="tval" id="s-calls">—</b>
-        <span class="tsub" id="s-calls-sub"></span>
-      </div>
-      <div class="tile">
-        <span class="tlabel">Dataset download</span>
-        <b class="tval" id="s-dl">—</b>
-        <span class="tsub" id="s-dl-sub"></span>
-      </div>
-    </div>
-    <div class="meter" aria-hidden="true"><i id="s-bar" style="width:0%"></i></div>
-    <p class="formnote" id="status-note" role="status" aria-live="polite"></p>
-
-    <pre class="code"><code id="curl-example">curl -H "X-API-Key: YOUR_KEY" \\
-  https://HOST/api/company/JPM</code></pre>
-
-    <!-- Three steps, shown until the first call lands. A key with no worked
-         example is a string somebody has to go and read documentation about. -->
-    <ol class="quickstart" id="quickstart">
-      <li>Copy your key above.</li>
-      <li>Run it:
-        <pre class="code"><code id="qs-curl">curl -H "X-API-Key: YOUR_KEY"   https://HOST/api/company/JPM</code></pre>
-      </li>
-      <li>Watch the count move on this tab.</li>
-    </ol>
-
-    <!-- The plan, restated where the key is, because this is the tab somebody
-         is on when they discover the allowance is the thing stopping them. -->
-    <div class="planline">
-      <span id="plan-summary">—</span>
-      <a class="linkish" href="#" data-goto="billing" id="to-billing">Upgrade to Pro</a>
-      <a class="linkish" href="#" data-goto="billing" id="to-billing-data">Buy full dataset</a>
-    </div>
-
-    <button type="button" class="btn wide" id="dl-btn">Download full dataset</button>
-    <p class="formnote" id="dl-note" role="status" aria-live="polite"></p>
-
-    <!-- Regeneration is session-only. The reason to press it is that the key
-         leaked, and a leaked key able to rotate itself locks out its owner. -->
-    <div class="resend" id="regen-box" hidden>
-      <p>Key compromised? Replacing it takes effect immediately — anything still
-        using the old one stops working.</p>
-      <button type="button" class="btn" id="regen-btn">Regenerate key</button>
-      <p class="formnote" id="regen-note" role="status" aria-live="polite"></p>
-    </div>
-    <p class="formnote" id="regen-hint" hidden>
-      <a href="/login">Sign in</a> to regenerate this key.
-    </p>
-  </section>
+{api_tab}
 
   <section class="sec keyed panel" id="panel-account" data-panel="account" hidden>
     <div class="sec-head"><h2>Account</h2></div>
@@ -327,38 +283,62 @@ def render_dashboard(
       </div>
     </div>
 
+    <!-- The comparison that decides the purchase, restated where the buttons
+         are. A reader on this tab has already decided to spend money and is
+         now choosing WHICH -- and the two products differ in the one dimension
+         a price list cannot show: whether the data keeps arriving. -->
     <div class="tablewrap">
-      <table class="compare">
-        <caption class="vh">What each plan includes</caption>
+      <table class="compare compare-3">
+        <caption class="vh">The dataset and the API, compared</caption>
         <thead>
-          <tr><th scope="col">Feature</th><th scope="col">Free</th>
-              <th scope="col">Pro</th></tr>
+          <tr><th scope="col">Feature</th>
+              <th scope="col">Dataset <small>({dataset_price} once)</small></th>
+              <th scope="col">Pro API <small>({pro_price}/month)</small></th></tr>
         </thead>
         <tbody>
-          <tr><th scope="row">API calls / month</th>
-              <td>{free_limit}</td><td>{_compact(pro_limit)}</td></tr>
-          <tr><th scope="row">Full dataset export</th>
-              <td><span class="no" aria-label="no">&#10007;</span></td>
-              <td>${dataset_price} once</td></tr>
-          <tr><th scope="row">Drawings &amp; search</th>
-              <td>Unlimited</td><td>Unlimited</td></tr>
-          <tr><th scope="row">Support</th><td>Email</td><td>Priority email</td></tr>
-          <tr><th scope="row">Price</th><td>$0</td><td>${pro_price}/month</td></tr>
+          <tr><th scope="row">Data freshness</th>
+              <td>Static (as of download date)</td>
+              <td>Live (updates daily)</td></tr>
+          <tr><th scope="row">Access method</th>
+              <td>One CSV download</td>
+              <td>API calls ({_compact(pro_limit)}/month)</td></tr>
+          <tr><th scope="row">Use case</th>
+              <td>One-time analysis</td>
+              <td>Ongoing automation</td></tr>
+          <tr><th scope="row">Updates</th>
+              <td><span class="no" aria-label="no">&#10007;</span> No (buy again)</td>
+              <td><span class="yes" aria-label="yes">&#10003;</span> Yes (monthly)</td></tr>
+          <tr><th scope="row">Automation</th>
+              <td><span class="no" aria-label="no">&#10007;</span> Manual</td>
+              <td><span class="yes" aria-label="yes">&#10003;</span> Programmatic</td></tr>
         </tbody>
       </table>
     </div>
+    <p class="plan-note">Free is {free_limit} API calls a month on live data,
+      which is the tier this account starts on.
+      <a href="/pricing">The full comparison and the FAQ</a> are on the pricing
+      page.</p>
 
-    <div class="buyrow">
+    <div class="buyrow buyrow-3">
       <div class="buy">
         <span class="plan-name">Pro</span>
-        <p class="plan-price">${pro_price}<small>/month</small></p>
-        <p class="plan-line">{_compact(pro_limit)} API calls a month.</p>
+        <p class="plan-price">{pro_price}<small>/month</small></p>
+        <p class="plan-line">Live data, {_compact(pro_limit)} API calls a month.
+          Query any company at any time; updates daily.</p>
         <button type="button" class="btn" id="buy-pro">Upgrade to Pro</button>
       </div>
       <div class="buy">
+        <span class="plan-name">Pro annual<span class="badge">Save {annual_saving}</span></span>
+        <p class="plan-price">{pro_annual_price}<small>/year</small></p>
+        <p class="plan-line">The same Pro access, paid yearly — two months free
+          against the monthly price.</p>
+        <button type="button" class="btn" id="buy-pro-annual">Go Pro annually</button>
+      </div>
+      <div class="buy">
         <span class="plan-name">Full dataset</span>
-        <p class="plan-price">${dataset_price}<small> once</small></p>
-        <p class="plan-line">{facts}, as one CSV.</p>
+        <p class="plan-price">{dataset_price}<small> once</small></p>
+        <p class="plan-line">{facts}, as one CSV{as_of_clause}. A snapshot — it
+          does not update. <a href="/dataset">What is in it</a>.</p>
         <button type="button" class="btn" id="buy-data">Buy full dataset</button>
       </div>
     </div>
@@ -380,10 +360,15 @@ def render_dashboard(
 </div>
 
 <script>
+  /* Only what the SCRIPT reads. The Pro prices used to be here and were
+     removed with the line that printed them: with two Pro plans the status
+     payload cannot say which one an account is on, so any price the script
+     wrote next to "Pro" was a guess -- and "$49/month" shown to somebody who
+     paid $490 for a year is worse than saying nothing. The prices are still on
+     the page, rendered by the server onto the cards that charge them. */
   window.TO_SCALE = {{
     adminEmail: {_js(admin_email)},
-    datasetPrice: {int(dataset_price)},
-    proPrice: {int(pro_price)},
+    datasetPrice: {_js(dataset_price)},
     loginEnabled: {"true" if login_enabled else "false"}
   }};
 </script>

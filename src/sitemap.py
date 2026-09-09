@@ -105,6 +105,13 @@ def build(base_url: str) -> str:
     # and the counts on it are built from the data.
     parts.append(_url(f"{base}/", newest, "daily", "1.0"))
     parts.append(_url(f"{base}/api", legal_date, "monthly", "0.8"))
+    # Both are real pages now rather than a redirect and a dashboard tab, and
+    # both are the answer to a search somebody actually types ("SEC XBRL
+    # dataset download", "financial statement API pricing"), so they are worth
+    # a crawl. `newest` rather than `legal_date` on /dataset: its whole content
+    # is the snapshot date, which moves when a quarter lands.
+    parts.append(_url(f"{base}/pricing", legal_date, "monthly", "0.8"))
+    parts.append(_url(f"{base}/dataset", newest, "monthly", "0.7"))
     parts.append(_url(f"{base}/dashboard", legal_date, "monthly", "0.7"))
     parts.append(_url(f"{base}/login", legal_date, "yearly", "0.3"))
     parts.append(_url(f"{base}/terms", legal_date, "yearly", "0.3"))

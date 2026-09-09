@@ -254,16 +254,43 @@ class Settings(BaseSettings):
     pro_tier_monthly_calls: int = Field(
         default=10_000, ge=0, alias="PRO_TIER_MONTHLY_CALLS"
     )
-    # Prices, in whole dollars, quoted on the dashboard. Settings rather than
-    # literals in the copy so the page and the payment instructions can never
-    # drift apart.
-    dataset_price_usd: int = Field(default=29, ge=0, alias="DATASET_PRICE_USD")
+    # Prices, in dollars, quoted on every page that sells something. Settings
+    # rather than literals in the copy so the page and the payment instructions
+    # can never drift apart.
+    #
+    # `dataset_price_usd` is a float because the dataset is $79.99 and the
+    # cents are the price: an int here silently renders "$79" next to a Stripe
+    # page that charges 79.99, which is the one disagreement on this site that
+    # a buyer reads as a bait and switch. Render every one of these through
+    # `price_label`, never with a bare f-string, so a whole number still prints
+    # as "$490" rather than "$490.00".
+    dataset_price_usd: float = Field(default=79.99, ge=0, alias="DATASET_PRICE_USD")
     pro_price_usd: int = Field(default=49, ge=0, alias="PRO_PRICE_USD")
+    # A year of Pro, bought in one go. Quoted next to the monthly price with the
+    # saving worked out from these two numbers rather than typed, so changing
+    # either one cannot leave a "save $98" that is no longer true.
+    pro_annual_price_usd: int = Field(
+        default=490, ge=0, alias="PRO_ANNUAL_PRICE_USD"
+    )
 
     # How long one Pro payment buys. 31 days rather than a calendar month so
     # every renewal is the same length and nobody paying in February is short-
     # changed relative to somebody paying in March.
     pro_period_days: int = Field(default=31, ge=1, alias="PRO_PERIOD_DAYS")
+    # What ONE annual payment buys. 366 rather than 365 so the account is never
+    # briefly free in the hours between a subscription's anniversary and the
+    # renewal invoice clearing -- and so a leap year does not short-change
+    # somebody by a day.
+    #
+    # This exists because the grant is the ONLY thing keeping an annual
+    # subscriber on Pro for the first period. The first invoice of a
+    # subscription is deliberately not granted on (it would buy one payment two
+    # periods) and the next `subscription_cycle` invoice is twelve months away,
+    # so an annual buyer granted `pro_period_days` reads "Free (expired)" on
+    # day 32 having paid for a year.
+    pro_annual_period_days: int = Field(
+        default=366, ge=1, alias="PRO_ANNUAL_PERIOD_DAYS"
+    )
     # How many days ahead of expiry the operator is warned. This is a MANUAL
     # billing system: the warning is the only thing that turns a lapse into a
     # renewal conversation rather than a surprise downgrade.
@@ -345,23 +372,36 @@ class Settings(BaseSettings):
     # ADMIN_SECRET is: an unverified webhook body is an unauthenticated request
     # to the grant switch, and anybody who can reach the URL can post one.
     stripe_webhook_secret: str = Field(default="", alias="STRIPE_WEBHOOK_SECRET")
-    # The two Prices, created in the Stripe dashboard. Ids rather than amounts:
-    # the price a buyer is charged is Stripe's copy, and quoting a number here
-    # that Stripe does not agree with is how a checkout page and a receipt end
-    # up saying different things.
+    # The three Prices, created in the Stripe dashboard. Ids rather than
+    # amounts: the price a buyer is charged is Stripe's copy, and quoting a
+    # number here that Stripe does not agree with is how a checkout page and a
+    # receipt end up saying different things.
     stripe_price_dataset: str = Field(default="", alias="STRIPE_PRICE_DATASET")
     stripe_price_pro: str = Field(default="", alias="STRIPE_PRICE_PRO")
+    # The annual Pro Price. Absent from `billing.missing_config()` on purpose:
+    # a deployment that sells only the monthly plan is a working deployment,
+    # and listing this there would flip `is_configured()` -- and the billing
+    # flag on /status -- to false for every install that has not created the
+    # annual Price yet. The checkout for `pro_annual` still refuses with a 503
+    # of its own when this is empty, which is the failure in the right place.
+    stripe_price_pro_annual: str = Field(
+        default="", alias="STRIPE_PRICE_PRO_ANNUAL"
+    )
     # Empty means "whatever version the installed SDK is pinned to", which is
     # the right default: the SDK and its pinned version are upgraded together,
     # and a stale string here would ask a new library to speak an old dialect.
     # Set it only to hold a deployment on a version deliberately.
     stripe_api_version: str = Field(default="", alias="STRIPE_API_VERSION")
     # Creating a Checkout Session is an unauthenticated POST that costs a call
-    # to Stripe, so it is capped like the other open POSTs. Generous for a
-    # human, low enough that a loop cannot use this service to make a thousand
-    # sessions on the account.
+    # to Stripe, so it is capped like the other open POSTs. This window is
+    # GLOBAL, not per-IP, like every other gate here -- which is why the number
+    # is large: the buy buttons on the public home page are now the top of the
+    # funnel, and 60 an hour is a ceiling a good launch day would hit, turning
+    # the site's own success into a 429 for everyone who arrived after the
+    # sixtieth click. 300 still stops a script cold and cannot be reached by
+    # people.
     checkout_rate_per_hour: int = Field(
-        default=60, ge=0, alias="CHECKOUT_RATE_PER_HOUR"
+        default=300, ge=0, alias="CHECKOUT_RATE_PER_HOUR"
     )
 
     # Business-day buffer added on top of filing_date to model ingestion lag.
@@ -378,6 +418,7 @@ class Settings(BaseSettings):
         "stripe_webhook_secret",
         "stripe_price_dataset",
         "stripe_price_pro",
+        "stripe_price_pro_annual",
     )
     @classmethod
     def _clean_secret(cls, v: str) -> str:
@@ -413,3 +454,23 @@ class Settings(BaseSettings):
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings()  # type: ignore[call-arg]
+
+
+def price_label(amount: float | int) -> str:
+    """A dollar amount as it should be READ: "$49", "$490", "$79.99".
+
+    One function rather than an f-string at each of the eight places a price is
+    printed, because the two mistakes are opposite and both look fine locally.
+    `f"${s.dataset_price_usd}"` renders 79.99 as "79.99" only while the field is
+    a float and prints "$79" the moment somebody rounds it; `f"${x:.2f}"`
+    renders the annual plan as "$490.00", which reads like a mistake on a
+    pricing card. Whole numbers lose the cents, everything else keeps exactly
+    two -- the way a price is written on a receipt.
+
+    Rounded to the cent before the whole-number test so that a float like
+    79.999999 quotes as "$80.00" rather than "$79.999999".
+    """
+    cents = round(float(amount) * 100)
+    if cents % 100 == 0:
+        return f"${cents // 100}"
+    return f"${cents / 100:.2f}"

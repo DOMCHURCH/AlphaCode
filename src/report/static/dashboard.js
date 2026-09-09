@@ -25,8 +25,20 @@
   var TAB_STORE = "toscale.tab";
   var CFG = window.TO_SCALE || {};
   var TABS = ["search", "api", "account", "billing"];
+  /* The ticker in the worked examples. Must match `api_tab.TICKER`: the
+     server ships the placeholder version of both snippets and this script
+     replaces them, so a disagreement shows as the example silently
+     changing company the moment a key loads. */
+  var EXAMPLE_TICKER = "AAPL";
 
   var session = null;   // the account from /api/auth/me, or null
+  /* The address the key in hand belongs to. Sent with a checkout so that a
+     reader who pasted a key WITHOUT signing in still buys for their own
+     account: with no session and no address, Stripe asks for one, and whatever
+     they type there is the account that gets the grant -- which is how you buy
+     Pro for an address you do not own. The server prefers its own session over
+     this, so it can only ever narrow the answer, never widen it. */
+  var accountEmail = "";
 
   function $(id) { return document.getElementById(id); }
   function show(el, on) { if (el) el.hidden = !on; }
@@ -94,21 +106,54 @@
     try { localStorage.setItem(TAB_STORE, name); } catch (e) { /* not fatal */ }
   }
 
+  /* Which tab to open with. A #hash WINS over the remembered one, because a
+     hash is a request made just now and the stored tab is a preference from
+     some previous visit -- and /dashboard#billing is the no-script fallback
+     behind the home page's buy buttons, so it has to land on billing rather
+     than on whatever tab was last used. */
   function storedTab() {
+    var hash = (location.hash || "").replace(/^#/, "");
+    if (TABS.indexOf(hash) !== -1) return hash;
     try { return localStorage.getItem(TAB_STORE) || "api"; } catch (e) { return "api"; }
   }
 
   // ---- rendering ------------------------------------------------------------
 
+  /* The two worked examples on the API tab, filled in with the reader's own
+     key and this deployment's host.
+
+     Done in the browser rather than server-side, deliberately and in both
+     directions. The page is rendered before anyone is identified, so a key
+     written into the HTML would be written for whoever loaded the page; and
+     `request.url` inside the container is the internal http hop rather than
+     the https origin the reader is on, so an example built from it hands
+     somebody a command that answers with a redirect instead of JSON.
+     `location.origin` is, by definition, the address that just worked.
+
+     `textContent`, never innerHTML: the key is a credential going into a
+     <pre>, and there is no version of this where it should be parsed. */
+  function fillExamples(key) {
+    var url = location.origin + "/api/company/" + EXAMPLE_TICKER;
+    var k = key || "YOUR_KEY";
+    var curl = $("curl-example");
+    if (curl) {
+      curl.textContent = 'curl -H "X-API-Key: ' + k + '" \\\n  ' + url;
+    }
+    var py = $("py-example");
+    if (py) {
+      py.textContent =
+        "import requests\n\n" +
+        'headers = {"X-API-Key": "' + k + '"}\n' +
+        'response = requests.get("' + url + '", headers=headers)\n' +
+        "data = response.json()\n" +
+        'print(data["assets"])';
+    }
+  }
+
   function renderKey(key) {
     $("key-value").textContent = key;
     $("pay-key").textContent = key;
-    var curl = $("curl-example");
-    if (curl) {
-      curl.textContent =
-        'curl -H "X-API-Key: ' + key + '" \\\n  ' +
-        location.origin + "/api/company/JPM";
-    }
+    fillExamples(key);
     show($("get-key"), false);
     show($("tabs"), true);
     selectTab(storedTab());
@@ -148,7 +193,7 @@
     $("s-dl").textContent = s.has_paid_download ? "Unlocked" : "Locked";
     $("s-dl-sub").textContent = s.has_paid_download
       ? "yours to download"
-      : "one-time $" + CFG.datasetPrice;
+      : "one-time " + CFG.datasetPrice;
     $("s-dl").className = "tval " + (s.has_paid_download ? "good" : "muted");
 
     var pct = s.calls_limit
@@ -158,13 +203,10 @@
     bar.style.width = pct + "%";
     bar.className = pct >= 100 ? "full" : (pct >= 80 ? "warn" : "");
 
-    // Quick-start example, with the real key and host filled in.
-    var qs = $("qs-curl");
-    if (qs) {
-      qs.textContent =
-        'curl -H "X-API-Key: ' + getKey() + '" \\\n  ' +
-        location.origin + "/api/company/JPM";
-    }
+    // A pasted key never goes through renderKey, so the examples are filled
+    // here too. Without this that reader is shown "YOUR_KEY" next to a working
+    // quota, which reads as the key not having been accepted.
+    fillExamples(getKey());
     $("plan-summary").textContent = pro
       ? "Pro — " + s.calls_limit.toLocaleString() + " calls a month"
       : "Free — " + s.calls_limit.toLocaleString() + " calls a month";
@@ -203,23 +245,36 @@
       show($("pw-hint"), CFG.loginEnabled);
     }
     maybeAnnounceGrant(s);
+    /* Neither line names a price or a billing period for a Pro account, and
+       that is deliberate: there are two Pro plans now, monthly and annual, and
+       the status payload cannot tell them apart -- it carries one tier. Saying
+       "$49/month" to somebody who paid $490 for a year is a worse answer than
+       saying nothing, and "billed monthly" is simply false for half of them.
+       The expiry date on the Account tab is the honest, plan-agnostic fact. */
     $("a-plan").textContent = planName;
     $("a-plan-sub").textContent = pro
-      ? "billed monthly, arranged by email"
+      ? "renews through Stripe"
       : "no charge";
 
     $("b-plan").textContent = planName;
     $("b-plan-sub").textContent = pro
-      ? "$" + CFG.proPrice + "/month"
+      ? s.calls_limit.toLocaleString() + " calls/month"
       : "$0 — " + s.calls_limit.toLocaleString() + " calls/month";
     $("b-dataset").textContent = s.has_paid_download ? "Purchased" : "Not purchased";
     $("b-dataset-sub").textContent = s.has_paid_download
       ? "download it from the API tab"
-      : "one-time $" + CFG.datasetPrice;
+      : "one-time " + CFG.datasetPrice;
     $("b-dataset").className = "tval " + (s.has_paid_download ? "good" : "muted");
 
-    $("buy-pro").disabled = pro;
-    $("buy-data").disabled = !!s.has_paid_download;
+    accountEmail = s.email || "";
+    /* BOTH Pro buttons go dead once the account is Pro, not just the monthly
+       one. There is a single Pro tier and the annual plan grants exactly it,
+       so an enabled "Go Pro annually" next to an account that already has Pro
+       is a second subscription for access it already holds. Switching between
+       billing periods is a change to an existing subscription and belongs in
+       Stripe's portal, not in a second checkout. */
+    setDisabled(["buy-pro", "buy-pro-annual"], pro);
+    setDisabled(["buy-data"], !!s.has_paid_download);
 
     renderWhoami(s);
     note($("status-note"), "");
@@ -414,12 +469,73 @@
     $("pay-close").focus();
   }
 
+  /* Why a checkout could not be opened, in the reader's terms.
+
+     Never a redirect. Bouncing somebody to /login when a purchase fails is the
+     bug this replaced: it loses the click, tells them nothing, and is
+     indistinguishable from being signed out when they are not. Every branch
+     here ends in a sentence in the modal and a button they can press again. */
+  function checkoutProblem(r, what) {
+    var detail = (r.data && r.data.detail) || "";
+    if (r.status === 429) {
+      // The server's message already carries the wait in seconds.
+      return detail || "Too many checkouts have been started just now. " +
+        "Give it a minute and try again.";
+    }
+    if (r.status === 503) return payText(what, "not on card yet");
+    if (r.status === 502) {
+      return "Stripe could not open a checkout just now. Try again in a " +
+        "moment; if it keeps happening, email " +
+        (CFG.adminEmail || "the site owner") + ".";
+    }
+    return detail || "Something went wrong opening the checkout.";
+  }
+
+  /* plan -> the button that starts it. A LOOKUP rather than a ternary, which
+     is what this was: `plan === "pro" ? "buy-pro" : "buy-data"` quietly made
+     the dataset button the else-branch for every plan that was not "pro", so
+     adding the annual plan would have disabled and re-enabled the wrong
+     button on every annual checkout. */
+  var BUY_BTN = {
+    pro: "buy-pro",
+    pro_annual: "buy-pro-annual",
+    dataset: "buy-data"
+  };
+
+  function setDisabled(ids, on) {
+    ids.forEach(function (id) { var b = $(id); if (b) b.disabled = on; });
+  }
+
+  function startCheckout(plan, what) {
+    var btn = $(BUY_BTN[plan]);
+    if (!btn) return;
+    btn.disabled = true;
+    api("/api/billing/checkout", {
+      method: "POST",
+      body: { plan: plan, email: accountEmail || undefined }
+    }).then(function (r) {
+      if (r.ok && r.data && r.data.url) {
+        // Straight to Stripe. Not window.open: a popup blocker eats it, and
+        // this is a navigation the reader asked for.
+        window.location.href = r.data.url;
+        return;
+      }
+      btn.disabled = false;
+      openPayModal(checkoutProblem(r, what));
+    }).catch(function () {
+      btn.disabled = false;
+      openPayModal("Could not reach the server. Check your connection and " +
+        "try again.");
+    });
+  }
+
+  /* Only reached when the deployment has no Stripe configuration at all, so
+     it must not promise a card form that cannot open. */
   function payText(what, price) {
     return (
-      what + " is " + price + ", paid by card through Stripe. Email " +
-      (CFG.adminEmail || "the site owner") + " with your API key and you will " +
-      "be sent a checkout link. Card details are entered on Stripe's page and " +
-      "never reach this site."
+      what + " cannot be bought by card on this deployment (" + price +
+      "). Email " + (CFG.adminEmail || "the site owner") + " with your API " +
+      "key and it will be sorted out by hand."
     );
   }
 
@@ -438,7 +554,7 @@
       }
       if (!r.data.has_paid_download) {
         note($("dl-note"), "");
-        openPayModal(payText("The full dataset", "a one-time $" + CFG.datasetPrice));
+        openPayModal(payText("The full dataset", "a one-time " + CFG.datasetPrice));
         return;
       }
       note($("dl-note"), "Starting the download. It is a large file — leave this tab open.");
@@ -526,10 +642,13 @@
       $("newpw").focus();
     });
     $("buy-pro").addEventListener("click", function () {
-      openPayModal(payText("Pro", "$" + CFG.proPrice + " a month"));
+      startCheckout("pro", "Pro");
+    });
+    $("buy-pro-annual").addEventListener("click", function () {
+      startCheckout("pro_annual", "Pro annual");
     });
     $("buy-data").addEventListener("click", function () {
-      openPayModal(payText("The full dataset", "a one-time $" + CFG.datasetPrice));
+      startCheckout("dataset", "The full dataset");
     });
     $("pay-close").addEventListener("click", function () {
       show($("pay-modal"), false);

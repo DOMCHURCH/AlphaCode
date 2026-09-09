@@ -92,6 +92,29 @@ def test_the_home_page_prices_come_from_settings_not_the_copy(client):
     assert "10 API calls per month" not in html
 
 
+def test_the_home_page_separates_the_snapshot_from_the_live_api(client):
+    """The dataset and the API used to read as one product at two prices, so a
+    buyer picked on price and got the wrong one. Each card now says what its
+    data DOES, and the words are the differentiator rather than decoration."""
+    html = client.get("/").text
+
+    assert "Static snapshot of all company data as of" in html
+    assert "One-time download — no updates" in html
+    assert "Data is fixed — it does not change" in html
+    assert "Live, up-to-date data" in html
+    assert "Data updates daily — you always get the latest filings" in html
+
+
+def test_the_home_page_offers_the_annual_plan_with_a_computed_saving(client):
+    """$49 x 12 - $490 = $98. Worked out from the two prices rather than typed,
+    so changing either cannot leave a saving that is no longer true."""
+    html = client.get("/").text
+
+    assert 'data-plan="pro_annual"' in html
+    assert "$490" in html
+    assert "save $98" in html
+
+
 def test_the_demo_blurb_quotes_the_real_daily_limit(client):
     """The env sets 3. A sentence promising five above a counter that stops at
     three is the small kind of lie that costs a reader their trust in the
@@ -116,7 +139,9 @@ def test_the_dataset_card_counts_the_rows_it_is_selling(client):
 
     reset_count_cache()
     html = client.get("/").text
-    assert "Download all 3 rows as CSV" in html
+    # The row count moved onto the card's bullets when the cards started
+    # saying what each product IS. It is still counted, never written down.
+    assert "3 rows as one CSV file" in html
 
 
 # ---------------------------------------------------------------------------

@@ -2297,16 +2297,97 @@ async def api_billing_webhook(request: Request) -> JSONResponse:
     return JSONResponse(result)
 
 
-@app.get("/pricing", include_in_schema=False)
-def pricing() -> RedirectResponse:
-    """The plans live on the home page. This is the URL people type.
+@app.get("/pricing", response_class=HTMLResponse)
+def pricing(request: Request) -> HTMLResponse:
+    """The plans, the dataset-vs-API comparison and the FAQ.
 
-    It is also the `cancel_url` of every Checkout Session, so somebody who backs
-    out of paying lands on the prices rather than on a 404. 307 rather than 301:
-    the prices could get a page of their own later, and a permanent redirect is
-    cached by browsers for a very long time.
+    This was a 307 to `/#pricing` for exactly as long as its own docstring said
+    it would be -- "the prices could get a page of their own later" -- and the
+    reason it is now that page is the `cancel_url`. Every Checkout Session
+    cancels to here, which makes this the screen somebody sees at the moment
+    they have decided not to buy, and a fragment jump to four cards is the
+    worst possible answer to "wait, what is the difference between these?".
+
+    The 307 was never made permanent precisely so this change would not have to
+    fight a year of browser cache.
     """
-    return RedirectResponse("/#pricing", status_code=307)
+    from src import dataset
+    from src.config.settings import price_label
+    from src.report.pricing_page import compact, render_pricing, snapshot_date
+
+    s = get_settings()
+    rows, as_of = "every", "the last quarterly load"
+    try:
+        shape = dataset.shape()
+        rows = compact(shape.rows) if shape.rows else "every"
+        as_of = snapshot_date(shape.generated)
+    except Exception as exc:  # noqa: BLE001 - the page must still price things
+        log.warning("pricing_shape_failed", error=str(exc)[:200])
+    return HTMLResponse(
+        _versioned(
+            render_pricing(
+                nav=_nav_for(request, "pricing"),
+                base_url=_public_origin(request),
+                admin_email=s.admin_email,
+                free_limit=s.free_tier_monthly_calls,
+                pro_limit=s.pro_tier_monthly_calls,
+                pro_price=price_label(s.pro_price_usd),
+                pro_annual_price=price_label(s.pro_annual_price_usd),
+                annual_saving=price_label(
+                    max(0, s.pro_price_usd * 12 - s.pro_annual_price_usd)
+                ),
+                dataset_price=price_label(s.dataset_price_usd),
+                dataset_rows=rows,
+                dataset_as_of=as_of,
+            )
+        )
+    )
+
+
+@app.get("/dataset", response_class=HTMLResponse)
+def dataset_page(request: Request) -> HTMLResponse:
+    """What is in the CSV, when it was generated, and that it never updates.
+
+    Public, and deliberately so: everything on it is a reason to buy or a
+    reason not to, and putting that behind the purchase is how somebody buys
+    the wrong product and asks for a refund a week later.
+    """
+    from src import dataset
+    from src.config.settings import price_label
+    from src.report.dataset_page import render_dataset
+    from src.report.pricing_page import compact, snapshot_date
+
+    s = get_settings()
+    try:
+        shape = dataset.shape()
+    except Exception as exc:  # noqa: BLE001 - the page must still render
+        log.warning("dataset_page_shape_failed", error=str(exc)[:200])
+        shape = None
+    return HTMLResponse(
+        _versioned(
+            render_dataset(
+                nav=_nav_for(request, "dataset"),
+                admin_email=s.admin_email,
+                dataset_price=price_label(s.dataset_price_usd),
+                pro_price=price_label(s.pro_price_usd),
+                rows=shape.rows if shape else 0,
+                row_label=compact(shape.rows) if shape and shape.rows else "—",
+                size_label=shape.size_label if shape and shape.rows else "—",
+                as_of=(
+                    snapshot_date(shape.generated)
+                    if shape
+                    else "the last quarterly load"
+                ),
+                newest_filing=(
+                    shape.newest_filing.isoformat()
+                    if shape and shape.newest_filing
+                    else ""
+                ),
+                columns=dataset.COLUMNS,
+                filename=dataset.filename(),
+            )
+        )
+    )
 
 
 def _nav_for(request: Request, active: str) -> str:
@@ -2447,23 +2528,33 @@ async def verify_submit(request: Request) -> Response:
 def dashboard(request: Request) -> HTMLResponse:
     """The one page a buyer needs: get a key, see the tier, take the download."""
     from src import auth, dataset
+    from src.config.settings import price_label
     from src.report.dashboard_page import render_dashboard
+    from src.report.pricing_page import snapshot_date
 
     s = get_settings()
+    facts: int | None = None
+    as_of = ""
     try:
-        facts = dataset.row_count()
+        shape = dataset.shape()
+        facts = shape.rows
+        as_of = snapshot_date(shape.generated) if shape.generated else ""
     except Exception as exc:  # noqa: BLE001 - a missing count must not lose the page
         log.warning("dashboard_count_failed", error=str(exc)[:200])
-        facts = None
     return HTMLResponse(
         _versioned(
             render_dashboard(
                 admin_email=s.admin_email,
-                dataset_price=s.dataset_price_usd,
-                pro_price=s.pro_price_usd,
+                dataset_price=price_label(s.dataset_price_usd),
+                pro_price=price_label(s.pro_price_usd),
+                pro_annual_price=price_label(s.pro_annual_price_usd),
+                annual_saving=price_label(
+                    max(0, s.pro_price_usd * 12 - s.pro_annual_price_usd)
+                ),
                 free_limit=s.free_tier_monthly_calls,
                 pro_limit=s.pro_tier_monthly_calls,
                 fact_count=facts,
+                dataset_as_of=as_of,
                 login_enabled=auth.is_enabled(),
                 nav=_nav_for(request, "dashboard"),
             )
@@ -2554,6 +2645,7 @@ def api_page(request: Request) -> HTMLResponse:
     index that used to live here is unchanged and now at /api.json, which is
     where something that wants to read it by machine will look anyway.
     """
+    from src.config.settings import price_label
     from src.report.api_page import render_api
 
     s = get_settings()
@@ -2564,7 +2656,7 @@ def api_page(request: Request) -> HTMLResponse:
                 base_url=_public_origin(request),
                 free_calls=s.free_tier_monthly_calls,
                 pro_calls=s.pro_tier_monthly_calls,
-                dataset_price=f"${s.dataset_price_usd}",
+                dataset_price=price_label(s.dataset_price_usd),
             )
         )
     )
@@ -2586,7 +2678,8 @@ def api_index() -> JSONResponse:
                 "/admin/universe-check",
                 "POST /backfill", "POST /admin/reload-fundamentals",
                 "POST /admin/raw-facts",
-                "/pricing  (redirects to the plans)",
+                "/pricing  (plans, dataset vs API, FAQ)",
+                "/dataset  (what is in the CSV, and its snapshot date)",
                 "POST /api/billing/checkout",
             ],
             "keyed_api": {
