@@ -461,12 +461,19 @@ def test_a_payment_link_with_no_metadata_still_fulfils(client, stripe_calls):
 def test_paying_from_an_unknown_address_creates_the_account_and_mails_the_key(
     client, stripe_calls, monkeypatch
 ):
-    """Never take money and no-op. A first purchase has no account yet."""
+    """Never take money and no-op. A first purchase has no account yet.
+
+    `send_purchase_key`, not `send_api_key`: somebody who has just paid used to
+    receive the key-RECOVERY template, which mentions no purchase and reads
+    like a reminder they did not ask for.
+    """
     sent: list[tuple[str, str]] = []
     from src import mailer
 
     monkeypatch.setattr(
-        mailer, "send_api_key", lambda email, key: sent.append((email, key)) or True
+        mailer,
+        "send_purchase_key",
+        lambda email, key: sent.append((email, key)) or True,
     )
 
     r = post_event(client, checkout_event(plan="pro", email="stranger@example.com"))

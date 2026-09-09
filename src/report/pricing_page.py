@@ -132,11 +132,12 @@ def plan_cards(
     return f"""
     <div class="plans">
       {card(
-        "Free", "$0", "", f"{free_limit} API calls per month",
+        "Free", "$0", "", "Unlimited drawings and search — no key needed",
         (
+            "Every company, every balance sheet, as many as you like",
+            f"{free_limit} API calls a month if you want JSON too",
             "Live data, same as Pro",
-            "Enough to try a query and read the shape of the JSON",
-            "Best for: evaluating the API",
+            "Best for: reading the site, and evaluating the API",
         ),
         "Get a key",
     )}
@@ -218,6 +219,9 @@ def comparison_table(
           <tr><th scope="row">Automation</th>
               <td>{no} Manual</td>
               <td>{yes} Programmatic</td></tr>
+          <tr><th scope="row">Drawings &amp; search on this site</th>
+              <td>{yes} Free, unlimited</td>
+              <td>{yes} Free, unlimited</td></tr>
         </tbody>
       </table>
     </div>"""
@@ -392,8 +396,11 @@ def render_pricing(
 
   <section class="sec" id="pricing">
     <div class="sec-head"><h2>Plans</h2></div>
-    <p class="sec-sub">Every price below is what Stripe charges; nothing is
-      quoted here that the checkout does not agree with.</p>
+    <p class="sec-sub"><b>Reading this site is free and unlimited</b> — every
+      drawing, every company, as many as you like, no key and no account. The
+      prices below buy the data in machine-readable form. Every one of them is
+      what Stripe charges; nothing is quoted here that the checkout does not
+      agree with.</p>
     {cards}
     <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
     <p class="plan-note">Paid plans go through Stripe. Your card details are

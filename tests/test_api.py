@@ -1067,13 +1067,16 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
 
     assert set(body["features"]) == {
         "demo", "demo_key_set", "demo_error", "email", "login",
-        "billing", "billing_error",
+        # Two error strings, and the difference between them matters: a
+        # checkout that would not OPEN costs a click, a payment that settled
+        # and granted nothing costs a customer.
+        "billing", "billing_error", "fulfilment_error",
     }
     # State, never a secret. A string among the flags would mean a value had
     # been rendered where a boolean belongs.
     flags = {
         k: v for k, v in body["features"].items()
-        if k not in ("demo_error", "billing_error")
+        if not k.endswith("_error")
     }
     assert all(isinstance(v, bool) for v in flags.values())
     # demo_error carries a database message or nothing -- never a key.
@@ -1082,6 +1085,10 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
     # billing_error carries Stripe's enumerated error code or nothing.
     billing_err = body["features"]["billing_error"]
     assert billing_err is None or isinstance(billing_err, str)
+    # And so does fulfilment_error: a reason and the ids around it, never a
+    # key, an amount or anything a stranger could act on.
+    lost = body["features"]["fulfilment_error"]
+    assert lost is None or isinstance(lost, str)
 
 
 def test_a_pasted_secret_keeps_its_surrounding_junk_off_the_comparison(

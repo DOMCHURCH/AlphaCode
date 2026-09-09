@@ -87,9 +87,9 @@ def test_the_home_page_prices_come_from_settings_not_the_copy(client):
     quote a price the API does not enforce."""
     html = client.get("/").text
     assert "$29" in html and "$49" in html and "$0" in html
-    assert "7 API calls per month" in html
+    assert "7 API calls a month" in html
     assert "5,000 API calls per month" in html
-    assert "10 API calls per month" not in html
+    assert "10 API calls" not in html
 
 
 def test_the_home_page_separates_the_snapshot_from_the_live_api(client):

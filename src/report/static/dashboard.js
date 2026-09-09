@@ -39,6 +39,8 @@
      Pro for an address you do not own. The server prefers its own session over
      this, so it can only ever narrow the answer, never widen it. */
   var accountEmail = "";
+  // One checkout poll per page view, however many times status re-renders.
+  var checkoutWatched = false;
 
   function $(id) { return document.getElementById(id); }
   function show(el, on) { if (el) el.hidden = !on; }
@@ -245,6 +247,9 @@
       show($("pw-hint"), CFG.loginEnabled);
     }
     maybeAnnounceGrant(s);
+    /* Only on the FIRST render, and only when the URL says a payment just
+       happened -- otherwise every status refresh would start its own poll. */
+    if (!checkoutWatched) { checkoutWatched = true; watchForCheckout(s); }
     /* Neither line names a price or a billing period for a Pro account, and
        that is deliberate: there are two Pro plans now, monthly and annual, and
        the status payload cannot tell them apart -- it carries one tier. Saying
@@ -594,6 +599,61 @@
     if (!msg) return;
     $("banner-text").textContent = msg;
     show($("grant-banner"), true);
+  }
+
+  /* ---- waiting for the webhook ------------------------------------------
+     Arriving from a paid checkout is a RACE the buyer always used to lose
+     quietly: the browser redirect and Stripe's webhook are two independent
+     trips, the page loaded once, and if the redirect won there was no poll and
+     no retry -- so a successful purchase showed pre-purchase state until
+     somebody thought to reload. A first-time buyer never even saw the grant
+     banner, because it needs a prior visit to have seeded localStorage.
+
+     So when `?checkout=success` is on the URL, say plainly that the payment
+     landed, then re-read status until the grant appears. Bounded: eight tries
+     over about twenty seconds, then a sentence naming what to do instead. It
+     never claims failure -- fulfilment is at-least-once and may simply be
+     slow, and telling somebody their payment did not work when it did is the
+     one message worse than saying nothing. */
+  var WAIT_TRIES = 8;
+  var WAIT_MS = 2500;
+
+  function announce(text) {
+    $("banner-text").textContent = text;
+    show($("grant-banner"), true);
+  }
+
+  function awaitGrant(before, tries) {
+    api("/api/user/status").then(function (r) {
+      if (!r.ok) return;
+      var now = r.data.tier + "|" + (r.data.has_paid_download ? "d" : "-");
+      if (now !== before) {
+        renderStatus(r.data);
+        announce(
+          r.data.has_paid_download && before.slice(-1) !== "d"
+            ? "Payment received — the full dataset is unlocked. Download it below."
+            : "Payment received — Pro is active. You have " +
+              r.data.calls_limit.toLocaleString() + " API calls a month."
+        );
+        return;
+      }
+      if (tries > 1) {
+        setTimeout(function () { awaitGrant(before, tries - 1); }, WAIT_MS);
+        return;
+      }
+      announce(
+        "Payment received. Stripe has not confirmed it to us yet — this is " +
+        "normally seconds. Reload in a minute, and if it is still not here " +
+        "email " + (CFG.adminEmail || "the site owner") + "."
+      );
+    }).catch(function () { /* a dropped poll is not worth a message */ });
+  }
+
+  function watchForCheckout(s) {
+    if (location.search.indexOf("checkout=success") === -1) return;
+    var now = s.tier + "|" + (s.has_paid_download ? "d" : "-");
+    announce("Payment received. Unlocking your account…");
+    setTimeout(function () { awaitGrant(now, WAIT_TRIES); }, WAIT_MS);
   }
 
   function savePassword(ev) {

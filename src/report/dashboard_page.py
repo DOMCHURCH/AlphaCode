@@ -311,11 +311,15 @@ def render_dashboard(
           <tr><th scope="row">Automation</th>
               <td><span class="no" aria-label="no">&#10007;</span> Manual</td>
               <td><span class="yes" aria-label="yes">&#10003;</span> Programmatic</td></tr>
+          <tr><th scope="row">Drawings &amp; search on this site</th>
+              <td><span class="yes" aria-label="yes">&#10003;</span> Free, unlimited</td>
+              <td><span class="yes" aria-label="yes">&#10003;</span> Free, unlimited</td></tr>
         </tbody>
       </table>
     </div>
-    <p class="plan-note">Free is {free_limit} API calls a month on live data,
-      which is the tier this account starts on.
+    <p class="plan-note">Drawings and search are free and unlimited on every
+      tier, with or without a key. Free is {free_limit} API calls a month on
+      live data, which is the tier this account starts on.
       <a href="/pricing">The full comparison and the FAQ</a> are on the pricing
       page.</p>
 

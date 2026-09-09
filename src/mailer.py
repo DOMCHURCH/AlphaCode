@@ -159,18 +159,57 @@ def _body(api_key: str, admin_email: str) -> str:
     )
 
 
-def send_api_key(email: str, api_key: str) -> bool:
-    """Mail somebody their own key. True if AgentMail accepted it.
+def _purchase_body(api_key: str, admin_email: str) -> str:
+    """The email a BUYER gets, which is not the one a forgetful user gets.
 
-    The key goes to the REGISTERED address and nowhere else -- that is the whole
-    security model of this feature. Someone who types another person's address
-    into the recovery box causes an email to that person's inbox and learns
-    nothing themselves, which is why this can exist while registration still
-    refuses to show a key at all.
+    Somebody who has just paid used to receive the key-recovery template --
+    "Someone asked to be reminded of the To Scale API key for this address" --
+    which mentions no purchase, no plan and no download, and reads like a
+    password-reset they did not request. This one is addressed to a customer:
+    it says what they bought, hands them the key, and points at the two places
+    the thing they paid for actually is.
+    """
+    signature = f"\n{admin_email}" if admin_email else ""
+    return (
+        "Thank you — your To Scale purchase went through.\n\n"
+        "Your API key:\n\n"
+        f"    {api_key}\n\n"
+        "Send it as an X-API-Key header:\n\n"
+        f'    curl -H "X-API-Key: {api_key}" <host>/api/company/AAPL\n\n'
+        "Everything you bought is on your dashboard — your plan, your usage, "
+        "worked examples in curl and Python, and the dataset download if that "
+        "is what you bought:\n\n"
+        "    <host>/dashboard\n\n"
+        "You do not need this email to get in: returning from the Stripe "
+        "receipt signs you in automatically. Keep the key server-side — "
+        "anyone holding it can spend your monthly allowance.\n\n"
+        "Your receipt comes separately, from Stripe.\n\n"
+        f"— To Scale{signature}\n"
+    )
 
-    Never raises. The caller is a background task with nobody to report to, and
-    a failed send must leave a log line rather than an unhandled exception in a
-    worker thread.
+
+def send_purchase_key(email: str, api_key: str) -> bool:
+    """Mail a buyer their key, in purchase words rather than recovery words.
+
+    Same relay, same guarantees, same never-raises contract as
+    `send_api_key` -- only the subject and body differ. Split rather than
+    parameterised because the two are read by people in completely different
+    situations, and the copy is the entire difference between them.
+    """
+    return _send(
+        email,
+        subject="Your To Scale purchase and API key",
+        text=_purchase_body(api_key, get_settings().admin_email),
+        event="agentmail_purchase_sent",
+    )
+
+
+def _send(email: str, *, subject: str, text: str, event: str) -> bool:
+    """One send, with every failure turned into False and a log line.
+
+    Never raises: the callers are background tasks and webhook handlers with
+    nobody to report to, and a failed send must not surface as an unhandled
+    exception in a worker thread.
     """
     client = _client()
     if client is None:
@@ -187,15 +226,36 @@ def send_api_key(email: str, api_key: str) -> bool:
         client.inboxes.messages.send(
             inbox_id,
             to=email,
-            subject="Your To Scale API key",
-            text=_body(api_key, s.admin_email),
+            subject=subject,
+            text=text,
             reply_to=s.admin_email or None,
         )
     except Exception as exc:  # noqa: BLE001 - a failed send is a log line, not a crash
         log.warning("agentmail_send_failed", to=email, error=_why(exc))
         return False
-    log.info("agentmail_key_sent", to=email)
+    log.info(event, to=email)
     return True
+
+
+def send_api_key(email: str, api_key: str) -> bool:
+    """Mail somebody their own key. True if AgentMail accepted it.
+
+    The key goes to the REGISTERED address and nowhere else -- that is the whole
+    security model of this feature. Someone who types another person's address
+    into the recovery box causes an email to that person's inbox and learns
+    nothing themselves, which is why this can exist while registration still
+    refuses to show a key at all.
+
+    Never raises. The caller is a background task with nobody to report to, and
+    a failed send must leave a log line rather than an unhandled exception in a
+    worker thread.
+    """
+    return _send(
+        email,
+        subject="Your To Scale API key",
+        text=_body(api_key, get_settings().admin_email),
+        event="agentmail_key_sent",
+    )
 
 
 def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:

@@ -530,6 +530,16 @@ def billing_last_error() -> str:
         return ""
 
 
+def billing_fulfilment_error() -> str:
+    """The last payment that settled and granted nothing, or ""."""
+    from src import billing
+
+    try:
+        return billing.last_fulfilment_error()
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return ""
+
+
 @app.get("/status")
 def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness."""
@@ -573,6 +583,16 @@ def status() -> dict[str, Any]:
         # container log. Enumerated values only: never Stripe's message, which
         # is free text.
         "billing_error": billing_last_error() or None,
+        # The other half, and the more expensive one to miss. `billing_error`
+        # is about a checkout that would not OPEN, which costs a click.
+        # This is about a payment that settled and granted nothing, which costs
+        # a customer -- an unknown plan, a session with no address, a renewal
+        # for an account whose Stripe ids were never stored. Those are all
+        # answered 200 and recorded as handled, because Stripe retrying them
+        # for three days fixes none of them, so without this they vanish into a
+        # container log that rotates away. Sticky until an operator clears it:
+        # the next event succeeding says nothing about the one that did not.
+        "fulfilment_error": billing_fulfilment_error() or None,
     }
     # What is keeping the data current, and what it is waiting on. Cheap (DB
     # reads only), and the first thing to look at when a number looks old.
@@ -2628,9 +2648,49 @@ async def verify_submit(request: Request) -> Response:
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
-def dashboard(request: Request) -> HTMLResponse:
-    """The one page a buyer needs: get a key, see the tier, take the download."""
-    from src import auth, dataset
+def dashboard(
+    request: Request,
+    session_id: str = Query("", max_length=200),
+) -> Response:
+    """The one page a buyer needs: get a key, see the tier, take the download.
+
+    `session_id` arrives only on the return trip from a paid Stripe Checkout,
+    which substitutes it into the success URL. It is exchanged for a signed-in
+    session here and then REMOVED by a redirect, so it never sits in history,
+    in a referrer, or in a link the buyer might paste somewhere.
+
+    This is the fix for the worst hole in the purchase flow: a first-time
+    buyer's API key existed only in an email, and every self-service route to
+    it ran through the same relay, so a mail outage turned a successful payment
+    into an unreachable product with no way back. The return trip is now the
+    way in, and it needs no email at all.
+    """
+    from src import auth, billing, dataset
+
+    if session_id:
+        email = billing.claim_checkout(session_id)
+        # Always redirect, verified or not. Landing signed-out on a clean URL
+        # is a recoverable state; leaving a payment credential in the address
+        # bar is not, and an id that did not verify is one somebody typed.
+        response = RedirectResponse("/dashboard?checkout=success", status_code=303)
+        # `auth.is_enabled()` first, and never let this branch raise. A
+        # deployment with no SESSION_SECRET cannot sign anybody in -- and a 503
+        # on the return trip from a payment is the exact failure this whole
+        # path exists to remove. Landing signed-out is recoverable; an error
+        # page after a charge is not.
+        if email and auth.is_enabled():
+            try:
+                account = auth.account_for_login(email, accepted_terms=True)
+                auth.issue_session(response, account.email)
+                log.info("session_started", email=account.email, path="checkout")
+            except Exception as exc:  # noqa: BLE001 - the payment still happened
+                log.warning(
+                    "checkout_signin_failed", email=email, error=str(exc)[:200]
+                )
+        elif email:
+            log.warning("checkout_signin_unavailable", email=email)
+        return response
+
     from src.config.settings import price_label
     from src.report.dashboard_page import render_dashboard
     from src.report.pricing_page import snapshot_date

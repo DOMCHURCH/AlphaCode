@@ -124,6 +124,46 @@ def reset_last_error() -> None:
     _last_error = ""
 
 
+# The last fulfilment that took money and granted nothing, as one readable
+# line. Separate from `_last_error`, which is about CHECKOUT: a checkout that
+# fails costs a click, and a fulfilment that fails costs a customer. This one
+# is sticky by design -- it is cleared by an operator looking at it, never by
+# the next event succeeding, because "the last event worked" says nothing about
+# the one before it that did not.
+_last_fulfilment_error: str = ""
+
+
+def last_fulfilment_error() -> str:
+    """The last payment this service could not turn into access, or ""."""
+    return _last_fulfilment_error
+
+
+def reset_fulfilment_error() -> None:
+    """Clear it. For the operator who has dealt with it, and for tests."""
+    global _last_fulfilment_error
+    _last_fulfilment_error = ""
+
+
+def _note_lost(reason: str, **fields: Any) -> None:
+    """Money moved and nothing was granted. Make it impossible to miss.
+
+    These outcomes -- an unknown plan, a session with no address, a renewal for
+    an account whose Stripe ids were never stored -- are all answered 200 and
+    RECORDED as handled, because Stripe retrying them for three days fixes none
+    of them. That is the right call for the protocol and a terrible one for the
+    operator: it used to mean a paid event vanished into a container log that
+    rotates away, with no durable trace anywhere and nothing on /status.
+
+    So the log line stays and a sticky field is set beside it, surfaced as
+    `features.fulfilment_error`. It is deliberately not cleared by the next
+    success: an operator has to look at it and clear it.
+    """
+    global _last_fulfilment_error
+    detail = " ".join(f"{k}={v}" for k, v in fields.items() if v)
+    _last_fulfilment_error = f"{reason} ({detail})" if detail else reason
+    log.error("stripe_fulfilment_LOST", reason=reason, **fields)
+
+
 def _note_failure(exc: Exception) -> None:
     """Record the safe half of a Stripe error and nothing else.
 
@@ -311,6 +351,28 @@ def create_checkout_session(
             status_code=422,
             detail=f"Unknown plan {wanted!r}. One of: {', '.join(PLANS)}.",
         )
+    # Already owned? Then this is a charge for nothing. The buy buttons are
+    # disabled once the flag is set, but that is a client-side guard on a
+    # public endpoint -- a signed-out repeat buyer, or anyone posting here
+    # directly, was charged $79.99 for a boolean that was already true. And it
+    # confers literally nothing extra: the download streams the LIVE table, so
+    # an existing buyer already receives every future snapshot.
+    #
+    # Only for the dataset. Pro is a subscription and buying it again is a
+    # renewal, which is a legitimate thing to do.
+    if wanted == "dataset" and email:
+        owner = accounts.by_email(accounts.normalise_email(email))
+        if owner is not None and owner.has_paid_download:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "This account already owns the dataset — download it from "
+                    "your dashboard. It is a one-time purchase and buying it "
+                    "again grants nothing: your download always streams the "
+                    "current data."
+                ),
+            )
+
     price = price_for(wanted)
     stripe = _sdk()
     s = get_settings()
@@ -341,11 +403,27 @@ def create_checkout_session(
         "mode": _MODE[wanted],
         "line_items": [{"price": price, "quantity": 1}],
         # The buyer lands back on the dashboard, which is where the thing they
-        # just bought actually is. `?checkout=` is read by nothing server-side
-        # -- fulfilment happens on the webhook, never on the return URL, which
-        # a buyer can close before it loads and a stranger can visit without
-        # paying.
-        "success_url": f"{origin}/dashboard?checkout=success",
+        # just bought actually is -- and lands there SIGNED IN.
+        #
+        # `{CHECKOUT_SESSION_ID}` is substituted by Stripe. The dashboard route
+        # hands it straight back to Stripe to verify, so holding it proves the
+        # holder completed that specific paid checkout: it is unguessable, it
+        # is checked against the authority that issued it, and it is exchanged
+        # for a session immediately and then dropped from the URL.
+        #
+        # This is what stops a first-time buyer being locked out of what they
+        # paid for. Their key previously existed only in an email, and every
+        # self-service route to it -- resend, magic link, re-register -- runs
+        # through the same relay, while a webhook-created account has no
+        # password to log in with. With mail down, the money was taken and the
+        # product was unreachable. Now the return trip itself is the way in.
+        #
+        # Fulfilment still happens on the webhook and nowhere else. This grants
+        # nothing; it only proves who is at the door.
+        "success_url": (
+            f"{origin}/dashboard?checkout=success"
+            "&session_id={CHECKOUT_SESSION_ID}"
+        ),
         "cancel_url": f"{origin}/pricing",
         # What the webhook reads back. Written even though the mode implies the
         # plan, because an explicit answer beats an inferred one when the
@@ -384,24 +462,71 @@ def create_checkout_session(
 # Webhook
 # ---------------------------------------------------------------------------
 
-def _already_handled(event_id: str) -> bool:
-    with session_scope() as session:
-        return session.get(StripeEvent, event_id) is not None
+def _claim(event_id: str, kind: str) -> bool:
+    """Take the event id BEFORE acting on it. True if this delivery won it.
 
+    The insert is the lock. `event_id` is the primary key, so exactly one of
+    two concurrent deliveries can insert it and the loser is told so by the
+    database rather than by a check it has already raced past.
 
-def _record(event_id: str, kind: str) -> None:
-    """Mark an event handled. A duplicate here is the expected race, not a bug."""
+    This replaced a check-then-insert pair with a real gap between the two
+    halves: both deliveries could read "not handled", both could grant, and the
+    only trace was one warning after the money had already bought two periods.
+    Claiming first closes the gap -- and `_release` below is what keeps the
+    other half of the bargain, because an event claimed and then failed must
+    become claimable again or Stripe's retry has nothing to retry into.
+    """
     try:
         with session_scope() as session:
             session.add(StripeEvent(event_id=event_id, type=kind[:64]))
+        return True
     except IntegrityError:
-        # Two deliveries of the same event overlapped and both passed the
-        # check. The grant itself is idempotent for `grant_download` and
-        # `revoke_pro`; for `grant_pro` it is not, and this row losing the race
-        # is how we find out it happened.
-        log.warning("stripe_event_recorded_twice", event_id=event_id, type=kind)
-    except Exception as exc:  # noqa: BLE001 - a lost row must not fail the webhook
-        log.error("stripe_event_record_failed", event_id=event_id, error=str(exc)[:200])
+        return False
+    except Exception as exc:  # noqa: BLE001
+        # The table is unreachable. Act anyway: at-least-once delivery with no
+        # idempotency is a risk of granting twice, while refusing to act is a
+        # certainty of not granting at all, and only one of those has a buyer
+        # on the other end of it.
+        log.error("stripe_event_claim_failed", event_id=event_id, error=str(exc)[:200])
+        return True
+
+
+def _release(event_id: str) -> None:
+    """Give an event id back after the handler failed.
+
+    Without this, claiming first would turn every transient error -- a database
+    blip mid-grant -- into a permanent one: the id would be taken, the grant
+    would not have happened, and Stripe's redelivery would be waved through as
+    a duplicate. The whole point of the ordering is that a failure stays
+    retryable.
+    """
+    try:
+        with session_scope() as session:
+            row = session.get(StripeEvent, event_id)
+            if row is not None:
+                session.delete(row)
+    except Exception as exc:  # noqa: BLE001
+        log.error(
+            "stripe_event_release_failed", event_id=event_id, error=str(exc)[:200]
+        )
+
+
+def _stamp_terms(email: str) -> None:
+    """Record that a buyer accepted the terms, for an account made by webhook.
+
+    Only the API routes stamped this, so every Stripe-provisioned account held
+    a NULL in the one column whose entire purpose is being able to say
+    afterwards that the box was ticked -- which is to say, in exactly the
+    accounts that paid money. Checkout shows the terms and Stripe records the
+    agreement, so the acceptance is real; it was only ever the writing-down
+    that was missing.
+    """
+    from src import auth
+
+    try:
+        auth.stamp_terms(email)
+    except Exception as exc:  # noqa: BLE001 - the account and grant stand either way
+        log.warning("stripe_terms_not_stamped", email=email, error=str(exc)[:120])
 
 
 def _account_for(email: str):
@@ -423,10 +548,12 @@ def _account_for(email: str):
         if account is None:  # pragma: no cover - taken and absent is impossible
             raise
         return account
-    # Never raises; an unconfigured or failing relay is a log line. The buyer
-    # can also recover the key from /dashboard, so a dropped email costs them a
-    # click rather than the thing they paid for.
-    mailer.send_api_key(account.email, account.api_key)
+    _stamp_terms(account.email)
+    # Never raises; an unconfigured or failing relay is a log line. This is no
+    # longer the buyer's ONLY way in -- the return trip from Stripe signs them
+    # in against a verified session id -- so a dropped email now costs them a
+    # convenience rather than the thing they paid for.
+    mailer.send_purchase_key(account.email, account.api_key)
     log.info("stripe_account_provisioned", email=email)
     return account
 
@@ -471,7 +598,42 @@ def _email_for(*, customer: str = "", subscription: str = "") -> str:
             row = session.execute(
                 select(ApiUser).where(ApiUser.stripe_customer_id == customer)
             ).scalar_one_or_none()
-        return row.email if row is not None else ""
+        if row is not None:
+            return row.email
+    # Nothing stored locally. Before giving up -- and a renewal that gives up is
+    # a customer who keeps being billed and silently drops to free -- ASK
+    # STRIPE who this customer is. The ids are written by `_attach_ids`, which
+    # is deliberately non-fatal, so one transient database error at checkout
+    # time is enough to leave them unset forever. This is the repair path for
+    # exactly that, and it is also how a subscription created before this code
+    # existed keeps renewing.
+    return _email_from_stripe(customer=customer)
+
+
+def _email_from_stripe(*, customer: str = "") -> str:
+    """The email Stripe holds for a customer id, or "".
+
+    Only ever a fallback, and it re-registers nothing: the address is matched
+    against an account that already exists. Never raises -- an upstream that
+    will not answer must not turn a renewal into a 500 that Stripe then retries
+    for three days.
+    """
+    from src import accounts
+
+    stripe = _sdk()
+    s = get_settings()
+    if stripe is None or not s.stripe_secret_key or not customer:
+        return ""
+    try:
+        obj = stripe.Customer.retrieve(customer)
+    except Exception as exc:  # noqa: BLE001 - a lookup that fails is just no answer
+        log.warning("stripe_customer_lookup_failed", error=_why(exc))
+        return ""
+    address = accounts.normalise_email(str(_field(obj, "email", "") or ""))
+    if not address or accounts.by_email(address) is None:
+        return ""
+    log.info("stripe_customer_recovered_from_upstream", customer=customer)
+    return address
 
 
 def period_days(plan: str) -> int | None:
@@ -526,10 +688,10 @@ def _fulfil_checkout(obj: Any) -> dict[str, Any]:
     if plan not in PLANS:
         # Nothing to grant and nothing a retry would fix. Loud, because it
         # means somebody has paid and this service cannot tell for what.
-        log.error("stripe_checkout_unknown_plan", mode=_field(obj, "mode"))
+        _note_lost("unknown_plan", mode=_field(obj, "mode"), email=email)
         return {"status": "unknown_plan"}
     if not email:
-        log.error("stripe_checkout_no_email", plan=plan)
+        _note_lost("no_email", plan=plan)
         return {"status": "no_email", "plan": plan}
 
     _account_for(email)
@@ -586,20 +748,114 @@ def _renew(obj: Any) -> dict[str, Any]:
         # A customer this service has never seen. Answer 200: it is somebody
         # else's charge on the same Stripe account, or a subscription made
         # before this code existed, and neither is fixed by a three-day retry.
-        log.warning("stripe_renewal_unknown_customer", customer=customer or "-")
+        _note_lost("renewal_unknown_customer", customer=customer or "-")
         return {"status": "unknown_customer"}
     if subscription:
         _attach_ids(email, subscription=subscription)
     # Extended by the length of the period that was just paid for, read off the
     # invoice, so a yearly renewal buys a year and a monthly one buys a month
     # without this code -- or the account table -- knowing which plan it is.
-    # Falls back to the ordinary period when Stripe sends no line periods,
-    # which is the old behaviour and is right for the monthly plan.
-    return _grant(email, "pro", days=_invoice_period_days(obj))
+    #
+    # When the invoice carries no line periods, ASK Stripe about the
+    # subscription rather than assuming a month. The bare fallback is correct
+    # for the monthly plan and short-changes an annual one by eleven months,
+    # and the two are indistinguishable from an invoice with no periods on it.
+    days = _invoice_period_days(obj) or _subscription_period_days(subscription)
+    if days is None:
+        # Both readings failed. A month is the safe direction to be wrong in:
+        # too little access is an email to an operator with a grant switch,
+        # too much is a year given away. Loud, because it should not happen.
+        log.warning("stripe_renewal_period_unknown", subscription=subscription or "-")
+    return _grant(email, "pro", days=days)
+
+
+def _subscription_id_of(email: str) -> str:
+    """The Stripe subscription this account is currently on, or ""."""
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == email)
+        ).scalar_one_or_none()
+        return str(row.stripe_subscription_id or "") if row is not None else ""
+
+
+def _ends_in_the_future(subscription_obj: Any) -> bool:
+    """Whether a cancelled subscription still has paid-for time on it.
+
+    True only when Stripe says the period runs past now. A subscription
+    cancelled the ordinary way -- at period end -- arrives here with that
+    boundary already reached, so this is False and the revoke proceeds.
+    """
+    import datetime as dt
+
+    end = _field(subscription_obj, "current_period_end")
+    try:
+        when = dt.datetime.fromtimestamp(int(end), dt.UTC)
+    except (TypeError, ValueError):
+        return False
+    return when > dt.datetime.now(dt.UTC)
+
+
+def _forget_subscription(email: str) -> None:
+    """Drop the stored subscription id, keep the customer id.
+
+    A cancelled id must not match a later event; the customer is how the same
+    person is recognised if they come back.
+    """
+    try:
+        with session_scope() as session:
+            row = session.execute(
+                select(ApiUser).where(ApiUser.email == email)
+            ).scalar_one_or_none()
+            if row is not None:
+                row.stripe_subscription_id = None
+    except Exception as exc:  # noqa: BLE001 - the revoke already happened
+        log.warning("stripe_sub_id_not_cleared", email=email, error=str(exc)[:200])
+
+
+def _subscription_period_days(subscription: str) -> int | None:
+    """The billing interval of a subscription, in days, straight from Stripe.
+
+    The second opinion behind `_invoice_period_days`. Reads
+    `items.data[0].price.recurring`, which is where the plan's own cadence
+    lives, so a yearly subscription answers ~365 whatever its invoice looked
+    like. Returns None rather than guessing, and never raises.
+    """
+    stripe = _sdk()
+    s = get_settings()
+    if stripe is None or not s.stripe_secret_key or not subscription:
+        return None
+    try:
+        sub = stripe.Subscription.retrieve(subscription)
+    except Exception as exc:  # noqa: BLE001 - no answer is not a wrong answer
+        log.warning("stripe_subscription_lookup_failed", error=_why(exc))
+        return None
+    items = _field(_field(sub, "items") or {}, "data") or []
+    if not items:
+        return None
+    recurring = _field(_field(items[0], "price") or {}, "recurring") or {}
+    interval = str(_field(recurring, "interval", "") or "")
+    try:
+        count = int(_field(recurring, "interval_count", 1) or 1)
+    except (TypeError, ValueError):
+        count = 1
+    per = {"day": 1, "week": 7, "month": 31, "year": 366}.get(interval)
+    if per is None:
+        return None
+    return min(per * max(count, 1), 400)
 
 
 def _cancel(obj: Any) -> dict[str, Any]:
-    """A subscription ended: back to free, without touching a paid download."""
+    """A subscription ended: back to free, without touching a paid download.
+
+    Refuses to revoke when the ended subscription is not the one this account
+    is currently on. That case is not hypothetical: a Pro subscriber who buys
+    the annual plan holds two subscriptions for as long as it takes somebody to
+    cancel the monthly one, and `_attach_ids` has already moved the stored id
+    to the new one. Cancelling the old subscription then delivers a `deleted`
+    event whose subscription id nobody holds -- and the lookup used to fall
+    through to the CUSTOMER id, find the same person, and revoke Pro from an
+    account paying $490 a year. Matching on the id is the whole fix.
+    """
     from src import accounts
 
     subscription = _id_of(_field(obj, "id"))
@@ -609,19 +865,37 @@ def _cancel(obj: Any) -> dict[str, Any]:
         log.info("stripe_cancel_unknown_customer", customer=customer or "-")
         return {"status": "unknown_customer"}
 
+    current = _subscription_id_of(email)
+    if subscription and current and current != subscription:
+        # They are on a different, live subscription. This event is the tail of
+        # an old one and must not touch anything.
+        log.info(
+            "stripe_cancel_superseded",
+            email=email, ended=subscription, current=current,
+        )
+        return {
+            "status": "superseded",
+            "email": email,
+            "ended": subscription,
+            "current": current,
+        }
+
+    if _ends_in_the_future(obj):
+        # Stripe cancelled at once rather than at period end, and there is time
+        # left that was paid for. Revoking now confiscates it. Leave the expiry
+        # where it is -- `effective_tier` drops them to free on the day it
+        # passes, which is the day their money stops covering.
+        log.info("stripe_cancel_leaves_paid_time", email=email)
+        account = accounts.by_email(email)
+        _forget_subscription(email)
+        return {
+            "status": "ends_at_period_end",
+            "email": email,
+            "tier": account.tier if account else "unknown",
+        }
+
     account = accounts.apply_admin_action(email, "revoke_pro")
-    # Forget the subscription, keep the customer. A cancelled id must not match
-    # a later event, but the customer is how the same person is recognised if
-    # they come back.
-    try:
-        with session_scope() as session:
-            row = session.execute(
-                select(ApiUser).where(ApiUser.email == email)
-            ).scalar_one_or_none()
-            if row is not None:
-                row.stripe_subscription_id = None
-    except Exception as exc:  # noqa: BLE001
-        log.warning("stripe_sub_id_not_cleared", email=email, error=str(exc)[:200])
+    _forget_subscription(email)
     log.info("stripe_subscription_cancelled", email=email, tier=account.tier)
     return {"status": "revoked", "plan": "pro", "email": email, "tier": account.tier}
 
@@ -629,6 +903,48 @@ def _cancel(obj: Any) -> dict[str, Any]:
 # Every event this service acts on. Everything else gets a 200 and no action:
 # Stripe sends a great many kinds, and answering anything but 2xx to one we
 # simply do not care about would put the endpoint into a three-day retry loop.
+def _reverse(obj: Any) -> dict[str, Any]:
+    """Money went back: a refund, or a dispute opened. Take the access back.
+
+    Previously unhandled, which meant a refund issued in the Stripe dashboard
+    left `has_paid_download` true and a chargeback left a customer with full
+    access and the money reversed -- with no code path anywhere that would ever
+    notice. Both now revoke, and both are loud.
+
+    Deliberately blunt: it revokes BOTH the subscription and the download
+    rather than trying to work out which product the reversed charge was for.
+    A charge object does not reliably carry the plan, and the failure modes are
+    not symmetric -- wrongly leaving access after a chargeback is a stranger
+    using a product they did not pay for, while wrongly removing it is one
+    email to an operator who has a grant switch. A dispute WON can be put back
+    with `/admin/grant-access`.
+    """
+    from src import accounts
+
+    customer = _id_of(_field(obj, "customer"))
+    email = _email_for(customer=customer)
+    if not email:
+        log.info("stripe_reversal_unknown_customer", customer=customer or "-")
+        return {"status": "unknown_customer"}
+
+    accounts.apply_admin_action(email, "revoke_pro")
+    account = accounts.apply_admin_action(email, "revoke_download")
+    _forget_subscription(email)
+    # Not `_note_lost`: nothing was lost. This is money going back on purpose,
+    # and the operator needs to know it happened, not to be alarmed by it.
+    log.warning(
+        "stripe_payment_REVERSED",
+        email=email, customer=customer or "-",
+        reason=str(_field(obj, "reason", "") or "refund"),
+    )
+    return {
+        "status": "reversed",
+        "email": email,
+        "tier": account.tier,
+        "has_paid_download": account.has_paid_download,
+    }
+
+
 _HANDLERS = {
     "checkout.session.completed": _fulfil_checkout,
     # The same session, arriving late, for a payment method that does not
@@ -638,7 +954,49 @@ _HANDLERS = {
     "checkout.session.async_payment_succeeded": _fulfil_checkout,
     "invoice.payment_succeeded": _renew,
     "customer.subscription.deleted": _cancel,
+    # Money going back. A refund is the operator's own doing and a dispute is
+    # the buyer's, but both end with the charge reversed and access that should
+    # not still be there. `dispute.created` rather than `dispute.closed`:
+    # access should stop while the money is held, and a dispute won is one
+    # `/admin/grant-access` call to put back.
+    "charge.refunded": _reverse,
+    "charge.dispute.created": _reverse,
 }
+
+
+def claim_checkout(session_id: str) -> str:
+    """The address behind a completed Checkout Session, verified with Stripe.
+
+    Returns "" for anything that is not a settled session this deployment can
+    confirm -- a bad id, an unpaid one, an SDK that is not installed, or a
+    Stripe that will not answer. Never raises: this runs on the buyer's return
+    trip, and a page that 500s on the way back from a payment is worse than one
+    that simply does not sign them in.
+
+    The check is the whole security model. The id is unguessable, and it is
+    handed back to the authority that minted it rather than trusted on sight,
+    so the only way to hold one that verifies is to have completed that
+    checkout. `payment_status` is re-read here rather than assumed from the
+    redirect, because a redirect is a thing a browser does and a payment is a
+    thing a bank does.
+    """
+    stripe = _sdk()
+    s = get_settings()
+    if stripe is None or not s.stripe_secret_key or not session_id:
+        return ""
+    try:
+        session = stripe.checkout.Session.retrieve(session_id)
+    except Exception as exc:  # noqa: BLE001 - an unverifiable id is simply not one
+        log.warning("stripe_claim_failed", error=_why(exc))
+        return ""
+    paid = str(_field(session, "payment_status", "") or "")
+    if paid not in ("paid", "no_payment_required"):
+        log.info("stripe_claim_unsettled", payment_status=paid)
+        return ""
+    email = _email_of(session)
+    if email:
+        log.info("stripe_claim_ok", email=email)
+    return email
 
 
 def _dispatch(event: Any) -> dict[str, Any]:
@@ -661,13 +1019,20 @@ def _dispatch(event: Any) -> dict[str, Any]:
         log.error("stripe_event_without_id", type=kind)
         return {"status": "ignored", "type": kind}
 
-    if _already_handled(event_id):
+    # Claim, then act. A handler that raises hands the id back so Stripe's
+    # redelivery can try again; one that returns -- for any outcome, including
+    # the ones that could not grant -- keeps it, because none of those are
+    # fixed by being sent the same event for three days.
+    if not _claim(event_id, kind):
         log.info("stripe_event_duplicate", event_id=event_id, type=kind)
         return {"status": "duplicate", "event": event_id, "type": kind}
 
     obj = _field(_field(event, "data") or {}, "object") or {}
-    result = handler(obj)
-    _record(event_id, kind)
+    try:
+        result = handler(obj)
+    except Exception:
+        _release(event_id)
+        raise
     result["event"] = event_id
     result["type"] = kind
     return result
