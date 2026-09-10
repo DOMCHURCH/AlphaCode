@@ -149,6 +149,28 @@ CONCEPTS: tuple[Concept, ...] = (
         ("RedeemablePreferredStockCarryingAmount",),
         INSTANT,
     ),
+    # The third component of the same block, and the one that was named in
+    # `scripts/identity_failures.py` as a mezzanine metric while nothing in the
+    # ingest ever produced it -- so the script looked for a key that could not
+    # exist and the category it fed was structurally empty.
+    #
+    # Redeemable NCI is a noncontrolling interest the holder can put back to
+    # the company. That redemption right is what carries it OUT of permanent
+    # equity and into the mezzanine, so it is NOT inside
+    # `total_equity_incl_nci` and adding `minority_interest` does not reach it
+    # either -- those are two different lines about two different holders.
+    #
+    # A component of `temporary_equity`, like the redeemable preferred above,
+    # so it goes LAST in the prefer-don't-sum chain in `_mezzanine()`.
+    Concept(
+        "redeemable_noncontrolling_interest",
+        (
+            "RedeemableNoncontrollingInterestEquityCarryingAmount",
+            "RedeemableNoncontrollingInterestEquityCommonCarryingAmount",
+            "RedeemableNoncontrollingInterestEquityPreferredCarryingAmount",
+        ),
+        INSTANT,
+    ),
     Concept("cash", ("CashAndCashEquivalentsAtCarryingValue",), INSTANT),
     Concept("receivables", ("AccountsReceivableNetCurrent",), INSTANT),
     Concept("inventory", ("InventoryNet",), INSTANT),

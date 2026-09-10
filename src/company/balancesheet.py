@@ -60,6 +60,11 @@ BALANCE_SHEET_CONCEPTS = {
     # the section total; `redeemable_preferred_stock` is a component of it.
     "temporary_equity": "temporary_equity",
     "redeemable_preferred_stock": "redeemable_preferred_stock",
+    # Also a component of the section: a noncontrolling interest the holder
+    # can put back to the company, which is what carries it out of permanent
+    # equity. Not reached by `total_equity_incl_nci` nor by
+    # `minority_interest` -- a different line about a different holder.
+    "redeemable_noncontrolling_interest": "redeemable_noncontrolling_interest",
 }
 
 
@@ -245,6 +250,7 @@ def get_balance_sheet(
         equity_concepts = [
             "shareholders_equity", "total_equity_incl_nci", "minority_interest",
             "temporary_equity", "redeemable_preferred_stock",
+            "redeemable_noncontrolling_interest",
         ]
 
         for concept in asset_concepts:

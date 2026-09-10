@@ -40,14 +40,31 @@ ROUNDING_PCT = 1.0
 # "balances" means.
 TOLERANCE_PCT = 0.5
 
-CATEGORIES = (
-    ("nci", "Noncontrolling interests", "Filing structure"),
-    ("mezzanine", "Mezzanine / redeemable preferred", "Filing structure"),
+# The outcome of every filing we can check, in report order.
+#
+# The first four are PASSES: `build_view1` draws all of them as balancing, and
+# says on the drawing which term it had to add. They are broken out rather than
+# summed because "balances outright" and "balances once you include the
+# mezzanine" are different statements about a filing, and the whole point of
+# this script is to be able to name the difference.
+#
+# The rest are failures.
+PASS_CATEGORIES = (
+    ("balanced", "Balances directly (A = L + E)", "—"),
+    ("nci", "Reconciles once noncontrolling interests are included", "Filing structure"),
+    ("mezzanine", "Reconciles once mezzanine equity is included", "Filing structure"),
+    ("nci+mezzanine", "Reconciles once both are included", "Filing structure"),
+)
+
+FAIL_CATEGORIES = (
     ("rounding", "Rounding", "Neither"),
     ("missing_tag", "Missing XBRL tag in our ingest", "Ours"),
     ("broken", "Genuinely broken filing", "Company error"),
     ("unexplained", "Unexplained (no stated RHS to compare)", "Unknown"),
 )
+
+CATEGORIES = PASS_CATEGORIES + FAIL_CATEGORIES
+_PASS_KEYS = frozenset(k for k, _, _ in PASS_CATEGORIES)
 
 # Metrics that, if the filer published them, close a gap we cannot otherwise
 # account for. When this script was written NONE of them were ingested, which
@@ -91,40 +108,52 @@ def _metrics(session: Any, ticker: str, period_end: dt.date) -> dict[str, float]
 
 
 def classify(m: dict[str, float]) -> tuple[str, float]:
-    """(category, drift_pct) for one period's metrics."""
+    """(category, drift_pct) for one period's metrics.
+
+    The pass/fail half of this decision is delegated to
+    `src.company.view1.resolve_identity` -- the same function `build_view1`
+    uses to decide what the drawing says. It used to be reimplemented here, and
+    the two copies disagreed: this script tried the NCI and the mezzanine
+    separately and never together, and then counted a filing that closed on
+    either as a FAILURE. The headline pass rate it printed was therefore the
+    rate BEFORE the explanations, while the page quotes the rate after them.
+
+    What stays here is the part the drawing has no opinion about: given that a
+    filing does not balance on any basis, WHY not.
+    """
+    from src.company.view1 import resolve_identity
+
     assets = m.get("total_assets")
     liabilities = m.get("total_liabilities")
     equity = m.get("total_equity_incl_nci") or m.get("total_equity")
     if not assets or assets <= 0 or liabilities is None or equity is None:
         return "", 0.0
 
-    rhs = liabilities + equity
-    drift = abs(assets - rhs) / assets * 100.0
-    if drift <= TOLERANCE_PCT:
-        return "", drift
+    # Both read exactly as `build_view1` reads them. The NCI is only a separate
+    # line when the filer did NOT publish a combined equity total; with
+    # `total_equity_incl_nci` in hand it is already inside `equity` and adding
+    # it again would double-count. The mezzanine is read unconditionally,
+    # because it sits outside permanent equity and no equity total absorbs it.
+    nci = None if "total_equity_incl_nci" in m else m.get("minority_interest")
+    mezzanine = _mezzanine(m)
 
-    # 1. Does the noncontrolling interest close it? Only meaningful when the
-    #    filer did not already publish a combined equity total.
-    nci = m.get("minority_interest")
-    if nci and "total_equity_incl_nci" not in m:
-        with_nci = abs(assets - (rhs + nci)) / assets * 100.0
-        if with_nci <= TOLERANCE_PCT:
-            return "nci", drift
+    balances, drift, basis = resolve_identity(
+        assets, liabilities, equity, nci, mezzanine
+    )
+    if balances:
+        return (basis or "balanced"), drift
 
-    # 2. Mezzanine, where the filer published one of the tags. Checked before
-    #    rounding so a genuine structural cause is not written off as noise.
-    for name in MEZZANINE_METRICS:
-        value = m.get(name)
-        if value:
-            closed = abs(assets - (rhs + value)) / assets * 100.0
-            if closed <= TOLERANCE_PCT:
-                return "mezzanine", drift
+    # Past here the filing does not balance on any basis the filer published,
+    # and the question is whose fault that is.
 
-    # 3. Noise.
+    # 1. Noise.
     if drift < ROUNDING_PCT:
         return "rounding", drift
 
-    # 4/5. The filer's own stated right-hand side is the referee.
+    # 2/3. The filer's own stated right-hand side is the referee. If the filing
+    #      balances against its OWN stated total and our sum falls short, the
+    #      missing amount is a line we did not ingest. If it does not balance
+    #      against its own total, that is the filer's arithmetic.
     stated = m.get("liabilities_and_equity")
     if stated:
         filing_itself = abs(assets - stated) / assets * 100.0
@@ -133,6 +162,19 @@ def classify(m: dict[str, float]) -> tuple[str, float]:
         return "missing_tag", drift
 
     return "unexplained", drift
+
+
+def _mezzanine(m: dict[str, float]) -> float | None:
+    """The mezzanine block, PREFERRED not summed -- as `view1._mezzanine` does.
+
+    `temporary_equity` is the section total and the other two are components of
+    it, so adding them would double-count a filer who tagged both.
+    """
+    for name in MEZZANINE_METRICS:
+        value = m.get(name)
+        if value:
+            return value
+    return None
 
 
 def collect(as_of: dt.date | None = None) -> dict[str, Any]:
@@ -144,6 +186,7 @@ def collect(as_of: dt.date | None = None) -> dict[str, Any]:
     as_of = as_of or dt.date.today()
     out: dict[str, list[dict[str, Any]]] = {k: [] for k, _, _ in CATEGORIES}
     checked = 0
+    unclassifiable = 0
 
     with session_scope() as session:
         latest = session.execute(
@@ -156,7 +199,7 @@ def collect(as_of: dt.date | None = None) -> dict[str, Any]:
             m = _metrics(session, ticker, period_end)
             category, drift = classify(m)
             if not category:
-                checked += 1
+                unclassifiable += 1
                 continue
             checked += 1
             out[category].append({
@@ -166,32 +209,70 @@ def collect(as_of: dt.date | None = None) -> dict[str, Any]:
                 "assets": m.get("total_assets"),
             })
 
-    failures = sum(len(v) for v in out.values())
-    return {"checked": checked, "failures": failures, "by_category": out}
+    passes = sum(len(out[k]) for k, _, _ in PASS_CATEGORIES)
+    failures = sum(len(out[k]) for k, _, _ in FAIL_CATEGORIES)
+    return {
+        "as_of": str(as_of),
+        "checked": checked,
+        # `checked` counts every ticker we could form an opinion about;
+        # `unclassifiable` is the rest -- a missing assets, liabilities or
+        # equity figure means there is no identity to test, and calling that a
+        # pass or a failure would both be lies.
+        "unclassifiable": unclassifiable,
+        "passes": passes,
+        "failures": failures,
+        "pass_rate_pct": round(passes / checked * 100.0, 2) if checked else 0.0,
+        "by_category": out,
+        "counts": {k: len(out[k]) for k, _, _ in CATEGORIES},
+    }
+
+
+def _examples(rows: list[dict[str, Any]], n: int = 5) -> str:
+    """The biggest few by assets -- big names are checkable by a reader."""
+    top = sorted(rows, key=lambda r: -(r["assets"] or 0))[:n]
+    return ", ".join(r["ticker"] for r in top) or "—"
 
 
 def table(result: dict[str, Any]) -> str:
+    checked = result["checked"] or 1
     failures = result["failures"] or 1
     lines = [
+        "RECONCILES (what `build_view1` draws as balancing)",
+        "",
+        "| Category | Count | % of checked | Examples | Whose fault |",
+        "|----------|-------|--------------|----------|-------------|",
+    ]
+    for key, label, fault in PASS_CATEGORIES:
+        rows = result["by_category"][key]
+        lines.append(
+            f"| {label} | {len(rows):,} | {len(rows) / checked * 100:.2f}% "
+            f"| {_examples(rows)} | {fault} |"
+        )
+    lines += [
+        "",
+        "DOES NOT RECONCILE",
+        "",
         "| Category | Count | % of failures | Examples | Whose fault |",
         "|----------|-------|---------------|----------|-------------|",
     ]
-    for key, label, fault in CATEGORIES:
+    for key, label, fault in FAIL_CATEGORIES:
         rows = result["by_category"][key]
-        pct = len(rows) / failures * 100.0
-        examples = ", ".join(
-            r["ticker"] for r in sorted(rows, key=lambda r: -(r["assets"] or 0))[:3]
-        ) or "—"
         lines.append(
-            f"| {label} | {len(rows)} | {pct:.1f}% | {examples} | {fault} |"
+            f"| {label} | {len(rows):,} | {len(rows) / failures * 100:.1f}% "
+            f"| {_examples(rows)} | {fault} |"
         )
-    checked = result["checked"]
-    rate = (checked - result["failures"]) / checked * 100.0 if checked else 0.0
-    lines.append("")
-    lines.append(
-        f"Checked {checked:,} companies. {result['failures']:,} miss the "
-        f"identity — a {rate:.2f}% pass rate."
-    )
+    lines += [
+        "",
+        f"Checked {result['checked']:,} companies "
+        f"({result['unclassifiable']:,} had no testable identity and are excluded). "
+        f"{result['passes']:,} reconcile, {result['failures']:,} do not "
+        f"— a {result['pass_rate_pct']:.2f}% pass rate.",
+        "",
+        "This is the pass rate AFTER the explanations, which is what the page "
+        "quotes: a filing that balances once its noncontrolling interest or its "
+        "mezzanine block is included is a filing that balances, and the drawing "
+        "says which term it added.",
+    ]
     return "\n".join(lines)
 
 

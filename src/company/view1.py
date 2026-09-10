@@ -389,12 +389,21 @@ def _mezzanine(bs: Any) -> float | None:
     """The mezzanine (temporary) equity block, where the filer published one.
 
     PREFERRED, not summed. `temporary_equity` is the total of the section and
-    `redeemable_preferred_stock` is a component of it, so a filer who tags both
-    would be counted twice by an addition -- turning a filing that balances
-    into one that overshoots, which is the same class of error as not reading
-    the block at all.
+    the other two are components of it, so a filer who tags both a component
+    and the total would be counted twice by an addition -- turning a filing
+    that balances into one that overshoots, which is the same class of error
+    as not reading the block at all.
+
+    The cost of preferring is that a filer who publishes two COMPONENTS and no
+    total is under-counted. That is the safer direction: an under-count leaves
+    the filing looking unbalanced and reported as such, where an over-count
+    would quietly invent a balance that the filing does not have.
     """
-    for key in ("temporary_equity", "redeemable_preferred_stock"):
+    for key in (
+        "temporary_equity",
+        "redeemable_preferred_stock",
+        "redeemable_noncontrolling_interest",
+    ):
         value = _val(bs.equity, key)
         if value:
             return value
@@ -428,6 +437,65 @@ _IDENTITY_TERMS: dict[str, str] = {
         "added here. Nothing is adjusted — every figure is as filed."
     ),
 }
+
+
+def resolve_identity(
+    total_assets: float,
+    total_liabilities: float,
+    total_equity: float,
+    nci: float | None = None,
+    mezzanine: float | None = None,
+) -> tuple[bool, float, str | None]:
+    """Does this filing balance, and on what basis? THE definition, for everyone.
+
+    Returns `(balances, imbalance_pct, basis)`. `basis` is None when the plain
+    A = L + E closed it, and otherwise a key of `_IDENTITY_TERMS` naming the
+    term that had to be added.
+
+    This is a module-level function rather than four lines inside
+    `_check_identity` because it had already been reimplemented elsewhere and
+    the copies did not agree. `scripts/identity_failures.py` tried the NCI and
+    the mezzanine SEPARATELY and never the two together, and counted a filing
+    that closed on either as a FAILURE -- so the script's headline pass rate
+    was measuring something the drawing does not: it was the rate before the
+    explanations, while the page reports the rate after them. Two numbers, both
+    called the pass rate, on the same data.
+
+    A term is admitted only where the filer published it, and only when the
+    plain sum has already failed: adding a term to a filing that balances would
+    break one that was right.
+
+    The candidate that closes with the SMALLEST remaining gap wins, not the
+    first one to clear the tolerance. Where two bases both close, the tighter
+    one is the one the filing was actually written on; picking by order would
+    let an accidental near-miss claim the drawing's explanation.
+    """
+    if total_assets <= 0:
+        return False, 0.0, None
+
+    plain = abs(total_assets - (total_liabilities + total_equity)) / total_assets * 100.0
+    tolerance = IDENTITY_TOLERANCE * 100.0
+    if plain <= tolerance:
+        return True, plain, None
+
+    bases: list[tuple[str, float]] = []
+    if nci:
+        bases.append(("nci", nci))
+    if mezzanine:
+        bases.append(("mezzanine", mezzanine))
+    if nci and mezzanine:
+        bases.append(("nci+mezzanine", nci + mezzanine))
+
+    best: tuple[float, str] | None = None
+    for name, extra in bases:
+        pct = abs(total_assets - (total_liabilities + total_equity + extra))
+        pct = pct / total_assets * 100.0
+        if pct <= tolerance and (best is None or pct < best[0]):
+            best = (pct, name)
+
+    if best is not None:
+        return True, best[0], best[1]
+    return False, plain, None
 
 
 def _check_identity(
@@ -483,30 +551,19 @@ def _check_identity(
     # than the first that clears the tolerance. Where two bases both close, the
     # tighter one is the one the filing was actually written on; picking by
     # order would let an accidental near-miss claim the drawing's explanation.
-    bases: list[tuple[str, float]] = []
-    if nci:
-        bases.append(("nci", nci))
-    if mezzanine:
-        bases.append(("mezzanine", mezzanine))
-    if nci and mezzanine:
-        bases.append(("nci+mezzanine", nci + mezzanine))
+    balances, imbalance_pct, basis = resolve_identity(
+        total_assets, total_liabilities, total_equity, nci, mezzanine
+    )
 
-    best: tuple[float, str] | None = None
-    for name, extra in bases:
-        pct = abs(total_assets - (total_liabilities + total_equity + extra))
-        pct = pct / total_assets * 100.0
-        if pct <= IDENTITY_TOLERANCE * 100.0 and (best is None or pct < best[0]):
-            best = (pct, name)
-
-    if best is not None:
+    if balances and basis is not None:
         view.balances = True
-        view.imbalance_pct = best[0]
-        view.identity_basis = best[1]
+        view.imbalance_pct = imbalance_pct
+        view.identity_basis = basis
         # Said out loud rather than applied silently. "This balances once you
         # include the minority interest" is a different statement from "this
         # balances", and a reader checking the drawing against the filing needs
         # to know which one they are being shown.
-        view.notes.append(_IDENTITY_TERMS[best[1]])
+        view.notes.append(_IDENTITY_TERMS[basis])
         return
 
     # The claims column is no longer a proportion of anything meaningful, so
