@@ -83,8 +83,14 @@ async def _boot(app: FastAPI) -> None:
     # page renders without it and simply omits the line until it lands.
     try:
         from src.company.stats import warm_identity
+        from src.company.suggest import warm_panels
 
         asyncio.create_task(asyncio.to_thread(warm_identity))
+        # The home page's five drawings, built off the critical path. Without
+        # this the first reader after a deploy pays for all five -- and the
+        # first reader after a deploy is disproportionately likely to be a
+        # crawler measuring the site.
+        asyncio.create_task(asyncio.to_thread(warm_panels))
     except Exception as exc:  # noqa: BLE001 - never block boot on a statistic
         log.warning("site_identity_warm_skipped", error=str(exc)[:200])
 
@@ -1517,17 +1523,15 @@ def home(request: Request) -> HTMLResponse:
     placeholder, which would be a picture of nothing presented as a company.
     """
     from src.company.stats import site_stats
-    from src.company.suggest import suggestions
-    from src.company.view1 import build_view1
+    from src.company.suggest import panels
     from src.report.home_page import render_home
 
-    pairs = []
-    for s in suggestions():
-        try:
-            pairs.append((s, build_view1(s.ticker)))
-        except Exception as exc:  # noqa: BLE001 - one bad ticker must not take the page
-            log.warning("home_thumbnail_failed", ticker=s.ticker, error=str(exc)[:200])
-            pairs.append((s, None))
+    # Both of these are memoised for fifteen minutes, and that is the whole of
+    # the fix for this page: it used to do five balance-sheet reads plus a
+    # COUNT(*), a COUNT(DISTINCT) and a MIN/MAX over 1.24M rows on EVERY
+    # request. 1.35s TTFB against 0.23s for /pricing, on the one page every
+    # visitor sees first and the one Google measures.
+    pairs = panels()
     return HTMLResponse(
         _versioned(
             render_home(pairs, stats=site_stats(), nav=_nav_for(request, "home"))

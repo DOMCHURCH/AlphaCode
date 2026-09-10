@@ -13,7 +13,10 @@ must not do -- it turns "we don't have that" into "this doesn't work".
 
 from __future__ import annotations
 
+import threading
+import time
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 
@@ -105,3 +108,86 @@ def suggestions(limit: int = 5) -> list[Suggestion]:
         return out
     log.info("suggest_using_fallback", candidates=[t for t, _ in CANDIDATES])
     return _fallback(limit)
+
+
+# ---------------------------------------------------------------------------
+# The home page's five drawings
+# ---------------------------------------------------------------------------
+
+# Fifteen minutes, matching `stats.COUNTS_TTL_S`. The five tickers are a fixed
+# list and their filings move four times a year, so this is not a meaningful
+# staleness -- and the alternative was measured: the home page called
+# `build_view1` FIVE TIMES on every request, which together with the uncached
+# counts made it a 1.35s TTFB against 0.23s for /pricing.
+PANELS_TTL_S = 900.0
+
+_panels_lock = threading.Lock()
+_panels: list[tuple[Suggestion, Any]] | None = None
+_panels_at: float = 0.0
+
+
+def panels(max_age_s: float = PANELS_TTL_S) -> list[tuple[Suggestion, Any]]:
+    """The suggested tickers, each paired with its drawing (or None). Memoised.
+
+    Same cache shape as `stats.counts`: a caller arriving while another thread
+    is building gets the previous value rather than queueing behind five
+    balance-sheet reads, and `max_age_s=0` forces a rebuild and waits for it.
+
+    A ticker whose drawing will not build is paired with None rather than
+    dropped, and that None is CACHED like any other answer. Retrying five
+    failing reads on every request would be the exact cost this exists to
+    avoid, and the page already renders that case correctly -- the company is
+    offered without a drawing, never with a placeholder.
+    """
+    global _panels, _panels_at
+
+    fresh_enough = (
+        _panels is not None and (time.monotonic() - _panels_at) < max_age_s
+    )
+    if fresh_enough:
+        return list(_panels)
+
+    forced = max_age_s <= 0
+    if not _panels_lock.acquire(blocking=forced or _panels is None):
+        return list(_panels) if _panels is not None else _build_panels()
+    try:
+        built = _build_panels()
+        _panels, _panels_at = built, time.monotonic()
+        return list(built)
+    finally:
+        _panels_lock.release()
+
+
+def reset_panels_cache() -> None:
+    """Forget the built drawings. Module state outlives any one database."""
+    global _panels, _panels_at
+    with _panels_lock:
+        _panels, _panels_at = None, 0.0
+
+
+def _build_panels() -> list[tuple[Suggestion, Any]]:
+    """Five suggestions, drawn. One bad ticker must not take the page down."""
+    from src.company.view1 import build_view1
+
+    out: list[tuple[Suggestion, Any]] = []
+    for s in suggestions():
+        try:
+            out.append((s, build_view1(s.ticker)))
+        except Exception as exc:  # noqa: BLE001 - one bad ticker, not the page
+            log.warning("home_thumbnail_failed", ticker=s.ticker, error=str(exc)[:200])
+            out.append((s, None))
+    return out
+
+
+def warm_panels() -> None:
+    """Build the five drawings once at startup, off the critical path.
+
+    Mirrors `stats.warm_identity`. Without it the FIRST reader after a deploy
+    pays for all five reads, and the first reader after a deploy is
+    disproportionately likely to be a crawler measuring the site.
+    """
+    try:
+        panels(max_age_s=0.0)
+        log.info("home_panels_warm", panels=len(_panels or []))
+    except Exception as exc:  # noqa: BLE001
+        log.warning("home_panels_warm_failed", error=str(exc)[:200])

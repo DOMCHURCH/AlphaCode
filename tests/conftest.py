@@ -21,17 +21,28 @@ from src.storage.models import Base  # noqa: E402
 def _clean_identity_cache():
     """Start every test with no memory of another test's database.
 
-    The home page's identity figure is cached in module state and warmed by a
-    background thread the API starts at boot, so without this a count from one
-    test's data can be served to the next -- which is exactly how
+    Everything the home page memoises lives in module state and outlives any
+    one database, so without this a figure counted from one test's data is
+    served to the next -- which is exactly how
     test_the_identity_line_reports_the_real_pass_rate began failing at random
     in full-suite runs while passing on its own.
-    """
-    from src.company.stats import reset_identity_cache
 
-    reset_identity_cache()
+    All three caches, not just the identity: `counts` and `panels` were added
+    to fix a 1.35s home page and have precisely the same hazard. A test that
+    seeds rows and then loads `/` would otherwise render the PREVIOUS test's
+    companies and never say so.
+    """
+    from src.company.stats import reset_counts_cache, reset_identity_cache
+    from src.company.suggest import reset_panels_cache
+
+    def _clear() -> None:
+        reset_identity_cache()
+        reset_counts_cache()
+        reset_panels_cache()
+
+    _clear()
     yield
-    reset_identity_cache()
+    _clear()
 
 
 @pytest.fixture

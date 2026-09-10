@@ -358,3 +358,104 @@ def test_the_warning_reaches_the_rendered_page(client):
 
     assert "does not balance" in html
     assert 'class="note warn"' in html, "the warning renders as a note, not a warning"
+
+
+# ---------------------------------------------------------------------------
+# 6. The home page that read the whole table on every request
+# ---------------------------------------------------------------------------
+
+def test_the_home_panels_are_built_once_not_once_per_reader(client, monkeypatch):
+    """Five balance-sheet reads per home page view, on every view.
+
+    `home()` looped `build_view1` over the five suggested tickers with nothing
+    in front of it, so the busiest page on the site did five times the database
+    work of a company page. Measured at 1.35s TTFB against 0.23s for /pricing.
+
+    Asserted against `panels()` directly rather than through three HTTP
+    requests: the startup warm runs on its own thread at a moment no test
+    controls, and counting builds across requests races it. This is the same
+    property without the coin flip.
+    """
+    seed([
+        fact("total_assets", 1000.0, filed=dt.date(2026, 2, 1)),
+        fact("total_liabilities", 600.0, filed=dt.date(2026, 2, 1)),
+        fact("total_equity", 400.0, filed=dt.date(2026, 2, 1)),
+    ])
+    from src.company import suggest
+
+    built = {"n": 0}
+    real = suggest._build_panels
+
+    def counted():
+        built["n"] += 1
+        return real()
+
+    monkeypatch.setattr(suggest, "_build_panels", counted)
+    suggest.reset_panels_cache()
+
+    first = suggest.panels()
+    for _ in range(4):
+        assert suggest.panels() == first
+    assert built["n"] == 1, f"the panels were built {built['n']} times"
+
+
+def test_the_home_page_reads_the_cache_rather_than_the_database(client, monkeypatch):
+    """The route must go through `panels()`, not its own loop.
+
+    Without this, the cache could be perfectly correct and the home page could
+    still be doing five reads beside it -- which is exactly the shape the bug
+    had, since `build_view1` was called from `home()` itself.
+    """
+    seed([fact("total_assets", 1000.0, filed=dt.date(2026, 2, 1))])
+    from src.company import suggest, view1
+
+    monkeypatch.setattr(suggest, "panels", lambda *a, **k: [])
+
+    def refuse(ticker):
+        raise AssertionError(f"the home page read {ticker} instead of the cache")
+
+    monkeypatch.setattr(view1, "build_view1", refuse)
+    assert client.get("/").status_code == 200
+
+
+def test_the_counts_are_read_once_not_once_per_request(client, monkeypatch):
+    """`counts()` ran COUNT(*), COUNT(DISTINCT ticker) and MIN/MAX over the
+    whole fundamentals table for every reader. `identity()` was already cached;
+    this one was not, and it was the more expensive of the two."""
+    seed([fact("total_assets", 1000.0, filed=dt.date(2026, 2, 1))])
+    from src.company import stats
+
+    stats.reset_counts_cache()
+    counted = {"n": 0}
+    real = stats._compute_counts
+
+    def once():
+        counted["n"] += 1
+        return real()
+
+    monkeypatch.setattr(stats, "_compute_counts", once)
+
+    for _ in range(3):
+        stats.counts()
+    assert counted["n"] == 1, f"the table was counted {counted['n']} times"
+
+
+def test_a_forced_read_still_sees_fresh_data(client):
+    """The cache must not be able to outlive the truth for a caller who says
+    it matters. `max_age_s=0` waits for a real count rather than being handed
+    the previous one -- the bug `identity()` already had and had to fix."""
+    from src.company import stats
+
+    seed([fact("total_assets", 1000.0, filed=dt.date(2026, 2, 1))])
+    first = stats.counts(max_age_s=0.0)
+
+    with __import__("src.storage.db", fromlist=["session_scope"]).session_scope() as s:
+        from src.storage.models import Fundamental
+
+        s.add(Fundamental(
+            ticker="ZZZZ", metric="total_assets", value=5.0,
+            period_end=Q, fiscal_period="FY", filing_date=dt.date(2026, 3, 1),
+            source="sec", restated=False,
+        ))
+
+    assert stats.counts(max_age_s=0.0)["facts"] == first["facts"] + 1

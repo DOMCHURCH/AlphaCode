@@ -37,8 +37,57 @@ _identity_lock = threading.Lock()
 _identity: dict[str, Any] | None = None
 _identity_at: float = 0.0
 
+# How long the scale figures may be stale. Fifteen minutes against a table that
+# moves four times a year is not a meaningful staleness -- and the alternative
+# was measured: `counts()` was uncached, so every home page render paid a
+# COUNT(*), a COUNT(DISTINCT ticker) and a MIN/MAX over 1.24M rows. That was
+# most of a 1.35s TTFB on the one page every visitor sees first.
+COUNTS_TTL_S = 900.0
 
-def counts() -> dict[str, Any]:
+_counts_lock = threading.Lock()
+_counts: dict[str, Any] | None = None
+_counts_at: float = 0.0
+
+
+def counts(max_age_s: float = COUNTS_TTL_S) -> dict[str, Any]:
+    """Scale, straight out of the fundamentals table. Memoised.
+
+    Same shape of cache as `identity()` below, and for the same reason: a
+    figure that changes when a quarter loads must not be recomputed for every
+    reader. `max_age_s=0` forces a fresh count and WAITS for it, which is what
+    a test asserting on freshly seeded rows needs.
+
+    A caller that arrives while another thread is counting is handed the
+    previous value rather than queued behind a full-table scan. On the first
+    ever call there is no previous value, so that caller does the work.
+    """
+    global _counts, _counts_at
+
+    fresh_enough = (
+        _counts is not None and (time.monotonic() - _counts_at) < max_age_s
+    )
+    if fresh_enough:
+        return dict(_counts)
+
+    forced = max_age_s <= 0
+    if not _counts_lock.acquire(blocking=forced or _counts is None):
+        return dict(_counts) if _counts is not None else _compute_counts()
+    try:
+        computed = _compute_counts()
+        _counts, _counts_at = computed, time.monotonic()
+        return dict(computed)
+    finally:
+        _counts_lock.release()
+
+
+def reset_counts_cache() -> None:
+    """Forget the counted figures. Module state outlives any one database."""
+    global _counts, _counts_at
+    with _counts_lock:
+        _counts, _counts_at = None, 0.0
+
+
+def _compute_counts() -> dict[str, Any]:
     """Scale, straight out of the fundamentals table."""
     from sqlalchemy import distinct, func, select
 
