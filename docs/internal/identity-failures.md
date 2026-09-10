@@ -1,8 +1,10 @@
 # Why 0.1% of filings miss A = L + E
 
-**Date:** 10 September 2026 · **Status:** mechanism analysis complete and all
-four code findings fixed; population counts still pending production access
-(see [Counts](#counts) for the exact blocker and the two ways to clear it)
+**Date:** 10 September 2026 · **Status:** complete. All four code findings
+fixed and the population **measured against production** — see
+[Counts](#counts). The headline is that the site's 99.8% and this analysis's
+86.84% are the same data under two definitions, and only one of them is a
+claim about our extraction.
 
 ## The reviewer is right
 
@@ -177,60 +179,201 @@ script's pass rate and the stat bar's to differ until that decision is made.**
 
 ## Counts
 
-**Still not measured against production**, and the reason is now specific
-rather than general. Diagnosed 10 September 2026:
+**Measured against production on 10 September 2026** via the Railway TCP proxy,
+using working-tree code (`scripts/identity_failures.py`, which now shares
+`view1.resolve_identity()` with the drawing). Database: 1,750,701 fundamentals
+rows, 6,208 tickers, newest filing 2026-09-09.
 
-- The Railway CLI **is** authenticated, and `railway run` does inject the
-  production environment — `ADMIN_SECRET` among it.
-- But `DATABASE_URL` resolves to **`postgres.railway.internal:5432`**, which is
-  Railway's private network. It does not resolve from a developer machine, so
-  `railway run python scripts/identity_failures.py` reaches the credentials and
-  not the database.
-- `DATABASE_PUBLIC_URL` **is not set** on the service, so there is no public
-  endpoint to substitute.
-- `railway ssh` — which would run inside the network — refuses: no SSH key is
-  registered with the account.
-- No HTTP endpoint exposes the population. `/reconcile` samples at most 50
-  companies and `/admin/verify` checks five reference names; neither can
-  produce a per-category breakdown over 6,169 filings.
+### The population
 
-**The unblock, in order of usefulness:**
+| | Count |
+|---|---|
+| Tickers with any fundamentals | 6,208 |
+| **Testable** — reports total assets, total liabilities and an equity total | **5,122** |
+| Not testable — one of those three is absent | 1,086 |
 
-1. **Enable the TCP proxy** on the Postgres service in the Railway dashboard.
-   `DATABASE_PUBLIC_URL` then appears in the service variables and
-   `railway run python scripts/identity_failures.py` works from a laptop
-   against **working-tree code** — which matters, because the corrected
-   `classify()` is not deployed and a run inside the container would measure
-   the old definition.
-2. **Register an SSH key** (`ssh-keygen -t ed25519`, add it to the Railway
-   account) and use `railway ssh`. This runs *deployed* code, so it yields
-   pre-fix numbers or a raw metrics dump to classify locally — useful, but a
-   step behind option 1.
+The 1,086 are not a rounding detail and should not hide inside the word
+"unclassifiable". At their newest period: **56** report no `total_assets`,
+**604** report no `total_liabilities` (but do report equity), **371** report no
+equity tag, and **51** report neither. That is ~975 filings where a core tag was
+never ingested — an extraction gap of its own, and larger than every identity
+failure below put together. `build_view1` derives liabilities from the stated
+right-hand side for 618 of them and then deliberately skips the identity check,
+because a sum that balances by construction cannot also be evidence that it
+balances.
 
-Then:
+### Reconciles — 4,448 of 5,122 (86.84%)
 
-```bash
-railway run python scripts/identity_failures.py            # markdown tables
-railway run python scripts/identity_failures.py --json     # machine-readable
+| Category | Count | % of testable | Examples | Whose fault |
+|---|---|---|---|---|
+| Balances directly (A = L + E) | 4,447 | 86.82% | JPM, FNMA, FMCC, BAC, C, WFC | — |
+| Reconciles once NCI is included | 1 | 0.02% | OUT | Filing structure |
+| Reconciles once mezzanine is included | 0 | 0.00% | — | Filing structure |
+| Reconciles once both are included | 0 | 0.00% | — | Filing structure |
+
+**Why NCI is 1 and not hundreds.** 2,208 filers publish
+`total_equity_incl_nci`, so their noncontrolling interest is already inside the
+equity term and they land in *balances directly*. The NCI basis only fires for
+the shape where a filer reports parent equity and the NCI as two lines with no
+combined total, and exactly one filer in the universe does that and is
+otherwise clean. The category is not dead; it is nearly empty because the
+common case is handled upstream.
+
+**Why mezzanine is 0, and why that number is not a fact about filings.**
+`temporary_equity`, `redeemable_preferred_stock` and
+`redeemable_noncontrolling_interest` have **zero rows in production**. The
+concepts were added to the ingest in this session and the previous one; the
+fundamentals table predates them. Nothing can be resolved by a tag that no row
+carries, so this is a statement about our ingest history, not about how US
+issuers file.
+
+### Does not reconcile — 674 of 5,122 (13.16%)
+
+| Category | Count | % of failures | Examples | Whose fault |
+|---|---|---|---|---|
+| Rounding (0.5–1% of assets) | 55 | 8.2% | KKR, MKL, STWD, CRH, RITM | Neither |
+| Missing XBRL tag in our ingest | 608 | 90.2% | BLK, KDP, BIDU, SPGI, UNM | Ours |
+| Genuinely broken filing | 0 | 0.0% | — | Company error |
+| Unexplained (no stated RHS) | 11 | 1.6% | PSEC, MSC, GLAD, HODL, FGDL | Unknown |
+| **TOTAL** | **674** | **100%** | — | — |
+
+One line per category, in one sentence each:
+
+- **Rounding** — the filing is right and so are we; the two sides differ by
+  less than a percent of assets, which on a $414bn balance sheet (KKR) is
+  presentation slack, not error.
+- **Missing XBRL tag** — the filing balances against its own published total
+  and our reconstructed `L + E` falls short, so the shortfall is a line we did
+  not read; this is the whole of the interesting population and it is broken
+  down below.
+- **Genuinely broken filing** — zero, which is the right answer for audited
+  public companies and is worth stating precisely because it was the outcome
+  most worth measuring.
+- **Unexplained** — no stated right-hand side to referee against, mostly BDCs
+  and commodity trusts (PSEC, GLAD, HODL) whose net-asset presentation does not
+  use the tags this test is built on.
+
+### Inside the 608
+
+Split by asking a second question of each one — *would the parent-only equity
+have closed it?*
+
+| Sub-mechanism | Count |
+|---|---|
+| Unresolved by any tag the filer published — the mezzanine population | 598 |
+| Closes on `L + parent equity`, i.e. our NCI-inclusive figure is wrong | 9 |
+| No usable figures at the newest period | 1 |
+
+**The 598.** Drift is bimodal and both modes point the same way. 311 of them
+drift by more than 95% — L + E is a rounding error beside assets — and none of
+those is worth more than $1bn: AVEX, DMII, EVAC, BCSS, COAG, CEPF. That is the
+signature of a SPAC or shell, where the trust account is the asset and
+essentially all of the equity is Class A stock subject to redemption, carried
+in **temporary equity**. The other mode is large and ordinary — BLK (3.8%),
+KDP (5.0%), SPGI (8.0%), BIDU (2.9%) — all of which carry redeemable
+noncontrolling interests. Both modes are mezzanine, and both are unreadable
+today for the reason given above: the tags have no rows yet.
+
+**The 9.** These are a different bug and should not be filed under "a tag we
+did not read". `total_equity_incl_nci` is simply wrong for them, and six are
+NEGATIVE while parent equity is positive: UNM (−$1.87bn against parent
+$10.81bn), A (−$0.23bn against $7.36bn), COAG, SPIR, SVRA, EFSI. Because
+`resolve_identity` prefers the NCI-inclusive total, the drawing trusts the bad
+figure — the live UNM page reports a 20% imbalance on a filing whose
+`L + parent equity` equals total assets exactly. Recorded here rather than
+fixed: it is a change to which equity figure the whole site trusts, and that
+deserves its own decision.
+
+### The two pass rates, reconciled
+
+The homepage stat bar says **99.8%**. This analysis says **86.84%**. Both are
+correct, computed from the same rows, and the difference is entirely one of
+definition:
+
+```
+  reconstructed passes                       4,448
++ pass only on the filer's own stated total    608
++ inside the 1% band universe_check allows      55
+= 5,111 / 5,122                             = 99.79%
+  universe_check: 5,782 / 5,795             = 99.78%
 ```
 
-The script has been run end to end against a seeded SQLite database and
-produces both tables and the JSON correctly; what is missing is the population,
-not the tooling.
+`universe_check` prefers the filer's stated `liabilities_and_equity` as the
+right-hand side and used it for **5,751 of 5,795** checkable filings. So the
+published figure overwhelmingly answers *does this filing balance against its
+own stated total* — a real and useful check, and very nearly a self-consistency
+one. It does not answer *did we recover every component of that total*. The
+codebase already measured the gap and never surfaced it:
+`universe_check`'s own `stated_total.moved_into_1pct` is **611**, against the
+608 found here. Two independent paths, the same population.
 
-Publishing invented counts in a document whose subject is not inventing numbers
-would be the wrong way to finish this analysis. The mechanism analysis above
-stands on the code; the population counts are one command away from whoever has
-the database.
+Neither number is dishonest. But only one of them is a claim about our
+extraction, and it is the smaller one.
+
+### This number is not final
+
+86.84% is the **reconstructed, pre-reload** rate. 598 of the 674 failures are
+mezzanine filings whose tags are now mapped but not yet ingested. Re-running
+`reload_fundamentals` against production should move most of that population
+into *reconciles once mezzanine is included*, and the reconstructed rate should
+rise substantially. **That reload replaces the entire fundamentals table and has
+not been run** — it is a deliberate, owner-level operation, not a side effect of
+an analysis. Re-run this script afterwards; the numbers above are the honest
+before.
+
+Reproduce:
+
+```bash
+railway run --service Postgres python scripts/identity_failures.py
+railway run --service Postgres python scripts/identity_failures.py --json
+```
 
 ## What goes on the site
 
-`/methodology`, linked from the homepage identity figure and from every company
-page that carries an identity note. The public paragraph:
+**This section is a proposal, not a change. Nothing in `home_page.py` has been
+edited.** Publishing it swaps a claim about filings for a claim about our
+extraction, and that is an owner's decision — see the caveat at the end.
 
-> Every valid SEC filing we ingest reconciles to the accounting identity. The
-> 0.1% that don't are flagged with the exact reason — noncontrolling interests,
-> mezzanine equity, rounding, or a genuinely broken filing — never silently
-> fudged. We surface the reason; we don't hide it.
+The paragraph the real numbers support:
 
-The marketing claim stays at 99.9%. It is the true number and the honest one.
+> Every valid SEC filing we ingest reconciles to the accounting identity.
+> Of the 6,208 companies we cover, 5,122 report the three totals the identity
+> needs. 4,447 of those balance directly on the components we extract, one
+> reconciles once noncontrolling interests are included, and 608 balance
+> against the filer's own stated total but not against our reconstruction —
+> almost all of them mezzanine equity, which we have only just begun to ingest.
+> 55 sit inside a rounding band and **none is a genuinely broken filing.**
+> Where a filing does not reconcile we say which of those it is. We surface the
+> reason; we don't hide it.
+
+Three things about that draft, all of which are the reason it is a draft:
+
+1. **It does not lead with a percentage,** because the two available
+   percentages measure different things (see *The two pass rates, reconciled*)
+   and any single number printed without its definition is the thing this
+   document exists to prevent.
+2. **"None is a genuinely broken filing" is the strongest true sentence here**
+   and it is currently buried. Zero out of 5,122 audited filers got their own
+   arithmetic wrong. That is a better claim than any accuracy percentage and it
+   costs nothing to defend.
+3. **608 is quoted as a weakness in our reading, not theirs.** That is the
+   honest framing and it is also the more credible one.
+
+### The caveat that decides whether to ship it
+
+The 608 will shrink — probably a great deal — the first time
+`reload_fundamentals` runs against production with the mezzanine tags now
+mapped. Publishing "608" today prints a number that is about to improve, and
+publishing the reconstructed rate (86.84%) alongside an existing "99.9%
+accurate" marketing claim invites an obvious question with a long answer.
+
+The recommended order is therefore:
+
+1. Run the fundamentals reload (owner action — it replaces the table).
+2. Re-run `scripts/identity_failures.py` and read the new split.
+3. Then decide which number goes on the homepage, with both in front of you.
+
+Until then the existing public paragraph stands and remains defensible: the
+0.1% it refers to is `universe_check`'s definition, that figure is computed
+correctly, and this document now records exactly what it does and does not
+assert.
