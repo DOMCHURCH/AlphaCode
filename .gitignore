@@ -13,3 +13,10 @@ htmlcov/
 *.egg-info/
 .DS_Store
 .sec-cache/
+
+# Audit artefacts. Working documents, not source: a report describing the code
+# at one commit goes stale the moment the next one lands, and a stale audit
+# committed beside the code it no longer describes is worse than no audit.
+# Deliberately NOT deleted -- they are useful locally, just not tracked.
+AUDIT_REPORT.md
+audit-page.html
