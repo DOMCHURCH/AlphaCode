@@ -626,11 +626,37 @@ body[data-film="hero"] main::after {
       over the backdrop, so its effective ground is whatever the film is
       showing -- which means the same text passed and failed as the video
       looped. Non-deterministic contrast is worse than low contrast: it cannot
-      be measured once and trusted. These surfaces are opaque-dark now, so the
-      ratio is a fixed number again.
+      be measured once and trusted.
 
       The tab strip was the worst of it: a 5%-white fill over a sunset put
-      "Billing" at 1.67:1. */
+      "Billing" at 1.67:1.
+
+      THE FIRST ATTEMPT AT THIS DID NOT WORK, and the comment that used to sit
+      here claimed it had: "these surfaces are opaque-dark now, so the ratio is
+      a fixed number again". They were not opaque. `.tab` was a 62% fill and
+      `.tab.on` a 16% white one, both still over `.tabs { background:
+      transparent }` and therefore still over the film. Measured by compositing
+      the alpha stack over the backdrop's cloud band:
+
+          desktop, veil at its thinnest (a=0.59)   .tab 6.64:1   .tab.on 4.07:1
+          mobile, veil floor (a=0.16)              .tab 4.03:1   .tab.on 1.64:1
+
+      The mobile figure is the one that matters and it is not close. The veil
+      is `position: fixed`, so its gradient is anchored to the VIEWPORT and any
+      content scrolls through the thin end of it; the mobile breakpoint hides
+      the video but not the still behind it.
+
+      The fix is one opaque ground under the strip. The alpha fills stay --
+      they are the whole look of this stylesheet -- but they now composite over
+      a KNOWN colour instead of over a moving picture, so the ratio is a fixed
+      number for the first time:
+
+          .tab       --ink2 on (12,14,20)    8.89:1
+          .tab:hover --ink  on (11,13,19)   17.33:1
+          .tab.on    --ink  on (54,56,63)   10.43:1
+
+      Recomputed whenever these values change: scripts/check_contrast.py. */
+.tabs { background: var(--well); padding: 5px; border-radius: 999px; }
 .tab { background: rgba(10, 11, 17, .62); }
 .tab:hover { background: rgba(10, 11, 17, .78); color: var(--ink); }
 .tab.on { background: rgba(255, 255, 255, .16); }
