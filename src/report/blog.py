@@ -214,7 +214,7 @@ _POST_BANK_BALANCE_SHEETS = Post(
     ),
     published="2026-09-10",
     updated="2026-09-10",
-    minutes=3,
+    minutes=5,
     body="""
 <p class="lede">Look at a bank drawn to scale and the first thing you notice is
 that the equity block is almost too thin to label.</p>
@@ -224,33 +224,90 @@ equity per dollar of assets, where a software company might run on sixty. Draw
 both at true proportion and they look like different kinds of object, which is
 most of the argument for drawing them at all.</p>
 
-<p>The second thing that trips people up is the direction of the two big lines.
-<strong>Deposits are a liability.</strong> The money in your current account is
-owed back to you, so it sits on the claims side. <strong>Loans are an
-asset</strong> — a promise of repayment the bank owns. A reader who expects
-"deposits = money the bank has" reads the whole picture backwards.</p>
+<h2>The thin block is the business, not a warning</h2>
 
-<p>This also breaks the tag-picking heuristics that most XBRL extractors use. A
-bank files <code>Assets</code> for the consolidated group and again for each
-segment, and the segment figures for a large institution are themselves larger
-than most companies' entire balance sheets. Picking the biggest number, or the
-first one, produces something plausible and wrong. The accounting identity is
-what settles it: only the consolidated set satisfies
-<strong>A = L + E</strong>, so that is the set that gets served.</p>
+<p>A bank borrows short and lends long. It takes money that can be withdrawn on
+demand and turns it into loans and securities that cannot be called back on
+demand, and it keeps the difference between what it pays for the first and
+earns on the second. That spread is thin, so it only produces a meaningful
+return on equity if the equity is small relative to the assets it supports.
+Leverage is not a risk a bank has taken on top of its business. Leverage
+<em>is</em> the business.</p>
+
+<p>Which is why the sliver is regulated rather than left to management. Capital
+requirements are written as ratios, and the ones that bind are risk-weighted: a
+book of government bonds and a book of unsecured consumer loans do not consume
+the same capital at the same dollar size. So the equity block you see drawn
+against total assets is not the ratio a supervisor is looking at. It is the
+plain arithmetic one — the things, the claims, and what is left over — and it
+is the one that tells you how much has to go wrong before the claims exceed the
+things.</p>
+
+<h2>The two big lines run backwards</h2>
+
+<p><strong>Deposits are a liability.</strong> The money in your current account
+is owed back to you, so it sits on the claims side. <strong>Loans are an
+asset</strong> — a promise of repayment the bank owns. A reader who expects
+"deposits = money the bank has" reads the whole picture backwards, and it is an
+easy expectation to hold: in almost every other kind of company, a deposit is
+something the business received and got to keep.</p>
+
+<p>Once that flips, the rest of the shape follows. Deposits are usually the
+largest single block on the claims side. Loans are usually the largest on the
+things side. And the difference between how fast each of those can move is
+most of what makes a bank a bank.</p>
+
+<h2>What else is in there</h2>
+
+<p>Loans are not the whole asset side. A bank also carries a securities
+portfolio, and how it is measured depends on what the bank says it intends to
+do with it. Securities classified <strong>available for sale</strong> are
+carried at fair value, so a fall in market price shows up in the carrying
+amount. Securities classified <strong>held to maturity</strong> are carried at
+amortised cost, on the reasoning that a bond held to the end pays par whatever
+it traded at in between.</p>
+
+<p>That distinction is invisible in the totals and occasionally enormous. A
+held-to-maturity book bought at low yields and carried at cost can sit on an
+unrealised loss the balance sheet does not show, and the loss stays theoretical
+exactly as long as the bank is never forced to sell. When deposits leave faster
+than expected, it stops being theoretical. That was the mechanism behind the
+2023 US regional bank failures, and none of it was concealed — it was in the
+notes, in a table, beside a total that did not reflect it.</p>
+
+<p>The lesson is not that the totals lie. It is that a balance sheet is a
+statement of amounts, and the measurement basis behind an amount is a separate
+question the totals cannot answer.</p>
+
+<h2>Why this breaks most XBRL extractors</h2>
+
+<p>A bank files <code>Assets</code> for the consolidated group and again for
+each segment, and the segment figures for a large institution are themselves
+larger than most companies' entire balance sheets. Picking the biggest number,
+or the first one, produces something plausible and wrong. The accounting
+identity is what settles it: only the consolidated set satisfies
+<strong>A = L + E</strong>, so that is the set that gets served. The long
+version of that argument is
+<a href="/blog/sec-xbrl-data-wrong-one-in-five">its own note</a>.</p>
 
 <h2>What to look at</h2>
 
 <ul>
   <li><strong>Deposits as a share of liabilities.</strong> A deposit-funded
-    bank and a wholesale-funded one behave very differently under stress.</li>
+    bank and a wholesale-funded one behave very differently under stress.
+    Retail deposits are stickier and cheaper; wholesale funding reprices, and
+    it leaves.</li>
   <li><strong>Loans as a share of assets.</strong> The rest is securities, cash
-    and trading positions.</li>
+    and trading positions, and a bank that is mostly securities is running a
+    different business from one that is mostly loans.</li>
   <li><strong>The equity sliver.</strong> Ten percent is ordinary. Two percent
     is a different conversation.</li>
 </ul>
 
-<p><em>This is a short note and it will grow. The section on securities
-portfolios and held-to-maturity accounting is the obvious next piece.</em></p>
+<p>All three are ratios between blocks sitting on the same drawing, which is
+the point of drawing it. Put <a href="/company/JPM">JPM</a> next to
+<a href="/company/MSFT">MSFT</a> and the difference is not a number you have to
+hold in your head — it is the shape of the picture.</p>
 """,
 )
 
@@ -266,7 +323,7 @@ _POST_ACCOUNTING_IDENTITY = Post(
     ),
     published="2026-09-10",
     updated="2026-09-10",
-    minutes=3,
+    minutes=5,
     body="""
 <p class="lede">The identity is not a rule companies are asked to obey. It is a
 consequence of how the books are kept, which is exactly what makes it useful to
@@ -284,6 +341,38 @@ from an incorrect one by looking at it. But three figures together either
 balance or they do not, and a set that balances is very unlikely to contain a
 wrong one. It is a checksum somebody else already computed for you.</p>
 
+<h2>The right-hand side has more than two terms</h2>
+
+<p>This is where a naive implementation of the test starts failing filings that
+are perfectly fine.</p>
+
+<p>"Equity" in the identity means the equity of the whole consolidated entity.
+When a parent owns 80% of a subsidiary it consolidates <em>all</em> of that
+subsidiary's assets and liabilities, and the fifth it does not own appears on
+the claims side as a <strong>noncontrolling interest</strong>. Filers present
+this two ways: some publish one total equity figure that already includes the
+NCI, and some publish parent equity and the noncontrolling interest as separate
+lines. Test <code>A = L + E</code> against the second shape using parent equity
+alone and you get a gap exactly the size of the minority stake. The filing is
+correct. The test is wrong.</p>
+
+<p>A second term sits in neither column cleanly. <strong>Mezzanine
+equity</strong> — redeemable preferred stock, redeemable noncontrolling
+interests — is presented between liabilities and equity precisely because it is
+not unambiguously either. It can be required to be redeemed, which is debt-like,
+but it carries no fixed obligation the way debt does. It turns up in airlines,
+in biotech, and in anything that came through a SPAC. Ignore it and, again, the
+arithmetic fails on a filing that is fine.</p>
+
+<p>So the identity a reader actually needs is closer to this:</p>
+
+<p class="pull">Assets = Liabilities + Mezzanine + Equity + NCI</p>
+
+<p>The discipline that keeps this honest is to treat every additional term as a
+<em>reason</em> rather than a fudge factor. Each one has to be a line the filer
+actually published, named before it is used. Adding a term because it closes a
+gap you do not understand is how a test quietly stops being a test.</p>
+
 <h2>When it does not balance</h2>
 
 <p>Sometimes the arithmetic genuinely fails. Rounding in the filing, a
@@ -293,12 +382,40 @@ balance, with the gap stated as a percentage — not to adjust a number until th
 columns agree. An adjusted figure is no longer what the company filed, and what
 the company filed is the whole product.</p>
 
-<p>The one case that looks like a failure and is not: <strong>negative
-equity</strong>. Liabilities exceeding assets balances perfectly well, it just
-draws with the equity block below the baseline.</p>
+<p>The tolerance for "balances" should be a fraction of assets rather than a
+fixed amount. Filers round, and they round at a scale set by their own size: a
+flat dollar tolerance either fails every large bank or waves through anything
+at a small company. Half a percent of assets absorbs presentation rounding
+without absorbing a real error.</p>
 
-<p><em>A short note. Minority interest and the difference between parent-only
-and NCI-inclusive equity deserve their own piece.</em></p>
+<p>The one case that looks like a failure and is not: <strong>negative
+equity</strong>. Liabilities exceeding assets balances perfectly well — it just
+draws with the equity block below the baseline.
+<a href="/company/AAL">AAL</a> is the standing example, and the drawing says
+more about it than the number does.</p>
+
+<h2>What the identity does not prove</h2>
+
+<p>It is a consistency check, not a truth check. Books can balance to the cent
+and still describe a company that does not exist: the ledgers in the large
+accounting frauds balanced too, because balancing is what double-entry does
+automatically. Misstatement happens earlier, in what gets recorded and at what
+value, and it arrives at the balance sheet already reconciled.</p>
+
+<p>So the identity tells you that the three figures you pulled belong to the
+same statement. It tells you nothing about whether that statement is honest.
+That is still worth a great deal, because it is the failure mode you can
+actually do something about from outside. You are not going to catch a fraud
+from a data feed. You <em>are</em> going to pick the wrong <code>Assets</code>
+tag out of twenty-three candidates, and the identity catches that every
+time.</p>
+
+<p>Across {COMPANIES} companies the reconciliation closes on about
+<strong>99.9%</strong> of filings. The rest are flagged with the reason rather
+than quietly adjusted — <a href="/methodology">the methodology page</a> lists
+which reasons, and <a href="/company/WMT">WMT</a> and
+<a href="/company/FCX">FCX</a> are ordinary worked examples if you want to see
+a closed identity drawn.</p>
 """,
 )
 
