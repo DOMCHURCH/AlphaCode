@@ -2825,6 +2825,44 @@ def _public_origin(request: Request) -> str:
     return f"{scheme}://{request.url.netloc}"
 
 
+def _compare_page(prefix: str, slug: str, request: Request) -> HTMLResponse:
+    """One comparison or decision page, or a 404 that says which.
+
+    Three routes share this because the three prefixes are one collection with
+    three shapes of URL -- `/compare/x`, `/best/x`, `/alternatives/x` -- and a
+    reader arriving from a search does not care which shape they landed on. The
+    slug carries its prefix in `compare.BY_SLUG`, so there is exactly one place
+    a page is registered and no way to add a route that no page answers.
+    """
+    from src.report.compare import BY_SLUG
+    from src.report.compare import render as render_compare
+
+    page = BY_SLUG.get(f"{prefix}/{slug}")
+    if page is None:
+        raise HTTPException(status_code=404, detail="No such comparison page.")
+    return HTMLResponse(
+        _versioned(render_compare(page, nav=_nav_for(request, "")))
+    )
+
+
+@app.get("/compare/{slug}", response_class=HTMLResponse, include_in_schema=False)
+def compare_page(slug: str, request: Request) -> HTMLResponse:
+    """To Scale against one named alternative."""
+    return _compare_page("compare", slug, request)
+
+
+@app.get("/best/{slug}", response_class=HTMLResponse, include_in_schema=False)
+def best_page(slug: str, request: Request) -> HTMLResponse:
+    """How to choose in a category, rather than a ranking of other people."""
+    return _compare_page("best", slug, request)
+
+
+@app.get("/alternatives/{slug}", response_class=HTMLResponse, include_in_schema=False)
+def alternatives_page(slug: str, request: Request) -> HTMLResponse:
+    """What to look for in a replacement for a named product."""
+    return _compare_page("alternatives", slug, request)
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(request: Request) -> Response:
     """Every page worth indexing, with a date on each one that is true.

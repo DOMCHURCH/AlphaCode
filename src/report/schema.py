@@ -596,3 +596,28 @@ def breadcrumb_ld(items: Sequence[tuple[str, str]] | Iterable[tuple[str, str]]) 
             "itemListElement": elements,
         }
     )
+
+
+def itemlist_ld(name: str, items: Sequence[str] | Iterable[str]) -> str:
+    """An ItemList, for a page whose content IS an ordered list.
+
+    Used by /best/sec-filings-api-for-quants for its four tests -- and
+    deliberately NOT for a ranking of other companies. Publishing an ordered
+    list of rival products in structured data asserts a comparison I have not
+    measured and could not defend; the list here is of things a reader should
+    do, which is a claim I can stand behind.
+    """
+    entries = [str(i).strip() for i in items if str(i).strip()]
+    if not entries:
+        return ""
+    return _script({
+        "@context": "https://schema.org",
+        "@type": "ItemList",
+        "name": name,
+        "itemListOrder": "https://schema.org/ItemListOrderAscending",
+        "numberOfItems": len(entries),
+        "itemListElement": [
+            {"@type": "ListItem", "position": n, "name": text}
+            for n, text in enumerate(entries, start=1)
+        ],
+    })

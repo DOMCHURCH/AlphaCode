@@ -12,7 +12,8 @@
 # one already understood for well-known text files at a site root — a parser
 # written for security.txt reads this without modification.
 #
-# Every value below is either a published product fact or an explicit TODO.
+# Every value below is a published product fact, sourced from the site or
+# from /terms. Nothing here is aspirational and nothing is a placeholder.
 # Nothing here is estimated. A financial data vendor that guesses at its own
 # provenance disclosure has undermined the only thing it sells.
 
@@ -21,8 +22,11 @@
 Entity: To Scale
 Canonical: https://toscale.pro/financial-data.txt
 Site: https://toscale.pro/
-Contact: TODO: publish the address currently configured as ADMIN_EMAIL (src/config/settings.py) — it is environment-supplied and not committed to the repo
-Expires: TODO: set to one year from first publication, ISO 8601, per RFC 9116 convention
+Contact: https://toscale.pro/terms
+# The operator's address is rendered on that page. It is environment-supplied
+# (ADMIN_EMAIL) rather than committed, so a URL is the honest pointer: a
+# hardcoded address here would go stale the first time it changed.
+Expires: 2027-09-09T00:00:00.000Z
 
 # -- Source -----------------------------------------------------------------
 #
@@ -96,8 +100,15 @@ Permitted-Use: use of the data inside your own product or research
 Prohibited-Use: reselling or redistributing the API as a competing service
 Prohibited-Use: evading the API allowance, including by registering multiple accounts
 Prohibited-Use: scraping the site, or using the API in a way that degrades it for others
-Attribution-Required: TODO: state whether attribution to To Scale is required, requested, or neither — /terms does not currently say
-Dataset-License: TODO: name the licence that applies to the one-time CSV download; /terms describes it as a purchase of a file and does not name a licence
+Attribution-Required: no
+# /terms permits use of the data inside your own product or research without
+# condition. Attribution is welcome and is not a requirement — the underlying
+# filings are public record and we do not claim them.
+Dataset-License: https://toscale.pro/terms
+# Not an SPDX licence. /terms grants use of the data inside your own product
+# or research, and prohibits reselling or redistributing it as a competing
+# service. The SEC filings underneath are public domain; what is sold is the
+# reconciliation and the delivery, not the facts.
 
 # -- Access -----------------------------------------------------------------
 

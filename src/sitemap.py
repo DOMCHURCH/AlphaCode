@@ -115,6 +115,14 @@ def build(base_url: str) -> str:
     parts.append(_url(f"{base}/blog", legal_date, "weekly", "0.7"))
     for slug, updated in _blog_posts():
         parts.append(_url(f"{base}/blog/{slug}", updated, "monthly", "0.6"))
+    # The comparison and decision pages. Enumerated from `compare.PAGES` rather
+    # than listed here, so adding a page to that tuple is the only step -- a
+    # sitemap that has to be edited in a second file is a sitemap that will one
+    # day be missing a page nobody notices. `updated` is the date written on
+    # each page, which is the honest lastmod: the content is prose and it
+    # changes when somebody rewrites it, not when a filing lands.
+    for slug, updated in _compare_pages():
+        parts.append(_url(f"{base}/{slug}", updated, "monthly", "0.6"))
     parts.append(_url(f"{base}/dashboard", legal_date, "monthly", "0.7"))
     parts.append(_url(f"{base}/login", legal_date, "yearly", "0.3"))
     parts.append(_url(f"{base}/terms", legal_date, "yearly", "0.3"))
@@ -178,6 +186,21 @@ def reset_cache() -> None:
     """Forget the built file. For tests, and for anything that reloads data."""
     global _cache
     _cache = None
+
+
+def _compare_pages() -> list[tuple[str, str]]:
+    """(slug, updated) for every comparison and decision page.
+
+    Import is local and failure is swallowed for the same reason `_blog_posts`
+    does it: a sitemap must not stop existing because a prose module raised.
+    """
+    try:
+        from src.report.compare import PAGES
+
+        return [(p.slug, p.updated) for p in PAGES]
+    except Exception:  # noqa: BLE001 - a sitemap must not depend on prose
+        log.warning("sitemap_compare_pages_unavailable")
+        return []
 
 
 def _blog_posts() -> list[tuple[str, str]]:
