@@ -3175,6 +3175,97 @@ def api_page(request: Request) -> HTMLResponse:
     )
 
 
+# The service's own inventory of what it exposes. Both tuples are COMPLETE --
+# the admin routes are still written down here -- because this list is where
+# somebody reading the code finds out what surface exists, and deleting the
+# admin entries to hide them from strangers would take that answer away from
+# the one reader entitled to it.
+#
+# `_is_public` decides which of them a stranger actually receives. Filtering at
+# the point of serving rather than at the point of writing is what makes the
+# guarantee hold for routes nobody has added yet.
+_INDEX_ENDPOINTS: tuple[str, ...] = (
+    "/", "/search?q=TICKER", "/company/{ticker}",
+    "/api  (this index, as a page)", "/api.json",
+    "/health",
+    # `/status` sits with the admin routes now, because that is
+    # what it is. Listing it beside `/health` said "public" to
+    # anyone reading this index for a cheap thing to poll.
+    "/status  (admin secret)", "/reconcile",
+    "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
+    "/admin/universe-check",
+    "POST /backfill", "POST /admin/reload-fundamentals",
+    "POST /admin/raw-facts",
+    "/pricing  (plans, dataset vs API, FAQ)",
+    "/blog  (notes)",
+    "/llms.txt", "/financial-data.txt",
+    "/dataset  (what is in the CSV, and its snapshot date)",
+    "POST /api/billing/checkout",
+    "POST /admin/simulate-purchase  (admin secret; no money moves)",
+)
+
+_KEYED_ENDPOINTS: tuple[str, ...] = (
+    "POST /api/auth/register",
+    "POST /api/auth/resend-key",
+    "POST /api/auth/magic-link  (dashboard login)",
+    "POST /api/auth/login  (password)",
+    "POST /api/auth/register-password",
+    "POST /api/auth/forgot-password",
+    "GET  /api/auth/me  (session)",
+    "GET  /admin/subscriptions  (admin secret)",
+    "GET /api/company/{ticker}",
+    "GET /api/demo/{ticker}  (no key, 5/day per address)",
+    "GET /api/user/status",
+    "GET /api/download-dataset",
+)
+
+# Admin-gated routes whose path does not say so. `/status` is the whole list
+# today: it answers with the feature flags, the billing error and the backfill
+# state, and it is behind `require_admin` -- but nothing in the string
+# `/status` tells a filter that.
+_ADMIN_ONLY_PATHS = frozenset({"/status"})
+
+
+def _route_path(entry: str) -> str:
+    """The bare path out of an index entry.
+
+    Entries are written for a human to read -- `"POST /admin/raw-facts"`,
+    `"GET  /api/auth/me  (session)"`, `"/api  (this index, as a page)"` -- so
+    the path is the first token that starts with a slash, and the verb and the
+    parenthetical are noise.
+    """
+    for token in entry.split():
+        if token.startswith("/"):
+            return token
+    return entry
+
+
+def _is_public(entry: str) -> bool:
+    """Does this entry belong in an index that anyone can fetch?
+
+    `/api.json` is open, uncached by any key, and the first thing somebody
+    pointed at this domain will read. Handing them the path of every admin
+    surface is handing them the list of doors to try -- the doors are locked
+    (`require_admin` on all of them), but a locked door nobody knows about is
+    strictly better than a locked door with a sign on it.
+
+    Two rules:
+
+    1. **Anything saying `admin` is out.** Tested against the WHOLE entry, not
+       just the path, so an annotation like `"(admin secret)"` cannot leak the
+       word past a path-only check -- which is what makes
+       "no `admin` anywhere in the response" a property of this function rather
+       than a coincidence of today's list.
+    2. **`_ADMIN_ONLY_PATHS` is out**, for the gated routes whose path does not
+       contain the word.
+
+    Rule 1 is deliberately broader than the routes that exist right now: a new
+    admin route added to the tuples above is filtered by existing, not by
+    somebody remembering to filter it.
+    """
+    return "admin" not in entry.lower() and _route_path(entry) not in _ADMIN_ONLY_PATHS
+
+
 @app.get("/api.json")
 def api_index() -> JSONResponse:
     return JSONResponse(
@@ -3183,41 +3274,10 @@ def api_index() -> JSONResponse:
             "description": (
                 "Filed financial statements, drawn at true proportion."
             ),
-            "endpoints": [
-                "/", "/search?q=TICKER", "/company/{ticker}",
-                "/api  (this index, as a page)", "/api.json",
-                "/health",
-                # `/status` sits with the admin routes now, because that is
-                # what it is. Listing it beside `/health` said "public" to
-                # anyone reading this index for a cheap thing to poll.
-                "/status  (admin secret)", "/reconcile",
-                "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
-                "/admin/universe-check",
-                "POST /backfill", "POST /admin/reload-fundamentals",
-                "POST /admin/raw-facts",
-                "/pricing  (plans, dataset vs API, FAQ)",
-                "/blog  (notes)",
-                "/llms.txt", "/financial-data.txt",
-                "/dataset  (what is in the CSV, and its snapshot date)",
-                "POST /api/billing/checkout",
-                "POST /admin/simulate-purchase  (admin secret; no money moves)",
-            ],
+            "endpoints": [e for e in _INDEX_ENDPOINTS if _is_public(e)],
             "keyed_api": {
                 "get_a_key": "/dashboard",
-                "endpoints": [
-                    "POST /api/auth/register",
-                    "POST /api/auth/resend-key",
-                    "POST /api/auth/magic-link  (dashboard login)",
-                    "POST /api/auth/login  (password)",
-                    "POST /api/auth/register-password",
-                    "POST /api/auth/forgot-password",
-                    "GET  /api/auth/me  (session)",
-                    "GET  /admin/subscriptions  (admin secret)",
-                    "GET /api/company/{ticker}",
-                    "GET /api/demo/{ticker}  (no key, 5/day per address)",
-                    "GET /api/user/status",
-                    "GET /api/download-dataset",
-                ],
+                "endpoints": [e for e in _KEYED_ENDPOINTS if _is_public(e)],
                 "auth": "Send your key as an X-API-Key header.",
                 "free_tier": (
                     f"{get_settings().free_tier_monthly_calls} calls per "

@@ -91,11 +91,37 @@ def test_health_ok(client):
 def test_api_index_lists_the_surviving_endpoints(client):
     # /api is the human page now; the index it used to be is at /api.json.
     body = client.get("/api.json").json()
-    assert "/admin" in body["endpoints"]
-    assert "/admin/balance-sheet" in body["endpoints"]
+    # The admin routes used to be listed here, and this test used to assert
+    # they WERE -- an open endpoint publishing the path of every gated surface
+    # on the service. They are filtered now; the public routes are untouched.
+    assert "/admin" not in body["endpoints"]
+    assert "/admin/balance-sheet" not in body["endpoints"]
+    assert "/company/{ticker}" in body["endpoints"]
+    assert "/health" in body["endpoints"]
+    assert "GET /api/company/{ticker}" in body["keyed_api"]["endpoints"]
     # The funnel is gone; nothing may advertise a run or a report.
     joined = " ".join(body["endpoints"])
     assert "/run" not in joined and "/report" not in joined
+
+
+def test_the_public_index_names_no_admin_surface_at_all(client):
+    """Not "no admin route in the list" -- no `admin` anywhere in the response.
+
+    A path-by-path assertion only covers the paths somebody thought to write
+    down. The property that matters is that a stranger fetching this open
+    endpoint learns nothing about the gated half of the service, and that is a
+    statement about the whole payload: the endpoint lists, the annotations
+    beside them, and anything a later edit adds.
+
+    `/status` is checked separately because it is admin-gated and its path does
+    not contain the word -- it is exactly the entry a naive filter would miss.
+    """
+    r = client.get("/api.json")
+    assert r.status_code == 200
+    assert "admin" not in r.text.lower(), r.text
+
+    endpoints = r.json()["endpoints"]
+    assert not [e for e in endpoints if e.split()[0] == "/status"], endpoints
 
 
 def test_api_is_a_page_not_a_payload(client):
