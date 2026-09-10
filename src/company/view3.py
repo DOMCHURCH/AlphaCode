@@ -111,10 +111,24 @@ def _trailing(
     latest = periods[0]
 
     # An annual filing already covers twelve months.
-    if (fiscal.get(latest) or "").upper() == "FY":
+    label = _fiscal_label(fiscal.get(latest))
+    if label == "FY":
         return by_period[latest], "annual", 1, latest
 
+    # An UNKNOWN period is not a quarter. Summing four of them is correct only
+    # when all four ARE quarters, and the one thing a blank `fp` guarantees is
+    # that nobody knows what it covers -- which is how four annual filings
+    # became a "trailing twelve months" figure at 4x the truth. Refusing is the
+    # honest answer: the caller renders nothing rather than a number that is
+    # wrong by a factor.
+    if not label:
+        log.info("revenue_window_unknown_period", latest=str(latest))
+        return None
     if len(periods) < 4:
+        return None
+    # And all four have to be quarters, not just the newest one.
+    if any(_fiscal_label(fiscal.get(p)) not in _QUARTERS for p in periods[:4]):
+        log.info("revenue_window_not_four_quarters", latest=str(latest))
         return None
     window = periods[:4]
     summed: dict[str, float] = {}
@@ -122,6 +136,20 @@ def _trailing(
         for metric, value in by_period[p].items():
             summed[metric] = summed.get(metric, 0.0) + value
     return summed, "ttm", 4, latest
+
+
+_QUARTERS: frozenset[str] = frozenset({"Q1", "Q2", "Q3", "Q4"})
+# Values that mean "no fiscal period was recorded". "NAN" is on the list
+# because a blank column in SEC's TSV used to arrive as float NaN and
+# stringify to exactly that -- fixed at the reader now, but a database loaded
+# before the fix still holds the string, so this is the belt to that braces.
+_NO_PERIOD: frozenset[str] = frozenset({"", "NAN", "NONE", "NULL", "NA"})
+
+
+def _fiscal_label(raw: object) -> str:
+    """A fiscal period as a clean upper-case label, or "" when unknown."""
+    text = str(raw or "").strip().upper()
+    return "" if text in _NO_PERIOD else text
 
 
 def build_view3(ticker: str, as_of: dt.date | None = None) -> View3 | None:

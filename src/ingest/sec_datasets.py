@@ -78,7 +78,20 @@ def _read_member(
         if name not in z.namelist():
             raise RuntimeError(f"SEC dataset ZIP missing {name}; members={z.namelist()[:6]}")
         with z.open(name) as f:
-            df = pd.read_csv(f, sep="\t", low_memory=False, dtype=str)
+            # `keep_default_na=False` is not optional here, and its absence
+            # was a real bug. With `dtype=str` alone, pandas STILL converts a
+            # blank field to float NaN -- and NaN is truthy, so
+            # `str(meta["fp"] or "").strip()` downstream produced the literal
+            # string "nan". A blank fiscal period then failed its `== "FY"`
+            # test and the revenue view summed four ANNUAL periods as though
+            # they were quarters, reporting revenue at four times the truth and
+            # labelling it "the last four quarters added together".
+            #
+            # Blank means blank. Every column read here is text, and every
+            # consumer already handles an empty string.
+            df = pd.read_csv(
+                f, sep="\t", low_memory=False, dtype=str, keep_default_na=False
+            )
     # Keep only the columns we use, defensively (schema has ~30+ columns).
     have = [c for c in usecols if c in df.columns]
     missing = set(usecols) - set(have)

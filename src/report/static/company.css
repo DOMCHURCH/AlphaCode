@@ -465,3 +465,17 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
      gains from being big. A row of two numbers does not. */
   table.legend{max-width:1100px}
 }
+
+/* ---- a filing that does not balance ---------------------------------------
+   The one exception to "the only colour on the page is data". Every other
+   note on this page is a remark about presentation -- this filer does not
+   break X out, liabilities were derived -- and they are all correctly grey.
+   This one says the two columns disagree, on a site whose entire argument is
+   that they are the same money counted twice. Read as grey, it would be the
+   most important sentence on the page wearing the costume of the least. */
+.note.warn{
+  background:color-mix(in srgb, var(--red) 12%, var(--well));
+  box-shadow:var(--in-sm), inset 3px 0 0 0 var(--red);
+  color:var(--ink);
+  font-weight:500;
+}

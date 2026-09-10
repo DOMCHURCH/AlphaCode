@@ -131,6 +131,20 @@ class View1:
     # equity is negative, which is exactly when it should.
     claims_span_pct: float = 100.0
     notes: list[str] = field(default_factory=list)
+    # Whether A = L + E actually holds on this filing, within tolerance.
+    #
+    # Nothing on the render path used to ask. The identity is checked at
+    # INGEST, but the result goes to an in-memory report keyed by quarter and
+    # never to the row -- so the drawing layer had nothing to consult, and a
+    # filing where assets were 1000 against claims of 1800 rendered happily
+    # with the claims column at 180% of the assets column, no note, no flag.
+    # On a site whose entire argument is that both columns are the same money
+    # counted twice, that is the one picture that must never be drawn without
+    # saying so.
+    balances: bool = True
+    # How far out it is, as a share of assets. Reported so the page can say
+    # "by 3%" rather than only "it does not balance".
+    imbalance_pct: float = 0.0
 
     def as_dict(self) -> dict[str, Any]:
         def blocks(bs: list[Block]) -> list[dict[str, Any]]:
@@ -158,6 +172,8 @@ class View1:
             "total_equity": self.total_equity,
             "missing_components": self.missing_components,
             "liabilities_derived_from": self.liabilities_derived_from,
+            "balances": self.balances,
+            "imbalance_pct": round(self.imbalance_pct, 3),
             "negative_equity": self.negative_equity,
             "claims_span_pct": round(self.claims_span_pct, 3),
             "notes": self.notes,
@@ -322,7 +338,53 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     ]
     view.mode = "detailed" if named_blocks else "totals_only"
 
+    _check_identity(view, total_assets, total_liabilities, total_equity)
     return view
+
+
+# How far A = L + E may miss before the drawing says so, as a share of assets.
+# 0.5% absorbs rounding and a filer's own presentation slack; anything past it
+# is a disagreement the reader should be told about rather than shown as a
+# column drawn off the top of the other one.
+IDENTITY_TOLERANCE = 0.005
+
+
+def _check_identity(
+    view: View1,
+    total_assets: float | None,
+    total_liabilities: float | None,
+    total_equity: float | None,
+) -> None:
+    """Does this filing balance? Record it, and say so on the drawing.
+
+    Skipped in two cases, both on purpose:
+
+    * liabilities DERIVED from the identity, where the sum balances by
+      construction and reporting that as a pass would be circular;
+    * negative equity, which is a real shape this site draws deliberately
+      below the baseline -- it balances, it just does not look like it.
+    """
+    if total_assets is None or total_liabilities is None or total_equity is None:
+        return
+    if view.liabilities_derived_from or total_assets <= 0:
+        return
+
+    gap = abs(total_assets - (total_liabilities + total_equity))
+    view.imbalance_pct = gap / total_assets * 100.0
+    view.balances = view.imbalance_pct <= IDENTITY_TOLERANCE * 100.0
+    if view.balances:
+        return
+
+    # The claims column is no longer a proportion of anything meaningful, so
+    # it is held at the assets column's height rather than drawn past it. The
+    # figures underneath are untouched -- what is shown is still as reported.
+    view.claims_span_pct = min(view.claims_span_pct, 100.0)
+    view.notes.append(
+        "This filing does not balance — data shown as reported. "
+        f"Liabilities plus equity differ from total assets by "
+        f"{view.imbalance_pct:.1f}%. Every figure here is as filed with the "
+        "SEC; nothing has been adjusted to make the two columns agree."
+    )
 
 
 def _sector_for(ticker: str) -> str | None:

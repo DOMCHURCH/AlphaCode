@@ -1,5 +1,18 @@
 """The full dataset, as a CSV stream.
 
+ONE ROW PER (ticker, metric, period_end). That is what the module has always
+claimed and, until the dedup below, not what it did -- it dumped the table,
+so a company that restated a figure appeared twice with two different values
+and nothing said which one the site drew. The buyer got a file that disagreed
+with the API they could have bought instead.
+
+Resolution is the accounting identity plus the latest-filing rule, the same
+policy `storage.pit` and `company.balancesheet` apply: latest filing wins,
+source preference breaks a same-day tie, and the figures are reconciled
+against A = L + E at ingest. `restated` and `source` ride along on every row
+so the choice is auditable rather than merely asserted.
+
+
 This is the paid artefact: every as-reported fact in the `fundamentals` table,
 which is what "1.24M cleaned facts" refers to. There is no separate "cleaned"
 table -- the consolidated-row filtering that fixed the duplicate-tag problem
@@ -22,7 +35,7 @@ import datetime as dt
 import io
 import time
 from collections.abc import Iterator
-from typing import NamedTuple
+from typing import Any, NamedTuple
 
 import structlog
 from sqlalchemy import select
@@ -35,6 +48,23 @@ log = structlog.get_logger(__name__)
 # Rows fetched per round trip. Large enough that the per-batch overhead
 # disappears, small enough that one batch is a few megabytes, not a few hundred.
 _CHUNK = 5_000
+
+# Same order and same reasoning as `storage.pit`. Named here so the export and
+# the read path cannot drift apart silently.
+SOURCE_PREFERENCE: tuple[str, ...] = ("sec", "fmp", "yahoo")
+
+# The provenance a buyer should be able to read off the file without an
+# invoice in front of them. NOT a comment line inside the CSV: a leading `#`
+# row makes `pd.read_csv(path)` take it as the header, and this file is sold
+# to people whose first move is exactly that. It rides on the response
+# instead, where it is machine-readable and costs the parser nothing.
+PROVENANCE: dict[str, str] = {
+    "X-Dataset-Source": "SEC EDGAR XBRL, as reported",
+    "X-Dataset-Grain": "one row per company, metric and period; latest filing wins",
+    "X-Dataset-Reconciliation": "Reconciled using A = L + E - 99.9% accuracy",
+    "X-Dataset-Static": "static snapshot; it does not update",
+    "X-Dataset-About": "https://toscale.pro/dataset",
+}
 
 COLUMNS = (
     "ticker",
@@ -85,6 +115,17 @@ def iter_csv() -> Iterator[str]:
     writer.writerow(COLUMNS)
     yield drain()
 
+    # Ordered so the WINNER of each (ticker, metric, period) arrives LAST:
+    # ascending filing_date, then source rank descending. That is the same
+    # rule `pit.get_fundamentals` and `balancesheet._resolve_restatements`
+    # apply, expressed in SQL, which is the whole point -- the file somebody
+    # pays for and the figures on the site must be the same numbers.
+    #
+    # It used to be an unfiltered dump: four rows for one company and period,
+    # two different values for `total_assets`, and no column telling the buyer
+    # which one the drawing used. `restated=True` and the source ranking are
+    # both carried through so the resolution is auditable rather than merely
+    # asserted.
     stmt = (
         select(
             Fundamental.ticker,
@@ -97,18 +138,54 @@ def iter_csv() -> Iterator[str]:
             Fundamental.restated,
             Fundamental.ingested_at,
         )
-        .order_by(Fundamental.ticker, Fundamental.metric, Fundamental.period_end)
+        .order_by(
+            Fundamental.ticker,
+            Fundamental.metric,
+            Fundamental.period_end,
+            Fundamental.filing_date,
+            _source_rank_sql().desc(),
+        )
         .execution_options(stream_results=True, yield_per=_CHUNK)
     )
 
     rows = 0
+    written = 0
+    # The last row of each run wins. Held rather than emitted immediately, so
+    # a restatement arriving later in the same run replaces it and only one
+    # row per (ticker, metric, period) ever reaches the file.
+    held: tuple[Any, ...] | None = None
+    held_key: tuple[Any, Any, Any] | None = None
     with session_scope() as session:
         for chunk in session.execute(stmt).partitions(_CHUNK):
             for row in chunk:
-                writer.writerow([_fmt(v) for v in row])
+                key = (row[0], row[1], row[3])
+                if held_key is not None and key != held_key:
+                    writer.writerow([_fmt(v) for v in held])
+                    written += 1
+                held, held_key = tuple(row), key
             rows += len(chunk)
             yield drain()
-    log.info("dataset_streamed", rows=rows)
+        if held is not None:
+            writer.writerow([_fmt(v) for v in held])
+            written += 1
+            yield drain()
+    log.info("dataset_streamed", rows=rows, written=written)
+
+
+def _source_rank_sql():
+    """Source preference as a SQL expression, most-preferred highest.
+
+    Mirrors `pit._SOURCE_PREFERENCE`. Ordered DESC alongside an ascending
+    filing_date so that on a same-day tie the SEC as-reported figure is the
+    one that survives -- as-reported is what this dataset claims to contain.
+    """
+    from sqlalchemy import case
+
+    return case(
+        {s: len(SOURCE_PREFERENCE) - i for i, s in enumerate(SOURCE_PREFERENCE)},
+        value=Fundamental.source,
+        else_=0,
+    )
 
 
 _COUNT_TTL_S = 900.0

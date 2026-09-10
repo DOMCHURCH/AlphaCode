@@ -2271,6 +2271,9 @@ def api_download_dataset(account=Depends(_DOWNLOAD_DEP)) -> StreamingResponse:
         media_type="text/csv; charset=utf-8",
         headers={
             "Content-Disposition": f'attachment; filename="{dataset.filename()}"',
+            # What was done to this data, on the response rather than inside
+            # the CSV -- see `dataset.PROVENANCE`.
+            **dataset.PROVENANCE,
             # A partially-written CSV that a proxy cached as complete would be
             # indistinguishable from the real file. Never cache this.
             "Cache-Control": "no-store",

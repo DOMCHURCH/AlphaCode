@@ -611,3 +611,35 @@ body[data-film="hero"] main::after {
       rgba(6, 7, 12, .16) 100%);
   }
 }
+
+/* ---- WCAG AA contrast ------------------------------------------------------
+   Ten text elements measured under 4.5:1 at 1440x900 with the film playing.
+   Two distinct causes, so two distinct fixes.
+
+   1. --dim was 4.25:1 on the ground, which fails everywhere it is used on a
+      solid surface -- the footer disclaimer on every page, the "Columns"
+      label on /dataset. Raised to 6.04:1, still clearly the quietest of the
+      three text tones. */
+:root { --dim: #8B8EA3; }
+
+/* 2. Everything else failed only because it sits on a TRANSLUCENT surface
+      over the backdrop, so its effective ground is whatever the film is
+      showing -- which means the same text passed and failed as the video
+      looped. Non-deterministic contrast is worse than low contrast: it cannot
+      be measured once and trusted. These surfaces are opaque-dark now, so the
+      ratio is a fixed number again.
+
+      The tab strip was the worst of it: a 5%-white fill over a sunset put
+      "Billing" at 1.67:1. */
+.tab { background: rgba(10, 11, 17, .62); }
+.tab:hover { background: rgba(10, 11, 17, .78); color: var(--ink); }
+.tab.on { background: rgba(255, 255, 255, .16); }
+
+/* Field labels and the terms line sit directly on the veil with nothing
+   behind them, so they get the ink tone rather than the muted one, plus a
+   shadow that holds them against the bright half of the frame. */
+.slabel, .accept label {
+  color: var(--ink);
+  text-shadow: 0 1px 3px rgba(6, 7, 12, .85);
+}
+.navlink { color: #C6C8D6; }

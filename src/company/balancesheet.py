@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import datetime as dt
 from dataclasses import dataclass
+from typing import Any
 
 import structlog
 
@@ -79,6 +80,46 @@ class BalanceSheet:
     equity: dict[str, BalanceSheetValue]
     missing_concepts: list[str]
     data_quality_issues: list[str]  # e.g., negative equity, zero assets
+
+
+# Which source wins when two filings carry the same date. Same order and same
+# reasoning as `pit.get_fundamentals`: SEC as-reported beats a vendor's
+# restated figure, because as-reported is what this site claims to show.
+_SOURCE_PREFERENCE: tuple[str, ...] = ("sec", "fmp", "yahoo")
+
+
+def _recency(f: Any) -> tuple[dt.date, int]:
+    """Sort key for "which filing of this metric is the one to show".
+
+    Later filing wins; on a tie, the more-preferred source wins. Returned as a
+    tuple so `max()` orders on both without a second pass.
+    """
+    rank = {s: i for i, s in enumerate(_SOURCE_PREFERENCE)}
+    return (f.filing_date, -rank.get(f.source, 99))
+
+
+def _resolve_restatements(rows: list[Any]) -> dict[str, Any]:
+    """One row per metric: the LATEST filing, not the earliest.
+
+    This is the bug that made the site quietly disagree with itself. The query
+    orders `filing_date.desc()` and the collapse was
+    `{f.metric: f for f in rows}` -- last write wins, so descending order meant
+    the EARLIEST filing survived and every restatement was discarded. A company
+    that revised its balance sheet showed its original figures on the drawing,
+    on the company page and through the API, while `pit.get_fundamentals`
+    returned the revised ones for the same ticker and period.
+
+    `src/storage/pit.py` states the contract in its own docstring -- "we take
+    the one with the LATEST filing_date" -- and says nothing else may query the
+    table directly. This path does, so it now applies the same policy: latest
+    filing, source preference breaking ties.
+    """
+    winners: dict[str, Any] = {}
+    for f in rows:
+        held = winners.get(f.metric)
+        if held is None or _recency(f) > _recency(held):
+            winners[f.metric] = f
+    return winners
 
 
 def get_balance_sheet(
@@ -166,12 +207,15 @@ def get_balance_sheet(
             selected_period = period_end
         else:
             selected_period = max(by_period.keys())
-        period_data = {f.metric: f for f in by_period[selected_period]}
+        period_data = _resolve_restatements(by_period[selected_period])
 
-        # Get period end and filing date from any concept in the period
-        sample = period_data[next(iter(period_data))]
-        period_end = sample.period_end
-        filing_date = sample.filing_date
+        # The period's own filing date is the NEWEST filing behind any of the
+        # figures shown, not whichever metric happened to be first in a dict.
+        # It is the date the header prints and the API returns, so it has to
+        # describe the numbers actually on the page.
+        newest = max(period_data.values(), key=_recency)
+        period_end = newest.period_end
+        filing_date = newest.filing_date
 
         # Extract requested concepts
         assets = {}

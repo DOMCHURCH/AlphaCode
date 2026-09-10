@@ -323,8 +323,15 @@ def render_company_page(
             f'</p><div class="tags">{tags}</div></div>'
         )
 
+    # A filing that does not balance gets a WARNING, not a note. The site's
+    # whole claim is that the two columns are the same money counted twice, so
+    # when they are not, that has to read as an exception rather than as one
+    # more grey line among the "this filer does not break X out" remarks.
+    unbalanced = not d.get("balances", True)
     notes_html = "".join(
-        f'<div class="note">{escape(n)}</div>' for n in d["notes"]
+        f'<div class="note{" warn" if unbalanced and i == len(d["notes"]) - 1 else ""}">'
+        f"{escape(n)}</div>"
+        for i, n in enumerate(d["notes"])
     )
 
     shape_html = "".join(
