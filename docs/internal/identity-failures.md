@@ -1,6 +1,8 @@
 # Why 0.1% of filings miss A = L + E
 
-**Date:** 10 September 2026 · **Status:** mechanism analysis complete, population counts pending production access
+**Date:** 10 September 2026 · **Status:** mechanism analysis complete and all
+four code findings fixed; population counts still pending production access
+(see [Counts](#counts) for the exact blocker and the two ways to clear it)
 
 ## The reviewer is right
 
@@ -41,21 +43,26 @@ possible instead of two:
 - No stated RHS published → **unexplained.** Reported as its own bucket rather
   than assigned to whichever category looks best.
 
-`scripts/identity_failures.py` implements exactly this, and self-tests against
-seven constructed cases covering every branch.
+`scripts/identity_failures.py` implements exactly this. `tests/test_identity_failures.py`
+pins all of it against constructed cases covering every branch, including the
+`nci + mezzanine` combination that no earlier version could resolve.
 
 ## Categories
+
+The first two are **passes**: the drawing resolves them and names the term it
+added. The rest are failures. Reporting them in one undifferentiated list is
+what let the script and the page quote different pass rates — see finding 4.
 
 | Category | Mechanism | Whose fault | Detectable? |
 |---|---|---|---|
 | **Noncontrolling interests** | Consolidated filer reports the parent's equity and the NCI as two lines with no combined total. The real identity is A = L + E + NCI. | Filing structure | Yes — `minority_interest` closes the gap |
-| **Mezzanine / redeemable preferred** | Sits between liabilities and equity. Common in airlines, biotech, SPACs. The real identity is A = L + E + Mezzanine. | Filing structure | Yes — `temporary_equity` / `redeemable_preferred_stock` closes the gap |
+| **Mezzanine / redeemable preferred** | Sits between liabilities and equity. Common in airlines, biotech, SPACs. The real identity is A = L + E + Mezzanine. | Filing structure | Yes — `temporary_equity`, `redeemable_preferred_stock` or `redeemable_noncontrolling_interest` closes the gap |
 | **Rounding** | Gap under 1% of assets. Figures are in millions; one unit on a $400bn balance sheet is noise. | Neither | Yes |
 | **Missing XBRL tag** | The filing contains a line we did not pull. | Ours | Yes, where a stated RHS exists |
 | **Genuinely broken filing** | The filer's stated total does not match their own assets. | Company error | Yes, where a stated RHS exists |
 | **Unexplained** | No stated RHS to compare against. | Unknown | No — and it is named as such |
 
-## Two findings from the code
+## Four findings from the code
 
 ### 1. NCI was handled everywhere except the page a reader sees — FIXED
 
@@ -114,30 +121,102 @@ Because the drawing now resolves these, they stop being failures rather than
 becoming better-labelled ones. The category label moves from "Ours (tag not
 ingested)" to "Filing structure", matching NCI.
 
-**Still open:** `redeemable_noncontrolling_interest` is not mapped. It stays in
-the script's `MEZZANINE_METRICS` on purpose — a name no row can supply is
-exactly how this gap was found the first time.
+### 3. `redeemable_noncontrolling_interest` was named but never supplied — FIXED
+
+The previous pass left this deliberately: the name sat in the script's
+`MEZZANINE_METRICS` while nothing in the ingest produced it, on the reasoning
+that "a name no row can supply is exactly how this gap was found the first
+time". It has now been supplied.
+
+Redeemable NCI is a noncontrolling interest whose holder can put it back to the
+company. That redemption right is what carries it **out of permanent equity**
+and into the mezzanine — so `total_equity_incl_nci` does not contain it, and
+adding `minority_interest` does not reach it either. They are two different
+lines about two different holders, and a filer with both was previously
+unreconcilable by any basis this codebase could construct.
+
+Wired through all four places it has to exist:
+
+- `src/ingest/xbrl.py` — `RedeemableNoncontrollingInterestEquityCarryingAmount`
+  leading, with the Common and Preferred variants behind it;
+- `src/company/balancesheet.py` — the key map and the equity-concepts read;
+- `src/company/view1._mezzanine()` — last in the prefer-don't-sum chain, as a
+  component of the section total.
+
+Note this changes **future ingests only**. Existing rows do not gain the metric
+until `reload_fundamentals` runs against production, so a re-run of the script
+before that reload will show this category empty for reasons of history rather
+than of accounting.
+
+### 4. The script and the drawing disagreed about "balances" — FIXED
+
+`build_view1` treats a filing that closes once the NCI or the mezzanine is
+included as **balancing**, and says on the drawing which term it added.
+`scripts/identity_failures.py` counted those same filings as **failures**.
+
+So the script's headline was the pass rate *before* the explanations while the
+page quotes the rate *after* them: two numbers, both called the pass rate, on
+the same data, and no way to tell from either which one you were reading. The
+script also tried each term singly and never `nci + mezzanine`, so a filer
+reporting equity, a mezzanine block and an NCI as three separate lines could
+not be resolved at all.
+
+Fixed by deletion rather than by a second copy. The decision now lives in
+`view1.resolve_identity()` and both callers use it — reimplementing it is what
+caused the divergence, so there is now one implementation to disagree with.
+The report splits into four RECONCILES rows and four DOES NOT RECONCILE rows,
+because collapsing them is what makes a headline number unfalsifiable.
+
+**One divergence remains, and it is deliberate.** `universe_check` — which
+drives the stat bar's reconcile figure on the homepage — is a third definition:
+it prefers the filer's stated right-hand side over `L + E`, uses a 1% band
+rather than 0.5%, and never adds mezzanine. Reconciling those three is a
+decision about what the public number should mean, not a bug to be quietly
+edited, so it has been left alone and is flagged here instead. **Expect the
+script's pass rate and the stat bar's to differ until that decision is made.**
 
 ## Counts
 
-**Not measured against production.** The categoriser has been exercised on a
-synthetic population covering every branch (see the mezzanine fix above), which
-proves the classification works and says nothing whatever about how the real
-population divides. Producing real per-category counts needs the production
-database:
+**Still not measured against production**, and the reason is now specific
+rather than general. Diagnosed 10 September 2026:
 
-- `/status` and `/admin/universe-check` are admin-gated (correctly — closed in
-  a previous session) and this session has no `ADMIN_SECRET`.
-- The local database holds synthetic rows only.
-- Sampling public company pages cannot work: at a 0.1% rate, finding ~6
-  failures means fetching all 6,169 pages.
+- The Railway CLI **is** authenticated, and `railway run` does inject the
+  production environment — `ADMIN_SECRET` among it.
+- But `DATABASE_URL` resolves to **`postgres.railway.internal:5432`**, which is
+  Railway's private network. It does not resolve from a developer machine, so
+  `railway run python scripts/identity_failures.py` reaches the credentials and
+  not the database.
+- `DATABASE_PUBLIC_URL` **is not set** on the service, so there is no public
+  endpoint to substitute.
+- `railway ssh` — which would run inside the network — refuses: no SSH key is
+  registered with the account.
+- No HTTP endpoint exposes the population. `/reconcile` samples at most 50
+  companies and `/admin/verify` checks five reference names; neither can
+  produce a per-category breakdown over 6,169 filings.
 
-To produce the table, run against production:
+**The unblock, in order of usefulness:**
+
+1. **Enable the TCP proxy** on the Postgres service in the Railway dashboard.
+   `DATABASE_PUBLIC_URL` then appears in the service variables and
+   `railway run python scripts/identity_failures.py` works from a laptop
+   against **working-tree code** — which matters, because the corrected
+   `classify()` is not deployed and a run inside the container would measure
+   the old definition.
+2. **Register an SSH key** (`ssh-keygen -t ed25519`, add it to the Railway
+   account) and use `railway ssh`. This runs *deployed* code, so it yields
+   pre-fix numbers or a raw metrics dump to classify locally — useful, but a
+   step behind option 1.
+
+Then:
 
 ```bash
-python scripts/identity_failures.py            # markdown table
-python scripts/identity_failures.py --json     # machine-readable
+railway run python scripts/identity_failures.py            # markdown tables
+railway run python scripts/identity_failures.py --json     # machine-readable
 ```
+
+The script has been run end to end against a seeded SQLite database and
+produces both tables and the JSON correctly; what is missing is the population,
+not the tooling.
 
 Publishing invented counts in a document whose subject is not inventing numbers
 would be the wrong way to finish this analysis. The mechanism analysis above
