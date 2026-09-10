@@ -1322,3 +1322,68 @@ def test_robots_points_at_the_sitemap(client):
     assert r.headers["content-type"].startswith("text/plain")
     assert "Sitemap: https://toscale.pro/sitemap.xml" in r.text
     assert "Disallow: /admin" in r.text
+
+
+def test_the_customer_stats_endpoint_needs_the_admin_secret(client):
+    """It returns email addresses. An unauthenticated version of exactly this
+    payload is the hole the audit found on /admin.json."""
+    assert client.get("/api/admin/stats").status_code == 403
+
+    body = client.get("/api/admin/stats", headers=ADMIN).json()
+    for key in (
+        "total_users", "free", "pro_monthly", "pro_annual", "pro_lapsed",
+        "dataset_buyers", "recent_signups", "revenue_estimate",
+    ):
+        assert key in body, key
+
+
+def test_customer_stats_count_the_effective_tier_not_the_column(client):
+    """An account whose Pro ran out yesterday still says "pro" in the column.
+    Counting it as revenue is how a dashboard tells you business is fine while
+    it is not."""
+    import datetime as dt
+
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+    with session_scope() as s:
+        s.add(ApiUser(
+            email="live@example.com", api_key="k-live", subscription_tier="pro",
+            pro_expires_at=now + dt.timedelta(days=20),
+        ))
+        s.add(ApiUser(
+            email="lapsed@example.com", api_key="k-lapsed", subscription_tier="pro",
+            pro_expires_at=now - dt.timedelta(days=1),
+        ))
+        s.add(ApiUser(
+            email="annual@example.com", api_key="k-annual", subscription_tier="pro",
+            pro_expires_at=now + dt.timedelta(days=300),
+        ))
+        s.add(ApiUser(
+            email="buyer@example.com", api_key="k-buyer", has_paid_download=True,
+        ))
+
+    body = client.get("/api/admin/stats", headers=ADMIN).json()
+    assert body["total_users"] == 4
+    assert body["pro_monthly"] == 1
+    assert body["pro_annual"] == 1
+    assert body["pro_lapsed"] == 1
+    assert body["dataset_buyers"] == 1
+    # The lapsed one is back on free, and is not counted as revenue.
+    assert body["free"] == 2
+    assert body["revenue_estimate"]["mrr_usd"] > 0
+    assert "Estimate only" in body["revenue_estimate"]["caveat"]
+
+
+def test_recent_signups_are_newest_first(client):
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    with session_scope() as s:
+        for n in range(3):
+            s.add(ApiUser(email=f"u{n}@example.com", api_key=f"key-{n}"))
+
+    rows = client.get("/api/admin/stats?recent=2", headers=ADMIN).json()
+    assert len(rows["recent_signups"]) == 2
+    assert all("@example.com" in u["email"] for u in rows["recent_signups"])

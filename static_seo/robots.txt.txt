@@ -1,0 +1,81 @@
+# robots.txt for https://toscale.pro
+#
+# PROPOSED CONTENT ONLY. The live file is generated per-request by
+# src/sitemap.py:robots() (lines 180-196) and is not read from disk. Merge
+# this by hand.
+#
+# Posture: open. Every compliant crawler is invited, including AI training
+# crawlers and live AI-search crawlers. Being quoted in a generated answer is
+# a distribution channel; excluding this site from it is permanent for
+# anything already crawled and buys nothing back.
+#
+# Discovery hint for LLM assistants:
+# https://toscale.pro/llms.txt
+# https://toscale.pro/financial-data.txt
+
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Disallow: /auth/
+Disallow: /dashboard
+Disallow: /login
+Disallow: /logout
+Disallow: /download
+Disallow: /reconcile
+Disallow: /health
+Disallow: /search
+Disallow: /*?*utm_
+
+# The AI crawlers again, by name, with the same exclusions repeated.
+#
+# Repeating them is not redundant — it is required. A crawler obeys ONLY the
+# most specific group that matches its own name, and ignores the `*` group
+# entirely once a named group exists. A named group containing nothing but
+# `Allow: /` would therefore hand these crawlers /admin and /api/, which the
+# `*` group carefully withholds. Listing the agents as a stack of User-agent
+# lines above one shared rule block is the spec-correct way to say "these
+# eleven, same rules" without writing the block eleven times.
+#
+# These groups exist to make the posture auditable: silence and permission
+# look identical in a robots.txt, and this site's intent is permission.
+
+User-agent: GPTBot
+User-agent: ChatGPT-User
+User-agent: OAI-SearchBot
+User-agent: ClaudeBot
+User-agent: anthropic-ai
+User-agent: Claude-Web
+User-agent: PerplexityBot
+User-agent: Google-Extended
+User-agent: Applebot-Extended
+User-agent: Bingbot
+User-agent: CCBot
+Allow: /
+Disallow: /admin
+Disallow: /api/
+Disallow: /auth/
+Disallow: /dashboard
+Disallow: /login
+Disallow: /logout
+Disallow: /download
+Disallow: /reconcile
+Disallow: /health
+Disallow: /search
+Disallow: /*?*utm_
+
+Sitemap: https://toscale.pro/sitemap.xml
+
+# MERGE NOTE — one cross-file conflict this creates.
+#
+# src/sitemap.py currently submits /dashboard (line 115) and /login (line 116)
+# in sitemap.xml. Both are disallowed above. A sitemap that lists a URL
+# robots.txt blocks is logged as an error in Search Console and spends crawl
+# budget on a page that will never be indexed. Drop those two entries from
+# src/sitemap.py:build() when this file is merged, rather than un-blocking
+# them here — neither is a page anyone should reach from a search result.
+#
+# src/sitemap.py:robots() builds `base` from the inbound request host, so a
+# preview deployment serves a robots.txt pointing at its own sitemap. That is
+# correct for the Sitemap: line and wrong for the two discovery-hint comments
+# above, which are informational and should stay absolute.

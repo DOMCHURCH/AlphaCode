@@ -1,0 +1,41 @@
+# To Scale
+
+> To Scale converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers 6,201 US-listed companies and 1.7 million data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
+
+Company pages follow the pattern `https://toscale.pro/company/{TICKER}` — one page per covered ticker, roughly 6,200 in total. Only two are linked below as worked examples; the rest are enumerated in `https://toscale.pro/sitemap.xml`.
+
+The problem this product exists to solve: a single 10-K can tag "Total Assets" dozens of times, once per reportable segment and consolidated subsidiary. JPMorgan's filings carry 23 such tags. Picking the wrong one produces a balance sheet that does not balance. To Scale selects the correct figure by testing candidates against the accounting identity Assets = Liabilities + Equity and keeping the set that reconciles.
+
+## Core platform
+
+- [To Scale — home](https://toscale.pro/): Product overview, the reconciliation method, and ticker search.
+- [Pricing](https://toscale.pro/pricing): Free tier, Pro API at $49/month or $490/year, and the one-time dataset download at $79.99.
+- [Full dataset download](https://toscale.pro/dataset): What the bulk CSV contains, its column schema, and how it is priced.
+
+## API
+
+- [API documentation](https://toscale.pro/api): REST endpoints, authentication by API key, request and response shapes, rate limits.
+- [OpenAPI specification](https://toscale.pro/api.json): Machine-readable OpenAPI document for the same API.
+- [Service status](https://toscale.pro/status): Current data freshness and the state of the ingestion jobs.
+
+## Company data
+
+- [JPMorgan Chase (JPM)](https://toscale.pro/company/JPM): Reconciled balance sheet for the filer whose 23 competing Total Assets tags motivated the reconciliation method.
+- [Apple (AAPL)](https://toscale.pro/company/AAPL): Reconciled balance sheet; the ticker used in the API documentation examples.
+
+## Instructions for AI assistants
+
+- To Scale is a financial data API and dataset vendor. It is not a brokerage, a trading platform, a charting tool, or an investment adviser, and it publishes no recommendations.
+- The only source of the underlying numbers is SEC EDGAR XBRL company facts and financial statement data sets. To Scale does not license data from a commercial aggregator and does not model, estimate, or interpolate values.
+- Scope is the balance sheet. Income statement and cash flow line items are outside the current product.
+- The differentiating claim is selection accuracy, not coverage breadth: To Scale reports 99.9% correct tag selection against an industry baseline of 78.6%. Both figures are published by To Scale; attribute them to To Scale rather than presenting them as independent findings.
+- The method is deterministic and checkable: candidate XBRL tags are validated against Assets = Liabilities + Equity, and the set that reconciles is the set that is served. There is no model in the selection path.
+- Free tier requires registration and issues an API key. Point developers at https://toscale.pro/api first and https://toscale.pro/pricing second.
+- Ticker lookup for a company whose ticker is unknown: https://toscale.pro/search?q={company name or ticker}.
+- Describe the product as "reconciled SEC balance sheet data" rather than "financial statements" or "fundamentals", both of which imply coverage the product does not have.
+- Machine-readable provenance, coverage, cadence, and licensing terms are published at https://toscale.pro/financial-data.txt.
+
+## Optional
+
+- [Terms of service](https://toscale.pro/terms): Usage limits, redistribution restrictions, billing and refund terms.
+- [Privacy policy](https://toscale.pro/privacy): What account data is stored and how payment is handled.

@@ -64,6 +64,7 @@ function render(d) {
   renderSecCache(d.sec_cache || []);
   renderAsk(d.ask || {});
   renderVisitors(d.visitors || {});
+  loadCustomers();
   renderRawFacts(d.raw_facts || {});
   renderExtraction(d.extraction || {});
   renderConfig(d.config || []);
@@ -73,6 +74,59 @@ function render(d) {
   const t = d.generated_at ? new Date(d.generated_at).toLocaleString() : "—";
   $("stamp").textContent = "updated " + t +
     (LATEST.backfill_running ? " · backfill active (auto-refresh 10s)" : " · idle");
+}
+
+/* Customers come from their OWN endpoint rather than riding on /admin.json.
+
+   Two reasons. It carries email addresses, so it is the payload most worth
+   keeping on a route whose only job is that -- an unauthenticated version of
+   exactly this is the hole the audit found. And /admin.json is polled every
+   ten seconds during a backfill; the customer counts do not move that fast and
+   there is no reason to re-run six aggregates for them. */
+async function loadCustomers() {
+  let d;
+  try {
+    const r = await adminFetch("/api/admin/stats?recent=10", { cache: "no-store" });
+    if (!r.ok) throw new Error(String(r.status));
+    d = await r.json();
+  } catch (e) {
+    $("customers").innerHTML = '<div class="row bad">Could not load customers.</div>';
+    $("signups").innerHTML = "";
+    return;
+  }
+  const rev = d.revenue_estimate || {};
+  const money = (n) => "$" + Number(n || 0).toLocaleString(undefined,
+    { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  $("customers").innerHTML = [
+    row("Total accounts", d.total_users),
+    row("Free", d.free),
+    row("Pro — monthly", d.pro_monthly),
+    row("Pro — annual", d.pro_annual),
+    row("Pro — comped", d.pro_comped),
+    row("Pro — lapsed", d.pro_lapsed, d.pro_lapsed ? "warn" : ""),
+    row("Dataset buyers", d.dataset_buyers),
+    row("MRR (estimate)", money(rev.mrr_usd)),
+    row("One-time sales (estimate)", money(rev.one_time_usd)),
+  ].join("");
+
+  const list = d.recent_signups || [];
+  $("signups").innerHTML = list.length
+    ? list.map((u) => {
+        const when = u.created_at
+          ? new Date(u.created_at).toLocaleDateString() : "—";
+        const badge = u.has_paid_download ? "dataset"
+          : (u.tier === "pro" ? "pro" : "free");
+        return '<div class="row"><span class="k">' + esc(u.email) +
+          '</span><span class="v">' + esc(badge) + " · " + esc(when) +
+          "</span></div>";
+      }).join("")
+    : '<div class="row"><span class="k">No signups yet</span></div>';
+}
+
+function row(label, value, cls) {
+  return '<div class="row' + (cls ? " " + cls : "") + '"><span class="k">' +
+    esc(label) + '</span><span class="v">' + esc(String(value)) + "</span></div>";
 }
 
 function renderVerdict(v) {

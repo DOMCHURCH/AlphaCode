@@ -90,6 +90,19 @@
     <div id="autoUpdate" class="rows"><div class="loading">loading…</div></div>
   </section>
 
+  <!-- 2a. CUSTOMERS -->
+  <section class="card">
+    <div class="card-head"><h2>Customers</h2></div>
+    <p class="hint">Counted off <code>api_users</code>, which is the only
+      customer table — the Stripe webhook, the manual grant switch and the API
+      keys all write to it. Revenue is an <strong>estimate</strong>: this
+      service stores no amount and no charge id, so the figure is live
+      subscribers × list price and Stripe remains the system of record.</p>
+    <div id="customers" class="rows"><div class="loading">loading…</div></div>
+    <div class="card-head sub"><h3>Recent signups</h3></div>
+    <div id="signups" class="rows"><div class="loading">loading…</div></div>
+  </section>
+
   <!-- 2b. VISITORS -->
   <section class="card">
     <div class="card-head"><h2>Visitors</h2></div>

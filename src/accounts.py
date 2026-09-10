@@ -675,3 +675,130 @@ def mark_reminded(emails: list[str]) -> int:
         for row in rows:
             row.pro_reminder_sent_at = now
         return len(rows)
+
+
+def customer_stats(recent: int = 10) -> dict[str, object]:
+    """Who has signed up, who is paying, and roughly what that is worth.
+
+    Counted off `api_users`, which is the ONLY customer table -- the Stripe
+    webhook writes here, the manual grant switch writes here, and the API keys
+    live here. A second `users` table would be a second answer to "is this
+    person a customer", and the two would disagree the first time a webhook
+    landed while somebody was reading the other one.
+
+    `subscription_tier` is the column; `effective_tier` is the truth. An
+    account whose Pro ran out yesterday still says "pro" in the column, and is
+    counted as LAPSED here rather than as revenue -- counting it as revenue is
+    how a dashboard tells you business is fine while it is not.
+
+    Revenue is an ESTIMATE and says so everywhere it is shown. This service
+    stores no amount, no currency and no charge id: Stripe is the system of
+    record for money and there is no join between the two. What is computed
+    here is live subscribers times list price, which is wrong for anybody on a
+    comp, an old price, or an annual plan. It is a shape, not a figure to put
+    in a return.
+    """
+    from sqlalchemy import desc, func, select
+
+    from src.config.settings import get_settings
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    s = get_settings()
+    now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+    with session_scope() as session:
+        total = int(
+            session.execute(select(func.count()).select_from(ApiUser)).scalar_one()
+        )
+        download = int(
+            session.execute(
+                select(func.count())
+                .select_from(ApiUser)
+                .where(ApiUser.has_paid_download.is_(True))
+            ).scalar_one()
+        )
+        # Live Pro: the column says pro AND the date has not passed. NULL means
+        # comped and never expires, which is live.
+        live_pro = int(
+            session.execute(
+                select(func.count())
+                .select_from(ApiUser)
+                .where(ApiUser.subscription_tier == "pro")
+                .where(
+                    (ApiUser.pro_expires_at.is_(None))
+                    | (ApiUser.pro_expires_at > now)
+                )
+            ).scalar_one()
+        )
+        lapsed = int(
+            session.execute(
+                select(func.count())
+                .select_from(ApiUser)
+                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.pro_expires_at.is_not(None))
+                .where(ApiUser.pro_expires_at <= now)
+            ).scalar_one()
+        )
+        # Monthly vs annual is not a column -- one Pro tier, and how long it
+        # was paid for is Stripe's business. Split on how far the expiry runs:
+        # past ~6 months can only have come from an annual purchase.
+        annual = int(
+            session.execute(
+                select(func.count())
+                .select_from(ApiUser)
+                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.pro_expires_at > now + dt.timedelta(days=180))
+            ).scalar_one()
+        )
+        comped = int(
+            session.execute(
+                select(func.count())
+                .select_from(ApiUser)
+                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.pro_expires_at.is_(None))
+            ).scalar_one()
+        )
+        rows = session.execute(
+            select(
+                ApiUser.email, ApiUser.subscription_tier,
+                ApiUser.has_paid_download, ApiUser.created_at,
+            )
+            .order_by(desc(ApiUser.created_at))
+            .limit(max(1, min(recent, 50)))
+        ).all()
+        signups = [
+            {
+                "email": e,
+                "tier": tier,
+                "has_paid_download": bool(dl),
+                "created_at": created.isoformat() if created else None,
+            }
+            for e, tier, dl, created in rows
+        ]
+
+    monthly = max(0, live_pro - annual - comped)
+    return {
+        "total_users": total,
+        "free": max(0, total - live_pro),
+        "pro_live": live_pro,
+        "pro_monthly": monthly,
+        "pro_annual": annual,
+        "pro_comped": comped,
+        "pro_lapsed": lapsed,
+        "dataset_buyers": download,
+        "recent_signups": signups,
+        "revenue_estimate": {
+            "mrr_usd": round(
+                monthly * s.pro_price_usd + annual * s.pro_annual_price_usd / 12, 2
+            ),
+            "one_time_usd": round(download * s.dataset_price_usd, 2),
+            "basis": "live subscribers x list price",
+            "caveat": (
+                "Estimate only. No amount, currency or charge id is stored by "
+                "this service -- Stripe is the system of record for money and "
+                "there is no join between the two. Comps, legacy prices and "
+                "refunds are all invisible here."
+            ),
+        },
+    }

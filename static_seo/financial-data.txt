@@ -1,0 +1,122 @@
+# financial-data.txt for https://toscale.pro
+#
+# Machine-readable provenance and licensing disclosure for the financial data
+# this site publishes. Serve at https://toscale.pro/financial-data.txt as
+# text/plain, UTF-8, no BOM.
+#
+# There is no ratified standard for this file. The Overgrow knowledge base
+# defines llms.txt, sitemap.xml and robots.txt and defines nothing here, so
+# the format below borrows the shape of RFC 9116 (security.txt): one
+# `Field: value` per line, `#` comments on their own line, repeated fields
+# permitted where a list is meant. That convention is chosen because it is the
+# one already understood for well-known text files at a site root — a parser
+# written for security.txt reads this without modification.
+#
+# Every value below is either a published product fact or an explicit TODO.
+# Nothing here is estimated. A financial data vendor that guesses at its own
+# provenance disclosure has undermined the only thing it sells.
+
+# -- Identity ---------------------------------------------------------------
+
+Entity: To Scale
+Canonical: https://toscale.pro/financial-data.txt
+Site: https://toscale.pro/
+Contact: TODO: publish the address currently configured as ADMIN_EMAIL (src/config/settings.py) — it is environment-supplied and not committed to the repo
+Expires: TODO: set to one year from first publication, ISO 8601, per RFC 9116 convention
+
+# -- Source -----------------------------------------------------------------
+#
+# One source, named exactly. Not "public filings" or "regulatory data" — the
+# specific machine-readable product of a specific regulator, so a reader can
+# fetch the same bytes and check the work.
+
+Data-Source: SEC EDGAR — XBRL company facts and financial statement data sets
+Data-Source-URL: https://www.sec.gov/edgar/sec-api-documentation
+Data-Source-Type: primary-regulatory-filing
+Jurisdiction: US
+Filing-Basis: as-reported
+Restatement-Policy: none — a figure is served as it was filed for that period and is not revised when a later filing restates it
+Vendor-Aggregation: none — no commercial data aggregator is in the pipeline
+Estimation: none — no value is modelled, interpolated, or filled forward
+
+# -- Coverage ---------------------------------------------------------------
+
+Coverage-Companies: 6201
+Coverage-Data-Points: 1700000
+Coverage-Statements: balance-sheet
+Coverage-Excludes: income-statement
+Coverage-Excludes: cash-flow-statement
+Coverage-Excludes: non-US-filers
+Coverage-Inclusion-Rule: a ticker is published only where a positive total-assets fact exists for it (src/sitemap.py:_company_rows)
+
+# -- Update cadence ---------------------------------------------------------
+#
+# Cadence is stated as the configured floor between sweeps, not as a promise
+# of latency. The scheduler asks the database whether the newest fact is older
+# than the newest thing SEC has published and sweeps only when the answer is
+# yes; these figures are the minimum interval between two such checks, which
+# is the honest number. Defaults from src/config/settings.py; each is
+# overridable by the environment variable named beside it.
+
+Update-Filings-Min-Hours: 6.0 (AUTO_UPDATE_FILINGS_MIN_HOURS)
+Update-Prices-Min-Hours: 6.0 (AUTO_UPDATE_BARS_MIN_HOURS)
+Update-Dataset-Recheck-Hours: 12.0 (AUTO_UPDATE_SEC_RECHECK_HOURS)
+Update-Scheduler-Tick-Minutes: 15 (AUTO_UPDATE_TICK_MINUTES)
+Update-Quarters-Per-Scheduled-Run: 2 (AUTO_UPDATE_QUARTERS)
+Freshness-Endpoint: https://toscale.pro/status
+Freshness-Caveat: SEC publishes each quarter's financial statement data set several weeks after the quarter closes, on no announced date. Until it appears, the newest quarter is absent rather than wrong.
+
+# -- Accuracy methodology ---------------------------------------------------
+#
+# The claim and the test that backs it, in the same block, because an accuracy
+# figure without its method is a marketing number.
+
+Accuracy-Reported: 0.999
+Accuracy-Industry-Baseline: 0.786
+Accuracy-Metric: correct XBRL tag selection per balance-sheet line item
+Accuracy-Attribution: both figures are published by To Scale and are not third-party audited
+Method: accounting-identity-reconciliation
+Method-Identity: Assets = Liabilities + Equity
+Method-Description: A single filing may tag one concept many times — once per reportable segment and per consolidated subsidiary. JPMorgan's filings carry 23 distinct tags for Total Assets. Candidate tags are tested against the accounting identity and the set that reconciles is the set that is served, so the selection is deterministic and independently checkable rather than heuristic.
+Method-Model-In-Path: none
+Derived-Values-Flagged: yes — a page marks a figure computed from the identity rather than stated by the filer
+Missing-Values-Flagged: yes — components a filer did not report separately are named on the page rather than zero-filled
+
+# -- Licensing --------------------------------------------------------------
+#
+# The underlying SEC filings are US government works and are in the public
+# domain. What is licensed is the reconciliation, the schema, and the service.
+
+Underlying-Data-Rights: public domain (US federal government work)
+Service-Terms: https://toscale.pro/terms
+Permitted-Use: use of the data inside your own product or research
+Prohibited-Use: reselling or redistributing the API as a competing service
+Prohibited-Use: evading the API allowance, including by registering multiple accounts
+Prohibited-Use: scraping the site, or using the API in a way that degrades it for others
+Attribution-Required: TODO: state whether attribution to To Scale is required, requested, or neither — /terms does not currently say
+Dataset-License: TODO: name the licence that applies to the one-time CSV download; /terms describes it as a purchase of a file and does not name a licence
+
+# -- Access -----------------------------------------------------------------
+
+API-Documentation: https://toscale.pro/api
+API-Specification: https://toscale.pro/api.json
+API-Authentication: API key, issued on registration
+Pricing: https://toscale.pro/pricing
+Price-Free-Tier: 0.00 USD
+Price-Pro-Monthly: 49.00 USD
+Price-Pro-Annual: 490.00 USD
+Price-Dataset-One-Time: 79.99 USD
+Bulk-Download: https://toscale.pro/dataset
+Bulk-Download-Format: text/csv
+
+# -- Disclaimers ------------------------------------------------------------
+
+Not-Investment-Advice: yes
+Regulated-Entity: no — To Scale is not a broker-dealer, investment adviser, or rating agency
+Audience: quantitative developers, algorithmic traders, and data analysts
+
+# -- Related files ----------------------------------------------------------
+
+LLM-Index: https://toscale.pro/llms.txt
+Sitemap: https://toscale.pro/sitemap.xml
+Robots: https://toscale.pro/robots.txt

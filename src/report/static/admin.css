@@ -286,3 +286,8 @@ pre.tb{font-size:.78em;overflow:auto;max-height:220px;background:var(--well);
   .verdict{padding:22px 18px}
 }
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* The customers panel's sub-heading, and the lapsed-Pro row. */
+.card-head.sub{margin-top:20px;margin-bottom:10px}
+.card-head.sub h3{flex:1;font-size:12px;font-weight:600;letter-spacing:.05em;
+  text-transform:uppercase;color:var(--ink2);margin:0}
+.row.warn .v{color:var(--yellow)}

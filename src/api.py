@@ -2087,6 +2087,26 @@ def api_forgot_password(body: ResendRequest, tasks: BackgroundTasks) -> JSONResp
     )
 
 
+@app.get("/api/admin/stats", dependencies=[Depends(require_admin)])
+def api_admin_stats(recent: int = Query(10, ge=1, le=50)) -> JSONResponse:
+    """Customers and rough revenue, for the admin panel.
+
+    Behind `require_admin` like everything else under /admin -- this returns
+    email addresses, and an unauthenticated version of exactly this is the
+    hole the last audit found: `/admin.json` was publishing the customer
+    roster to anybody who asked.
+
+        curl -H "X-Admin-Secret: $ADMIN_SECRET" https://<host>/api/admin/stats
+
+    Read-only, and cheap: six counts and one LIMIT-ed select against indexed
+    columns, so the panel can poll it without becoming the site's own worst
+    traffic.
+    """
+    from src import accounts
+
+    return JSONResponse(accounts.customer_stats(recent=recent))
+
+
 @app.get("/admin/subscriptions")
 def admin_subscriptions(
     request: Request,
