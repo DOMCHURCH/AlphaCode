@@ -32,6 +32,19 @@ from src.report.page_extras import (
 
 log = structlog.get_logger(__name__)
 
+# Every ticker in a sector has the SAME peer universe, and a backfill walks
+# 6,208 of them. Without this, `_peers` re-ran four queries with a ~1,500-item
+# IN list once per ticker -- 1,498 identical scans for Financials alone, and
+# measured at 1.0-3.1s each against production. Held for the life of one run
+# and cleared at the start of the next, because a process that lives longer
+# than an ingest must not serve a peer list from before it.
+_SECTOR_CACHE: dict[str, tuple[dict[str, float], dict[str, str | None]]] = {}
+
+
+def reset_sector_cache() -> None:
+    """Drop memoised sector data. Call at the start of any backfill or refresh."""
+    _SECTOR_CACHE.clear()
+
 
 # ---------------------------------------------------------------------------
 # The read path: the whole of this feature's per-render cost
@@ -108,6 +121,56 @@ def _prior_assets(
     return (best[1] if best else None), newest
 
 
+def _load_sector(
+    session: Any, sector: str
+) -> tuple[dict[str, float], dict[str, str | None]]:
+    """Newest total assets and display name for every ticker in one sector.
+
+    Four queries, run ONCE per sector per backfill rather than once per ticker.
+    """
+    from sqlalchemy import func, select
+
+    from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
+
+    candidates = [
+        t
+        for (t,) in session.execute(
+            select(SectorMap.ticker).where(SectorMap.sector == sector)
+        ).all()
+    ]
+    if not candidates:
+        return {}, {}
+
+    latest = dict(
+        session.execute(
+            select(Fundamental.ticker, func.max(Fundamental.period_end))
+            .where(Fundamental.ticker.in_(candidates))
+            .where(Fundamental.metric == "total_assets")
+            .group_by(Fundamental.ticker)
+        ).all()
+    )
+    if not latest:
+        return {}, {}
+    rows = session.execute(
+        select(Fundamental.ticker, Fundamental.period_end, Fundamental.value)
+        .where(Fundamental.ticker.in_(list(latest)))
+        .where(Fundamental.metric == "total_assets")
+    ).all()
+    sized: dict[str, float] = {}
+    for t, period_end, value in rows:
+        if value is not None and latest.get(t) == period_end:
+            sized[t] = float(value)
+    if not sized:
+        return {}, {}
+    names = dict(
+        session.execute(
+            select(UniverseSnapshot.ticker, UniverseSnapshot.name)
+            .where(UniverseSnapshot.ticker.in_(list(sized)))
+        ).all()
+    )
+    return sized, names
+
+
 def _peers(
     session: Any, ticker: str, sector: str | None, assets: float | None
 ) -> tuple[list[dict[str, Any]], int | None, int | None]:
@@ -120,51 +183,21 @@ def _peers(
     are the same four on every page in the sector -- a list that never changes
     is a navigation element pretending to be a comparison.
     """
-    from sqlalchemy import func, select
-
-    from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
-
     if not sector:
         return [], None, None
-    candidates = [
-        t
-        for (t,) in session.execute(
-            select(SectorMap.ticker)
-            .where(SectorMap.sector == sector)
-            .where(SectorMap.ticker != ticker)
-        ).all()
-    ]
-    if not candidates:
-        return [], None, None
 
-    latest = dict(
-        session.execute(
-            select(Fundamental.ticker, func.max(Fundamental.period_end))
-            .where(Fundamental.ticker.in_(candidates))
-            .where(Fundamental.metric == "total_assets")
-            .group_by(Fundamental.ticker)
-        ).all()
-    )
-    if not latest:
-        return [], None, None
-    rows = session.execute(
-        select(Fundamental.ticker, Fundamental.period_end, Fundamental.value)
-        .where(Fundamental.ticker.in_(list(latest)))
-        .where(Fundamental.metric == "total_assets")
-    ).all()
-    sized: dict[str, float] = {}
-    for t, period_end, value in rows:
-        if value is not None and latest.get(t) == period_end:
-            sized[t] = float(value)
+    cached = _SECTOR_CACHE.get(sector)
+    if cached is None:
+        cached = _load_sector(session, sector)
+        _SECTOR_CACHE[sector] = cached
+    all_sized, names = cached
+
+    # The company itself is excluded from its own peer list but NOT from the
+    # ranking, which is a statement about where it sits among them.
+    sized = {t: v for t, v in all_sized.items() if t != ticker}
     if not sized:
         return [], None, None
 
-    names = dict(
-        session.execute(
-            select(UniverseSnapshot.ticker, UniverseSnapshot.name)
-            .where(UniverseSnapshot.ticker.in_(list(sized)))
-        ).all()
-    )
     if assets:
         ordered = sorted(sized, key=lambda t: abs(sized[t] - assets))
     else:

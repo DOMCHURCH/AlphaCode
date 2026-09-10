@@ -1345,6 +1345,53 @@ async def admin_reload_fundamentals(
     )
 
 
+@app.post(
+    "/admin/page-extras/backfill",
+    response_model=RunResponse,
+    dependencies=[Depends(require_admin)],
+)
+async def admin_backfill_page_extras(background: BackgroundTasks) -> RunResponse:
+    """Rebuild the pre-rendered company-page sections, in the cluster.
+
+    This exists because of WHERE it runs, not what it does. The same work is
+    available as `scripts/backfill_page_extras.py`, but driven from a laptop
+    over the public TCP proxy every one of `build_view1`'s ~20 queries pays a
+    round trip: measured at 4-8 seconds per ticker against production, which is
+    7-14 hours for the universe. Inside Railway the database is on the private
+    network and the same queries are sub-millisecond.
+
+    Only rows whose `source_period_end` is behind the ticker's newest filing
+    are rebuilt, so this is cheap to re-run and safe to retry after a failure.
+    Nothing here is authoritative -- every fragment is derived from
+    `fundamentals`, `filing_events` and `sector_map` -- so the worst outcome of
+    a bad run is a stale section on a company page.
+
+    Single-flighted behind the same lock as the backfills: this walks the whole
+    universe and should not race an ingest that is rewriting it underneath.
+    """
+    _enforce_rate(_backfill_gate, "backfills")
+    if _backfill_lock.locked():
+        return RunResponse(
+            accepted=False, detail="A backfill or reload is already running."
+        )
+    background.add_task(_page_extras_bg)
+    return RunResponse(
+        accepted=True,
+        detail="Page-extras backfill queued. Poll GET /admin.json for the "
+               "row count, or re-request this endpoint to see whether it is "
+               "still running.",
+    )
+
+
+async def _page_extras_bg() -> None:
+    async with _backfill_lock:
+        try:
+            rebuilt = await asyncio.to_thread(_refresh_page_extras)
+            log.info("page_extras_backfill_done", rebuilt=rebuilt)
+        except Exception as exc:  # noqa: BLE001 - state carries it to the log
+            log.exception("page_extras_backfill_failed", error=str(exc))
+
+
 async def _reload_bg(quarters: int) -> None:
     from src.backfill import record_backfill_result, reload_fundamentals
 
@@ -1372,9 +1419,12 @@ def _refresh_page_extras() -> int:
     fundamentals reload as failed.
     """
     from src.report.home_page import SITE_ORIGIN
-    from src.report.page_extras_store import compute_and_store
+    from src.report.page_extras_store import compute_and_store, reset_sector_cache
 
     rebuilt = 0
+    # The fundamentals table was just replaced; anything memoised from before
+    # it describes data that no longer exists.
+    reset_sector_cache()
     try:
         from sqlalchemy import func, select
 

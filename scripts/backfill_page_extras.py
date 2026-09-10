@@ -63,9 +63,12 @@ def main() -> int:
 
     from src.logging_config import configure_logging
     from src.report.home_page import SITE_ORIGIN
-    from src.report.page_extras_store import compute_and_store
+    from src.report.page_extras_store import compute_and_store, reset_sector_cache
 
     configure_logging()
+    # Sector peer universes are memoised for the run; start from cold so a
+    # rebuild never serves a peer list assembled before the last ingest.
+    reset_sector_cache()
 
     targets = [args.ticker.upper()] if args.ticker else _tickers(args.limit, args.stale)
     if not targets:

@@ -364,7 +364,16 @@ def test_the_page_costs_one_extra_query(client):
     seen: list[str] = []
 
     def _record(conn, cursor, statement, params, context, executemany):
-        if "company_page_extras" in statement.lower():
+        # Scoped to statements that bind THIS ticker. The refresh hook that
+        # runs after a fundamentals reload sweeps the whole table with an
+        # unparameterised `SELECT ticker, source_period_end ...`, and if one is
+        # still in flight from another test it lands inside this window and
+        # counts as a read the render never issued. Binding on the ticker keeps
+        # the measurement about this request rather than about test ordering.
+        if "company_page_extras" not in statement.lower():
+            return
+        flat = str(params)
+        if "AAA" in flat:
             seen.append(statement)
 
     engine = get_engine()
