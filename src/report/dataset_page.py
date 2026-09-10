@@ -186,6 +186,7 @@ def render_dataset(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dataset.js?v={asset_version()}" defer></script>"""
 
+    from src.report.home_page import companies_count, companies_label
     from src.report.schema import breadcrumb_ld, dataset_ld
 
     return shell(
@@ -193,11 +194,16 @@ def render_dataset(
         body,
         description=(
             f"Download every as-reported SEC balance sheet figure as one CSV — "
-            f"{row_label} rows across 6,201 companies, reconciled with "
+            f"{row_label} rows across {companies_label()} companies, "
+            f"reconciled with "
             f"A = L + E. One-time {dataset_price}, static snapshot as of "
             f"{as_of}."
         ),
         canonical="/dataset",
-        ld=dataset_ld(rows=rows, companies=6201, as_of=as_of)
+        # `companies=6201` was a literal ARGUMENT here -- the hardest
+        # kind of stale figure to find, because it is not a string and
+        # no grep of the copy turns it up, and it lands in structured
+        # data that engines quote back verbatim.
+        ld=dataset_ld(rows=rows, companies=companies_count(), as_of=as_of)
         + breadcrumb_ld([("Home", "/"), ("Dataset", "/dataset")]),
     )

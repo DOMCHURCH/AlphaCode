@@ -201,19 +201,30 @@ def plural(n: int, one: str, many: str) -> str:
     return one if n == 1 else many
 
 
-def companies_label() -> str:
-    """How many filers the site holds, formatted for prose. "" if unreadable.
+def companies_count() -> int:
+    """How many filers the site holds. 0 when it cannot be read.
 
-    Beside `dataset.facts_label` for the same reason: "6,201 companies" was
-    typed into five files by hand and every one of them is a claim about a
-    number that moves.
+    The int, for callers that need one -- `dataset_ld(companies=...)` took a
+    literal `6201` as an ARGUMENT, which is the hardest kind of stale figure to
+    find: it is not a string, so no grep for "6,201" in the copy turns it up,
+    and it lands in structured data that engines quote back verbatim.
     """
     try:
         from src.company.stats import counts
 
-        n = int(counts().get("companies") or 0)
+        return int(counts().get("companies") or 0)
     except Exception:  # noqa: BLE001 - copy must not take a page down
-        return ""
+        return 0
+
+
+def companies_label() -> str:
+    """How many filers the site holds, formatted for prose. "" if unreadable.
+
+    Beside `dataset.facts_label` for the same reason: "6,201 companies" was
+    typed into six files by hand and every one of them is a claim about a
+    number that moves every quarter.
+    """
+    n = companies_count()
     return f"{n:,}" if n > 0 else ""
 
 

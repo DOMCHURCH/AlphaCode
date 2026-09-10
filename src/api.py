@@ -3016,6 +3016,20 @@ def _seo_file(name: str) -> Response:
     except OSError as exc:
         log.warning("seo_file_missing", name=name, error=str(exc)[:120])
         return Response(content="", media_type="text/plain", status_code=404)
+
+    # `{COMPANIES}` and `{FACTS}` are filled from the live table, the same way
+    # the blog post's prose is. These files are prose, but they are prose an AI
+    # crawler quotes verbatim as fact -- llms.txt existed saying "6,201
+    # companies and 1.8 million data points" while /dataset counted the same
+    # table on every request. A number written into a file that is served
+    # unchanged for months is a number that is wrong for most of them.
+    if "{COMPANIES}" in text or "{FACTS}" in text:
+        from src.dataset import facts_label
+        from src.report.home_page import companies_label
+
+        text = text.replace("{COMPANIES}", companies_label() or "6,200").replace(
+            "{FACTS}", facts_label() or "1.8 million"
+        )
     return Response(
         content=text,
         media_type="text/plain; charset=utf-8",

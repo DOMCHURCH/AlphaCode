@@ -126,7 +126,7 @@ def test_every_page_states_the_same_dataset_size(client):
     label = facts_label()
     assert label, "the fixture must produce a countable table"
 
-    for path in ("/", "/api", "/dataset"):
+    for path in ("/", "/api", "/dataset", "/pricing", "/llms.txt"):
         html = client.get(path).text
         assert label in html, (
             f"{path} does not state the live figure {label!r}; "
@@ -167,3 +167,59 @@ def test_an_unreadable_count_renders_as_nothing_not_as_zero(client, monkeypatch)
     html = client.get("/").text
     assert html.count("<h1") == 1, "the page must still render without a count"
     assert "0 data points" not in html
+
+
+def test_no_company_count_literal_survives_in_rendered_copy(client):
+    """The other half of the same drift, and the half that was missed.
+
+    Last session single-sourced the FACT count and left "6,201 companies"
+    written by hand in four more places: the /dataset description, the /pricing
+    description, the `featureList` of the SoftwareApplication JSON-LD, and
+    llms.txt. The fact count moving on its own while the company count stayed
+    frozen is the same bug with a different number.
+    """
+    seed(40)
+    from src.dataset import reset_count_cache
+    from src.report.home_page import companies_label
+
+    reset_count_cache()
+    label = companies_label()
+    assert label and label != "6,201", (
+        "the fixture must produce a company count unlike the old literal"
+    )
+
+    for path in ("/dataset", "/pricing", "/llms.txt"):
+        body = client.get(path).text
+        assert "6,201" not in body, f"{path} still carries the literal"
+        assert label in body, f"{path} does not state the live count {label!r}"
+
+
+def test_the_structured_data_states_the_live_company_count(client):
+    """Structured data is the worst place for a stale figure: it is machine-read
+    and quoted back by engines without a human glancing at it first."""
+    seed(40)
+    from src.dataset import reset_count_cache
+    from src.report.home_page import companies_label
+
+    reset_count_cache()
+    html = client.get("/").text
+
+    assert "application/ld+json" in html
+    assert f"Reconciled balance sheets for {companies_label()} US-listed" in html
+    assert "6,201 US-listed" not in html
+
+
+def test_llms_txt_leaves_no_unfilled_placeholder(client):
+    """A crawler reading `{COMPANIES}` verbatim is worse than a stale number."""
+    seed(40)
+    from src.dataset import reset_count_cache
+
+    reset_count_cache()
+    body = client.get("/llms.txt").text
+
+    assert body, "llms.txt must still be served"
+    assert "{COMPANIES}" not in body
+    assert "{FACTS}" not in body
+    # `{TICKER}` is a URL PATTERN and must survive -- it is telling a crawler
+    # the shape of the company URLs, not asking to be filled in.
+    assert "/company/{TICKER}" in body

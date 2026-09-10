@@ -386,6 +386,20 @@ def dataset_ld(rows: int, companies: int, as_of: str) -> str:
     )
 
 
+def _companies() -> str:
+    """How many filers, for structured data. Falls back to a plain phrase.
+
+    Structured data is the one place a wrong number is worst: it is machine-read
+    and quoted back by engines without a human glancing at it first, so a
+    `featureList` claiming a company count the site no longer holds is a claim
+    made at scale. Read live, and when it cannot be read the sentence drops the
+    figure rather than shipping a stale one.
+    """
+    from src.report.home_page import companies_label
+
+    return companies_label() or "thousands of"
+
+
 def software_ld() -> str:
     """The API, as something a developer could be recommended.
 
@@ -427,7 +441,7 @@ def software_ld() -> str:
             # of view, and Google's validator wants the field present.
             "operatingSystem": "Any",
             "featureList": [
-                "Reconciled balance sheets for 6,201 US-listed companies",
+                f"Reconciled balance sheets for {_companies()} US-listed companies",
                 "Validated against Assets = Liabilities + Equity",
                 "As-reported figures, never restated",
                 "JSON responses, API key authentication",

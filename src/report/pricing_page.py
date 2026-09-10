@@ -28,7 +28,7 @@ import datetime as dt
 from html import escape
 
 from src.report.company_page import asset_version
-from src.report.home_page import shell
+from src.report.home_page import companies_label, shell
 
 
 def compact(n: int) -> str:
@@ -480,7 +480,7 @@ def render_pricing(
         description=(
             "SEC filings API pricing: free tier, $49/mo Pro API, $490/yr, or a "
             "$79.99 one-time XBRL dataset download. 99.9% accurate reconciled "
-            "balance sheet data across 6,201 companies."
+            f"balance sheet data across {companies_label()} companies."
         ),
         canonical="/pricing",
         ld=pricing_ld()
