@@ -349,6 +349,19 @@ def render_dashboard(
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site. Payment history will
       appear here once there is any.</p>
+
+    <!-- Shown only to accounts Stripe actually knows about. The script unhides
+         it after /api/user/status says there is a customer, because a "Manage
+         subscription" button that answers 409 for everybody who has never paid
+         is a button that teaches people not to trust the page. -->
+    <div class="manage" id="manage-billing" hidden>
+      <span class="plan-name">Manage your subscription</span>
+      <p class="plan-line">Change your card, switch plans, download invoices or
+        cancel. All of it happens on Stripe's own page, and anything you change
+        there is reflected here within a minute.</p>
+      <button type="button" class="btn ghost" id="open-portal">Manage subscription</button>
+      <p class="note" id="portal-note" role="status" aria-live="polite"></p>
+    </div>
   </section>
 
 {footer}

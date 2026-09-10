@@ -2477,6 +2477,28 @@ def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONRespons
     )
 
 
+@app.post("/api/billing/portal")
+def api_billing_portal(request: Request) -> JSONResponse:
+    """A URL into Stripe's billing portal, for the signed-in account.
+
+    Session cookie only, deliberately not the API key. The API key is a
+    credential for reading balance sheets that customers paste into scripts and
+    share with colleagues; it must not also be the thing that can cancel a
+    subscription. `require_account` raises 401 for anyone not signed in.
+
+    POST rather than GET because it mints a Stripe object, and a GET here would
+    be followed by every link prefetcher on the internet.
+    """
+    from src import auth, billing
+
+    account = auth.require_account(request)
+    return JSONResponse(
+        billing.create_portal_session(
+            email=account.email, origin=_public_origin(request)
+        )
+    )
+
+
 @app.post("/api/billing/webhook", include_in_schema=False)
 async def api_billing_webhook(request: Request) -> JSONResponse:
     """Stripe's side of a payment. The only unauthenticated write in the app.

@@ -334,6 +334,87 @@ def _plan_of(session_obj: Any) -> str:
 # Checkout
 # ---------------------------------------------------------------------------
 
+def create_portal_session(*, email: str, origin: str) -> dict[str, str]:
+    """Open Stripe's own billing portal for this account.
+
+    The other half of `create_checkout_session`, and its absence was the single
+    largest commercial gap in the audit: a subscriber could start paying in
+    thirty seconds and could not stop without emailing the operator. Cancelling
+    a subscription should never require a human on the other end -- it is the
+    kind of friction that turns one cancellation into a chargeback.
+
+    Stripe hosts the portal, so cancelling, swapping a card, changing a plan and
+    downloading invoices all happen on their page and arrive back here as the
+    webhook events this service already handles. Nothing about the account is
+    written here: this endpoint mints a URL and that is all it does.
+
+    `origin` rather than `BASE_URL` for the return trip, same reasoning as
+    checkout -- the browser that opened the portal is the one coming back.
+
+    Raises rather than returning an error shape, because every failure here is
+    a state the caller has to tell the reader about in different words: no
+    Stripe (503), an account that has never paid (409), Stripe refusing (502).
+    """
+    stripe = _sdk()
+    s = get_settings()
+    if stripe is None or not s.stripe_secret_key:
+        raise HTTPException(
+            status_code=503, detail="Billing is not configured on this deployment."
+        )
+
+    customer = _customer_id_of(email)
+    if not customer:
+        # Never bought anything, so Stripe has no customer to show them. A 409
+        # rather than a 404: the account exists, it simply has no billing to
+        # manage, and the dashboard uses the distinction to decide whether to
+        # show the button at all.
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "This account has no Stripe customer yet — nothing has been "
+                "purchased on it."
+            ),
+        )
+
+    try:
+        session = stripe.billing_portal.Session.create(
+            customer=customer,
+            return_url=f"{origin}/dashboard#billing",
+        )
+    except Exception as exc:  # noqa: BLE001 - the reader needs a reason, not a 500
+        log.warning("stripe_portal_failed", email=email, error=_why(exc))
+        raise HTTPException(
+            status_code=502,
+            detail="Stripe would not open the billing portal. Try again shortly.",
+        ) from None
+
+    url = str(_field(session, "url", "") or "")
+    if not url:
+        log.error("stripe_portal_no_url", email=email)
+        raise HTTPException(
+            status_code=502, detail="Stripe returned no portal URL."
+        )
+    log.info("stripe_portal_opened", email=email)
+    return {"url": url}
+
+
+def _customer_id_of(email: str) -> str:
+    """The Stripe customer this account is attached to, or "".
+
+    Read from `api_users` rather than searched for in Stripe by address: the id
+    was stored when they paid, and a lookup by email would happily return a
+    customer belonging to somebody who typed the same address into Stripe's own
+    page. The stored id is the one this service actually granted against.
+    """
+    from src import accounts
+
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == accounts.normalise_email(email))
+        ).scalar_one_or_none()
+        return str(row.stripe_customer_id or "") if row is not None else ""
+
+
 def create_checkout_session(
     *, plan: str, origin: str, email: str | None = None
 ) -> dict[str, str]:

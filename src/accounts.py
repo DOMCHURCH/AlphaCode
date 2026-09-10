@@ -98,6 +98,11 @@ class Account:
     # every row that existed before they did.
     payment_failure_count: int = 0
     api_access_paused: bool = False
+    # Whether Stripe holds a customer for this account. Not the id itself --
+    # nothing in the browser needs that, and a Stripe id in a JSON payload is
+    # an identifier leaking for no benefit. It answers exactly one question:
+    # is there any billing here to manage.
+    has_billing: bool = False
 
     @property
     def call_limit(self) -> int:
@@ -165,6 +170,7 @@ def _snapshot(row: ApiUser) -> Account:
         pro_plan=str(row.pro_plan or ""),
         payment_failure_count=int(row.payment_failure_count or 0),
         api_access_paused=bool(row.api_access_paused),
+        has_billing=bool(row.stripe_customer_id),
     )
 
 
@@ -702,6 +708,11 @@ def status_payload(account: Account) -> dict:
         "days_remaining": account.days_remaining,
         "lapsed": account.lapsed,
         "has_password": account.has_password,
+        # Drives the "Manage subscription" button. The dashboard hides it
+        # unless this is true, because a button that answers 409 for everybody
+        # who has never paid teaches people not to trust the page.
+        "has_billing": account.has_billing,
+        "api_access_paused": account.api_access_paused,
     }
 
 

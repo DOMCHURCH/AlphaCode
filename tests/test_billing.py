@@ -56,6 +56,8 @@ def client(tmp_path, monkeypatch):
     monkeypatch.setenv("STRIPE_PRICE_PRO", PRICE_PRO)
     monkeypatch.setenv("STRIPE_PRICE_DATASET", PRICE_DATASET)
     monkeypatch.setenv("STRIPE_PRICE_PRO_ANNUAL", PRICE_PRO_ANNUAL)
+    # The portal is cookie-authenticated, so sessions have to work here.
+    monkeypatch.setenv("SESSION_SECRET", "test-session-secret-not-for-real-use")
 
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
@@ -75,7 +77,10 @@ def client(tmp_path, monkeypatch):
     # failure would otherwise be reported on /status by the next.
     reset_last_error()
 
-    with TestClient(app) as c:
+    # https, because the session cookie is `Secure` and a plain-http
+    # TestClient silently drops it -- which reads as "not signed in"
+    # rather than as a cookie that was never stored.
+    with TestClient(app, base_url="https://testserver") as c:
         yield c
 
     get_settings.cache_clear()
@@ -226,8 +231,8 @@ def test_the_session_carries_the_right_mode_price_and_return_urls(client, stripe
     assert dataset["metadata"]["plan"] == "dataset"
     # The buyer's own origin, not settings.BASE_URL: paying on a preview
     # deployment must not land you back on production.
-    assert pro["success_url"].startswith("http://testserver/dashboard")
-    assert pro["cancel_url"] == "http://testserver/pricing"
+    assert pro["success_url"].startswith("https://testserver/dashboard")
+    assert pro["cancel_url"] == "https://testserver/pricing"
     # Locks the address, so the account granted is the account that started it.
     assert pro["customer_email"] == BUYER
 
@@ -945,3 +950,119 @@ def test_the_simulator_says_when_a_buyer_would_be_locked_out(client):
     assert body["account_existed_before"] is False
     assert body["email_configured"] is False
     assert "locked out" in body["buyer_can_reach_it"]
+
+
+# ---------------------------------------------------------------------------
+# The billing portal
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def portal_calls(monkeypatch):
+    """Stand in for `stripe.billing_portal.Session.create`. Returns the calls."""
+    import stripe
+
+    made: list[dict] = []
+
+    def _create(**params):
+        made.append(params)
+        return {"url": f"https://billing.stripe.com/p/session/{len(made)}"}
+
+    monkeypatch.setattr(
+        stripe.billing_portal.Session, "create", staticmethod(_create)
+    )
+    return made
+
+
+def sign_in(client, email=BUYER, password="correct horse battery"):
+    """A real cookie session, the way the dashboard has one."""
+    r = client.post(
+        "/api/auth/register-password",
+        json={"email": email, "password": password, "accept_terms": True},
+    )
+    assert r.status_code in (201, 409), r.text
+    if r.status_code == 409:
+        r = client.post(
+            "/api/auth/login", json={"email": email, "password": password}
+        )
+        assert r.status_code == 200, r.text
+
+
+def test_the_portal_is_refused_to_anyone_not_signed_in(client, portal_calls):
+    """Cookie only, never the API key.
+
+    The API key is a credential customers paste into scripts and share with
+    colleagues. If it could also cancel a subscription, every shared key would
+    be a cancellation waiting to happen.
+    """
+    r = client.post("/api/billing/portal")
+    assert r.status_code == 401, r.text
+    assert portal_calls == [], "no Stripe object may be minted for a stranger"
+
+    key = register(client, "keyholder@example.com")
+    r = client.post("/api/billing/portal", headers={"X-API-Key": key})
+    assert r.status_code == 401, "an API key must not open the billing portal"
+    assert portal_calls == []
+
+
+def test_the_portal_returns_a_url_for_a_paying_account(
+    client, stripe_calls, portal_calls
+):
+    sign_in(client)
+    r = post_event(client, checkout_event(event_id="evt_buy", plan="pro"))
+    assert r.status_code == 200, r.text
+
+    r = client.post("/api/billing/portal")
+    assert r.status_code == 200, r.text
+    assert r.json()["url"].startswith("https://billing.stripe.com/")
+
+    assert len(portal_calls) == 1
+    assert portal_calls[0]["customer"] == "cus_1", (
+        "the STORED customer id, not one looked up by address"
+    )
+    assert portal_calls[0]["return_url"].endswith("/dashboard#billing")
+
+
+def test_an_account_that_never_paid_gets_409_not_a_broken_portal(
+    client, portal_calls
+):
+    """Stripe has no customer to show them, and the dashboard uses the
+    distinction to decide whether to show the button at all."""
+    sign_in(client, "never.paid@example.com")
+
+    r = client.post("/api/billing/portal")
+    assert r.status_code == 409, r.text
+    assert "purchased" in r.json()["detail"]
+    assert portal_calls == []
+
+
+def test_the_status_payload_says_whether_there_is_billing_to_manage(
+    client, stripe_calls
+):
+    """What hides the button. A "Manage subscription" that 409s for everybody
+    who has never paid teaches people not to trust the page."""
+    key = register(client)
+    assert status(client, key)["has_billing"] is False
+
+    post_event(client, checkout_event(event_id="evt_hb", plan="pro"))
+    assert status(client, key)["has_billing"] is True
+
+
+def test_the_portal_fails_loudly_when_stripe_refuses(
+    client, stripe_calls, monkeypatch
+):
+    """502, not 500. Stripe being unavailable is a thing to try again, and the
+    reader has to be told which of the two it is."""
+    import stripe
+
+    sign_in(client)
+    post_event(client, checkout_event(event_id="evt_buy2", plan="pro"))
+
+    def _boom(**params):
+        raise stripe.error.APIConnectionError("no route to Stripe")
+
+    monkeypatch.setattr(
+        stripe.billing_portal.Session, "create", staticmethod(_boom)
+    )
+    r = client.post("/api/billing/portal")
+    assert r.status_code == 502, r.text
+    assert "Stripe" in r.json()["detail"]

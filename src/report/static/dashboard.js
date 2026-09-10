@@ -281,6 +281,19 @@
     setDisabled(["buy-pro", "buy-pro-annual"], pro);
     setDisabled(["buy-data"], !!s.has_paid_download);
 
+    /* Only for accounts Stripe actually holds a customer for. Everyone else
+       would get a 409, and a button that fails for most of the people who can
+       see it teaches them not to trust the rest of the page. */
+    show($("manage-billing"), !!s.has_billing);
+    /* A paused account is the one case where this button is the whole point of
+       the page, so it says so rather than leaving them to guess why their key
+       started answering 402. */
+    if (s.api_access_paused) {
+      note($("portal-note"),
+        "API access is paused after a failed payment. Update your card to " +
+        "resume it — nothing has been deleted.", "bad");
+    }
+
     renderWhoami(s);
     note($("status-note"), "");
   }
@@ -578,6 +591,39 @@
     });
   }
 
+  /* Cancelling, changing a card, switching between the monthly and annual
+     plans, and pulling invoices all live on Stripe's own portal rather than
+     being rebuilt here. Everything the reader changes there arrives back as a
+     webhook this service already handles, so the two sides cannot drift.
+
+     The button navigates rather than opening a tab, for the same reason
+     `startCheckout` does: a popup blocker eats `window.open`, and this is a
+     navigation the reader asked for. */
+  function openPortal() {
+    var btn = $("open-portal");
+    btn.disabled = true;
+    note($("portal-note"), "Opening Stripe…");
+    api("/api/billing/portal", { method: "POST" }).then(function (r) {
+      if (r.ok && r.data && r.data.url) {
+        window.location.href = r.data.url;
+        return;
+      }
+      btn.disabled = false;
+      /* 401 means the cookie went stale while the tab sat open. Saying so is
+         more useful than a generic failure, because the fix is a sign-in and
+         nothing about the subscription is wrong. */
+      if (r.status === 401) {
+        note($("portal-note"), "Your session expired. Sign in again to manage billing.", "bad");
+        return;
+      }
+      note($("portal-note"),
+        detailOf(r.data, "Could not open the billing portal."), "bad");
+    }).catch(function () {
+      btn.disabled = false;
+      note($("portal-note"), "Could not reach the server.", "bad");
+    });
+  }
+
   /* Only reached when the deployment has no Stripe configuration at all, so
      it must not promise a card form that cannot open. */
   function payText(what, price) {
@@ -751,6 +797,7 @@
     $("buy-pro-annual").addEventListener("click", function () {
       startCheckout("pro_annual", "Pro annual");
     });
+    $("open-portal").addEventListener("click", openPortal);
     $("buy-data").addEventListener("click", function () {
       startCheckout("dataset", "The full dataset");
     });
