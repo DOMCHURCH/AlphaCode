@@ -201,6 +201,22 @@ def plural(n: int, one: str, many: str) -> str:
     return one if n == 1 else many
 
 
+def companies_label() -> str:
+    """How many filers the site holds, formatted for prose. "" if unreadable.
+
+    Beside `dataset.facts_label` for the same reason: "6,201 companies" was
+    typed into five files by hand and every one of them is a claim about a
+    number that moves.
+    """
+    try:
+        from src.company.stats import counts
+
+        n = int(counts().get("companies") or 0)
+    except Exception:  # noqa: BLE001 - copy must not take a page down
+        return ""
+    return f"{n:,}" if n > 0 else ""
+
+
 def _compact(n: int) -> str:
     """1,237,331 -> "1.2M". The summary line is read at a glance; the exact
     digits are further down the page, where there is room to say what they
@@ -1003,7 +1019,13 @@ def render_home(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
 <script src="/static/countup.js?v={asset_version()}" defer></script>"""
+    # Read live rather than written down. This line said "1.7M data points"
+    # while /dataset -- which counts the same table -- said "1.8M rows".
+    from src.dataset import facts_label
     from src.report.schema import organization_ld, software_ld
+
+    facts = facts_label()
+    scale = f" {companies_label()} companies, {facts} data points." if facts else ""
 
     return _shell(
         "To Scale — 99.9% Accurate SEC Balance Sheet API",
@@ -1012,7 +1034,7 @@ def render_home(
             "99.9% accurate reconciled balance sheet data from SEC EDGAR "
             "filings. Most providers pick the wrong XBRL tag for Total Assets "
             "— JPMorgan reports it 23 ways. We use A = L + E to select the "
-            "right one. 6,201 companies, 1.7M data points."
+            f"right one.{scale}"
         ),
         canonical="/",
         ld=organization_ld() + software_ld(),

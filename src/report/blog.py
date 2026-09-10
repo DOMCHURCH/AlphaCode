@@ -169,7 +169,7 @@ enterprise money to tell me what the SEC publishes for free.</p>
 
 <p>So <a href="/">To Scale</a> is the reconciler, running over every filing,
 with the result behind an API. Every figure is checked against A = L + E before
-it is stored. Across <strong>6,201 companies and 1.7 million data points</strong>
+it is stored. Across <strong>{COMPANIES} companies and {FACTS} data points</strong>
 that gets to <strong>99.9%</strong> — against the 78.6% you get from taking the
 first tag.</p>
 
@@ -258,6 +258,29 @@ def render_index(*, nav: str = "") -> str:
     )
 
 
+def _fill_scale(prose: str) -> str:
+    """Put today's figures into a post's `{COMPANIES}` / `{FACTS}` slots.
+
+    A post is prose written on a date, so a live number in the middle of a
+    paragraph is a real question rather than an obvious win. It is done anyway,
+    because the alternative was what happened: this post said "1.7 million data
+    points" while /dataset counted the same table and said 1.8M, and a note
+    ARGUING that most providers get their numbers wrong is the worst possible
+    place on the site to disagree with itself.
+
+    Falls back to the figures as first published rather than to a blank -- a
+    sentence reading "Across  companies and  data points" is worse than a
+    slightly old number, and unlike the meta descriptions this text has to
+    scan as English.
+    """
+    from src.dataset import facts_label
+    from src.report.home_page import companies_label
+
+    return prose.replace(
+        "{COMPANIES}", companies_label() or "6,201"
+    ).replace("{FACTS}", facts_label() or "1.8M")
+
+
 def render_post(post: Post, *, nav: str = "") -> str:
     from src.report.schema import blogposting_ld, breadcrumb_ld
 
@@ -270,7 +293,7 @@ def render_post(post: Post, *, nav: str = "") -> str:
         · {post.minutes} min read</p>
       <h1 class="htitle">{escape(post.title)}</h1>
     </header>
-    <div class="prose">{post.body}</div>
+    <div class="prose">{_fill_scale(post.body)}</div>
   </article>
   <aside class="sec cta">
     <div class="sec-head"><h2>Check it against a filing you know</h2></div>

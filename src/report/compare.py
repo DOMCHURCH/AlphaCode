@@ -44,11 +44,18 @@ from src.report.home_page import shell
 # cost on the home page, and putting it on five more would be spending a page
 # render on a number that moves four times a year.
 #
-# The price of that trade is drift, so: every value below was read off the LIVE
-# SITE on 2026-09-09 and matches what the home page, /api and llms.txt print
-# today. When the quarterly load moves them, they move here too.
+# The price of that trade is drift, and it had ALREADY been paid before these
+# constants were copied: "1.7 million" was what the home page, /api, the blog
+# and llms.txt all said, while /dataset counted the same table live and said
+# 1.8M. Four literals typed at four different times, and the one page that
+# computed the number was the odd one out.
+#
+# Those four now read `dataset.facts_label()`. These two stay literals for the
+# reason above, and `tests/test_copy_consistency.py` asserts no stale figure
+# survives anywhere -- so if this drifts again, a test says so rather than a
+# reader noticing that a site selling accuracy cannot agree with itself.
 COMPANIES = "6,201"
-DATA_POINTS = "1.7 million"
+DATA_POINTS = "1.8 million"
 ACCURACY = "99.9%"
 NAIVE_ACCURACY = "78.6%"
 

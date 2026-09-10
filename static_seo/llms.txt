@@ -1,6 +1,6 @@
 # To Scale
 
-> To Scale converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers 6,201 companies that file with the SEC and 1.7 million data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
+> To Scale converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers 6,201 companies that file with the SEC and 1.8 million data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
 
 Company pages follow the pattern `https://toscale.pro/company/{TICKER}` — one page per covered ticker, roughly 6,200 in total. Only two are linked below as worked examples; the rest are enumerated in `https://toscale.pro/sitemap.xml`.
 

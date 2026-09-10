@@ -34,6 +34,22 @@ def _ep(method: str, path: str, auth: str, blurb: str) -> str:
     </div>"""
 
 
+def _scale_clause() -> str:
+    """"6,201 companies, 1.8M as-reported data points, " -- or "" if unreadable.
+
+    Read live. These two figures were literals here, on the home page, in the
+    blog and in llms.txt, and they had already drifted from the ones /dataset
+    computes off the same table.
+    """
+    from src.dataset import facts_label
+    from src.report.home_page import companies_label
+
+    facts, companies = facts_label(), companies_label()
+    if not facts or not companies:
+        return ""
+    return f"{companies} companies, {facts} as-reported data points, "
+
+
 def render_api(
     *,
     nav: str = "",
@@ -171,7 +187,7 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
         body,
         description=(
             "REST API for SEC XBRL balance sheet data. One X-API-Key header, "
-            "JSON back, no SDK. 6,201 companies, 1.7M as-reported data points, "
+            f"JSON back, no SDK. {_scale_clause()}"
             "reconciled with the accounting identity to 99.9% accuracy."
         ),
         canonical="/api",

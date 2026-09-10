@@ -202,6 +202,39 @@ _SHAPE_TTL_S = 900.0
 _count_cache: tuple[float, int] | None = None
 
 
+def facts_label() -> str:
+    """The dataset's size as marketing copy says it: "1.8M", "1.24M", "980k".
+
+    ONE source for a number that was being written down in five places. The
+    site said "1.7M data points" on the home page, /api, the blog and llms.txt
+    while /dataset -- which computes it live -- said "1.8M rows", for the same
+    table. Two different totals for one product, on a site whose entire pitch
+    is that its figures agree with each other.
+
+    They drifted because four of the five were string literals typed at four
+    different times. Replacing them with a fifth literal would only reset the
+    clock, so they now all call this, and it reads the same `row_count()` the
+    dataset page does -- memoised for fifteen minutes against a table that
+    moves four times a year.
+
+    Returns "" when the count cannot be read. Every caller renders that as
+    nothing rather than as a zero: "0 facts" on the front page of a data
+    product is worse than saying nothing at all.
+    """
+    try:
+        n = row_count()
+    except Exception as exc:  # noqa: BLE001 - copy must not take a page down
+        log.warning("facts_label_failed", error=str(exc)[:200])
+        return ""
+    if n <= 0:
+        return ""
+    if n >= 1_000_000:
+        return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
+    if n >= 1_000:
+        return f"{n / 1_000:.0f}k"
+    return str(n)
+
+
 def row_count() -> int:
     """How many facts the download contains. Shown on the dashboard so a buyer
     knows what they are paying for before they pay for it.
