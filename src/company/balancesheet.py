@@ -54,6 +54,12 @@ BALANCE_SHEET_CONCEPTS = {
     "shareholders_equity": "total_equity",
     "total_equity_incl_nci": "total_equity_incl_nci",
     "minority_interest": "minority_interest",
+    # Mezzanine (temporary) equity: presented between liabilities and permanent
+    # equity, so it is in neither term of a plain A = L + E and its absence
+    # reads as identity drift on a filing that is fine. `temporary_equity` is
+    # the section total; `redeemable_preferred_stock` is a component of it.
+    "temporary_equity": "temporary_equity",
+    "redeemable_preferred_stock": "redeemable_preferred_stock",
 }
 
 
@@ -238,6 +244,7 @@ def get_balance_sheet(
         ]
         equity_concepts = [
             "shareholders_equity", "total_equity_incl_nci", "minority_interest",
+            "temporary_equity", "redeemable_preferred_stock",
         ]
 
         for concept in asset_concepts:

@@ -488,3 +488,128 @@ def test_an_nci_that_does_not_close_the_gap_still_fails(client):
     assert d["balances"] is False
     assert d["identity_basis"] == ""
     assert any("does not balance" in n for n in d["notes"])
+
+
+# ---------------------------------------------------------------------------
+# 7. Mezzanine equity, which sits in neither column
+# ---------------------------------------------------------------------------
+
+def test_a_filing_with_mezzanine_equity_balances_and_says_so(client):
+    """A = L + E + Mezzanine, and before this it read as a 5% broken filing.
+
+    Redeemable instruments are presented BETWEEN liabilities and permanent
+    equity, so they are in neither term of a plain A = L + E. 1,000 = 700 +
+    250 + 50 is correct; testing 1,000 = 700 + 250 calls it 5% out.
+
+    The category matters as much as the arithmetic. Neither mezzanine tag was
+    ingested anywhere in the tree, so these filings were not "filing structure
+    we do not model" -- the filer tagged it correctly and we did not read it.
+    Ours. docs/internal/identity-failures.md §2 named this as the highest-value
+    item on the list, and this is it.
+    """
+    seed("MEZZCO", [
+        fact("MEZZCO", "total_assets", 1000.0, filed=EARLIER),
+        fact("MEZZCO", "total_liabilities", 700.0, filed=EARLIER),
+        fact("MEZZCO", "total_equity", 250.0, filed=EARLIER),
+        fact("MEZZCO", "temporary_equity", 50.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("MEZZCO").as_dict()
+    assert d["balances"] is True, "5% out on permanent equity alone, exact with mezzanine"
+    assert d["identity_basis"] == "mezzanine"
+    assert d["imbalance_pct"] < 0.5
+    assert any("mezzanine equity" in n for n in d["notes"]), d["notes"]
+
+    html = client.get("/company/MEZZCO").text
+    assert 'class="note warn"' not in html, "a sound filing was flagged"
+    assert "mezzanine equity" in html
+
+
+def test_redeemable_preferred_alone_also_closes_the_identity(client):
+    """The other tag a filer might publish. Same block, narrower name."""
+    seed("REDCO", [
+        fact("REDCO", "total_assets", 1000.0, filed=EARLIER),
+        fact("REDCO", "total_liabilities", 700.0, filed=EARLIER),
+        fact("REDCO", "total_equity", 250.0, filed=EARLIER),
+        fact("REDCO", "redeemable_preferred_stock", 50.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("REDCO").as_dict()
+    assert d["balances"] is True
+    assert d["identity_basis"] == "mezzanine"
+
+
+def test_the_mezzanine_total_wins_over_its_own_component(client):
+    """`temporary_equity` is the SECTION TOTAL and `redeemable_preferred_stock`
+    is a component of it. A filer tagging both must not have them added
+    together -- that overshoots by the component and turns a filing that
+    balances into one that does not, which is the same class of error as never
+    reading the block at all."""
+    seed("BOTHCO", [
+        fact("BOTHCO", "total_assets", 1000.0, filed=EARLIER),
+        fact("BOTHCO", "total_liabilities", 700.0, filed=EARLIER),
+        fact("BOTHCO", "total_equity", 250.0, filed=EARLIER),
+        fact("BOTHCO", "temporary_equity", 50.0, filed=EARLIER),
+        fact("BOTHCO", "redeemable_preferred_stock", 30.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("BOTHCO").as_dict()
+    assert d["balances"] is True, "50 closes it; 50 + 30 would overshoot by 3%"
+    assert d["identity_basis"] == "mezzanine"
+
+
+def test_mezzanine_and_nci_together_close_a_three_line_filing(client):
+    """Parent equity, a mezzanine block and the NCI as three separate lines.
+    Neither term closes it alone; the filing is still correct."""
+    seed("THREE", [
+        fact("THREE", "total_assets", 1000.0, filed=EARLIER),
+        fact("THREE", "total_liabilities", 700.0, filed=EARLIER),
+        fact("THREE", "total_equity", 220.0, filed=EARLIER),
+        fact("THREE", "temporary_equity", 50.0, filed=EARLIER),
+        fact("THREE", "minority_interest", 30.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("THREE").as_dict()
+    assert d["balances"] is True
+    assert d["identity_basis"] == "nci+mezzanine"
+    assert any("noncontrolling interest" in n and "mezzanine" in n for n in d["notes"])
+
+
+def test_mezzanine_is_read_even_when_equity_includes_the_nci(client):
+    """`total_equity_incl_nci` is a total of PERMANENT equity. It absorbs the
+    noncontrolling interest and it does NOT absorb the mezzanine block, which
+    is presented outside permanent equity entirely -- so unlike the NCI, this
+    term has to be read even when the combined equity total is present."""
+    seed("INCLMZ", [
+        fact("INCLMZ", "total_assets", 1000.0, filed=EARLIER),
+        fact("INCLMZ", "total_liabilities", 700.0, filed=EARLIER),
+        fact("INCLMZ", "total_equity_incl_nci", 250.0, filed=EARLIER),
+        fact("INCLMZ", "total_equity", 220.0, filed=EARLIER),
+        fact("INCLMZ", "temporary_equity", 50.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("INCLMZ").as_dict()
+    assert d["balances"] is True
+    assert d["identity_basis"] == "mezzanine"
+
+
+def test_mezzanine_that_does_not_close_the_gap_still_fails(client):
+    """The mezzanine block is a second reading, not an excuse. A filing 38% out
+    does not become sound because it happens to report redeemable preferred."""
+    seed("MZBROKE", [
+        fact("MZBROKE", "total_assets", 1000.0, filed=EARLIER),
+        fact("MZBROKE", "total_liabilities", 500.0, filed=EARLIER),
+        fact("MZBROKE", "total_equity", 100.0, filed=EARLIER),
+        fact("MZBROKE", "temporary_equity", 20.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("MZBROKE").as_dict()
+    assert d["balances"] is False
+    assert d["identity_basis"] == ""
+    assert any("does not balance" in n for n in d["notes"])

@@ -42,20 +42,30 @@ TOLERANCE_PCT = 0.5
 
 CATEGORIES = (
     ("nci", "Noncontrolling interests", "Filing structure"),
-    ("mezzanine", "Mezzanine / redeemable preferred", "Ours (tag not ingested)"),
+    ("mezzanine", "Mezzanine / redeemable preferred", "Filing structure"),
     ("rounding", "Rounding", "Neither"),
     ("missing_tag", "Missing XBRL tag in our ingest", "Ours"),
     ("broken", "Genuinely broken filing", "Company error"),
     ("unexplained", "Unexplained (no stated RHS to compare)", "Unknown"),
 )
 
-# Metrics that, if the filer published them, would close a gap we cannot
-# otherwise account for. None of these are ingested today -- which is the
-# finding, not an oversight in this script. See docs/internal/identity-failures.md.
+# Metrics that, if the filer published them, close a gap we cannot otherwise
+# account for. When this script was written NONE of them were ingested, which
+# was the finding rather than an oversight here: the bucket could never fill,
+# so every mezzanine filer fell through to "rounding" or "unexplained".
+#
+# The first two are ingested now (src/ingest/xbrl.py), and the category is
+# "Filing structure" rather than "Ours" to match: the drawing reads the block
+# and the identity closes, so these stopped being failures at all.
+#
+# `redeemable_noncontrolling_interest` is still NOT ingested. It is left here
+# deliberately -- a name in this tuple that no row can supply is exactly how
+# the previous gap was found, and it will read as an empty contribution until
+# somebody maps the tag.
 MEZZANINE_METRICS = (
     "temporary_equity",
     "redeemable_preferred_stock",
-    "redeemable_noncontrolling_interest",
+    "redeemable_noncontrolling_interest",   # not ingested yet
 )
 
 

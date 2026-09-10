@@ -116,6 +116,39 @@ CONCEPTS: tuple[Concept, ...] = (
         ("MinorityInterest", "StockholdersEquityAttributableToNoncontrollingInterest"),
         INSTANT,
     ),
+    # --- Mezzanine (temporary) equity ---
+    # The block presented BETWEEN liabilities and permanent equity, and the
+    # reason a correct filing can fail A = L + E here. Redeemable instruments
+    # sit there precisely because they are not cleanly either: they can be
+    # required to be redeemed, which is debt-like, but they carry no fixed
+    # obligation the way debt does. Common in airlines, biotech and anything
+    # that came through a SPAC.
+    #
+    # Neither tag was ingested at all until now -- the concept did not exist
+    # anywhere in the tree -- so a filer who published one got their mezzanine
+    # block counted in `Assets` and in nothing on the claims side, and the gap
+    # read as identity drift. That reclassifies the failure: the filer tagged
+    # it correctly and we did not read it. Ours, not theirs.
+    # See docs/internal/identity-failures.md §2.
+    #
+    # `temporary_equity` is the SECTION TOTAL and `redeemable_preferred_stock`
+    # is a component of it, so a reader of both must prefer the total rather
+    # than add them -- see `_mezzanine()` in src/company/view1.py. The
+    # NCI-inclusive tag leads because it is the more complete total of the two.
+    Concept(
+        "temporary_equity",
+        (
+            "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
+            "TemporaryEquityCarryingAmountAttributableToParent",
+            "TemporaryEquityCarryingAmount",
+        ),
+        INSTANT,
+    ),
+    Concept(
+        "redeemable_preferred_stock",
+        ("RedeemablePreferredStockCarryingAmount",),
+        INSTANT,
+    ),
     Concept("cash", ("CashAndCashEquivalentsAtCarryingValue",), INSTANT),
     Concept("receivables", ("AccountsReceivableNetCurrent",), INSTANT),
     Concept("inventory", ("InventoryNet",), INSTANT),

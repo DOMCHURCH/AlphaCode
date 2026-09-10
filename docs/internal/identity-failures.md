@@ -49,7 +49,7 @@ seven constructed cases covering every branch.
 | Category | Mechanism | Whose fault | Detectable? |
 |---|---|---|---|
 | **Noncontrolling interests** | Consolidated filer reports the parent's equity and the NCI as two lines with no combined total. The real identity is A = L + E + NCI. | Filing structure | Yes — `minority_interest` closes the gap |
-| **Mezzanine / redeemable preferred** | Sits between liabilities and equity. Common in airlines, biotech, SPACs. | **Ours** — see below | Not currently |
+| **Mezzanine / redeemable preferred** | Sits between liabilities and equity. Common in airlines, biotech, SPACs. The real identity is A = L + E + Mezzanine. | Filing structure | Yes — `temporary_equity` / `redeemable_preferred_stock` closes the gap |
 | **Rounding** | Gap under 1% of assets. Figures are in millions; one unit on a $400bn balance sheet is noise. | Neither | Yes |
 | **Missing XBRL tag** | The filing contains a line we did not pull. | Ours | Yes, where a stated RHS exists |
 | **Genuinely broken filing** | The filer's stated total does not match their own assets. | Company error | Yes, where a stated RHS exists |
@@ -79,23 +79,51 @@ Guarded so it cannot break a filing that was right: the NCI is only read when
 the filer published no combined total, and only after the plain sum has already
 failed.
 
-### 2. Mezzanine equity is not ingested at all — OPEN
+### 2. Mezzanine equity was not ingested at all — FIXED
 
-There is no `temporary_equity`, `redeemable_preferred_stock` or
-`redeemable_noncontrolling_interest` metric anywhere in the ingest. Grep the
-tree and the concept does not exist.
+There was no `temporary_equity`, `redeemable_preferred_stock` or
+`redeemable_noncontrolling_interest` metric anywhere in the ingest. The concept
+did not exist in the tree, so the bucket could never fill: every mezzanine
+filer fell through to *rounding* or *unexplained*, and the drawing called a
+correctly tagged filing broken.
 
-This reclassifies the category. Mezzanine failures are **not** "filing
-structure" — the filing tagged it correctly and we did not read it. **Ours.**
-The script's category label says so.
+That was the reclassification this section argued for — **ours**, not filing
+structure, because the filer tagged it and we did not read it.
 
-Fixing it is an ingest change (`src/ingest/xbrl.py` concept map plus a
-`BALANCE_SHEET_CONCEPTS` entry), not a page change, and it is the single
-highest-value remaining item on this list.
+Fixed on both halves:
+
+- **Ingest** (`src/ingest/xbrl.py`): `temporary_equity` maps
+  `TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests`,
+  `...AttributableToParent` and `TemporaryEquityCarryingAmount`;
+  `redeemable_preferred_stock` maps `RedeemablePreferredStockCarryingAmount`.
+  Both carried through `BALANCE_SHEET_CONCEPTS` into `bs.equity`.
+- **Page** (`src/company/view1._check_identity`): when the plain sum fails, the
+  candidate bases are now `+NCI`, `+Mezzanine` and `+NCI+Mezzanine`, and the
+  one that closes with the smallest remaining gap wins. Each says which basis
+  it used, in words, on the drawing.
+
+Two guards. `temporary_equity` is the section TOTAL and
+`redeemable_preferred_stock` is a component of it, so `_mezzanine()` prefers
+the total rather than summing them — adding both overshoots by the component
+and breaks a filing that balanced. And unlike the NCI, mezzanine is read even
+when the filer published `total_equity_incl_nci`: that figure is a total of
+PERMANENT equity, and the mezzanine block sits outside permanent equity
+entirely.
+
+Because the drawing now resolves these, they stop being failures rather than
+becoming better-labelled ones. The category label moves from "Ours (tag not
+ingested)" to "Filing structure", matching NCI.
+
+**Still open:** `redeemable_noncontrolling_interest` is not mapped. It stays in
+the script's `MEZZANINE_METRICS` on purpose — a name no row can supply is
+exactly how this gap was found the first time.
 
 ## Counts
 
-**Not measured.** Producing real per-category counts needs the production
+**Not measured against production.** The categoriser has been exercised on a
+synthetic population covering every branch (see the mezzanine fix above), which
+proves the classification works and says nothing whatever about how the real
+population divides. Producing real per-category counts needs the production
 database:
 
 - `/status` and `/admin/universe-check` are admin-gated (correctly — closed in

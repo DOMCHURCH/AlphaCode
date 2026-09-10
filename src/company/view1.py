@@ -161,6 +161,9 @@ class View1:
     # The noncontrolling interest, where the filer reported one. Carried so the
     # note can name the figure that closed the gap.
     minority_interest: float | None = None
+    # Mezzanine (temporary) equity, where the filer reported it. Same purpose:
+    # the note names the figure rather than the drawing absorbing it silently.
+    mezzanine: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         def blocks(bs: list[Block]) -> list[dict[str, Any]]:
@@ -232,6 +235,12 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     # and it is the single largest category of filings that fail A = L + E
     # while being entirely correct.
     nci = None if equity_incl is not None else _val(bs.equity, "minority_interest")
+    # Read UNCONDITIONALLY, unlike the NCI. `total_equity_incl_nci` is a total
+    # of PERMANENT equity: it absorbs the noncontrolling interest and it does
+    # not absorb the mezzanine block, which is presented outside permanent
+    # equity entirely. So a filer publishing the combined equity total can
+    # still be missing this term.
+    mezzanine = _mezzanine(bs)
 
     # Deriving liabilities from the identity is arithmetic, not imputation. The
     # filer stated two of the three terms; the third is exactly determined, not
@@ -362,7 +371,10 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     view.mode = "detailed" if named_blocks else "totals_only"
 
     view.minority_interest = nci
-    _check_identity(view, total_assets, total_liabilities, total_equity, nci)
+    view.mezzanine = mezzanine
+    _check_identity(
+        view, total_assets, total_liabilities, total_equity, nci, mezzanine
+    )
     return view
 
 
@@ -373,12 +385,58 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
 IDENTITY_TOLERANCE = 0.005
 
 
+def _mezzanine(bs: Any) -> float | None:
+    """The mezzanine (temporary) equity block, where the filer published one.
+
+    PREFERRED, not summed. `temporary_equity` is the total of the section and
+    `redeemable_preferred_stock` is a component of it, so a filer who tags both
+    would be counted twice by an addition -- turning a filing that balances
+    into one that overshoots, which is the same class of error as not reading
+    the block at all.
+    """
+    for key in ("temporary_equity", "redeemable_preferred_stock"):
+        value = _val(bs.equity, key)
+        if value:
+            return value
+    return None
+
+
+# The terms that may be ADDED to L + E to close a filing, in the order they are
+# tried, and the sentence each one puts on the drawing.
+#
+# Every entry is a line the filer actually published. That is the whole
+# discipline: a term is admitted because it names a real block on the real
+# balance sheet, never because it happens to close a gap. Adding a term you
+# cannot name is how a test stops being a test and becomes a fudge factor.
+_IDENTITY_TERMS: dict[str, str] = {
+    "nci": (
+        "Balances as A = L + E + noncontrolling interest. This filer "
+        "reports the parent's equity and the noncontrolling interest "
+        "separately rather than as one total, so the two are added "
+        "here. Nothing is adjusted — both figures are as filed."
+    ),
+    "mezzanine": (
+        "Balances as A = L + E + mezzanine equity. This filer presents "
+        "redeemable instruments between liabilities and equity, where they "
+        "belong to neither column, so that block is added here. Nothing is "
+        "adjusted — every figure is as filed."
+    ),
+    "nci+mezzanine": (
+        "Balances as A = L + E + mezzanine equity + noncontrolling interest. "
+        "This filer reports the parent's equity, a mezzanine block and the "
+        "noncontrolling interest as three separate lines, so all three are "
+        "added here. Nothing is adjusted — every figure is as filed."
+    ),
+}
+
+
 def _check_identity(
     view: View1,
     total_assets: float | None,
     total_liabilities: float | None,
     total_equity: float | None,
     nci: float | None = None,
+    mezzanine: float | None = None,
 ) -> None:
     """Does this filing balance? Record it, and say so on the drawing.
 
@@ -403,36 +461,53 @@ def _check_identity(
     # It did not balance on the plain sum. Before calling a filing broken, try
     # the identity it was actually written on.
     #
-    # A consolidated filer can report PARENT equity and the noncontrolling
-    # interest as two separate lines with no combined total. For that filing
-    # the identity is A = L + E + NCI, and testing A = L + E flags a correct
-    # filing as an error -- our reading being wrong, not their arithmetic.
-    # `verify.py` and `universe_check.py` already preferred the NCI-inclusive
-    # basis; this page did not, so the same filing could be sound to the
-    # internal checker and "does not balance" to a reader.
+    # Two things are presented outside `L + StockholdersEquity` and are neither
+    # an error nor an adjustment:
     #
-    # Only when the plain sum FAILED. Adding the NCI to a filing that already
-    # balances would break one that was right, and a filer who published
-    # `total_equity_incl_nci` never reaches here -- that figure is already the
-    # equity term.
+    # * the NONCONTROLLING INTEREST, where a consolidated filer reports parent
+    #   equity and the NCI as separate lines with no combined total. `Assets`
+    #   is consolidated; parent equity is not. `verify.py` and
+    #   `universe_check.py` already preferred the NCI-inclusive basis, so the
+    #   same filing could be sound to the internal checker and "does not
+    #   balance" to a reader.
+    # * MEZZANINE EQUITY, the block of redeemable instruments presented between
+    #   the two columns. Neither tag was ingested at all until recently, which
+    #   made every mezzanine filer look like identity drift -- our failure to
+    #   read the filing, not their arithmetic. See
+    #   docs/internal/identity-failures.md §2.
+    #
+    # Tried only when the plain sum FAILED. Adding a term to a filing that
+    # already balances would break one that was right.
+    #
+    # The candidate that closes with the SMALLEST remaining gap wins, rather
+    # than the first that clears the tolerance. Where two bases both close, the
+    # tighter one is the one the filing was actually written on; picking by
+    # order would let an accidental near-miss claim the drawing's explanation.
+    bases: list[tuple[str, float]] = []
     if nci:
-        with_nci = abs(total_assets - (total_liabilities + total_equity + nci))
-        pct_with_nci = with_nci / total_assets * 100.0
-        if pct_with_nci <= IDENTITY_TOLERANCE * 100.0:
-            view.balances = True
-            view.imbalance_pct = pct_with_nci
-            view.identity_basis = "nci"
-            # Said out loud rather than applied silently. "This balances once
-            # you include the minority interest" is a different statement from
-            # "this balances", and a reader checking the drawing against the
-            # filing needs to know which one they are being shown.
-            view.notes.append(
-                "Balances as A = L + E + noncontrolling interest. This filer "
-                "reports the parent's equity and the noncontrolling interest "
-                "separately rather than as one total, so the two are added "
-                "here. Nothing is adjusted — both figures are as filed."
-            )
-            return
+        bases.append(("nci", nci))
+    if mezzanine:
+        bases.append(("mezzanine", mezzanine))
+    if nci and mezzanine:
+        bases.append(("nci+mezzanine", nci + mezzanine))
+
+    best: tuple[float, str] | None = None
+    for name, extra in bases:
+        pct = abs(total_assets - (total_liabilities + total_equity + extra))
+        pct = pct / total_assets * 100.0
+        if pct <= IDENTITY_TOLERANCE * 100.0 and (best is None or pct < best[0]):
+            best = (pct, name)
+
+    if best is not None:
+        view.balances = True
+        view.imbalance_pct = best[0]
+        view.identity_basis = best[1]
+        # Said out loud rather than applied silently. "This balances once you
+        # include the minority interest" is a different statement from "this
+        # balances", and a reader checking the drawing against the filing needs
+        # to know which one they are being shown.
+        view.notes.append(_IDENTITY_TERMS[best[1]])
+        return
 
     # The claims column is no longer a proportion of anything meaningful, so
     # it is held at the assets column's height rather than drawn past it. The
