@@ -91,11 +91,32 @@ def solid_text() -> list[tuple[str, float, bool]]:
     return out
 
 
-def on_the_veil() -> list[tuple[str, float, bool]]:
-    """Text with nothing opaque behind it, over the thinnest part of the veil.
+def veil_borne_text() -> list[tuple[str, float, bool]]:
+    """Text that used to sit on the veil and now has an opaque ground.
 
-    Reported as NOT deterministic whatever the number says, because the ground
-    is a moving picture. The desktop veil bottoms out near a=0.59 (a 0.30
+    The footer disclaimer, the field labels and the terms line. Each one is
+    `--well` now, so the ratio is a fixed number rather than a function of the
+    frame -- which is the whole difference between a fix and a mitigation. The
+    previous attempt was a `text-shadow`, and a shadow is not a contrast ratio:
+    WCAG measures foreground against background and does not count one.
+    """
+    return [
+        ("footer body   (--ink2 on --well)", ratio(INK2, WELL), True),
+        ("footer disc   (--dim  on --well)", ratio(DIM, WELL), True),
+        (".slabel       (--ink  on --well)", ratio(INK, WELL), True),
+        (".accept label (--ink  on --well)", ratio(INK, WELL), True),
+    ]
+
+
+def on_the_veil() -> list[tuple[str, float, bool]]:
+    """What text WOULD measure with nothing opaque behind it.
+
+    Kept after the footer and the labels were given a ground, because it is the
+    reason they needed one: these are the numbers any NEW element inherits by
+    default on this site, and the check to run before putting text somewhere
+    with no surface under it.
+
+    Reported and not enforced. The desktop veil bottoms out near a=0.59 (a 0.30
     radial over a 0.42 linear); the mobile gradient reaches a=0.16 at the foot
     of the viewport, and the veil is `position: fixed`, so content scrolls
     through it.
@@ -112,8 +133,9 @@ def main() -> int:
     failures = 0
     for heading, rows in (
         ("Tab strip (opaque ground -- fixed number)", tab_surfaces()),
+        ("Footer and form labels (opaque ground)", veil_borne_text()),
         ("Text on solid surfaces", solid_text()),
-        ("Text directly on the veil (ground is the film)", on_the_veil()),
+        ("With NO opaque ground -- what the veil alone gives", on_the_veil()),
     ):
         print(f"\n{heading}")
         for label, value, deterministic in rows:
@@ -125,9 +147,9 @@ def main() -> int:
                 failures += 1
 
     print(
-        "\nThe veil block is reported, not enforced: those grounds are a video "
-        "frame,\nso the honest fix is an opaque surface rather than a better "
-        "hex value."
+        "\nThe last block is reported, not enforced: that ground is a video "
+        "frame.\nIt is what any element with no surface under it inherits, and "
+        "it is the\nreason the footer and the form labels were given one."
     )
     print("FAILURES (deterministic surfaces under 4.5:1):", failures)
     return 1 if failures else 0

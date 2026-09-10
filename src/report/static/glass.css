@@ -661,11 +661,56 @@ body[data-film="hero"] main::after {
 .tab:hover { background: rgba(10, 11, 17, .78); color: var(--ink); }
 .tab.on { background: rgba(255, 255, 255, .16); }
 
-/* Field labels and the terms line sit directly on the veil with nothing
-   behind them, so they get the ink tone rather than the muted one, plus a
-   shadow that holds them against the bright half of the frame. */
-.slabel, .accept label {
-  color: var(--ink);
-  text-shadow: 0 1px 3px rgba(6, 7, 12, .85);
+/* 3. Text with nothing opaque behind it.
+      ------------------------------------------------------------------
+      The footer disclaimer, the field labels and the terms line all sit
+      directly on `.backdrop-veil`, which is `position: fixed` -- so its
+      gradient is anchored to the VIEWPORT and any of them can end up under the
+      thin end of it as the page scrolls. The mobile gradient reaches a=0.16 at
+      the foot of the screen, and the mobile breakpoint hides the video but not
+      the still behind it. Composited over the backdrop's cloud band:
+
+          --ink  1.88:1     --ink2  1.03:1     --dim  1.53:1
+
+      The previous mitigation was a `text-shadow`, and a shadow is not a
+      contrast ratio: WCAG measures foreground against background and does not
+      count one. It made the text look better against a bright frame and left
+      the measured number where it was.
+
+      So these get a real ground instead. `--well` is the darkest surface token
+      that is not the page background itself, which keeps the footer reading as
+      a band rather than as a hole:
+
+          --ink2 on --well  8.61:1      (footer body, links)
+          --dim  on --well  5.78:1      (the disclaimer line)
+          --ink  on --well 16.65:1      (field labels, the terms line)
+
+      Recomputed by scripts/check_contrast.py, asserted by
+      tests/test_contrast.py. */
+footer {
+  background: var(--well);
+  border: 1px solid var(--edge-soft);
+  border-radius: var(--r1);
+  padding: 16px 18px;
 }
+
+/* Inline-block, not block: "Email address" is three words and a full-width bar
+   above every field would read as a section header rather than a caption. */
+.slabel {
+  color: var(--ink);
+  background: var(--well);
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 999px;
+  margin-bottom: 6px;
+}
+
+/* The terms line IS a sentence, so it gets a block rather than a pill. */
+.accept {
+  background: var(--well);
+  border-radius: var(--r1);
+  padding: 12px 14px;
+}
+.accept label { color: var(--ink); }
+
 .navlink { color: #C6C8D6; }
