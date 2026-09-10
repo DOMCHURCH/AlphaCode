@@ -635,6 +635,24 @@ async def _attempt(
     }
     if outcome.status == "ok":
         fields["last_success_at"] = now
+        if outcome.rows:
+            # New rows landed, so every memoised page figure is now stale by a
+            # known amount rather than by a guess. The TTLs would get there in
+            # fifteen minutes; this is the pipeline telling the pages the exact
+            # moment it stopped being true, which is the whole advantage of
+            # owning both halves.
+            #
+            # Guarded on `rows` because a job that ran, succeeded and changed
+            # nothing has invalidated nothing -- and the fundamentals sweep
+            # runs every six hours whether or not a quarter has landed.
+            #
+            # In a worker thread, like every other blocking call here: clearing
+            # takes a lock each cache holds, and the event loop must not wait
+            # on one.
+            from src.company.stats import clear_page_caches
+
+            cleared = await asyncio.to_thread(clear_page_caches)
+            log.info("auto_update_caches_cleared", job=job.name, **cleared)
     await asyncio.to_thread(_write_state, job.name, **fields)
     log.info(
         "auto_update_done", job=job.name, status=outcome.status,

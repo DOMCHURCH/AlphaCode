@@ -285,3 +285,64 @@ def site_stats() -> dict[str, Any]:
                 "generated": None, "identity": None}
     out["identity"] = identity()
     return out
+
+
+def clear_page_caches() -> dict[str, bool]:
+    """Forget every memoised figure the reader-facing pages are built from.
+
+    Four separate caches, all fifteen-to-thirty minutes, all holding numbers
+    that only move when a quarter loads:
+
+        stats.counts       COUNT(*), COUNT(DISTINCT), MIN/MAX over fundamentals
+        stats.identity     the A = L + E pass rate on the home page
+        suggest.panels     the five drawings the home page leads with
+        dataset.row_count  what /dataset and every "N data points" line reads
+
+    The TTLs are the fallback and stay exactly as they are. This is the other
+    half: the ingest already KNOWS the moment new rows land, so waiting a
+    quarter of an hour to show them is choosing to be wrong on purpose, on the
+    one page whose whole subject is how much data there is.
+
+    Each cache is cleared independently and a failure in one does not stop the
+    rest -- this runs at the end of a successful load, and a load that
+    succeeded must not be reported as failed because a module-level dict
+    refused to reset. Returns which ones actually cleared.
+    """
+    out: dict[str, bool] = {}
+    for name, clear in (
+        ("counts", _clear_counts),
+        ("identity", _clear_identity),
+        ("panels", _clear_panels),
+        ("row_count", _clear_row_count),
+    ):
+        try:
+            clear()
+            out[name] = True
+        except Exception as exc:  # noqa: BLE001 - one cache must not stop the rest
+            log.warning("cache_clear_failed", cache=name, error=str(exc)[:200])
+            out[name] = False
+    return out
+
+
+def _clear_counts() -> None:
+    from src.company.stats import reset_counts_cache
+
+    reset_counts_cache()
+
+
+def _clear_identity() -> None:
+    from src.company.stats import reset_identity_cache
+
+    reset_identity_cache()
+
+
+def _clear_panels() -> None:
+    from src.company.suggest import reset_panels_cache
+
+    reset_panels_cache()
+
+
+def _clear_row_count() -> None:
+    from src.dataset import reset_count_cache
+
+    reset_count_cache()

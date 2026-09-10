@@ -2137,6 +2137,30 @@ def api_forgot_password(body: ResendRequest, tasks: BackgroundTasks) -> JSONResp
     )
 
 
+@app.post("/api/admin/cache/clear", dependencies=[Depends(require_admin)])
+def api_admin_cache_clear() -> JSONResponse:
+    """Forget the memoised page figures now, rather than in fifteen minutes.
+
+    The caches exist because the home page was doing five balance-sheet reads
+    and a full-table count on every request. Their TTLs are the fallback and do
+    not change. This is the other half: an operator who has just loaded a
+    quarter should not have to wait out a timer to see it, and neither should
+    the first reader after they did.
+
+    POST, not GET: it changes server state, and a GET would be followed by
+    every prefetcher that ever sees the URL in a log.
+
+    Answers 200 with which caches cleared even if some did not, because a
+    partial clear is still useful information and this endpoint must never be
+    the thing that fails a deploy check.
+    """
+    from src.company.stats import clear_page_caches
+
+    cleared = clear_page_caches()
+    log.info("admin_cache_cleared", **cleared)
+    return JSONResponse({"ok": all(cleared.values()), "cleared": cleared})
+
+
 @app.get("/api/admin/stats", dependencies=[Depends(require_admin)])
 def api_admin_stats(recent: int = Query(10, ge=1, le=50)) -> JSONResponse:
     """Customers and rough revenue, for the admin panel.
