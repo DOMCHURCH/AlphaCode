@@ -27,6 +27,7 @@ from fastapi import (
     Request,
 )
 from fastapi.encoders import jsonable_encoder
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import (
     HTMLResponse,
     JSONResponse,
@@ -219,6 +220,18 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# COMPRESSION. The single largest client-side win on this site and it was
+# never turned on: the home page ships five stylesheets totalling ~96 KB of
+# uncompressed CSS, plus ~27 KB of HTML, and every byte of that is on the
+# critical path because a stylesheet blocks render. `vary: accept-encoding` was
+# already on the responses, promising a negotiation that never happened.
+#
+# CSS and HTML are text and compress about 5:1, so this takes the render-
+# blocking payload from ~123 KB to roughly 25 KB. `minimum_size` skips the
+# handful of tiny JSON replies where the gzip header would cost more than it
+# saves.
+app.add_middleware(GZipMiddleware, minimum_size=1024)
+
 @app.middleware("http")
 async def count_visits(request: Request, call_next):
     """Record reader-facing page requests, without ever affecting the response.
@@ -356,9 +369,30 @@ def _enforce_rate(gate: _RateGate, what: str) -> None:
         )
 
 
+class _ImmutableStatic(StaticFiles):
+    """`/static` with a year-long cache, because every URL here is fingerprinted.
+
+    Every reference to these files carries `?v=<mtime>` from `asset_version()`,
+    so the URL changes whenever the file does. That is the precondition for
+    caching immutably -- and having built the cache-busting, the site then
+    served the assets with no `Cache-Control` at all, so a browser revalidated
+    five stylesheets on every single navigation. Cache-busting you do not cache
+    is pure cost.
+
+    `immutable` is the important half: it tells the browser not even to send a
+    conditional request on a reload, which is where the revalidation round
+    trips were being spent.
+    """
+
+    def file_response(self, *args: Any, **kwargs: Any) -> Any:
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+        return response
+
+
 _STATIC_DIR = Path(__file__).parent / "report" / "static"
 if _STATIC_DIR.is_dir():
-    app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
+    app.mount("/static", _ImmutableStatic(directory=str(_STATIC_DIR)), name="static")
 
 
 # The mark is the drawing in miniature -- owns, owed, left over -- on the same
@@ -2957,6 +2991,22 @@ def best_page(slug: str, request: Request) -> HTMLResponse:
 def alternatives_page(slug: str, request: Request) -> HTMLResponse:
     """What to look for in a replacement for a named product."""
     return _compare_page("alternatives", slug, request)
+
+
+@app.get("/methodology", response_class=HTMLResponse)
+def methodology_page(request: Request) -> HTMLResponse:
+    """What the accuracy figure on the home page actually measures.
+
+    A = L + E is an identity, so any number below 100% is a claim that needs a
+    reason. This is the reason, in public: a reconciliation service that will
+    not explain its own exceptions is asking to be taken on faith, which is the
+    thing it exists not to ask.
+    """
+    from src.report.methodology_page import render_methodology
+
+    return HTMLResponse(
+        _versioned(render_methodology(nav=_nav_for(request, "")))
+    )
 
 
 @app.get("/sitemap.xml", include_in_schema=False)

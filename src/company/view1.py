@@ -145,6 +145,22 @@ class View1:
     # How far out it is, as a share of assets. Reported so the page can say
     # "by 3%" rather than only "it does not balance".
     imbalance_pct: float = 0.0
+    # WHY it balances, when the plain sum did not: "" for the ordinary case,
+    # "nci" when the noncontrolling interest had to be added to close it.
+    #
+    # A = L + E is an identity, so a filing that misses it has either been
+    # mis-parsed or is not being read on the terms it was written on. The
+    # commonest instance of the second is a consolidated filer who reports
+    # PARENT equity and the noncontrolling interest as separate lines and no
+    # combined total: the real identity for that filing is A = L + E + NCI, and
+    # testing it without the NCI flags a correct filing as broken. Recorded
+    # rather than silently applied, because "this balances once you include the
+    # minority interest" is a different statement from "this balances" and the
+    # page says which one it means.
+    identity_basis: str = ""
+    # The noncontrolling interest, where the filer reported one. Carried so the
+    # note can name the figure that closed the gap.
+    minority_interest: float | None = None
 
     def as_dict(self) -> dict[str, Any]:
         def blocks(bs: list[Block]) -> list[dict[str, Any]]:
@@ -173,6 +189,7 @@ class View1:
             "missing_components": self.missing_components,
             "liabilities_derived_from": self.liabilities_derived_from,
             "balances": self.balances,
+            "identity_basis": self.identity_basis,
             "imbalance_pct": round(self.imbalance_pct, 3),
             "negative_equity": self.negative_equity,
             "claims_span_pct": round(self.claims_span_pct, 3),
@@ -209,6 +226,12 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     equity_incl = _val(bs.equity, "total_equity_incl_nci")
     equity_parent = _val(bs.equity, "shareholders_equity")
     total_equity = equity_incl if equity_incl is not None else equity_parent
+    # Only relevant when the filer did NOT publish a combined total: with
+    # `total_equity_incl_nci` in hand the identity already closes. This is the
+    # other shape -- parent equity and the minority interest as two lines --
+    # and it is the single largest category of filings that fail A = L + E
+    # while being entirely correct.
+    nci = None if equity_incl is not None else _val(bs.equity, "minority_interest")
 
     # Deriving liabilities from the identity is arithmetic, not imputation. The
     # filer stated two of the three terms; the third is exactly determined, not
@@ -338,7 +361,8 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     ]
     view.mode = "detailed" if named_blocks else "totals_only"
 
-    _check_identity(view, total_assets, total_liabilities, total_equity)
+    view.minority_interest = nci
+    _check_identity(view, total_assets, total_liabilities, total_equity, nci)
     return view
 
 
@@ -354,6 +378,7 @@ def _check_identity(
     total_assets: float | None,
     total_liabilities: float | None,
     total_equity: float | None,
+    nci: float | None = None,
 ) -> None:
     """Does this filing balance? Record it, and say so on the drawing.
 
@@ -374,6 +399,40 @@ def _check_identity(
     view.balances = view.imbalance_pct <= IDENTITY_TOLERANCE * 100.0
     if view.balances:
         return
+
+    # It did not balance on the plain sum. Before calling a filing broken, try
+    # the identity it was actually written on.
+    #
+    # A consolidated filer can report PARENT equity and the noncontrolling
+    # interest as two separate lines with no combined total. For that filing
+    # the identity is A = L + E + NCI, and testing A = L + E flags a correct
+    # filing as an error -- our reading being wrong, not their arithmetic.
+    # `verify.py` and `universe_check.py` already preferred the NCI-inclusive
+    # basis; this page did not, so the same filing could be sound to the
+    # internal checker and "does not balance" to a reader.
+    #
+    # Only when the plain sum FAILED. Adding the NCI to a filing that already
+    # balances would break one that was right, and a filer who published
+    # `total_equity_incl_nci` never reaches here -- that figure is already the
+    # equity term.
+    if nci:
+        with_nci = abs(total_assets - (total_liabilities + total_equity + nci))
+        pct_with_nci = with_nci / total_assets * 100.0
+        if pct_with_nci <= IDENTITY_TOLERANCE * 100.0:
+            view.balances = True
+            view.imbalance_pct = pct_with_nci
+            view.identity_basis = "nci"
+            # Said out loud rather than applied silently. "This balances once
+            # you include the minority interest" is a different statement from
+            # "this balances", and a reader checking the drawing against the
+            # filing needs to know which one they are being shown.
+            view.notes.append(
+                "Balances as A = L + E + noncontrolling interest. This filer "
+                "reports the parent's equity and the noncontrolling interest "
+                "separately rather than as one total, so the two are added "
+                "here. Nothing is adjusted — both figures are as filed."
+            )
+            return
 
     # The claims column is no longer a proportion of anything meaningful, so
     # it is held at the assets column's height rather than drawn past it. The

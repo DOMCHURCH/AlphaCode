@@ -112,6 +112,9 @@ def build(base_url: str) -> str:
     # is the snapshot date, which moves when a quarter lands.
     parts.append(_url(f"{base}/pricing", legal_date, "monthly", "0.8"))
     parts.append(_url(f"{base}/dataset", newest, "monthly", "0.7"))
+    # The public explanation of the accuracy figure. Prose, so it moves
+    # when somebody rewrites it rather than when a filing lands.
+    parts.append(_url(f"{base}/methodology", legal_date, "monthly", "0.7"))
     parts.append(_url(f"{base}/blog", legal_date, "weekly", "0.7"))
     for slug, updated in _blog_posts():
         parts.append(_url(f"{base}/blog/{slug}", updated, "monthly", "0.6"))

@@ -276,3 +276,37 @@ def test_the_sitemap_lists_nothing_it_tells_google_to_ignore(client):
 
     for path in ("/terms", "/privacy"):
         assert path in sitemap, f"{path} is indexable and should be listed"
+
+
+def test_the_methodology_page_explains_all_four_exception_categories(client):
+    """A = L + E is an identity, so 99.9% is a claim that needs a reason. The
+    page is that reason, and a category quietly dropped from it turns the
+    honest number back into a marketing one."""
+    html = client.get("/methodology").text
+
+    assert html.count("<h1") == 1
+    for phrase in (
+        "noncontrolling interest",
+        "Mezzanine equity",
+        "Rounding",
+        "genuinely does not balance",
+        "LiabilitiesAndEquity",
+    ):
+        assert phrase in html, f"/methodology does not explain {phrase!r}"
+    assert 'rel="canonical"' in html
+
+
+def test_the_homepage_says_what_the_missing_tenth_of_a_percent_is(client):
+    html = client.get("/").text
+
+    assert "99.9%" in html, "the claim itself must stay"
+    assert "never silently fudged" in html
+    assert "/methodology" in html, "the explanation must be reachable"
+
+
+def test_the_site_does_not_claim_a_hundred_percent(client):
+    """The 0.1% is real. Rounding it away would be the one dishonest fix."""
+    for path in ("/", "/methodology", "/pricing"):
+        html = client.get(path).text
+        assert "100% accurate" not in html
+        assert "100% accuracy" not in html

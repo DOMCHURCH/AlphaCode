@@ -264,6 +264,14 @@ def _accuracy_banner() -> str:
       consolidated row.
       <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why XBRL data is wrong one
       time in five</a>, and <a href="/dashboard">get the data</a>.</p>
+    <!-- A = L + E is an identity, so a number below 100% is a claim that needs
+         a reason rather than a rounding flourish. Saying what the 0.1% IS, next
+         to the figure, is the difference between a measurement and a boast. -->
+    <p class="acc-why">Every valid filing we ingest reconciles to that identity.
+      The 0.1% that do not are flagged with the exact reason — noncontrolling
+      interests, mezzanine equity, rounding, or a genuinely broken filing —
+      never silently fudged. We surface the reason; we don’t hide it.
+      <a href="/methodology">How the check works</a>.</p>
   </div>"""
 
 
@@ -422,11 +430,11 @@ def _head_meta(
         f'<meta property="og:title" content="{escape(social)}">',
         f'<meta property="og:description" content="{escape(desc)}">',
         f'<meta property="og:url" content="{escape(url)}">' if canonical else "",
-        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop.jpg">',
+        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp">',
         '<meta name="twitter:card" content="summary_large_image">',
         f'<meta name="twitter:title" content="{escape(social)}">',
         f'<meta name="twitter:description" content="{escape(desc)}">',
-        f'<meta name="twitter:image" content="{SITE_ORIGIN}/static/media/backdrop.jpg">',
+        f'<meta name="twitter:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp">',
     ]
     return "\n".join(t for t in tags if t)
 

@@ -413,3 +413,78 @@ def test_a_balanced_filing_is_drawn_at_full_scale(client):
     assert 295.0 <= sum(heights) <= 305.0, (
         f"a balanced filing should fill the column, got {sum(heights):.0f}px"
     )
+
+
+# ---------------------------------------------------------------------------
+# 6. The identity a consolidated filing is actually written on
+# ---------------------------------------------------------------------------
+
+def test_a_filing_with_separate_nci_balances_and_says_so(client):
+    """A = L + E + NCI, which is the real identity for this filing.
+
+    A consolidated filer can report the PARENT's equity and the noncontrolling
+    interest as two lines with no combined total. 1,000 = 700 + 250 + 50 is
+    correct; testing 1,000 = 700 + 250 calls it 5% out and flags a sound filing
+    as broken -- our reading being wrong, not their arithmetic.
+
+    `verify.py` and `universe_check.py` already preferred the NCI-inclusive
+    basis, so the same filing was sound to the internal checker and "does not
+    balance" to a reader. This is the largest single category of filings inside
+    the 0.1%.
+    """
+    seed("NCICO", [
+        fact("NCICO", "total_assets", 1000.0, filed=EARLIER),
+        fact("NCICO", "total_liabilities", 700.0, filed=EARLIER),
+        fact("NCICO", "total_equity", 250.0, filed=EARLIER),
+        fact("NCICO", "minority_interest", 50.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("NCICO").as_dict()
+    assert d["balances"] is True, "5% out on the parent-only basis, exact with NCI"
+    assert d["identity_basis"] == "nci"
+    assert d["imbalance_pct"] < 0.5
+    assert any("noncontrolling interest" in n for n in d["notes"]), d["notes"]
+
+    html = client.get("/company/NCICO").text
+    # The WARNING class, not the phrase: "a filing does not balance" also
+    # appears in the Learn-more blurb linking the identity note, and matching
+    # on prose would pass or fail on unrelated copy.
+    assert 'class="note warn"' not in html, "a sound filing was flagged"
+    assert "noncontrolling interest" in html
+
+
+def test_a_combined_equity_total_never_double_counts_the_nci(client):
+    """A filer who publishes `total_equity_incl_nci` already has the NCI inside
+    that figure. Adding `minority_interest` on top would break a filing that
+    was right, so the NCI is only read when the combined total is absent."""
+    seed("INCL", [
+        fact("INCL", "total_assets", 1000.0, filed=EARLIER),
+        fact("INCL", "total_liabilities", 700.0, filed=EARLIER),
+        fact("INCL", "total_equity_incl_nci", 300.0, filed=EARLIER),
+        fact("INCL", "total_equity", 250.0, filed=EARLIER),
+        fact("INCL", "minority_interest", 50.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("INCL").as_dict()
+    assert d["balances"] is True
+    assert d["identity_basis"] == "", "the plain sum already closed; no NCI note"
+    assert d["total_equity"] == 300.0
+
+
+def test_an_nci_that_does_not_close_the_gap_still_fails(client):
+    """The NCI is a second reading, not an excuse. A filing 40% out does not
+    become sound because it happens to report a minority interest."""
+    seed("BROKE", [
+        fact("BROKE", "total_assets", 1000.0, filed=EARLIER),
+        fact("BROKE", "total_liabilities", 500.0, filed=EARLIER),
+        fact("BROKE", "total_equity", 100.0, filed=EARLIER),
+        fact("BROKE", "minority_interest", 20.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("BROKE").as_dict()
+    assert d["balances"] is False
+    assert d["identity_basis"] == ""
+    assert any("does not balance" in n for n in d["notes"])
