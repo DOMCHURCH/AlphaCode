@@ -116,10 +116,10 @@ def iter_csv() -> Iterator[str]:
     yield drain()
 
     # Ordered so the WINNER of each (ticker, metric, period) arrives LAST:
-    # ascending filing_date, then source rank descending. That is the same
-    # rule `pit.get_fundamentals` and `balancesheet._resolve_restatements`
-    # apply, expressed in SQL, which is the whole point -- the file somebody
-    # pays for and the figures on the site must be the same numbers.
+    # ascending filing_date, then source rank ASCENDING. That is the same rule
+    # `pit.get_fundamentals` and `balancesheet._resolve_restatements` apply,
+    # expressed in SQL, which is the whole point -- the file somebody pays for
+    # and the figures on the site must be the same numbers.
     #
     # It used to be an unfiltered dump: four rows for one company and period,
     # two different values for `total_assets`, and no column telling the buyer
@@ -143,7 +143,14 @@ def iter_csv() -> Iterator[str]:
             Fundamental.metric,
             Fundamental.period_end,
             Fundamental.filing_date,
-            _source_rank_sql().desc(),
+            # ASCENDING, and this was a real bug the other way round. The
+            # writer keeps the LAST row of each run, so descending source rank
+            # put `sec` first and `yahoo` last -- and the least-preferred
+            # source was the one written to the file. The same fixture that
+            # made `get_balance_sheet` return the SEC figure made this CSV
+            # write Yahoo's, on a site whose whole claim is that the file and
+            # the API are the same numbers.
+            _source_rank_sql().asc(),
         )
         .execution_options(stream_results=True, yield_per=_CHUNK)
     )
@@ -175,9 +182,11 @@ def iter_csv() -> Iterator[str]:
 def _source_rank_sql():
     """Source preference as a SQL expression, most-preferred highest.
 
-    Mirrors `pit._SOURCE_PREFERENCE`. Ordered DESC alongside an ascending
-    filing_date so that on a same-day tie the SEC as-reported figure is the
-    one that survives -- as-reported is what this dataset claims to contain.
+    Mirrors `pit._SOURCE_PREFERENCE`, most-preferred HIGHEST. Ordered ASC
+    alongside an ascending filing_date, because the writer keeps the last row
+    of each run: ascending rank puts the most-preferred source last, so on a
+    same-day tie the SEC as-reported figure is the one that survives -- and
+    as-reported is what this dataset claims to contain.
     """
     from sqlalchemy import case
 

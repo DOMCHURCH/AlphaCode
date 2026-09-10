@@ -242,6 +242,45 @@ def test_the_csv_and_the_api_return_the_same_figures(client):
     assert csv_rows["total_equity"] == sheet.equity["shareholders_equity"].value
 
 
+def test_a_same_day_tie_picks_the_same_source_in_the_csv_and_the_api(client):
+    """The export's tie-break was the INVERSE of the read path's.
+
+    `iter_csv` keeps the last row of each run and ordered source rank
+    descending, so `sec` came first and `yahoo` last -- and the least-preferred
+    source was the one written. `balancesheet._recency` does the opposite:
+    `max()` over `(filing_date, -rank)`, which picks `sec`.
+
+    The restatement case hid it, because two different filing dates settle the
+    order before source rank is ever consulted. It only appears when two
+    sources file the SAME day, which is exactly the case this seeds: the API
+    returned 200 and the CSV wrote 999, for one company, one metric, one
+    period, on a site whose entire claim is that the file and the API are the
+    same numbers.
+    """
+    same_day = dt.date(2026, 2, 1)
+    seed([
+        fact("total_assets", 200.0, filed=same_day, source="sec"),
+        fact("total_assets", 999.0, filed=same_day, source="yahoo"),
+        fact("total_liabilities", 120.0, filed=same_day, source="sec"),
+        fact("total_equity", 80.0, filed=same_day, source="sec"),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+    from src.dataset import iter_csv
+
+    body = [ln.split(",") for ln in "".join(iter_csv()).strip().splitlines()[1:]]
+    assets = [r for r in body if r[1] == "total_assets"]
+
+    assert len(assets) == 1, f"a tie must still collapse to one row: {assets}"
+    assert assets[0][6] == "sec", "the preferred source must be the one written"
+    assert float(assets[0][2]) == 200.0
+
+    sheet = get_balance_sheet("ACME")
+    assert float(assets[0][2]) == sheet.assets["total_assets"].value, (
+        "the CSV and the API must agree on a same-day tie, not just on a "
+        "restatement"
+    )
+
+
 def test_the_download_carries_its_provenance_on_the_response(client):
     """A file sold on its accuracy should say what was done to it. On the
     HEADERS, not as a `#` line inside the CSV -- a leading comment row makes
