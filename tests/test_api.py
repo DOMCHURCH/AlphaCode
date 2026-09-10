@@ -1481,3 +1481,28 @@ def test_the_running_app_matches_its_environment(client):
         assert (app.docs_url, app.redoc_url, app.openapi_url) == (None, None, None)
         for path in ("/docs", "/redoc", "/openapi.json"):
             assert client.get(path).status_code == 404, path
+
+
+def test_html_and_css_are_compressed(client):
+    """The largest client-side win on the site, and it was never switched on.
+
+    The home page ships five stylesheets totalling ~96 KB of uncompressed CSS
+    plus ~27 KB of HTML, and every byte is on the critical path because a
+    stylesheet blocks render. `vary: accept-encoding` was already on the
+    responses, promising a negotiation that never happened.
+    """
+    r = client.get("/", headers={"Accept-Encoding": "gzip"})
+    assert r.status_code == 200
+    assert r.headers.get("content-encoding") == "gzip", r.headers
+
+
+def test_static_assets_are_cached_immutably(client):
+    """Every /static URL carries `?v=<mtime>`, so the URL changes when the file
+    does. Having built the cache-busting, the site then served the assets with
+    no Cache-Control at all -- five stylesheets revalidated on every
+    navigation. Cache-busting you do not cache is pure cost."""
+    r = client.get("/static/glass.css")
+    assert r.status_code == 200
+    cache = r.headers.get("cache-control", "")
+    assert "max-age=31536000" in cache, cache
+    assert "immutable" in cache, cache
