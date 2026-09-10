@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import json
 import logging
-import resource
 import sys
 from collections import deque
 from typing import Any
@@ -27,6 +26,16 @@ from typing import Any
 import structlog
 
 from src.config.settings import get_settings
+
+# Unix only, and this module is imported by everything. Production is Linux, so
+# `peak_rss_mb` works where it matters; on Windows the import itself used to
+# raise and take the whole application down with it -- including every test that
+# so much as touched the app. The function below already treats a missing
+# reading as 0.0, so the guard costs nothing it was not already prepared for.
+try:
+    import resource
+except ImportError:  # pragma: no cover - Windows
+    resource = None  # type: ignore[assignment]
 
 _configured = False
 
@@ -105,6 +114,8 @@ def peak_rss_mb() -> float:
     logging it after each stage shows where allocation actually spikes -- the
     single most useful number for chasing an OOM.
     """
+    if resource is None:
+        return 0.0
     try:
         ru = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     except Exception:  # noqa: BLE001 - diagnostics must never raise
