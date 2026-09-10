@@ -14,6 +14,7 @@ from typing import Any
 from src.company.view1 import View1, describe_shape
 from src.company.view2 import View2
 from src.company.view3 import View3, describe_flow
+from src.report.backdrop import media_version
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -375,7 +376,7 @@ def _company_meta(d: dict[str, Any]) -> str:
         f'<meta property="og:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
         f'<meta property="og:description" content="{escape(desc)}">',
         f'<meta property="og:url" content="{escape(url)}">',
-        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp">',
+        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp?v={media_version()}">',
         '<meta name="twitter:card" content="summary_large_image">',
         f'<meta name="twitter:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
         f'<meta name="twitter:description" content="{escape(desc)}">',
