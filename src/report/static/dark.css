@@ -185,7 +185,6 @@ a { color: var(--ink); }
    home page is glanced at; a dashboard is worked in. `data-film` on <body> says
    which, and the veil is raised until the page is comfortable.
 */
-body[data-film="still"] .backdrop-film { display: none; }
 
 body[data-film="calm"] .backdrop-veil,
 body[data-film="still"] .backdrop-veil {

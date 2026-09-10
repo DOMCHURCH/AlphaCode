@@ -12,7 +12,7 @@
        reader with reduced motion all leave the correct figure on screen. The
        animation is an effect applied to text that is already right.
      - It never runs for somebody who asked for less motion. The film's
-       reduced-motion gate was removed deliberately (see backdrop.js); this one
+       reduced-motion gate on the old backdrop video was removed with it; this one
        stays, because a number rewriting itself under a reader is exactly the
        kind of motion that setting is asking about, and unlike the film it has
        no atmospheric job that would be lost.

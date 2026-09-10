@@ -1,38 +1,35 @@
-"""The cinematic backdrop: a gradient, then a still, then — sometimes — a video.
+"""The backdrop: a gradient, then one still image. No video.
 
-Three layers, each of which is a complete answer on its own. That is the whole
-design: nothing here is required for the page to look right, so nothing here can
-break the page by failing to arrive.
+Two layers, and the first is a complete answer on its own:
 
     1. gradient   0 bytes, painted with the first CSS. Dark, with the warm
-                  horizon the film has, so a viewer who never gets past this
+                  horizon the image has, so a viewer who never gets past this
                   layer sees the intended mood rather than a black hole.
-    2. still      ~57 KB WebP (135 KB JPEG for Safari <14). This is what MOST
-                  visitors see, and every mobile visitor. It carries the look.
-    3. film       ~148 KB WebM / ~254 KB MP4, and only for a desktop that has
-                  finished loading, is not on a metered connection, and has not
-                  asked for reduced motion.
+    2. image      108 KB WebP at 2400px, 44 KB at 1200px, plus a 144-byte
+                  inline placeholder that paints with the stylesheet.
 
-The source film is 14 MB at 11.4 Mbps. Serving that to a phone before the first
-balance sheet appears would be indefensible on a site whose whole argument is
-that it respects the reader, so the film is an upgrade that has to earn its
-place on every single visit rather than a cost everybody pays.
+**The film is gone.** It was three files -- WebM, MP4 and a JPEG poster --
+fetched by a script that could not start until `load` had fired, behind checks
+for viewport, connection type and tab visibility. All of that machinery existed
+to decide whether to spend 190 KB on decoration, and the decision cost more
+than the bytes: the largest element on the page could not begin loading until
+everything else had finished.
 
-Not yet wired into any page — the dark redesign it belongs to has not been
-written. `render_backdrop()` is ready to drop into a page shell when it is, and
-`/static/media/preview.html` shows it working in the meantime.
+A still image needs none of it. It is in the first stylesheet, the browser
+starts it during preload scan, and there is no state to get wrong. The
+`prefers-reduced-motion` gate went with it, because a static image has no
+motion to reduce -- which also settles the Windows "Show animations" problem
+that made Chrome report `reduce` for people who never asked for it.
 """
 
 from __future__ import annotations
 
-from src.report.company_page import asset_version
-
 # One place for the asset paths, so the CSS, the script and the markup cannot
 # disagree about what is being loaded.
-POSTER_WEBP = "/static/media/backdrop.webp"
-POSTER_JPG = "/static/media/backdrop.jpg"
-FILM_WEBM = "/static/media/backdrop.webm"
-FILM_MP4 = "/static/media/backdrop.mp4"
+# One place for the asset paths, so the CSS and the markup cannot disagree.
+# The film is gone: see the module docstring.
+HERO_2400 = "/static/media/backdrop-2400.webp"
+HERO_1200 = "/static/media/backdrop-1200.webp"
 
 
 def render_backdrop() -> str:
@@ -42,9 +39,8 @@ def render_backdrop() -> str:
     poster fetch on every page, on every device, and would have to be argued out
     of loading. Nothing is cheaper than an element that is not there.
     """
-    return f"""
+    return """
 <div class="backdrop" id="backdrop" aria-hidden="true">
   <div class="backdrop-still"></div>
   <div class="backdrop-veil"></div>
-</div>
-<script src="/static/backdrop.js?v={asset_version()}" defer></script>"""
+</div>"""

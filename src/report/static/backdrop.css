@@ -6,7 +6,6 @@
 
      gradient  painted by this file, 0 bytes, always
      still     ~57 KB WebP, loaded by CSS, every device
-     film      added by backdrop.js, desktop only, after load
 
    The gradient is not a grey placeholder. It carries the film's own palette --
    near-black at the top, warm gold at the horizon -- so somebody who only ever
@@ -38,11 +37,33 @@
   position: absolute;
   inset: 0;
   z-index: 0;
+  /* THE LCP ELEMENT. Everything about this rule is about first paint.
+     ------------------------------------------------------------------
+     Two WebP variants and a 144-byte inline placeholder, replacing a video
+     that was three files (WebM + MP4 + JPEG poster) fetched by a script that
+     could only start after the page had finished loading.
+
+     `image-set` with a width descriptor lets the browser pick BEFORE layout:
+     a phone fetches 44 KB, a desktop 108 KB, and neither downloads the other.
+     The old still was one 40 KB WebP scaled up on every screen.
+
+     The 24px LQIP is a data URI, so it paints in the same frame as the CSS --
+     no request, no round trip. It sits UNDER the real image in the same
+     `background-image` stack rather than in a separate element that has to be
+     faded out, so there is nothing to sequence and nothing to get stuck on if
+     the full image never arrives.
+
+     Sizes: 2400px 108 KB, 1200px 44 KB. Source is 1678x937 (16:9). */
   background-color: var(--bd-base);
   background-image:
-    image-set(url("/static/media/backdrop.webp") type("image/webp"),
-              url("/static/media/backdrop.jpg") type("image/jpeg"));
-  background-size: cover;
+    image-set(url("/static/media/backdrop-2400.webp") type("image/webp") 2400w,
+              url("/static/media/backdrop-1200.webp") type("image/webp") 1200w),
+    url("data:image/webp;base64,UklGRmQAAABXRUJQVlA4IFgAAABQBACdASoYAA4APrVKnkonJCKhsAgA4BaJZACdIDZDAsyyb0DjwA2+PzsAAP1QlLfsbLLgXZAXMtPMhfFsuBAyJT2C5BpX6DSgHgpRLouLqWfB9KwHtwAA");
+  background-size: cover, cover;
+  /* 16:9, matching the source, so the layer never reflows as the image
+     arrives -- a fixed full-screen layer cannot shift content, but declaring
+     it keeps the intent legible. */
+  aspect-ratio: 1678 / 937;
   /* The figure sits low and right in this film and the page's content sits
      left, so the frame is held down and across rather than centred -- what
      the reader gets behind the text is sky, and the subject stays clear of
@@ -54,33 +75,20 @@
      layer is a compositing cost paid on every frame for nothing. */
 }
 
-/* Older Safari and Firefox that do not do image-set() fall back to the JPEG. */
+/* Anything without image-set() gets the mobile variant: 44 KB, and WebP has
+   been supported everywhere that matters since 2020. The old JPEG fallback
+   went with the video. */
 @supports not (background-image: image-set(url("x.webp") type("image/webp"))) {
   .backdrop-still {
-    background-image: url("/static/media/backdrop.jpg");
+    background-image: url("/static/media/backdrop-1200.webp");
   }
 }
-
-/* Layer 3. Inserted by the script, faded in so the swap from still to film is
-   not a visible cut. Same framing as the still, so nothing shifts. */
-.backdrop-film {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: 70% 62%;
-  opacity: 0;
-  transition: opacity 1.2s ease;
-}
-.backdrop-film.on { opacity: 1; }
 
 /* The veil is what makes text readable over a moving image, and it is doing
    three jobs at once: a flat dark wash for contrast, a vignette so the corners
    fall away from the content, and a warm lift at the horizon that keeps the
    gold rather than muddying it to grey. */
-/* Explicitly ABOVE the film, and this is not a detail. backdrop.js appends the
+/* Explicitly ABOVE the image, and this is not a detail. The stacking here
    <video> to the same container, so it lands after this element in the DOM and
    -- without a z-index -- paints on top of the veil. The still was veiled and
    the film was not, which is why the backdrop looked correct in every
@@ -107,11 +115,10 @@
    away from quietly costing a phone 250 KB.
 
    The `prefers-reduced-motion` rule that sat here has been removed alongside
-   the matching check in backdrop.js; see the note at the top of that file for
-   why, and for how to put both back. */
-@media (max-width: 900px) {
-  .backdrop-film { display: none; }
-}
+   the video that needed it. A still image has no motion to reduce. */
+/* Layer 3 -- the video -- is gone. The rule that hid it on a phone went with
+   it: the image is responsive now, so a narrow screen gets the 1200px variant
+   rather than a hidden 190 KB download it was never going to play. */
 
 /* On a phone the frame is tall and narrow, so the same crop that puts the
    subject clear of the text on a desktop puts her head directly behind the
