@@ -348,7 +348,32 @@ def render_company_page(
     above, below = [], []
     for b in d["claims"]:
         (below if (b["kind"] == "equity" and b["value"] < 0) else above).append(b)
-    claims_html = "".join(_band(b, px_per_pct) for b in above)
+
+    # `claims_span_pct` is how tall the claims column is ALLOWED to be, as a
+    # share of the assets column, and until now nothing read it.
+    #
+    # `view1._check_identity` sets it and its comment says the column "is held
+    # at the assets column's height rather than drawn past it" when a filing
+    # does not balance. That was not happening. A filing reporting 1,000 in
+    # assets against 1,800 in claims drew a claims column 80% taller than the
+    # assets column beside it -- past the bottom of its own container, on the
+    # page whose entire argument is that the two columns are the same money
+    # counted twice.
+    #
+    # Scaling rather than clipping, so every band keeps its share of the column
+    # and the drawing stays internally proportional. The figures underneath are
+    # untouched and the warning above the drawing still states the gap.
+    #
+    # Negative equity that BALANCES is deliberately exempt: `check_identity`
+    # leaves the span at 110% for 1,000 = 1,100 + (-100), because a claims
+    # column overrunning the assets it claims is exactly what negative equity
+    # looks like, and flattening it would draw the one thing worth seeing as
+    # though it were not there.
+    span = float(d.get("claims_span_pct", 100.0) or 100.0)
+    above_total = sum(b["pct"] for b in above) or 100.0
+    claims_scale = min(1.0, span / above_total) if above_total > span else 1.0
+
+    claims_html = "".join(_band(b, px_per_pct * claims_scale) for b in above)
     below_html = "".join(_band(b, px_per_pct) for b in below)
 
     liab_label = money(d["total_liabilities"]) if d["total_liabilities"] is not None else "—"

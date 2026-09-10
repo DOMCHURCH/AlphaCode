@@ -314,3 +314,102 @@ def test_four_real_quarters_still_sum(client):
     assert got is not None
     assert got[1] == "ttm"
     assert got[0]["revenue"] == 400.0
+
+
+# ---------------------------------------------------------------------------
+# 5. The claims column is drawn within the height it is allowed
+# ---------------------------------------------------------------------------
+
+def _claims_heights(html: str) -> list[float]:
+    """Pixel heights of the bands ABOVE the baseline in the claims column.
+
+    The page renders two `.bs-col` blocks -- assets, then claims -- and the
+    claims one carries a second `.stack` under a `.baseline` when equity is
+    negative. This reads only the first stack of the SECOND column, which is
+    the part whose height `claims_span_pct` governs. Splitting on the first
+    `.stack` in the document reads the ASSETS column, which is always 300px and
+    would make every one of these assertions pass for the wrong reason.
+    """
+    import re
+
+    cols = html.split('<div class="bs-col"')
+    assert len(cols) >= 3, "the drawing did not render two columns"
+    claims_col = cols[2].split('<div class="baseline">', 1)[0]
+    return [float(h) for h in re.findall(r"height:([\d.]+)px", claims_col)]
+
+
+def test_an_unbalanced_filing_is_not_drawn_past_its_own_column(client):
+    """1,000 in assets against 1,800 in claims.
+
+    `view1._check_identity` computes `claims_span_pct` and its comment says the
+    column "is held at the assets column's height rather than drawn past it".
+    Nothing read the field, so nothing held it: the claims column rendered 80%
+    taller than the assets column beside it, on the page whose whole argument
+    is that the two are the same money counted twice.
+    """
+    seed("ACME", [
+        fact("ACME", "total_assets", 1000.0, filed=EARLIER),
+        fact("ACME", "total_liabilities", 900.0, filed=EARLIER),
+        fact("ACME", "total_equity", 900.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("ACME").as_dict()
+    assert d["balances"] is False
+    assert d["claims_span_pct"] <= 100.0, "the view must cap the span it allows"
+
+    html = client.get("/company/ACME").text
+    heights = _claims_heights(html)
+    assert heights, "the drawing rendered no bands"
+    # 300px is the column height the page draws to. A little slack for the 3px
+    # floor every band gets so a hairline sliver is still visible.
+    assert sum(heights) <= 310.0, (
+        f"the claims column rendered {sum(heights):.0f}px against a 300px column"
+    )
+
+
+def test_negative_equity_still_overruns_the_assets_column(client):
+    """The deliberate exemption, and the reason this is a cap and not a clamp.
+
+    1,000 = 1,100 + (-100) BALANCES. `claims_span_pct` stays at 110 because a
+    claims column overrunning the assets it claims is exactly what negative
+    equity looks like; flattening it would draw the one thing worth seeing on
+    the page as though it were not there.
+    """
+    seed("AAL", [
+        fact("AAL", "total_assets", 1000.0, filed=EARLIER),
+        fact("AAL", "total_liabilities", 1100.0, filed=EARLIER),
+        fact("AAL", "total_equity", -100.0, filed=EARLIER),
+    ], name="American Airlines")
+    from src.company.view1 import build_view1
+
+    d = build_view1("AAL").as_dict()
+    assert d["balances"] is True
+    assert d["negative_equity"] is True
+    assert d["claims_span_pct"] == pytest.approx(110.0)
+
+    html = client.get("/company/AAL").text
+    heights = _claims_heights(html)
+    assert sum(heights) > 300.0, (
+        "negative equity must still be drawn overrunning the assets column"
+    )
+
+
+def test_a_balanced_filing_is_drawn_at_full_scale(client):
+    """The ordinary case must be untouched by the cap."""
+    seed("MSFT", [
+        fact("MSFT", "total_assets", 1000.0, filed=EARLIER),
+        fact("MSFT", "total_liabilities", 600.0, filed=EARLIER),
+        fact("MSFT", "total_equity", 400.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("MSFT").as_dict()
+    assert d["balances"] is True
+    assert d["claims_span_pct"] == pytest.approx(100.0)
+
+    html = client.get("/company/MSFT").text
+    heights = _claims_heights(html)
+    assert 295.0 <= sum(heights) <= 305.0, (
+        f"a balanced filing should fill the column, got {sum(heights):.0f}px"
+    )
