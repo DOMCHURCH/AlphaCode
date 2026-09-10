@@ -203,7 +203,113 @@ the one bug report I actually want.</p>
 """,
 )
 
-POSTS: tuple[Post, ...] = (_POST_XBRL_ACCURACY,)
+_POST_BANK_BALANCE_SHEETS = Post(
+    slug="why-bank-balance-sheets-are-different",
+    title="Why Bank Balance Sheets Are Different",
+    seo_title="How to Read a Bank Balance Sheet (Deposits, Loans, Leverage)",
+    description=(
+        "A bank's balance sheet inverts the shape you expect: deposits are "
+        "liabilities, loans are assets, and equity is a sliver. What that "
+        "means when you read JPM, BAC or WFC at true proportion."
+    ),
+    published="2026-09-10",
+    updated="2026-09-10",
+    minutes=3,
+    body="""
+<p class="lede">Look at a bank drawn to scale and the first thing you notice is
+that the equity block is almost too thin to label.</p>
+
+<p>That is not a rendering bug. A large US bank runs on roughly ten cents of
+equity per dollar of assets, where a software company might run on sixty. Draw
+both at true proportion and they look like different kinds of object, which is
+most of the argument for drawing them at all.</p>
+
+<p>The second thing that trips people up is the direction of the two big lines.
+<strong>Deposits are a liability.</strong> The money in your current account is
+owed back to you, so it sits on the claims side. <strong>Loans are an
+asset</strong> — a promise of repayment the bank owns. A reader who expects
+"deposits = money the bank has" reads the whole picture backwards.</p>
+
+<p>This also breaks the tag-picking heuristics that most XBRL extractors use. A
+bank files <code>Assets</code> for the consolidated group and again for each
+segment, and the segment figures for a large institution are themselves larger
+than most companies' entire balance sheets. Picking the biggest number, or the
+first one, produces something plausible and wrong. The accounting identity is
+what settles it: only the consolidated set satisfies
+<strong>A = L + E</strong>, so that is the set that gets served.</p>
+
+<h2>What to look at</h2>
+
+<ul>
+  <li><strong>Deposits as a share of liabilities.</strong> A deposit-funded
+    bank and a wholesale-funded one behave very differently under stress.</li>
+  <li><strong>Loans as a share of assets.</strong> The rest is securities, cash
+    and trading positions.</li>
+  <li><strong>The equity sliver.</strong> Ten percent is ordinary. Two percent
+    is a different conversation.</li>
+</ul>
+
+<p><em>This is a short note and it will grow. The section on securities
+portfolios and held-to-maturity accounting is the obvious next piece.</em></p>
+""",
+)
+
+
+_POST_ACCOUNTING_IDENTITY = Post(
+    slug="understanding-the-accounting-identity",
+    title="Understanding the Accounting Identity",
+    seo_title="Assets = Liabilities + Equity: What the Identity Actually Proves",
+    description=(
+        "Assets = Liabilities + Equity is not a rule filers follow. It is a "
+        "consequence of double-entry bookkeeping, which is what makes it "
+        "usable as a test on data you did not produce."
+    ),
+    published="2026-09-10",
+    updated="2026-09-10",
+    minutes=3,
+    body="""
+<p class="lede">The identity is not a rule companies are asked to obey. It is a
+consequence of how the books are kept, which is exactly what makes it useful to
+somebody reading those books from outside.</p>
+
+<p>Every entry in double-entry bookkeeping touches two accounts. Buy a machine
+with cash and assets do not change — one asset becomes another. Buy it with a
+loan and assets and liabilities rise together. There is no legal transaction
+that moves one side without the other, so at the end of any period
+<strong>Assets = Liabilities + Equity</strong> holds by construction.</p>
+
+<p>That is why it works as a <em>test</em>. A figure you have extracted from a
+filing is not verifiable on its own — you cannot tell a correct total assets
+from an incorrect one by looking at it. But three figures together either
+balance or they do not, and a set that balances is very unlikely to contain a
+wrong one. It is a checksum somebody else already computed for you.</p>
+
+<h2>When it does not balance</h2>
+
+<p>Sometimes the arithmetic genuinely fails. Rounding in the filing, a
+presentation choice, or an error. When that happens the honest answer is to
+serve the figures <strong>as reported</strong> and say the filing does not
+balance, with the gap stated as a percentage — not to adjust a number until the
+columns agree. An adjusted figure is no longer what the company filed, and what
+the company filed is the whole product.</p>
+
+<p>The one case that looks like a failure and is not: <strong>negative
+equity</strong>. Liabilities exceeding assets balances perfectly well, it just
+draws with the equity block below the baseline.</p>
+
+<p><em>A short note. Minority interest and the difference between parent-only
+and NCI-inclusive equity deserve their own piece.</em></p>
+""",
+)
+
+
+# Newest first: /blog lists them in this order, and a reader arriving at
+# the hub should meet the most recent thinking rather than the oldest.
+POSTS: tuple[Post, ...] = (
+    _POST_XBRL_ACCURACY,
+    _POST_BANK_BALANCE_SHEETS,
+    _POST_ACCOUNTING_IDENTITY,
+)
 BY_SLUG: dict[str, Post] = {p.slug: p for p in POSTS}
 
 
@@ -281,6 +387,72 @@ def _fill_scale(prose: str) -> str:
     ).replace("{FACTS}", facts_label() or "1.8M")
 
 
+# The companies each post actually TALKS ABOUT, with the reason it names them.
+#
+# Hand-written per post, not generated. An automatic "related companies" strip
+# would put the same five tickers under every note, which is link stuffing with
+# extra steps: the value of a link from a post about bank balance sheets to JPM
+# is that the post is genuinely about what JPM's balance sheet looks like, and
+# nothing computable knows that.
+_POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
+    "sec-xbrl-data-wrong-one-in-five": (
+        ("JPM", "the filing this post opens with — 23 tags for one figure"),
+        ("BAC", "the same segment problem, a different bank"),
+        ("GS", "fewer segments, and it shows in the tag count"),
+    ),
+    "why-bank-balance-sheets-are-different": (
+        ("JPM", "deposits and loans at the scale the post describes"),
+        ("WFC", "a deposit-funded balance sheet"),
+        ("MSFT", "the contrast — asset-light, equity-funded"),
+    ),
+    "understanding-the-accounting-identity": (
+        ("AAL", "negative equity that balances perfectly"),
+        ("WMT", "an ordinary A = L + E, drawn"),
+        ("FCX", "capital-heavy, and the identity still holds"),
+    ),
+}
+
+
+def _related_companies(post: Post) -> str:
+    """Links from a post to the companies it is actually about."""
+    rows = _POST_COMPANIES.get(post.slug, ())
+    if not rows:
+        return ""
+    items = "".join(
+        f'<li><a href="/company/{t}">{t}</a> — {escape(why)}</li>'
+        for t, why in rows
+    )
+    return f"""
+  <section class="sec" id="worked-examples">
+    <div class="sec-head"><h2>See it on a real filing</h2></div>
+    <p class="sec-sub">Every figure on these pages is as reported, drawn at true
+      proportion. No account needed.</p>
+    <ul class="notelist">{items}</ul>
+  </section>"""
+
+
+def _related_reading(post: Post) -> str:
+    """The other posts, with the sentence that says why you would read them.
+
+    Every post links to every other one because there are three of them. When
+    there are thirty this becomes a real relevance question; the shape is here
+    so that is a change to one function rather than to every post.
+    """
+    others = [p for p in POSTS if p.slug != post.slug]
+    if not others:
+        return ""
+    items = "".join(
+        f'<li><a href="/blog/{p.slug}">{escape(p.title)}</a> — '
+        f"{escape(p.description.split('.')[0])}.</li>"
+        for p in others
+    )
+    return f"""
+  <section class="sec" id="related-reading">
+    <div class="sec-head"><h2>Related reading</h2></div>
+    <ul class="notelist">{items}</ul>
+  </section>"""
+
+
 def render_post(post: Post, *, nav: str = "") -> str:
     from src.report.schema import blogposting_ld, breadcrumb_ld
 
@@ -295,6 +467,8 @@ def render_post(post: Post, *, nav: str = "") -> str:
     </header>
     <div class="prose">{_fill_scale(post.body)}</div>
   </article>
+  {_related_companies(post)}
+
   <aside class="sec cta">
     <div class="sec-head"><h2>Check it against a filing you know</h2></div>
     <p class="sec-sub">The free tier needs no card, and looking companies up on
@@ -305,6 +479,8 @@ def render_post(post: Post, *, nav: str = "") -> str:
       <a class="btn ghost" href="/api">Read the API docs</a>
     </div>
   </aside>
+
+  {_related_reading(post)}
 {footer}
 </main>
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""

@@ -231,6 +231,77 @@ def _scale_html(v2: View2 | None) -> str:
   </section>"""
 
 
+# Which note is worth reading next, given what this company IS. Keyed on the
+# sector string the sector map stores.
+#
+# A bank's page and a software company's page raise different questions -- "why
+# is the equity block so thin" versus "why is almost all of this one number" --
+# so pointing both at the same general explainer wastes the link. The general
+# one is the fallback rather than the default.
+_SECTOR_READING: dict[str, tuple[str, str]] = {
+    "Financial Services": (
+        "why-bank-balance-sheets-are-different",
+        "Deposits are a liability and loans are an asset, which is why this "
+        "drawing looks inside out until it does not.",
+    ),
+    "Real Estate": (
+        "why-bank-balance-sheets-are-different",
+        "Heavily leveraged balance sheets, and what a thin equity block means.",
+    ),
+}
+
+_GENERAL_READING = (
+    "understanding-the-accounting-identity",
+    "Why Assets = Liabilities + Equity works as a test on data you did not "
+    "produce, and what it means when a filing does not balance.",
+)
+
+_METHOD_READING = (
+    "sec-xbrl-data-wrong-one-in-five",
+    "How the figure on this page was chosen out of the twenty-odd tags the "
+    "filer published for it.",
+)
+
+
+def _learn_more(d: dict) -> str:
+    """Two notes worth reading next, chosen by sector, plus the product links.
+
+    Every company page had exactly one outbound link -- the nav -- so six
+    thousand pages sat in a silo passing no authority to anything and giving a
+    reader who wanted to understand what they were looking at nowhere to go.
+
+    Two links, not a wall of them. The sector-specific note where there is one,
+    the identity note otherwise, and always the note explaining how the number
+    on THIS page was selected, which is the question the page itself provokes.
+    """
+    from src.report.blog import BY_SLUG
+
+    sector = (d.get("sector") or "").strip()
+    first = _SECTOR_READING.get(sector, _GENERAL_READING)
+    picks = [first, _METHOD_READING]
+
+    items = ""
+    for slug, why in picks:
+        post = BY_SLUG.get(slug)
+        if post is None:  # a post was renamed; drop the link, never 404 a reader
+            continue
+        items += (
+            f'<li><a href="/blog/{slug}">{escape(post.title)}</a> — '
+            f"{escape(why)}</li>"
+        )
+    if not items:
+        return ""
+
+    return f"""
+  <section class="sec" id="learn-more">
+    <div class="sec-head"><h2>Learn more</h2></div>
+    <ul class="notelist">{items}</ul>
+    <p class="plan-note">Every figure here is also available as JSON —
+      <a href="/api">the API reference</a> and
+      <a href="/pricing">what it costs</a>.</p>
+  </section>"""
+
+
 def _ask_html(ticker: str, available: bool) -> str:
     """The question box. Absent entirely when the model is not configured.
 
@@ -513,6 +584,7 @@ def render_company_page(
   {_flow_html(flow)}
   {_scale_html(scale)}
   {_ask_html(d["ticker"], ask_available)}
+  {_learn_more(d)}
 
 {render_footer(
     f'Every figure is as reported to the SEC for the quarter ended '

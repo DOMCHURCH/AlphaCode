@@ -601,10 +601,22 @@ def render(page: Page, *, nav: str = "") -> str:
       <a class="btn ghost" href="/api">API docs</a>
       <a class="btn ghost" href="/dataset">Full dataset</a>
     </div>
-    <p class="plan-note">More on the method:
-      <a href="/blog/sec-xbrl-data-wrong-one-in-five">why SEC XBRL data is
-      wrong one time in five</a>.</p>
   </aside>
+
+  <section class="sec" id="the-method">
+    <div class="sec-head"><h2>The method, written out</h2></div>
+    <p class="sec-sub">These pages compare on METHOD because method is the part
+      that stays true. Both of these are the method itself rather than an
+      argument about it, so you can judge the claim rather than take it.</p>
+    <ul class="notelist">
+      <li><a href="/blog/sec-xbrl-data-wrong-one-in-five">Why SEC XBRL data is
+        wrong one time in five</a> — the measurement behind the 78.6% figure in
+        the table above, on JPMorgan's own filing.</li>
+      <li><a href="/blog/understanding-the-accounting-identity">Understanding
+        the accounting identity</a> — why A = L + E works as a test on data you
+        did not produce, and what happens when a filing genuinely fails it.</li>
+    </ul>
+  </section>
 
 {footer}
 </main>
