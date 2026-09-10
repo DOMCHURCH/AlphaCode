@@ -186,4 +186,18 @@ def render_dataset(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dataset.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — The full dataset", body)
+    from src.report.schema import breadcrumb_ld, dataset_ld
+
+    return shell(
+        "SEC XBRL Dataset Download — To Scale",
+        body,
+        description=(
+            f"Download every as-reported SEC balance sheet figure as one CSV — "
+            f"{row_label} rows across 6,201 companies, reconciled with "
+            f"A = L + E. One-time {dataset_price}, static snapshot as of "
+            f"{as_of}."
+        ),
+        canonical="/dataset",
+        ld=dataset_ld(rows=rows, companies=6201, as_of=as_of)
+        + breadcrumb_ld([("Home", "/"), ("Dataset", "/dataset")]),
+    )

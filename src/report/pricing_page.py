@@ -399,7 +399,9 @@ def render_pricing(
     <p class="sec-sub"><b>Looking things up is free and unlimited</b> — every
       drawing, every company, the live demo on the front page, as many as you
       like, no key and no account and no daily counter. The prices below buy
-      the data in machine-readable form, in bulk. Every one of them is
+      the data in machine-readable form, in bulk.
+      <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why most SEC filings APIs
+      are wrong one time in five</a>. Every one of them is
       what Stripe charges; nothing is quoted here that the checkout does not
       agree with.</p>
     {cards}
@@ -434,4 +436,54 @@ def render_pricing(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — Pricing", body)
+    from src.report.schema import breadcrumb_ld, faq_ld, pricing_ld
+
+    # The FAQ on this page is the highest-value block on the site for AI
+    # citation: four questions somebody actually types, answered in full
+    # sentences that stand alone out of context. Marked up so a model quoting
+    # one of them has the question attached to it.
+    faq_pairs = [
+        (
+            "What's the difference between the SEC dataset and the API?",
+            "The dataset is a static CSV snapshot of every filed figure at the "
+            "moment you buy it, for one-time analysis in Excel or pandas. The "
+            "API answers from the live database, so a call made tomorrow "
+            "returns tomorrow's filings. Buy the dataset if the analysis has "
+            "an end; buy the API if what you are building has to keep being "
+            "right.",
+        ),
+        (
+            "Can I buy the SEC dataset and get updates?",
+            "No. A dataset purchase is one download of one snapshot and it is "
+            "never refreshed. To get a later snapshot you buy it again. If you "
+            "find yourself wanting a second copy, the Pro API is cheaper and "
+            "is current every time you call it.",
+        ),
+        (
+            "How do I use the To Scale API key?",
+            "Send it as an X-API-Key header on an ordinary GET. There is no "
+            "SDK, no OAuth and no token exchange: "
+            'curl -H "X-API-Key: YOUR_KEY" https://toscale.pro/api/company/AAPL',
+        ),
+        (
+            "What can I build with a balance sheet API?",
+            "Anything needing as-reported balance-sheet figures on a schedule "
+            "— screens that rank companies on a filed ratio, dashboards that "
+            "redraw when a 10-Q lands, backtests that need the figure as it "
+            "was reported rather than as it was later restated, and research "
+            "notebooks that pull a peer group in one loop.",
+        ),
+    ]
+    return shell(
+        "Pricing — To Scale",
+        body,
+        description=(
+            "SEC filings API pricing: free tier, $49/mo Pro API, $490/yr, or a "
+            "$79.99 one-time XBRL dataset download. 99.9% accurate reconciled "
+            "balance sheet data across 6,201 companies."
+        ),
+        canonical="/pricing",
+        ld=pricing_ld()
+        + faq_ld(faq_pairs)
+        + breadcrumb_ld([("Home", "/"), ("Pricing", "/pricing")]),
+    )

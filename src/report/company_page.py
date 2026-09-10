@@ -272,6 +272,47 @@ def _ask_html(ticker: str, available: bool) -> str:
   </section>"""
 
 
+def _company_meta(d: dict[str, Any]) -> str:
+    """Description, canonical and social card for ONE company.
+
+    These 6,000-odd pages are the site's entire long tail and they carried no
+    description, no canonical and no card -- and a title that omitted the
+    company name, which is the word somebody actually searches for. The
+    description is built from the filing itself, so every page gets a
+    different one rather than 6,000 copies of a template.
+    """
+    from src.report.home_page import SITE_ORIGIN
+    from src.report.schema import breadcrumb_ld
+
+    name = d["company_name"] or d["ticker"]
+    total = d.get("total_assets")
+    size = f" Total assets {money(total)}." if total else ""
+    desc = (
+        f"{name} ({d['ticker']}) balance sheet as filed with the SEC for the "
+        f"period ended {d['period_end']}, drawn to scale.{size} As-reported "
+        f"XBRL figures reconciled with the accounting identity."
+    )
+    url = f"{SITE_ORIGIN}/company/{d['ticker']}"
+    crumbs = breadcrumb_ld(
+        [("Home", "/"), (f"{name} ({d['ticker']})", f"/company/{d['ticker']}")]
+    )
+    tags = [
+        f'<meta name="description" content="{escape(desc)}">',
+        f'<link rel="canonical" href="{escape(url)}">',
+        '<meta property="og:type" content="article">',
+        '<meta property="og:site_name" content="To Scale">',
+        f'<meta property="og:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
+        f'<meta property="og:description" content="{escape(desc)}">',
+        f'<meta property="og:url" content="{escape(url)}">',
+        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop.jpg">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
+        f'<meta name="twitter:description" content="{escape(desc)}">',
+        crumbs,
+    ]
+    return "\n".join(tags)
+
+
 def render_company_page(
     view: View1,
     flow: View3 | None = None,
@@ -371,7 +412,8 @@ def render_company_page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(d["ticker"])} — what it owns</title>
+<title>{escape(d["company_name"] or d["ticker"])} ({escape(d["ticker"])}) Balance Sheet — To Scale</title>
+{_company_meta(d)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -506,6 +548,7 @@ def render_not_found(ticker: str, reason: str) -> str:
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/company.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
+<meta name="robots" content="noindex,follow">
 <link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/glass.css?v={asset_version()}">

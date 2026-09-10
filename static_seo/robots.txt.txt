@@ -24,7 +24,6 @@ Disallow: /logout
 Disallow: /download
 Disallow: /reconcile
 Disallow: /health
-Disallow: /search
 Disallow: /*?*utm_
 
 # The AI crawlers again, by name, with the same exclusions repeated.
@@ -61,10 +60,19 @@ Disallow: /logout
 Disallow: /download
 Disallow: /reconcile
 Disallow: /health
-Disallow: /search
 Disallow: /*?*utm_
 
 Sitemap: https://toscale.pro/sitemap.xml
+
+# NOTE — /search is deliberately NOT disallowed here.
+#
+# The search-result templates (src/report/home_page.py:969, 1007, 1033) render
+# a user-supplied query into the <title> and have no `noindex`, which is an
+# unbounded set of thin, near-duplicate pages. The fix is `noindex` on those
+# three templates, not a Disallow line: robots.txt blocks the CRAWL, and a
+# crawler that never fetches the page never sees the noindex, so anything
+# already indexed stays indexed forever. Block crawling only after the pages
+# are out of the index, or not at all.
 
 # MERGE NOTE — one cross-file conflict this creates.
 #

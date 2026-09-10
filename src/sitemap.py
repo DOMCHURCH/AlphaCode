@@ -112,6 +112,9 @@ def build(base_url: str) -> str:
     # is the snapshot date, which moves when a quarter lands.
     parts.append(_url(f"{base}/pricing", legal_date, "monthly", "0.8"))
     parts.append(_url(f"{base}/dataset", newest, "monthly", "0.7"))
+    parts.append(_url(f"{base}/blog", legal_date, "weekly", "0.7"))
+    for slug, updated in _blog_posts():
+        parts.append(_url(f"{base}/blog/{slug}", updated, "monthly", "0.6"))
     parts.append(_url(f"{base}/dashboard", legal_date, "monthly", "0.7"))
     parts.append(_url(f"{base}/login", legal_date, "yearly", "0.3"))
     parts.append(_url(f"{base}/terms", legal_date, "yearly", "0.3"))
@@ -177,6 +180,21 @@ def reset_cache() -> None:
     _cache = None
 
 
+def _blog_posts() -> list[tuple[str, str]]:
+    """(slug, last-updated) for every published post.
+
+    Read from the post registry rather than listed here, so publishing is one
+    edit rather than two -- a sitemap that has to be remembered is a sitemap
+    that goes stale.
+    """
+    try:
+        from src.report.blog import POSTS
+
+        return [(post.slug, post.updated) for post in POSTS]
+    except Exception:  # noqa: BLE001 - a sitemap must not depend on prose
+        return []
+
+
 def robots(base_url: str) -> str:
     """robots.txt, whose only real job here is to name the sitemap.
 
@@ -186,11 +204,42 @@ def robots(base_url: str) -> str:
     behind a secret, and a crawler wasting requests on it helps nobody.
     """
     base = base_url.rstrip("/")
-    return (
-        "User-agent: *\n"
-        "Allow: /\n"
-        "Disallow: /admin\n"
-        "Disallow: /api/\n"
-        "\n"
-        f"Sitemap: {base}/sitemap.xml\n"
-    )
+    return "\n".join([
+        "User-agent: *",
+        "Allow: /",
+        # An operator console, not a page. It IS behind a secret now -- the
+        # note that used to claim so here was false for months -- and a
+        # crawler spending requests on a login gate helps nobody.
+        "Disallow: /admin",
+        "Disallow: /api/",
+        "",
+        # AI crawlers, invited explicitly. Being quoted in a generated answer
+        # is a distribution channel, and for a product whose pitch is a
+        # verifiable accuracy claim it is a good one: the claim travels with
+        # the citation. Named individually rather than left to the wildcard
+        # because that is what these crawlers' operators ask for -- and it
+        # documents which ones were considered rather than defaulted into.
+        "User-agent: GPTBot",
+        "User-agent: OAI-SearchBot",
+        "User-agent: ChatGPT-User",
+        "User-agent: PerplexityBot",
+        "User-agent: Perplexity-User",
+        "User-agent: ClaudeBot",
+        "User-agent: Claude-User",
+        "User-agent: Claude-SearchBot",
+        "User-agent: Google-Extended",
+        "User-agent: Applebot-Extended",
+        "User-agent: CCBot",
+        "User-agent: meta-externalagent",
+        "Allow: /",
+        "Disallow: /admin",
+        "Disallow: /api/",
+        "",
+        f"Sitemap: {base}/sitemap.xml",
+        # Not standard directives, and harmless to a crawler that ignores
+        # them -- but llms.txt has no discovery mechanism of its own, and this
+        # is the first place an agent looks.
+        f"# llms.txt: {base}/llms.txt",
+        f"# financial data disclosure: {base}/financial-data.txt",
+        "",
+    ])

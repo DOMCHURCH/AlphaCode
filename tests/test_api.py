@@ -132,7 +132,11 @@ def test_root_is_the_home_page(client):
     tool is reachable from it rather than standing in for it."""
     r = client.get("/", follow_redirects=False)
     assert r.status_code == 200
-    assert "Filed financial statements, drawn at true proportion" in r.text
+    assert "99.9% Accurate SEC Balance Sheet API" in r.text
+    # The old fallback description was the SAME sentence on all eight
+    # shell pages, which is one page to a search engine and eight
+    # near-duplicates to a crawler. Each page carries its own now.
+    assert "reconciled balance sheet data from SEC EDGAR" in r.text
     assert 'action="/search"' in r.text
     assert 'href="/admin"' in r.text
 

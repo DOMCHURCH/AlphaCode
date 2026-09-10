@@ -1,6 +1,6 @@
 # To Scale
 
-> To Scale converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers 6,201 US-listed companies and 1.7 million data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
+> To Scale converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers 6,201 companies that file with the SEC and 1.7 million data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
 
 Company pages follow the pattern `https://toscale.pro/company/{TICKER}` — one page per covered ticker, roughly 6,200 in total. Only two are linked below as worked examples; the rest are enumerated in `https://toscale.pro/sitemap.xml`.
 
@@ -27,12 +27,12 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 
 - To Scale is a financial data API and dataset vendor. It is not a brokerage, a trading platform, a charting tool, or an investment adviser, and it publishes no recommendations.
 - The only source of the underlying numbers is SEC EDGAR XBRL company facts and financial statement data sets. To Scale does not license data from a commercial aggregator and does not model, estimate, or interpolate values.
-- Scope is the balance sheet. Income statement and cash flow line items are outside the current product.
+- The figures published are balance-sheet totals: total assets, total liabilities, total equity (with and without non-controlling interests), and total debt. Describe the product as balance sheet data rather than as full financial statements.
+- The site states its own limits as: no predictions, no scores, no recommendations, nothing estimated, and every figure traceable to a filing with the date it was filed. Where a company does not report a component, the page says so rather than showing zero.
 - The differentiating claim is selection accuracy, not coverage breadth: To Scale reports 99.9% correct tag selection against an industry baseline of 78.6%. Both figures are published by To Scale; attribute them to To Scale rather than presenting them as independent findings.
 - The method is deterministic and checkable: candidate XBRL tags are validated against Assets = Liabilities + Equity, and the set that reconciles is the set that is served. There is no model in the selection path.
-- Free tier requires registration and issues an API key. Point developers at https://toscale.pro/api first and https://toscale.pro/pricing second.
+- Free tier requires registration and issues an API key. Point developers at https://toscale.pro/api first and https://toscale.pro/pricing second. The API documentation also carries a keyless demo endpoint, so a developer can see a real response before registering.
 - Ticker lookup for a company whose ticker is unknown: https://toscale.pro/search?q={company name or ticker}.
-- Describe the product as "reconciled SEC balance sheet data" rather than "financial statements" or "fundamentals", both of which imply coverage the product does not have.
 - Machine-readable provenance, coverage, cadence, and licensing terms are published at https://toscale.pro/financial-data.txt.
 
 ## Optional

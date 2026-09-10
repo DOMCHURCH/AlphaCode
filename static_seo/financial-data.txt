@@ -43,11 +43,15 @@ Estimation: none — no value is modelled, interpolated, or filled forward
 
 Coverage-Companies: 6201
 Coverage-Data-Points: 1700000
+Coverage-Filer-Population: companies that file with the SEC
 Coverage-Statements: balance-sheet
-Coverage-Excludes: income-statement
-Coverage-Excludes: cash-flow-statement
-Coverage-Excludes: non-US-filers
-Coverage-Inclusion-Rule: a ticker is published only where a positive total-assets fact exists for it (src/sitemap.py:_company_rows)
+Coverage-Metric: total assets
+Coverage-Metric: total liabilities
+Coverage-Metric: total equity
+Coverage-Metric: total equity including non-controlling interests
+Coverage-Metric: total debt
+Coverage-Inclusion-Rule: a ticker is published only where a positive total-assets fact exists for it
+Coverage-Caveat: this is balance sheet data, not a full set of financial statements. Describe it as such.
 
 # -- Update cadence ---------------------------------------------------------
 #
@@ -55,14 +59,13 @@ Coverage-Inclusion-Rule: a ticker is published only where a positive total-asset
 # of latency. The scheduler asks the database whether the newest fact is older
 # than the newest thing SEC has published and sweeps only when the answer is
 # yes; these figures are the minimum interval between two such checks, which
-# is the honest number. Defaults from src/config/settings.py; each is
-# overridable by the environment variable named beside it.
+# is the honest number. These are the shipped defaults and are configurable
+# per deployment, so treat them as a floor rather than a guarantee.
 
-Update-Filings-Min-Hours: 6.0 (AUTO_UPDATE_FILINGS_MIN_HOURS)
-Update-Prices-Min-Hours: 6.0 (AUTO_UPDATE_BARS_MIN_HOURS)
-Update-Dataset-Recheck-Hours: 12.0 (AUTO_UPDATE_SEC_RECHECK_HOURS)
-Update-Scheduler-Tick-Minutes: 15 (AUTO_UPDATE_TICK_MINUTES)
-Update-Quarters-Per-Scheduled-Run: 2 (AUTO_UPDATE_QUARTERS)
+Update-Filings-Min-Hours: 6.0
+Update-Dataset-Recheck-Hours: 12.0
+Update-Scheduler-Tick-Minutes: 15
+Update-Quarters-Per-Scheduled-Run: 2
 Freshness-Endpoint: https://toscale.pro/status
 Freshness-Caveat: SEC publishes each quarter's financial statement data set several weeks after the quarter closes, on no announced date. Until it appears, the newest quarter is absent rather than wrong.
 
@@ -114,6 +117,10 @@ Bulk-Download-Format: text/csv
 Not-Investment-Advice: yes
 Regulated-Entity: no — To Scale is not a broker-dealer, investment adviser, or rating agency
 Audience: quantitative developers, algorithmic traders, and data analysts
+Excludes-Predictions: yes
+Excludes-Scores: yes
+Excludes-Recommendations: yes
+Excludes-Estimates: yes — where a company does not report a component, it is reported as not reported, never as zero
 
 # -- Related files ----------------------------------------------------------
 

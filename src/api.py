@@ -2844,6 +2844,75 @@ def sitemap_xml(request: Request) -> Response:
     )
 
 
+@app.get("/blog", response_class=HTMLResponse)
+def blog_index(request: Request) -> HTMLResponse:
+    from src.report.blog import render_index
+
+    return HTMLResponse(_versioned(render_index(nav=_nav_for(request, "blog"))))
+
+
+@app.get("/blog/{slug}", response_class=HTMLResponse)
+def blog_post(request: Request, slug: str) -> HTMLResponse:
+    """One post, or a styled 404 -- never a bare JSON error on a public URL a
+    search engine may still be holding."""
+    from src.report.blog import BY_SLUG, render_index, render_post
+
+    post = BY_SLUG.get(slug.strip().lower())
+    if post is None:
+        return HTMLResponse(
+            _versioned(render_index(nav=_nav_for(request, "blog"))), status_code=404
+        )
+    return HTMLResponse(_versioned(render_post(post, nav=_nav_for(request, "blog"))))
+
+
+@app.get("/llms.txt", include_in_schema=False)
+def llms_txt() -> Response:
+    """The AI-crawler front door.
+
+    A model reading this site has no way to tell which of six thousand URLs
+    matter, and crawling its way to an answer is expensive for it and for us.
+    This is the map: what the product is, what the accuracy claim rests on,
+    and which pages answer which question.
+    """
+    return _seo_file("llms.txt")
+
+
+@app.get("/financial-data.txt", include_in_schema=False)
+def financial_data_txt() -> Response:
+    """Provenance for the data itself: source, coverage, cadence, method.
+
+    Same idea as llms.txt and a different question. That one says what the
+    product is; this says where the numbers came from and what was done to
+    them -- which for a financial data product is the claim everything else
+    rests on.
+    """
+    return _seo_file("financial-data.txt")
+
+
+_SEO_DIR = Path(__file__).resolve().parent.parent / "static_seo"
+
+
+def _seo_file(name: str) -> Response:
+    """One of the flat text files, read from disk.
+
+    Served rather than generated because they are prose, not data -- and a
+    404 here must not be a 500: a missing file means the deploy dropped it,
+    which is worth a log line and a plain answer rather than a stack trace on
+    a public URL.
+    """
+    path = _SEO_DIR / name
+    try:
+        text = path.read_text(encoding="utf-8")
+    except OSError as exc:
+        log.warning("seo_file_missing", name=name, error=str(exc)[:120])
+        return Response(content="", media_type="text/plain", status_code=404)
+    return Response(
+        content=text,
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/robots.txt", include_in_schema=False)
 def robots_txt(request: Request) -> Response:
     """Names the sitemap, which is how every crawler that is not Google finds it."""
@@ -2925,6 +2994,8 @@ def api_index() -> JSONResponse:
                 "POST /backfill", "POST /admin/reload-fundamentals",
                 "POST /admin/raw-facts",
                 "/pricing  (plans, dataset vs API, FAQ)",
+                "/blog  (notes)",
+                "/llms.txt", "/financial-data.txt",
                 "/dataset  (what is in the CSV, and its snapshot date)",
                 "POST /api/billing/checkout",
                 "POST /admin/simulate-purchase  (admin secret; no money moves)",

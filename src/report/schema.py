@@ -61,7 +61,8 @@ starting the application.
 from __future__ import annotations
 
 import json
-from typing import Any, Iterable, Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any
 
 # The canonical origin. One constant, because the moment two files disagree
 # about whether the site is `toscale.pro` or `www.toscale.pro`, the knowledge
@@ -94,6 +95,24 @@ ORG_DESCRIPTION = (
 # to guess what shape the URL will take. If the blog ships under a different
 # prefix, this is the line to edit.
 BLOG_BASE = f"{SITE}/blog"
+
+# The publisher, inlined wherever another block names it.
+#
+# A bare `{"@id": ORG_ID}` is a *reference* to a node, and a reference is only
+# resolvable if the node it points at is somewhere in the same document.
+# `organization_ld()` ships on the home page alone, so on /pricing, /dataset,
+# /api and a blog post that reference would dangle: a validator reads
+# `author` or `publisher` as present-but-empty and reports a missing required
+# field. Carrying the name and url alongside the `@id` makes every block
+# self-sufficient while keeping the identifier stable — JSON-LD merges nodes
+# that share an `@id`, so restating it here is not a second organisation, it
+# is the same one described twice.
+_ORG_REF = {
+    "@type": "Organization",
+    "@id": ORG_ID,
+    "name": ORG_NAME,
+    "url": f"{SITE}/",
+}
 
 
 def _script(payload: Any) -> str:
@@ -212,7 +231,7 @@ def pricing_ld() -> str:
             "@type": "Product",
             "name": "To Scale — reconciled SEC balance sheet data",
             "description": ORG_DESCRIPTION,
-            "brand": {"@id": ORG_ID},
+            "brand": _ORG_REF,
             "url": f"{SITE}/pricing",
             "offers": [
                 {
@@ -305,6 +324,13 @@ def dataset_ld(rows: int, companies: int, as_of: str) -> str:
     dataset as free is the fastest way to lose the listing entirely, and
     saying nothing leaves an engine to guess.
 
+    `distribution.contentUrl` deliberately points at `/dataset`, the purchase
+    page, rather than at the CSV bytes. The file is paywalled, so there is no
+    URL that returns it to an anonymous crawler; pointing at one that 402s or
+    redirects to a login would describe a download nobody can perform.
+    Together with `isAccessibleForFree: false` this reads correctly — the
+    distribution exists, and this is where you go to get it.
+
     Belongs on `/dataset` only.
     """
     return _script(
@@ -321,8 +347,8 @@ def dataset_ld(rows: int, companies: int, as_of: str) -> str:
                 "served per concept per period."
             ),
             "url": f"{SITE}/dataset",
-            "creator": {"@id": ORG_ID},
-            "publisher": {"@id": ORG_ID},
+            "creator": _ORG_REF,
+            "publisher": _ORG_REF,
             "dateModified": as_of,
             "isAccessibleForFree": False,
             "license": f"{SITE}/terms",
@@ -394,7 +420,7 @@ def software_ld() -> str:
             ),
             "url": f"{SITE}/api",
             "documentation": f"{SITE}/api.json",
-            "provider": {"@id": ORG_ID},
+            "provider": _ORG_REF,
             "applicationCategory": "DeveloperApplication",
             "applicationSubCategory": "Financial data API",
             # A hosted API runs nowhere in particular from the caller's point
@@ -516,8 +542,8 @@ def blogposting_ld(
             "mainEntityOfPage": {"@type": "WebPage", "@id": url},
             "datePublished": published,
             "dateModified": modified,
-            "author": {"@id": ORG_ID},
-            "publisher": {"@id": ORG_ID},
+            "author": _ORG_REF,
+            "publisher": _ORG_REF,
         }
     )
 

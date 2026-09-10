@@ -138,7 +138,11 @@ def test_home_is_the_product_not_a_redirect(client):
 
     assert r.status_code == 200
     body = r.text
-    assert "Filed financial statements, drawn at true proportion" in body
+    assert "99.9% Accurate SEC Balance Sheet API" in body
+    # The old fallback description was the SAME sentence on all eight
+    # shell pages, which is one page to a search engine and eight
+    # near-duplicates to a crawler. Each page carries its own now.
+    assert "reconciled balance sheet data from SEC EDGAR" in body
     assert 'action="/search"' in body
     assert 'href="/company/JPM"' in body
 
@@ -366,7 +370,19 @@ _PRODUCT_FIT = ("best for:",)
 
 
 def _body_without_disclaimers(client, path: str = "/") -> str:
+    """The page's PROSE, lower-cased, with the legitimate uses removed.
+
+    JSON-LD is stripped first. It is markup, not writing -- and schema.org
+    spells things like `operatingSystem`, which contains "rating" and trips a
+    substring ban aimed at the sentence "we rate this stock". Leaving it in
+    means the ban fails on a word no reader ever sees.
+    """
+    import re
+
     body = client.get(path).text.lower()
+    body = re.sub(
+        r'<script type="application/ld\+json">.*?</script>', "", body, flags=re.S
+    )
     for phrase in _DISCLAIMERS + _PRODUCT_FIT:
         body = body.replace(phrase, "")
     return body

@@ -55,7 +55,9 @@ def render_api(
   <header class="hero">
     <h1 class="htitle">The API</h1>
     <p class="hlede">Every balance sheet on this site, as JSON. One header, one
-      key, no SDK. Filed figures only — nothing here is derived, scored or
+      key, no SDK. Every figure is reconciled against A = L + E before it is
+      stored — <a href="/blog/sec-xbrl-data-wrong-one-in-five">here is why that
+      matters</a>. Filed figures only — nothing here is derived, scored or
       predicted.</p>
   </header>
 
@@ -162,4 +164,16 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
 </main>
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — API reference", body)
+    from src.report.schema import breadcrumb_ld, software_ld
+
+    return shell(
+        "SEC Filings API Reference — To Scale",
+        body,
+        description=(
+            "REST API for SEC XBRL balance sheet data. One X-API-Key header, "
+            "JSON back, no SDK. 6,201 companies, 1.7M as-reported data points, "
+            "reconciled with the accounting identity to 99.9% accuracy."
+        ),
+        canonical="/api",
+        ld=software_ld() + breadcrumb_ld([("Home", "/"), ("API", "/api")]),
+    )

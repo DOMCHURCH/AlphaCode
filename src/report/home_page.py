@@ -234,7 +234,9 @@ def _accuracy_banner() -> str:
     <p class="acc-why">Accounting-identity accuracy. The gap is the SEC
       duplicate-tag problem — JPMorgan reports “Total Assets” 23 times in one
       filing, once per segment and subsidiary — solved by isolating the
-      consolidated row. <a href="/dashboard">Get the data</a>.</p>
+      consolidated row.
+      <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why XBRL data is wrong one
+      time in five</a>, and <a href="/dashboard">get the data</a>.</p>
   </div>"""
 
 
@@ -352,11 +354,80 @@ def _summary_line(stats: dict) -> str:
     )
 
 
-def shell(title: str, body: str, film: str = "hero") -> str:
-    return _shell(title, body, film)
+# Fallback description. Used only where a page passes none, and every page
+# that matters passes one -- a single sentence repeated across eight URLs is
+# one page to a search engine and eight near-duplicates to a crawler.
+DEFAULT_DESCRIPTION = (
+    "Filed SEC balance sheets, drawn at true proportion. Reconciled with the "
+    "accounting identity so the figures agree with the filing."
+)
+SITE_ORIGIN = "https://toscale.pro"
 
 
-def _shell(title: str, body: str, film: str = "hero") -> str:
+def _head_meta(
+    title: str, description: str, canonical: str, noindex: bool = False
+) -> str:
+    """Description, canonical and the social cards, in one place.
+
+    These were missing site-wide: one hardcoded description shared by every
+    shell-rendered page, no canonical anywhere, and no Open Graph or Twitter
+    card at all -- so a link shared into Slack, iMessage or a group chat
+    rendered as a bare URL with no card.
+
+    `og:title` deliberately drops the " - To Scale" suffix that the <title>
+    carries: the card shows the site name on its own line already, and a card
+    reading "To Scale - To Scale" is the kind of detail that makes a product
+    look unfinished at exactly the moment somebody is deciding whether to
+    click it.
+    """
+    desc = description or DEFAULT_DESCRIPTION
+    url = canonical if canonical.startswith("http") else f"{SITE_ORIGIN}{canonical}"
+    social = title.split(" — ")[0] if " — " in title else title
+    tags = [
+        # `noindex,follow`, never a robots.txt Disallow: a blocked crawl never
+        # SEES the noindex, so anything already indexed stays indexed forever.
+        # Follow is kept so the links out of the page still carry weight.
+        '<meta name="robots" content="noindex,follow">' if noindex else "",
+        f'<meta name="description" content="{escape(desc)}">',
+        f'<link rel="canonical" href="{escape(url)}">' if canonical else "",
+        '<meta property="og:type" content="website">',
+        '<meta property="og:site_name" content="To Scale">',
+        f'<meta property="og:title" content="{escape(social)}">',
+        f'<meta property="og:description" content="{escape(desc)}">',
+        f'<meta property="og:url" content="{escape(url)}">' if canonical else "",
+        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop.jpg">',
+        '<meta name="twitter:card" content="summary_large_image">',
+        f'<meta name="twitter:title" content="{escape(social)}">',
+        f'<meta name="twitter:description" content="{escape(desc)}">',
+        f'<meta name="twitter:image" content="{SITE_ORIGIN}/static/media/backdrop.jpg">',
+    ]
+    return "\n".join(t for t in tags if t)
+
+
+def shell(
+    title: str,
+    body: str,
+    film: str = "hero",
+    *,
+    description: str = "",
+    canonical: str = "",
+    ld: str = "",
+    noindex: bool = False,
+) -> str:
+    return _shell(title, body, film, description=description,
+                  canonical=canonical, ld=ld, noindex=noindex)
+
+
+def _shell(
+    title: str,
+    body: str,
+    film: str = "hero",
+    *,
+    description: str = "",
+    canonical: str = "",
+    ld: str = "",
+    noindex: bool = False,
+) -> str:
     """`film` says how much of the backdrop this page may spend.
 
     "hero"  the full backdrop: light veil, and the film on desktop
@@ -386,7 +457,7 @@ def _shell(title: str, body: str, film: str = "hero") -> str:
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title)}</title>
-<meta name="description" content="Filed financial statements, drawn at true proportion.">
+{_head_meta(title, description, canonical, noindex)}{ld}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -881,7 +952,7 @@ def render_home(
         gallery = """
   <section class="sec">
     <div class="empty">
-      <h1>No filed statements loaded yet</h1>
+      <h2>No filed statements loaded yet</h2>
       <p>Nothing can be drawn until the fundamentals table has data in it.
         Load it from the admin page, then search for any ticker.</p>
       <div class="sugg"><a href="/admin">Open admin</a></div>
@@ -932,7 +1003,20 @@ def render_home(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
 <script src="/static/countup.js?v={asset_version()}" defer></script>"""
-    return _shell("To Scale — filed financial statements, drawn to scale", body)
+    from src.report.schema import organization_ld, software_ld
+
+    return _shell(
+        "To Scale — 99.9% Accurate SEC Balance Sheet API",
+        body,
+        description=(
+            "99.9% accurate reconciled balance sheet data from SEC EDGAR "
+            "filings. Most providers pick the wrong XBRL tag for Total Assets "
+            "— JPMorgan reports it 23 ways. We use A = L + E to select the "
+            "right one. 6,201 companies, 1.7M data points."
+        ),
+        canonical="/",
+        ld=organization_ld() + software_ld(),
+    )
 
 
 def render_matches(
@@ -981,7 +1065,14 @@ def render_matches(
   <p class="tryline">Or start with one of these:</p>
   <div class="sugg">{sugg}</div>
 </main>"""
-    return _shell(f"{query} — To Scale", body)
+    return _shell(
+        f"{query} — To Scale",
+        body,
+        # A query string makes an unbounded set of thin, near-duplicate
+        # pages under one route. `noindex,follow` rather than a
+        # robots.txt Disallow: a blocked crawl never sees the noindex.
+        noindex=True,
+    )
 
 
 def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
@@ -1013,7 +1104,7 @@ def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
     <div class="sugg">{sugg}</div>
   </div>
 </main>"""
-    return _shell("Search by ticker — To Scale", body)
+    return _shell("Search by ticker — To Scale", body, noindex=True)
 
 
 def render_search_empty(suggestions: list[Suggestion]) -> str:
@@ -1038,4 +1129,4 @@ def render_search_empty(suggestions: list[Suggestion]) -> str:
     <div class="sugg">{sugg}</div>
   </div>
 </main>"""
-    return _shell("To Scale — search", body)
+    return _shell("To Scale — search", body, noindex=True)
