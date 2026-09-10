@@ -426,6 +426,14 @@ class Settings(BaseSettings):
     login_rate_per_hour: int = Field(
         default=600, ge=0, alias="LOGIN_RATE_PER_HOUR"
     )
+    # Per MINUTE, unlike every other gate here, because what it bounds is
+    # different: `/status` is an authenticated read whose cost is a COUNT(*)
+    # over millions of rows, so the thing to stop is a tight loop rather than a
+    # daily budget. Ten is far above a human refreshing a status page and
+    # immediately below a script. 0 disables, like the others.
+    status_rate_per_min: int = Field(
+        default=10, ge=0, alias="STATUS_RATE_PER_MIN"
+    )
     checkout_rate_per_hour: int = Field(
         default=300, ge=0, alias="CHECKOUT_RATE_PER_HOUR"
     )

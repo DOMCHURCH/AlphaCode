@@ -39,6 +39,15 @@ def _clean_identity_cache():
         reset_identity_cache()
         reset_counts_cache()
         reset_panels_cache()
+        # `/status` is capped at ten a minute and the gate is module state, so
+        # without this the budget is shared by the WHOLE SESSION: the eleventh
+        # test to read /status gets a 429 and reports it as a missing key.
+        try:
+            from src.api import _status_gate
+
+            _status_gate.reset()
+        except Exception:  # noqa: BLE001 - a test that never imports the app
+            pass
 
     _clear()
     yield

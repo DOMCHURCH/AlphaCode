@@ -101,9 +101,9 @@ def render_api(
      "no subscription, re-downloadable whenever you like.")}
 {_ep("GET", "/api.json", "Public",
      "This page's machine-readable index — the endpoint list, as JSON.")}
-{_ep("GET", "/status", "Public",
-     "Row counts and what the loader is doing. How you tell a quiet day from "
-     "a stopped pipeline.")}
+{_ep("GET", "/health", "Public",
+     "Whether the service is up and can reach its database. Cheap, and the "
+     "one to point an uptime monitor at.")}
     </div>
   </section>
 

@@ -121,7 +121,7 @@ def test_static_assets_are_served(client):
 
 
 def test_status_reports_counts(client):
-    body = client.get("/status").json()
+    body = client.get("/status", headers=ADMIN).json()
     assert body["price_bars"] == 0
     assert "backfill" in body
 
@@ -1135,7 +1135,7 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
     are different claims, and telling them apart otherwise needs the admin
     secret. Flags and one error string -- never a value, and nothing here that
     is not already inferable from a 503 on the endpoint each one gates."""
-    body = client.get("/status").json()
+    body = client.get("/status", headers=ADMIN).json()
 
     assert set(body["features"]) == {
         "demo", "demo_key_set", "demo_error", "email", "login",
@@ -1391,3 +1391,93 @@ def test_recent_signups_are_newest_first(client):
     rows = client.get("/api/admin/stats?recent=2", headers=ADMIN).json()
     assert len(rows["recent_signups"]) == 2
     assert all("@example.com" in u["email"] for u in rows["recent_signups"])
+
+
+# ---------------------------------------------------------------------------
+# The surfaces that were open and should not have been
+# ---------------------------------------------------------------------------
+
+def test_status_is_refused_without_the_admin_secret(client):
+    """It was public, and it was both a map and a cost.
+
+    A map: row counts, what the loader is doing, the scheduler's timings, which
+    optional features are configured, and the sticky billing/fulfilment error
+    strings. A cost: COUNT(*) and COUNT(DISTINCT ticker) over millions of rows,
+    uncached, measured at ~1.5s of database work per hit -- which is an
+    amplification primitive somebody else gets to point at you.
+    """
+    r = client.get("/status")
+    assert r.status_code == 403, r.text
+    assert "price_bars" not in r.text
+    assert "features" not in r.text
+
+    assert client.get("/status", headers=ADMIN).status_code == 200
+
+
+def test_health_stays_open_and_cheap(client):
+    """The one an uptime monitor and Railway's healthcheck actually call.
+
+    Gating /status is only acceptable because this exists: an operator still
+    needs a public way to ask whether the service is up.
+    """
+    r = client.get("/health")
+    assert r.status_code == 200, r.text
+    assert "price_bars" not in r.text, "health must not become the new /status"
+
+
+def test_status_is_rate_limited_even_for_an_admin(client, monkeypatch):
+    """A leaked admin secret must not also be an unmetered full-table scan."""
+    from src.api import _status_gate
+
+    _status_gate.reset()
+    monkeypatch.setenv("STATUS_RATE_PER_MIN", "3")
+    from src.config.settings import get_settings
+
+    get_settings.cache_clear()
+
+    codes = [client.get("/status", headers=ADMIN).status_code for _ in range(5)]
+    assert codes[:3] == [200, 200, 200], codes
+    assert codes[3] == 429, codes
+    assert codes[4] == 429, codes
+
+    _status_gate.reset()
+    get_settings.cache_clear()
+
+
+def test_the_generated_api_schema_is_off_in_production(monkeypatch):
+    """FastAPI publishes /docs, /redoc and /openapi.json by default, and they
+    were reachable in production -- the whole route table, every parameter,
+    every response model, the admin surface included.
+
+    Asserted against a freshly built app rather than the imported one, because
+    the decision is made once at import time from ENV.
+    """
+    from fastapi import FastAPI
+
+    for env, expected in (("prod", None), ("dev", "/docs")):
+        docs_open = env != "prod"
+        app = FastAPI(
+            docs_url="/docs" if docs_open else None,
+            redoc_url="/redoc" if docs_open else None,
+            openapi_url="/openapi.json" if docs_open else None,
+        )
+        assert app.docs_url == expected
+        assert app.redoc_url == ("/redoc" if docs_open else None)
+        assert app.openapi_url == ("/openapi.json" if docs_open else None)
+
+
+def test_the_running_app_matches_its_environment(client):
+    """The wiring itself, on the real app object. Tests run with ENV=dev, so
+    the docs are expected to be ON here -- what this guards is that the three
+    URLs are driven by one flag rather than three independent decisions."""
+    from src.api import _DOCS_OPEN, app
+
+    if _DOCS_OPEN:
+        assert (app.docs_url, app.redoc_url, app.openapi_url) == (
+            "/docs", "/redoc", "/openapi.json"
+        )
+        assert client.get("/openapi.json").status_code == 200
+    else:
+        assert (app.docs_url, app.redoc_url, app.openapi_url) == (None, None, None)
+        for path in ("/docs", "/redoc", "/openapi.json"):
+            assert client.get(path).status_code == 404, path

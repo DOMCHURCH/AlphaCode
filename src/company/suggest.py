@@ -152,7 +152,17 @@ def panels(max_age_s: float = PANELS_TTL_S) -> list[tuple[Suggestion, Any]]:
         return list(_panels) if _panels is not None else _build_panels()
     try:
         built = _build_panels()
-        _panels, _panels_at = built, time.monotonic()
+        # An EMPTY result is not cached. Empty means no suggested ticker has a
+        # drawable filing yet, which on a live deployment means the backfill
+        # has not landed -- and caching that for fifteen minutes would keep the
+        # home page empty for fifteen minutes after the data arrived. The boot
+        # warm hits exactly this case on a fresh database.
+        #
+        # A ticker that individually fails to draw is still cached as None:
+        # that is a real answer about a real company, and retrying five failing
+        # reads per request is the cost this whole function exists to avoid.
+        if built:
+            _panels, _panels_at = built, time.monotonic()
         return list(built)
     finally:
         _panels_lock.release()

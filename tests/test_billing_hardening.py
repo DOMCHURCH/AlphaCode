@@ -269,7 +269,7 @@ def test_a_payment_that_granted_nothing_shows_up_on_status(client):
     """These are answered 200 and recorded as handled, because Stripe retrying
     them for three days fixes none of them -- so without a durable field they
     vanished into a log that rotates away."""
-    assert client.get("/status").json()["features"]["fulfilment_error"] is None
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["fulfilment_error"] is None
 
     r = post_event(
         client,
@@ -290,7 +290,7 @@ def test_a_payment_that_granted_nothing_shows_up_on_status(client):
     assert r.status_code == 200
     assert r.json()["status"] == "no_email"
 
-    err = client.get("/status").json()["features"]["fulfilment_error"]
+    err = client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["fulfilment_error"]
     assert err and "no_email" in err
 
 
@@ -314,9 +314,9 @@ def test_the_fulfilment_alarm_is_sticky_until_it_is_cleared(client):
     register(client)
     post_event(client, checkout_event(plan="pro"))
 
-    assert client.get("/status").json()["features"]["fulfilment_error"] is not None
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["fulfilment_error"] is not None
     billing.reset_fulfilment_error()
-    assert client.get("/status").json()["features"]["fulfilment_error"] is None
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["fulfilment_error"] is None
 
 
 # ---------------------------------------------------------------------------

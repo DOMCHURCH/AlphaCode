@@ -74,7 +74,13 @@ def counts(max_age_s: float = COUNTS_TTL_S) -> dict[str, Any]:
         return dict(_counts) if _counts is not None else _compute_counts()
     try:
         computed = _compute_counts()
-        _counts, _counts_at = computed, time.monotonic()
+        # Zero facts is not cached, for the same reason `suggest.panels` does
+        # not cache an empty panel list: on a fresh or still-loading deployment
+        # it means the data has not arrived, and holding "0" for fifteen
+        # minutes after it does would put a zero on the front page of a site
+        # whose entire pitch is the size of its dataset.
+        if computed.get("facts"):
+            _counts, _counts_at = computed, time.monotonic()
         return dict(computed)
     finally:
         _counts_lock.release()

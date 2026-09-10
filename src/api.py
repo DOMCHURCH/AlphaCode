@@ -194,9 +194,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             task.cancel()
 
 
+# FastAPI publishes /docs, /redoc and /openapi.json by default, and they were
+# reachable in production: the whole route table, every parameter and every
+# response model, including the admin surface. The routes themselves are
+# guarded, so this was disclosure and attack-surface mapping rather than a
+# bypass -- but a schema that names `/admin/reload-fundamentals` and its query
+# parameters is a map somebody else does not need.
+#
+# Off in prod, on everywhere else, because they are genuinely useful while
+# developing and there is nothing to protect on a laptop.
+_DOCS_OPEN = get_settings().env != "prod"
+
 app = FastAPI(
     title="To Scale",
     version="2.0.0",
+    docs_url="/docs" if _DOCS_OPEN else None,
+    redoc_url="/redoc" if _DOCS_OPEN else None,
+    openapi_url="/openapi.json" if _DOCS_OPEN else None,
     description=(
         "Filed financial statements, drawn at true proportion. SEC "
         "as-reported fundamentals, price bars, and the sector map. Descriptive "
@@ -253,8 +267,15 @@ class _RateGate:
     is what stops abuse.
     """
 
-    def __init__(self, limit_fn: Callable[[], int]) -> None:
+    def __init__(
+        self, limit_fn: Callable[[], int], *, window_s: float = 3600.0
+    ) -> None:
         self._limit_fn = limit_fn
+        # An hour for the open POSTs, which is the right shape for "how many
+        # accounts can one script make". `/status` wants a MINUTE: it is an
+        # authenticated read whose cost is a database scan, so the thing to
+        # bound is a tight loop, not a daily budget.
+        self._window_s = window_s
         self._hits: deque[float] = deque()
 
     def check(self) -> float | None:
@@ -263,11 +284,11 @@ class _RateGate:
         if limit <= 0:
             return None
         now = time.monotonic()
-        cutoff = now - 3600
+        cutoff = now - self._window_s
         while self._hits and self._hits[0] < cutoff:
             self._hits.popleft()
         if len(self._hits) >= limit:
-            return max(1.0, 3600 - (now - self._hits[0]))
+            return max(1.0, self._window_s - (now - self._hits[0]))
         self._hits.append(now)
         return None
 
@@ -278,10 +299,10 @@ class _RateGate:
         if limit <= 0:
             return None
         now = time.monotonic()
-        cutoff = now - 3600
+        cutoff = now - self._window_s
         hits = [h for h in self._hits if h >= cutoff]
         if len(hits) >= limit:
-            return max(1.0, 3600 - (now - hits[0]))
+            return max(1.0, self._window_s - (now - hits[0]))
         return None
 
     def reset(self) -> None:
@@ -318,6 +339,11 @@ _demo_gate = _RateGate(lambda: get_settings().demo_rate_per_hour)
 # and saturates the threadpool instead. This is the ceiling that stops that;
 # it is far above any human rate of typing a password wrong.
 _login_gate = _RateGate(lambda: get_settings().login_rate_per_hour)
+# `/status` is now admin-only, but the secret is one string in one environment
+# variable and a leaked one should not also be an unmetered way to make the
+# database count 3.7M rows in a loop. Ten a minute is far above any human
+# refreshing a status page and immediately below a script.
+_status_gate = _RateGate(lambda: get_settings().status_rate_per_min, window_s=60.0)
 
 
 def _enforce_rate(gate: _RateGate, what: str) -> None:
@@ -588,9 +614,29 @@ def billing_fulfilment_error() -> str:
         return ""
 
 
-@app.get("/status")
+@app.get("/status", dependencies=[Depends(require_admin)])
 def status() -> dict[str, Any]:
-    """Row counts so you can watch the backfill fill up and confirm readiness."""
+    """Row counts so you can watch the backfill fill up and confirm readiness.
+
+    ADMIN ONLY, and it did not used to be. Two reasons it had to move:
+
+    * It published the operational shape of the service to anyone who asked --
+      row counts, what the loader is doing, the scheduler's timings, which
+      optional features are configured, and the sticky `billing_error` /
+      `fulfilment_error` strings. None of that is a secret on its own and all
+      of it together is a map.
+    * It COSTS. `COUNT(*)` and `COUNT(DISTINCT ticker)` over 3.7M price bars,
+      uncached, measured at ~1.5s of database work per request. An
+      unauthenticated endpoint that spends a second and a half of Postgres per
+      hit is an amplification primitive somebody else gets to point at you.
+
+    `/health` stays open and stays cheap -- that is the one Railway's
+    healthcheck calls, and the one an uptime monitor should watch.
+
+    Rate-limited on top of the secret: a leaked admin string should not also be
+    an unmetered way to run that scan in a loop.
+    """
+    _enforce_rate(_status_gate, "status reads")
     from sqlalchemy import func
 
     from src import demo
@@ -3052,7 +3098,11 @@ def api_index() -> JSONResponse:
             "endpoints": [
                 "/", "/search?q=TICKER", "/company/{ticker}",
                 "/api  (this index, as a page)", "/api.json",
-                "/health", "/status", "/reconcile",
+                "/health",
+                # `/status` sits with the admin routes now, because that is
+                # what it is. Listing it beside `/health` said "public" to
+                # anyone reading this index for a cheap thing to poll.
+                "/status  (admin secret)", "/reconcile",
                 "/admin", "/admin.json", "/admin/balance-sheet", "/admin/verify",
                 "/admin/universe-check",
                 "POST /backfill", "POST /admin/reload-fundamentals",

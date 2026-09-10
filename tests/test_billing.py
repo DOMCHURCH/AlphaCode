@@ -348,7 +348,7 @@ def test_an_unconfigured_annual_price_is_503_not_a_broken_checkout(
     monkeypatch.setenv("STRIPE_PRICE_PRO_ANNUAL", "")
     get_settings.cache_clear()
 
-    assert client.get("/status").json()["features"]["billing"] is True
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing"] is True
     r = client.post("/api/billing/checkout", json={"plan": "pro_annual"})
     assert r.status_code == 503
     assert stripe_calls == []
@@ -640,11 +640,11 @@ def test_status_reports_billing_only_when_the_whole_round_trip_is_configured(
     """
     from src.config.settings import get_settings
 
-    assert client.get("/status").json()["features"]["billing"] is True
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing"] is True
 
     monkeypatch.setenv("STRIPE_WEBHOOK_SECRET", "")
     get_settings.cache_clear()
-    assert client.get("/status").json()["features"]["billing"] is False
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing"] is False
 
 
 def test_the_admin_config_report_names_each_stripe_variable(client):
@@ -738,7 +738,7 @@ def test_a_refused_checkout_is_502_and_tells_the_operator_only_the_code(
     # The caller is told nothing about the configuration.
     assert "price" not in r.json()["detail"]
 
-    features = client.get("/status").json()["features"]
+    features = client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]
     # The flag stays true -- every variable IS set -- and the error says why
     # that is not the same as working.
     assert features["billing"] is True
@@ -752,11 +752,11 @@ def test_a_working_checkout_clears_the_last_error(client, stripe_calls, monkeypa
     from src import billing
 
     monkeypatch.setattr(billing, "_last_error", "resource_missing (price)")
-    assert client.get("/status").json()["features"]["billing_error"] is not None
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing_error"] is not None
 
     r = client.post("/api/billing/checkout", json={"plan": "pro"})
     assert r.status_code == 200
-    assert client.get("/status").json()["features"]["billing_error"] is None
+    assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing_error"] is None
 
 
 def test_the_index_lists_the_checkout_endpoint(client):
