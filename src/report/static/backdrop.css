@@ -118,11 +118,21 @@
    motion to need. A narrow screen now gets the 1200px variant from `srcset`
    rather than a hidden download it was never going to play. */
 
-/* On a phone the frame is tall and narrow, so the same crop that puts the
-   subject clear of the text on a desktop puts her head directly behind the
-   opening paragraph. Pushed further right and down: what sits behind the words
-   is sky, and she is still in shot. */
+/* On a phone the frame is tall and narrow, so `cover` scales to HEIGHT and
+   throws away about three quarters of the width -- at 390x844 the image is
+   drawn 1512px wide into a 390px window. Which quarter survives is entirely
+   down to the X here, and it is the one number on this page that cannot be
+   eyeballed from a desktop browser.
+
+   It used to say 88%, which showed image-x 0.65..0.91. The figure sits at
+   0.45..0.61, so every phone got clouds and no subject -- while the comment
+   above it claimed she was "still in shot". 54% shows 0.40..0.66: she is in
+   frame, low and central, with the copy over open sky above her.
+
+   The Y is inert at this aspect (the image covers the height exactly, so
+   there is no vertical overflow to position) and is kept for phones in
+   landscape, where there is. */
 @media (max-width: 620px) {
-  .backdrop-still { background-position: 88% 74%; }
-  .backdrop-img   { object-position: 88% 74%; }
+  .backdrop-still { background-position: 54% 74%; }
+  .backdrop-img   { object-position: 54% 74%; }
 }
