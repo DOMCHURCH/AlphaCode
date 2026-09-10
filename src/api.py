@@ -1355,6 +1355,54 @@ async def _reload_bg(quarters: int) -> None:
         except Exception as exc:  # noqa: BLE001 - state carries it to /admin
             record_backfill_result("fundamentals", 0, error=str(exc))
             log.exception("admin_reload_failed", error=str(exc))
+            return
+    # Every company page's introduction was written from the fundamentals that
+    # were just replaced, so leaving them alone would serve prose describing
+    # last quarter's balance sheet beside a drawing of this one. Rebuilt only
+    # where the source period actually moved, and after the lock is released:
+    # this is decoration, and it must not hold up the reload it follows.
+    await asyncio.to_thread(_refresh_page_extras)
+
+
+def _refresh_page_extras() -> int:
+    """Rebuild the pre-rendered page sections whose filing has moved on.
+
+    Failure here is logged and swallowed. A stale or missing row costs a
+    section of a company page; letting it raise would mark a successful
+    fundamentals reload as failed.
+    """
+    from src.report.home_page import SITE_ORIGIN
+    from src.report.page_extras_store import compute_and_store
+
+    rebuilt = 0
+    try:
+        from sqlalchemy import func, select
+
+        from src.storage.db import session_scope
+        from src.storage.models import CompanyPageExtras, Fundamental
+
+        with session_scope() as session:
+            newest = session.execute(
+                select(Fundamental.ticker, func.max(Fundamental.period_end))
+                .group_by(Fundamental.ticker)
+            ).all()
+            built = dict(session.execute(
+                select(
+                    CompanyPageExtras.ticker, CompanyPageExtras.source_period_end
+                )
+            ).all())
+        stale = [t for t, period in newest if built.get(t) != period]
+        for ticker in stale:
+            try:
+                if compute_and_store(ticker, SITE_ORIGIN):
+                    rebuilt += 1
+            except Exception as exc:  # noqa: BLE001 - one ticker is not the run
+                log.warning("page_extras_rebuild_failed", ticker=ticker,
+                            error=str(exc)[:200])
+        log.info("page_extras_refreshed", stale=len(stale), rebuilt=rebuilt)
+    except Exception as exc:  # noqa: BLE001 - decoration never fails a reload
+        log.warning("page_extras_refresh_failed", error=str(exc)[:200])
+    return rebuilt
 
 
 @app.get("/company/{ticker}", response_class=HTMLResponse)
@@ -1406,9 +1454,20 @@ def company_page(ticker: str) -> HTMLResponse:
             )
         except Exception as exc:  # noqa: BLE001
             log.warning("view2_failed", ticker=symbol, error=str(exc)[:200])
+    # One primary-key read, and the only query this page's prose costs. Every
+    # fragment it returns was rendered ahead of time by
+    # `scripts/backfill_page_extras.py`; None means "not backfilled yet" and
+    # the page renders without those sections.
+    from src.report.page_extras_store import load_extras
+
+    extras = load_extras(symbol)
     return HTMLResponse(
         render_company_page(
-            view, flow=flow, scale=scale, ask_available=_ASK_MODEL is not None
+            view,
+            flow=flow,
+            scale=scale,
+            ask_available=_ASK_MODEL is not None,
+            extras=extras,
         )
     )
 

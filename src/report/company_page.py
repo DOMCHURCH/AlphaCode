@@ -390,7 +390,15 @@ def render_company_page(
     flow: View3 | None = None,
     scale: View2 | None = None,
     ask_available: bool = False,
+    extras: dict[str, str] | None = None,
 ) -> str:
+    """`extras` is the one row from `company_page_extras`, already rendered.
+
+    Passed in rather than fetched here so this function stays a pure render and
+    the page's query count remains something you can read off the route. None
+    is the ordinary case for a ticker that has not been backfilled yet, and it
+    renders the page exactly as it was before those sections existed.
+    """
     # The SAME backdrop every other page gets, from the one function that
     # owns it. This page renders its own <head> and <body> rather than
     # going through home_page._shell, and it used to carry a hand-copied
@@ -404,6 +412,16 @@ def render_company_page(
     # Imported here, not at module level: nav imports legal, and legal
     # imports this module for asset_version -- a cycle at import time.
     from src.report.nav import render_footer
+
+    # Pre-rendered and escaped at build time by `page_extras`. Absent is the
+    # ordinary case -- a ticker not yet backfilled, or one with no drawable
+    # balance sheet -- and every one of these degrades to an empty string, so
+    # the page loses a section and never breaks.
+    e = extras or {}
+    intro_html = e.get("intro", "")
+    peers_html = e.get("peers", "")
+    filings_html = e.get("filings", "")
+    company_ld = e.get("jsonld", "")
 
     d = view.as_dict()
     total = d["total_assets"]
@@ -521,6 +539,7 @@ def render_company_page(
 <link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
 <link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
 <meta name="theme-color" content="#0a0a0a">
+{company_ld}
 </head>
 <body data-film="hero">
 {backdrop}
@@ -545,6 +564,8 @@ def render_company_page(
       <span class="chip filed">Filed {escape(d["filing_date"])}</span>
     </div>
   </header>
+
+  {intro_html}
 
   <section class="sec">
     <div class="sec-head"><h2>What it owns, and who has a claim on it</h2></div>
@@ -586,6 +607,8 @@ def render_company_page(
   {_scale_html(scale)}
   {_ask_html(d["ticker"], ask_available)}
   {_learn_more(d)}
+  {peers_html}
+  {filings_html}
 
 {render_footer(
     f'Every figure is as reported to the SEC for the quarter ended '

@@ -414,6 +414,50 @@ class CacheEntry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class CompanyPageExtras(Base):
+    """Pre-rendered prose and lists for one company page. One row per ticker.
+
+    WHY A TABLE AND NOT A QUERY. The three things this holds -- a written
+    introduction, four sector peers, the last few filings -- each need reads
+    the page does not otherwise do: a SECOND fundamentals period for the
+    year-on-year line, a scan of same-sector tickers, a filings lookup. At
+    6,169 pages that is thousands of queries an hour for text that changes when
+    a filing lands, which is quarterly. Computing it per render would be paying
+    a per-request price for a per-quarter fact.
+
+    WHY NOT AN IN-PROCESS CACHE. The site runs more than one worker and
+    restarts on every deploy, so a memory cache pays the cold cost per worker
+    per deploy, and the cold cost here is the expensive part. A table is warm
+    the moment it is written and is shared by every process.
+
+    WHAT THE PAGE PAYS. One primary-key read. Not zero -- and the page already
+    performs several reads to build its three views, so this is a small
+    addition to an existing cost rather than a new one. It is deliberately a
+    SINGLE row containing every extra, so the count cannot creep: adding
+    another section to the page must not add another query.
+
+    STALENESS IS EXPLICIT. `computed_at` and `source_period_end` say what this
+    was built from. Nothing here is authoritative -- every figure is
+    recoverable from `fundamentals` and `filing_events` -- so a row that is
+    missing or out of date costs a section of the page, never a wrong number.
+    `scripts/backfill_page_extras.py` rebuilds one ticker or all of them.
+    """
+
+    __tablename__ = "company_page_extras"
+
+    ticker: Mapped[str] = mapped_column(String(16), primary_key=True)
+    # Rendered HTML fragments, escaped at build time.
+    intro_html: Mapped[str | None] = mapped_column(Text)
+    peers_html: Mapped[str | None] = mapped_column(Text)
+    filings_html: Mapped[str | None] = mapped_column(Text)
+    # A complete <script type="application/ld+json"> block for this company.
+    jsonld: Mapped[str | None] = mapped_column(Text)
+    # The balance sheet this was written from, so a reader of the row can tell
+    # whether it predates the newest filing without re-deriving it.
+    source_period_end: Mapped[dt.date | None] = mapped_column(Date)
+    computed_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class PageView(Base):
     """One row per reader-facing page request. No sampling, no rollups.
 
