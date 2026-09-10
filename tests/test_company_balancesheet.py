@@ -1,176 +1,316 @@
-"""Test balance sheet query layer with 5 sample companies.
+"""The balance-sheet read path: which figure gets shown, and when it says so.
 
-Sample selection:
-- JPM: Bank (asset-heavy, liability-heavy)
-- AAL: Airline (capital-heavy, debt-heavy)
-- MSFT: Software (asset-light, equity-funded)
-- WMT: Retailer (inventory-heavy, working capital)
-- FCX: Miner (capital-heavy, cyclical)
+This file used to be 176 lines with ONE test function and ZERO assertions. It
+queried the database, printed the result, and returned -- so it could not fail,
+and it showed green next to `get_balance_sheet`, the exact function that
+carried the "oldest filing wins" bug. A test that cannot fail is worse than no
+test: it is a claim of coverage over the code least likely to have any.
+
+What is asserted here is the four decisions this path makes that a wrong answer
+would be invisible in:
+
+* which of two filings for one period is the one shown;
+* which of two sources wins when they filed on the same day;
+* what the drawing says when A != L + E, and how far the claims column is
+  allowed to run;
+* that an unknown fiscal period is never quietly treated as a quarter.
+
+Sample selection follows the original file's reasoning, which was sound: JPM as
+a bank, AAL with negative equity, MSFT asset-light. The shapes are seeded here
+rather than read from a live database, because a test that only passes when
+somebody has run the backfill is a test that gets deleted.
 """
+
+from __future__ import annotations
 
 import datetime as dt
 
-from sqlalchemy import text
+import pytest
+from fastapi.testclient import TestClient
 
-from src.company.balancesheet import get_balance_sheet
-from src.storage.db import session_scope
+Q = dt.date(2025, 12, 31)
+EARLIER = dt.date(2026, 2, 1)
+LATER = dt.date(2026, 5, 1)
 
 
-def test_balancesheet_query():
-    """Test the balance sheet query with sample companies."""
+@pytest.fixture()
+def client(tmp_path, monkeypatch):
+    """A throwaway on-disk database with the app around it.
 
-    # First, check what metrics are actually populated
-    with session_scope() as session:
-        # Check if fundamentals table exists
-        try:
-            result = session.execute(text("""
-                SELECT metric, COUNT(DISTINCT ticker) as tickers, COUNT(*) as rows
-                FROM fundamentals
-                GROUP BY metric
-                ORDER BY metric
-            """)).fetchall()
-        except Exception as e:
-            if "no such table" in str(e).lower():
-                print("\n" + "="*80)
-                print("FUNDAMENTALS TABLE POPULATION")
-                print("="*80)
-                print("ERROR: fundamentals table does not exist. Database schema not initialized.")
-                print("\nTo initialize the schema, run migrations:")
-                print("  python -m alembic upgrade head")
-                print("\nThen populate fundamentals with SEC quarterly loader:")
-                print("  POST /backfill?fundamentals=true")
-                print("\nOr in code:")
-                print("  from src.backfill import backfill_pit_fundamentals")
-                print("  backfill_pit_fundamentals(session)")
-                return
-            raise
+    On disk, not `:memory:`: `session_scope` opens its own connections and an
+    in-memory database is private to the connection that made it.
+    """
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'bs.db'}")
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "")
 
-        print("\n" + "="*80)
-        print("FUNDAMENTALS TABLE POPULATION")
-        print("="*80)
+    from src.company.lookup import reset_cache
+    from src.config.settings import get_settings
+    from src.storage.db import init_db, reset_engine_cache
 
-        if not result:
-            print("ERROR: fundamentals table is empty. SEC backfill not run.")
-            print("\nTo populate fundamentals, run the SEC quarterly loader:")
-            print("  POST /backfill?fundamentals=true")
-            print("\nOr in code:")
-            print("  from src.backfill import backfill_pit_fundamentals")
-            print("  backfill_pit_fundamentals(session)")
-            return
+    get_settings.cache_clear()
+    reset_engine_cache()
+    reset_cache()
+    init_db()
 
-        total_tickers = set()
-        total_rows = 0
-        print(f"\n{'Metric':<40} {'Tickers':>8} {'Rows':>10}")
-        print("-" * 60)
+    from src.api import app
 
-        for metric, tickers, rows in sorted(result, key=lambda x: x[2], reverse=True):
-            print(f"{metric:<40} {tickers:>8} {rows:>10}")
-            total_tickers.add(metric)
-            total_rows += rows
+    with TestClient(app) as c:
+        yield c
 
-        print("-" * 60)
-        print(f"{'TOTAL':<40} {'':>8} {total_rows:>10}")
-        print(f"\nMetrics available: {len(result)}")
-        print(f"Total data points: {total_rows}")
+    get_settings.cache_clear()
+    reset_engine_cache()
 
-    # Sample companies for testing
-    samples = {
-        "JPM": "JPMorgan Chase (Bank)",
-        "AAL": "American Airlines (Airline)",
-        "MSFT": "Microsoft (Software)",
-        "WMT": "Walmart (Retailer)",
-        "FCX": "Freeport-McMoRan (Miner)",
+
+# NOTE ON NAMES: rows are seeded with the stored METRIC name, which is not
+# always the concept the read path exposes. `total_equity` in the table becomes
+# `shareholders_equity` on the sheet -- see `BALANCE_SHEET_CONCEPTS`. Seeding
+# with the concept name silently stores a metric nothing reads, and the sheet
+# comes back looking like a filer that reports no equity.
+def seed(ticker: str, rows: list[dict], *, name: str | None = None) -> None:
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date.today(), ticker=ticker, name=name or f"{ticker} Inc"
+        ))
+        for r in rows:
+            s.add(Fundamental(**r))
+
+
+def fact(ticker, metric, value, *, filed, source="sec", period=Q, fp="FY",
+         restated=False):
+    return {
+        "ticker": ticker, "metric": metric, "value": value,
+        "period_end": period, "fiscal_period": fp, "filing_date": filed,
+        "source": source, "restated": restated,
     }
 
-    print("\n" + "="*80)
-    print("SAMPLE COMPANY BALANCE SHEETS")
-    print("="*80)
 
-    as_of = dt.date.today()
-    all_missing = set()
-    companies_with_data = 0
+# ---------------------------------------------------------------------------
+# 1. Restatements: the newest filing is the one shown
+# ---------------------------------------------------------------------------
 
-    for ticker, description in samples.items():
-        print(f"\n{ticker}: {description}")
-        print("-" * 60)
+def test_a_restated_figure_supersedes_the_original(client):
+    """JPM, as a bank: asset-heavy, and a restatement of total assets.
 
-        bs = get_balance_sheet(ticker, as_of=as_of)
+    The bug this guards was a dict comprehension over rows ordered
+    `filing_date.desc()` -- last write wins, so descending order kept the
+    EARLIEST filing and every restatement was silently discarded.
+    """
+    seed("JPM", [
+        fact("JPM", "total_assets", 3_800_000.0, filed=EARLIER),
+        fact("JPM", "total_assets", 3_875_000.0, filed=LATER, restated=True),
+        fact("JPM", "total_liabilities", 3_500_000.0, filed=LATER),
+        fact("JPM", "total_equity", 375_000.0, filed=LATER),
+        fact("JPM", "deposits", 2_400_000.0, filed=LATER),
+    ], name="JPMorgan Chase")
+    from src.company.balancesheet import get_balance_sheet
 
-        if not bs:
-            print(f"  ❌ NO DATA (no fundamentals for period ending on or before {as_of})")
-            continue
-
-        companies_with_data += 1
-        print(f"  Period: {bs.period_end} (filed {bs.filing_date})")
-        print("\n  ASSETS:")
-
-        total_assets = 0
-        for name, value in bs.assets.items():
-            if value.missing:
-                print(f"    {name:<35} [MISSING]")
-                all_missing.add(name)
-            else:
-                print(f"    {name:<35} ${value.value:>15,.0f}" if value.value else f"    {name:<35} {value.value}")
-                if value.value:
-                    total_assets += value.value
-
-        print("\n  LIABILITIES:")
-        total_liabilities = 0
-        for name, value in bs.liabilities.items():
-            if value.missing:
-                print(f"    {name:<35} [MISSING]")
-                all_missing.add(name)
-            else:
-                print(f"    {name:<35} ${value.value:>15,.0f}" if value.value else f"    {name:<35} {value.value}")
-                if value.value:
-                    total_liabilities += value.value
-
-        print("\n  EQUITY:")
-        total_equity = 0
-        for name, value in bs.equity.items():
-            if value.missing:
-                print(f"    {name:<35} [MISSING]")
-                all_missing.add(name)
-            else:
-                print(f"    {name:<35} ${value.value:>15,.0f}" if value.value else f"    {name:<35} {value.value}")
-                if value.value:
-                    total_equity += value.value
-
-        print("\n  BALANCE CHECK:")
-        print(f"    Total assets:      ${total_assets:>15,.0f}")
-        print(f"    Liabilities + Eq:  ${total_liabilities + total_equity:>15,.0f}")
-        if total_assets > 0:
-            diff = abs((total_assets - (total_liabilities + total_equity)) / total_assets * 100)
-            status = "✓" if diff < 1 else "⚠️"
-            print(f"    Balance ({status}):      {diff:.2f}% difference")
-
-    print("\n" + "="*80)
-    print("SUMMARY")
-    print("="*80)
-    print(f"Companies with data:              {companies_with_data}/5")
-    print(f"Unique missing concepts:         {len(all_missing)}")
-    if all_missing:
-        print(f"  Missing: {', '.join(sorted(all_missing))}")
-
-    # Check how many tickers have enough data to render
-    with session_scope() as session:
-        # A company is "renderable" if it has total_assets and shareholders_equity
-        result = session.execute(text("""
-            WITH assets_tickers AS (
-                SELECT DISTINCT ticker FROM fundamentals
-                WHERE metric = 'total_assets'
-            ),
-            equity_tickers AS (
-                SELECT DISTINCT ticker FROM fundamentals
-                WHERE metric = 'total_equity'
-            )
-            SELECT COUNT(DISTINCT assets_tickers.ticker)
-            FROM assets_tickers
-            JOIN equity_tickers ON assets_tickers.ticker = equity_tickers.ticker
-        """)).scalar()
-
-        print(f"\nTickers with both assets & equity: {result or 0} / 6,251")
+    sheet = get_balance_sheet("JPM")
+    assert sheet is not None
+    assert sheet.assets["total_assets"].value == 3_875_000.0
+    assert sheet.assets["total_assets"].restated is True
+    # The header date must describe the figures actually on the page, not
+    # whichever metric happened to be first in a dict.
+    assert sheet.filing_date == LATER
 
 
-if __name__ == "__main__":
-    test_balancesheet_query()
+def test_a_banks_sector_specific_lines_survive_the_read(client):
+    """Deposits and loans are the whole shape of a bank's balance sheet. If the
+    read path drops them, JPM draws as a company with one enormous
+    unexplained block."""
+    seed("JPM", [
+        fact("JPM", "total_assets", 3_800_000.0, filed=EARLIER),
+        fact("JPM", "loans", 1_300_000.0, filed=EARLIER),
+        fact("JPM", "deposits", 2_400_000.0, filed=EARLIER),
+        fact("JPM", "total_liabilities", 3_400_000.0, filed=EARLIER),
+        fact("JPM", "total_equity", 400_000.0, filed=EARLIER),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("JPM")
+    assert sheet.assets["loans"].value == 1_300_000.0
+    assert sheet.liabilities["deposits"].value == 2_400_000.0
+
+
+def test_a_ticker_with_no_filings_returns_none_not_an_empty_sheet(client):
+    """"No data" and "a sheet full of zeroes" are different answers, and only
+    one of them is honest. A zero is a claim."""
+    from src.company.balancesheet import get_balance_sheet
+
+    assert get_balance_sheet("NOSUCH") is None
+
+
+def test_pinning_a_period_that_is_not_loaded_returns_none(client):
+    """Distinct from "this ticker has no data", and must not collapse into it:
+    `verify` compares against ONE filing and needs to know the difference."""
+    seed("MSFT", [fact("MSFT", "total_assets", 512_000.0, filed=EARLIER)])
+    from src.company.balancesheet import get_balance_sheet
+
+    assert get_balance_sheet("MSFT") is not None
+    assert get_balance_sheet("MSFT", period_end=dt.date(2019, 6, 30)) is None
+
+
+def test_a_pinned_period_reads_that_period_and_not_the_newest(client):
+    """An unpinned comparison reports the passage of time as an extraction
+    error, because a balance sheet grows between filings."""
+    older = dt.date(2024, 12, 31)
+    seed("MSFT", [
+        fact("MSFT", "total_assets", 470_000.0, filed=dt.date(2025, 2, 1),
+             period=older),
+        fact("MSFT", "total_assets", 512_000.0, filed=EARLIER, period=Q),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    assert get_balance_sheet("MSFT").assets["total_assets"].value == 512_000.0
+    pinned = get_balance_sheet("MSFT", period_end=older)
+    assert pinned.assets["total_assets"].value == 470_000.0
+    assert pinned.period_end == older
+
+
+# ---------------------------------------------------------------------------
+# 2. Same-day ties: as-reported wins
+# ---------------------------------------------------------------------------
+
+def test_the_sec_figure_wins_a_same_day_tie(client):
+    """As-reported is what this site claims to show. A vendor's restated number
+    filed the same day must not displace it."""
+    seed("MSFT", [
+        fact("MSFT", "total_assets", 999_999.0, filed=EARLIER, source="yahoo"),
+        fact("MSFT", "total_assets", 512_000.0, filed=EARLIER, source="sec"),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("MSFT")
+    assert sheet.assets["total_assets"].value == 512_000.0
+
+
+def test_a_later_vendor_filing_still_beats_an_older_sec_one(client):
+    """Source preference breaks a TIE. It does not outrank a newer filing --
+    that would reintroduce the oldest-wins bug through the side door."""
+    seed("MSFT", [
+        fact("MSFT", "total_assets", 470_000.0, filed=EARLIER, source="sec"),
+        fact("MSFT", "total_assets", 512_000.0, filed=LATER, source="yahoo"),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    assert get_balance_sheet("MSFT").assets["total_assets"].value == 512_000.0
+
+
+# ---------------------------------------------------------------------------
+# 3. When A != L + E, and how far the claims column may run
+# ---------------------------------------------------------------------------
+
+def test_a_filing_that_does_not_balance_is_flagged_and_measured(client):
+    """Assets 1000 against claims of 1800: the drawing must say so, and say by
+    how much. "It does not balance" without a number is not actionable."""
+    seed("ACME", [
+        fact("ACME", "total_assets", 1000.0, filed=EARLIER),
+        fact("ACME", "total_liabilities", 900.0, filed=EARLIER),
+        fact("ACME", "total_equity", 900.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("ACME").as_dict()
+    assert d["balances"] is False
+    assert d["imbalance_pct"] == pytest.approx(80.0, abs=0.01)
+
+
+def test_a_filing_inside_the_tolerance_is_not_flagged(client):
+    """Rounding and a filer's own presentation slack are not errors. The
+    tolerance is 0.5% of assets; 0.1% must pass."""
+    seed("ACME", [
+        fact("ACME", "total_assets", 1000.0, filed=EARLIER),
+        fact("ACME", "total_liabilities", 600.0, filed=EARLIER),
+        fact("ACME", "total_equity", 401.0, filed=EARLIER),
+    ])
+    from src.company.view1 import build_view1
+
+    d = build_view1("ACME").as_dict()
+    assert d["balances"] is True
+    assert d["imbalance_pct"] == pytest.approx(0.1, abs=0.01)
+
+
+def test_negative_equity_is_named_and_its_span_reported(client):
+    """AAL, the negative-equity case, and the reason `claims_span_pct` exists.
+
+    Liabilities exceed assets, so the claims column is drawn to the LIABILITIES
+    and equity goes below the baseline. Left unbounded the column would render
+    past 100% of the drawing and overflow its own container.
+    """
+    seed("AAL", [
+        fact("AAL", "total_assets", 1000.0, filed=EARLIER),
+        fact("AAL", "total_liabilities", 1200.0, filed=EARLIER),
+        fact("AAL", "total_equity", -200.0, filed=EARLIER),
+    ], name="American Airlines")
+    from src.company.view1 import build_view1
+
+    d = build_view1("AAL").as_dict()
+    assert d["negative_equity"] is True
+    assert d["balances"] is True, "1000 = 1200 + (-200) balances exactly"
+    assert any("negative" in n.lower() for n in d["notes"]), d["notes"]
+
+    # `claims_span_pct` is the LIABILITIES as a share of assets, and it is
+    # deliberately allowed past 100 -- 1200 against 1000 is 120%, and a column
+    # that overshoots the assets it claims is the whole visual point of
+    # negative equity. It is asserted here rather than capped because capping
+    # it would draw AAL as though its liabilities fitted inside its assets.
+    #
+    # NOTE: nothing currently READS this field. It is set here and exposed in
+    # `as_dict()` and has no consumer anywhere in the report layer, so the
+    # drawing is not in fact using the number it computes.
+    assert d["claims_span_pct"] == pytest.approx(120.0, abs=0.01)
+
+
+def test_the_warning_reaches_the_page_a_reader_actually_loads(client):
+    """The flag existing is not the fix. It has to render."""
+    seed("ACME", [
+        fact("ACME", "total_assets", 1000.0, filed=EARLIER),
+        fact("ACME", "total_liabilities", 900.0, filed=EARLIER),
+        fact("ACME", "total_equity", 900.0, filed=EARLIER),
+    ])
+    html = client.get("/company/ACME").text
+
+    assert "does not balance" in html
+    assert 'class="note warn"' in html, "it must render as a warning, not a note"
+
+
+def test_a_filer_that_reports_only_totals_says_so(client):
+    """A missing line is not a zero. The page has to name what is absent
+    rather than absorbing it into "other" and reading as a real line item."""
+    seed("ACME", [fact("ACME", "total_assets", 1000.0, filed=EARLIER)])
+    from src.company.view1 import build_view1
+
+    d = build_view1("ACME").as_dict()
+    assert d["mode"] == "totals_only"
+    assert any("liabilities" in n.lower() for n in d["notes"]), d["notes"]
+
+
+# ---------------------------------------------------------------------------
+# 4. An unknown fiscal period is never a quarter
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("raw", ["", "nan", "NaN", "None", None, "   "])
+def test_an_unknown_fiscal_period_is_never_summed_as_a_quarter(raw):
+    """The 4x revenue bug. A blank `fp` arrived as the string "nan", failed its
+    `== "FY"` test, and fell through to the four-period sum -- so four ANNUAL
+    filings were added together and labelled "the last four quarters"."""
+    from src.company.view3 import _fiscal_label, _trailing
+
+    assert _fiscal_label(raw) == ""
+
+    years = [dt.date(y, 12, 31) for y in (2022, 2023, 2024, 2025)]
+    assert _trailing([("revenue", 100.0, p, raw) for p in years]) is None
+
+
+def test_four_real_quarters_still_sum(client):
+    """The window has to keep working, or the fix above is just a deletion."""
+    from src.company.view3 import _trailing
+
+    years = [dt.date(y, 12, 31) for y in (2022, 2023, 2024, 2025)]
+    got = _trailing([("revenue", 100.0, p, "Q1") for p in years])
+    assert got is not None
+    assert got[1] == "ttm"
+    assert got[0]["revenue"] == 400.0
