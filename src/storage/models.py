@@ -576,6 +576,31 @@ class ApiUser(Base):
     # nobody will ever feel.
     stripe_customer_id: Mapped[str | None] = mapped_column(String(64))
     stripe_subscription_id: Mapped[str | None] = mapped_column(String(64))
+    # Which Stripe price this subscription is on: "monthly" | "annual" | NULL.
+    #
+    # NOT folded into `subscription_tier`. That column is the ACCESS LEVEL --
+    # free or pro -- and a dozen call sites compare it to those two words. The
+    # plan is a different fact about the same account (what they pay and how
+    # often), it changes without the access level changing, and conflating the
+    # two would mean every `== "pro"` test in the codebase had to learn about
+    # billing cadence. `customer.subscription.updated` writes it so an upgrade
+    # made in Stripe is visible here.
+    pro_plan: Mapped[str | None] = mapped_column(String(16))
+    # Consecutive failed renewal invoices. Reset to zero by any successful
+    # payment, so this counts a RUN of failures rather than a lifetime total --
+    # a customer who fails once, fixes their card and fails again a year later
+    # is not two-thirds of the way to being cut off.
+    #
+    # Nullable with a default rather than NOT NULL, because `_sync_added_columns`
+    # adds a column to a live table without a server default: every existing row
+    # would hold NULL in a NOT NULL column and the ALTER would be rejected. Read
+    # it as `int(row.payment_failure_count or 0)` and NULL means zero.
+    payment_failure_count: Mapped[int | None] = mapped_column(Integer, default=0)
+    # Set when the failure run reached its limit and access was withdrawn. A
+    # separate field from `subscription_tier` on purpose: dropping to free is
+    # what happens to the ALLOWANCE, and this is why it happened, which is the
+    # part a support conversation needs and the tier alone cannot say.
+    api_access_paused: Mapped[bool | None] = mapped_column(Boolean, default=False)
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow
     )

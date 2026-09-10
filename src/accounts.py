@@ -90,6 +90,14 @@ class Account:
     # silently downgrading and leaving somebody to wonder what happened.
     lapsed: bool = False
     has_password: bool = False
+    # Which Stripe price they are on: "monthly" | "annual" | "". Descriptive
+    # only -- nothing about access depends on it.
+    pro_plan: str = ""
+    # The current run of failed renewal invoices, and whether that run has
+    # already cost them access. Read defensively: both columns arrive NULL on
+    # every row that existed before they did.
+    payment_failure_count: int = 0
+    api_access_paused: bool = False
 
     @property
     def call_limit(self) -> int:
@@ -154,6 +162,9 @@ def _snapshot(row: ApiUser) -> Account:
         pro_expires_at=row.pro_expires_at,
         lapsed=row.subscription_tier == "pro" and live == "free",
         has_password=bool(row.password_hash),
+        pro_plan=str(row.pro_plan or ""),
+        payment_failure_count=int(row.payment_failure_count or 0),
+        api_access_paused=bool(row.api_access_paused),
     )
 
 
@@ -268,6 +279,99 @@ def by_email(email: str) -> Account | None:
         return _snapshot(row) if row is not None else None
 
 
+def record_payment_failure(email: str) -> int:
+    """Count one failed renewal invoice. Returns the new run length.
+
+    Returns 0 for an address this service does not know, which the caller must
+    tell apart from "first failure": a payment failing for somebody who is not
+    a customer here is somebody else's charge on the same Stripe account, and
+    it must not create a row.
+    """
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            return 0
+        row.payment_failure_count = int(row.payment_failure_count or 0) + 1
+        return int(row.payment_failure_count)
+
+
+def clear_payment_failures(email: str) -> None:
+    """A payment succeeded, so the run of failures is over.
+
+    Called from the renewal path rather than from a scheduled sweep, because
+    the only thing that truthfully ends a dunning run is money arriving. Also
+    lifts the pause: an account whose card works again is a paying account, and
+    leaving the flag set would keep them locked out of what they just bought.
+    """
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        row.payment_failure_count = 0
+        row.api_access_paused = False
+
+
+def pause_api_access(email: str, *, paused: bool = True) -> None:
+    """Withdraw (or restore) metered API access after a dunning run.
+
+    Deliberately separate from `apply_admin_action(..., "revoke_pro")`. That
+    one changes the ALLOWANCE -- it puts the account back on the free tier's
+    quota, which is a number. This says the account is stopped and why, which
+    is what `enforce_monthly_limit` refuses on and what a support conversation
+    needs to read. A card that starts working clears both.
+    """
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        row.api_access_paused = bool(paused)
+
+
+def set_pro_expiry(email: str, when: dt.datetime | None) -> bool:
+    """Set the Pro expiry to exactly `when`. True if a row was changed.
+
+    An assignment, not an extension. `apply_admin_action("grant_pro")` extends
+    from whichever is later, today or the current expiry, which is right when
+    an operator is renewing somebody by hand and wrong here: this is called
+    with Stripe's own `current_period_end`, and Stripe is the authority on when
+    a subscription runs out. Extending from it would add a period to a period.
+
+    It can therefore move an expiry BACKWARDS -- a downgrade from annual to
+    monthly does exactly that -- which is the point.
+    """
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            return False
+        row.pro_expires_at = when
+        row.pro_reminder_sent_at = None
+        return True
+
+
+def set_pro_plan(email: str, plan: str) -> None:
+    """Record which Stripe price this account is on. "" clears it."""
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            return
+        row.pro_plan = plan[:16] or None
+
+
 def get_current_user(
     x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
 ) -> Account:
@@ -372,6 +476,18 @@ def enforce_monthly_limit(account: Account) -> int:
     That is accepted: the alternative is a lock around every read, for a quota
     whose purpose is to stop bulk scraping rather than to bill by the unit.
     """
+    if account.api_access_paused:
+        # 402, not 429: nothing is rate-limited here and nothing resets on the
+        # 1st. The account is stopped because a payment failed repeatedly, and
+        # the fix is a card, which is what the message has to say.
+        raise HTTPException(
+            status_code=402,
+            detail=(
+                "API access is paused because a subscription payment failed "
+                "repeatedly. Update your card from /dashboard#billing and "
+                "access resumes as soon as a payment settles."
+            ),
+        )
     limit = account.call_limit
     used = calls_this_month(account.id)
     if limit and used >= limit:

@@ -41,6 +41,7 @@ off rather than failing to boot.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Any
 
 import structlog
@@ -760,6 +761,13 @@ def _renew(obj: Any) -> dict[str, Any]:
     # subscription rather than assuming a month. The bare fallback is correct
     # for the monthly plan and short-changes an annual one by eleven months,
     # and the two are indistinguishable from an invoice with no periods on it.
+    # Money arrived, so whatever run of failures was building is over and any
+    # pause it caused is lifted. Done here rather than on a schedule because a
+    # settled payment is the only event that truthfully ends a dunning run.
+    from src import accounts as _accounts
+
+    _accounts.clear_payment_failures(email)
+
     days = _invoice_period_days(obj) or _subscription_period_days(subscription)
     if days is None:
         # Both readings failed. A month is the safe direction to be wrong in:
@@ -785,8 +793,6 @@ def _ends_in_the_future(subscription_obj: Any) -> bool:
     cancelled the ordinary way -- at period end -- arrives here with that
     boundary already reached, so this is False and the revoke proceeds.
     """
-    import datetime as dt
-
     end = _field(subscription_obj, "current_period_end")
     try:
         when = dt.datetime.fromtimestamp(int(end), dt.UTC)
@@ -945,6 +951,246 @@ def _reverse(obj: Any) -> dict[str, Any]:
     }
 
 
+# How many consecutive failed invoices before access stops.
+#
+# Three, because Stripe's own default retry schedule makes roughly that many
+# attempts over about three weeks. Cutting off at one would punish a card that
+# was declined for a bank's own reasons and worked the next morning; waiting
+# for Stripe to give up and fire `customer.subscription.deleted` means three
+# weeks of unpaid Pro access with the customer never told anything was wrong.
+DUNNING_LIMIT = 3
+
+
+def _price_id_of(subscription_obj: Any) -> str:
+    """The Price this subscription is billed on, off the event object itself.
+
+    No API call: `customer.subscription.updated` carries the full subscription,
+    items included, so the price is already in hand. Reading it back from
+    Stripe would be a round trip to learn what the payload just said.
+    """
+    items = _field(_field(subscription_obj, "items") or {}, "data") or []
+    if not items:
+        return ""
+    return _id_of(_field(items[0], "price"))
+
+
+def _plan_of_price(price_id: str) -> str:
+    """"monthly" | "annual" | "" for a configured Price id.
+
+    NOT `_plan_of`, which is a different question about a different object:
+    that one reads the plan a checkout SESSION was for ("pro", "dataset"), and
+    this one names the billing cadence behind a subscription's Price. Two
+    functions with one name silently broke checkout fulfilment once already.
+
+    Compared against the ids this deployment is configured with rather than
+    inferred from the price's interval, so a price that is not ours answers ""
+    instead of being filed under a plan we do not sell.
+    """
+    s = get_settings()
+    if price_id and price_id == s.stripe_price_pro_annual:
+        return "annual"
+    if price_id and price_id == s.stripe_price_pro:
+        return "monthly"
+    return ""
+
+
+def _period_end_of(subscription_obj: Any) -> dt.datetime | None:
+    """`current_period_end` as a datetime, or None if it is unreadable.
+
+    Recent API versions moved the field onto the subscription ITEM as well as
+    the subscription, and some payloads carry it in only one of the two, so
+    both are read before giving up.
+    """
+    end = _field(subscription_obj, "current_period_end")
+    if end is None:
+        items = _field(_field(subscription_obj, "items") or {}, "data") or []
+        if items:
+            end = _field(items[0], "current_period_end")
+    try:
+        return dt.datetime.fromtimestamp(int(end), dt.UTC).replace(tzinfo=None)
+    except (TypeError, ValueError):
+        return None
+
+
+def _payment_failed(obj: Any) -> dict[str, Any]:
+    """A renewal invoice did not get paid. Warn them, and eventually stop them.
+
+    This was unhandled, and the gap was expensive in both directions: a
+    customer whose card expired kept full Pro access for however long Stripe
+    spends retrying -- about three weeks -- and was never told, so the first
+    they knew of it was the subscription vanishing. Neither half is acceptable.
+
+    Only `subscription_cycle` invoices count. The first invoice of a
+    subscription failing means the checkout never completed, so there is
+    nothing to withdraw and nobody has been granted anything.
+    """
+    from src import accounts, mailer
+
+    reason = str(_field(obj, "billing_reason", "") or "")
+    if reason not in ("subscription_cycle", "subscription_update"):
+        return {"status": "ignored", "billing_reason": reason}
+
+    customer = _id_of(_field(obj, "customer"))
+    subscription = _subscription_of(obj)
+    email = _email_for(customer=customer, subscription=subscription)
+    if not email:
+        _note_lost("payment_failed_unknown_customer", customer=customer or "-")
+        return {"status": "unknown_customer"}
+
+    attempt = accounts.record_payment_failure(email)
+    remaining = max(DUNNING_LIMIT - attempt, 0)
+    invoice_url = str(_field(obj, "hosted_invoice_url", "") or "")
+
+    paused = False
+    if attempt >= DUNNING_LIMIT:
+        # The allowance drops to free AND the account is marked stopped. Two
+        # separate writes because they answer different questions: what can
+        # this key do now, and why.
+        accounts.apply_admin_action(email, "revoke_pro")
+        accounts.pause_api_access(email)
+        paused = True
+        log.warning(
+            "stripe_dunning_exhausted",
+            email=email, attempt=attempt, subscription=subscription or "-",
+        )
+    else:
+        log.info("stripe_payment_failed", email=email, attempt=attempt)
+
+    # Mailed last, and its result is not allowed to change the outcome: the
+    # account state above is the part that must be right, and a relay that is
+    # down must not make Stripe redeliver an event already acted on.
+    sent = mailer.send_payment_failed(
+        email, attempt=attempt, remaining=remaining, invoice_url=invoice_url
+    )
+    if not sent:
+        log.warning("stripe_dunning_mail_unsent", email=email, attempt=attempt)
+
+    return {
+        "status": "paused" if paused else "warned",
+        "email": email,
+        "attempt": attempt,
+        "remaining": remaining,
+        "notified": sent,
+    }
+
+
+def _subscription_updated(obj: Any) -> dict[str, Any]:
+    """The subscription changed in Stripe. Make this side match it.
+
+    Upgrades, downgrades and a `cancel_at_period_end` flag all arrive here and
+    all used to be dropped, so an account that moved from monthly to annual in
+    Stripe kept a monthly expiry date here and lapsed eleven months early.
+
+    Stripe is the authority on both facts this writes -- which price they are
+    on, and when the paid-for period ends -- so both are ASSIGNED from the
+    event rather than extended from what is already stored.
+
+    A cancellation scheduled for period end is recorded and nothing else: the
+    time has been paid for, `customer.subscription.deleted` fires when it runs
+    out, and revoking now would confiscate days somebody bought.
+    """
+    from src import accounts
+
+    subscription = _id_of(_field(obj, "id"))
+    customer = _id_of(_field(obj, "customer"))
+    email = _email_for(customer=customer, subscription=subscription)
+    if not email:
+        log.info("stripe_update_unknown_customer", customer=customer or "-")
+        return {"status": "unknown_customer"}
+
+    status = str(_field(obj, "status", "") or "")
+    if status in ("incomplete_expired", "canceled"):
+        # `_cancel` owns the ending of a subscription. Acting here as well
+        # would revoke twice and race with it.
+        return {"status": "ignored", "subscription_status": status}
+
+    plan = _plan_of_price(_price_id_of(obj))
+    period_end = _period_end_of(obj)
+    changed: list[str] = []
+
+    if subscription:
+        _attach_ids(email, customer=customer, subscription=subscription)
+    if plan:
+        accounts.set_pro_plan(email, plan)
+        changed.append("plan")
+    if period_end is not None and accounts.set_pro_expiry(email, period_end):
+        changed.append("expiry")
+
+    cancel_at_end = bool(_field(obj, "cancel_at_period_end", False))
+    log.info(
+        "stripe_subscription_updated",
+        email=email, plan=plan or "-", status=status or "-",
+        cancel_at_period_end=cancel_at_end, changed=",".join(changed) or "-",
+    )
+    return {
+        "status": "synced",
+        "email": email,
+        "plan": plan,
+        "subscription_status": status,
+        "cancel_at_period_end": cancel_at_end,
+        "expires_at": period_end.isoformat() if period_end else None,
+        "changed": changed,
+    }
+
+
+def _payment_action_required(obj: Any) -> dict[str, Any]:
+    """The bank wants the cardholder to authenticate before it will pay.
+
+    Nothing changes here: the money has not failed, it is waiting on a person.
+    What this fixes is that the person was never told. A European customer
+    whose bank demands 3-D Secure on a renewal gets a link they can act on
+    rather than silence followed, three weeks later, by a cancelled
+    subscription.
+
+    Recorded with the invoice URL because that URL is the whole remedy, and
+    without it in a log line there is no way to help somebody who writes in.
+    """
+    from src import mailer
+
+    customer = _id_of(_field(obj, "customer"))
+    subscription = _subscription_of(obj)
+    email = _email_for(customer=customer, subscription=subscription)
+    invoice_url = str(_field(obj, "hosted_invoice_url", "") or "")
+    if not email:
+        _note_lost("action_required_unknown_customer", customer=customer or "-")
+        return {"status": "unknown_customer"}
+
+    log.warning(
+        "stripe_payment_action_required",
+        email=email, subscription=subscription or "-", invoice_url=invoice_url or "-",
+    )
+    # Reuses the dunning mail with a zero-length run: no failure has been
+    # counted, so `attempt` is 0 and the copy says nothing about attempts
+    # remaining -- only that the payment needs them.
+    sent = mailer.send_payment_failed(
+        email, attempt=0, remaining=DUNNING_LIMIT, invoice_url=invoice_url
+    )
+    return {
+        "status": "action_required",
+        "email": email,
+        "invoice_url": invoice_url,
+        "notified": sent,
+    }
+
+
+def _checkout_expired(obj: Any) -> dict[str, Any]:
+    """A Checkout Session was opened and never completed.
+
+    No account exists yet and nothing was granted, so there is nothing to
+    change -- this is here so an abandoned checkout leaves a trace instead of
+    being indistinguishable from a session that was never opened. The plan and
+    the address are logged where they are known, which together are the only
+    two things worth knowing about an abandonment.
+    """
+    plan = str(_field(_field(obj, "metadata") or {}, "plan", "") or "")
+    email = _email_of(obj)
+    log.info(
+        "stripe_checkout_expired",
+        plan=plan or "-", email=email or "-", session=_id_of(_field(obj, "id")) or "-",
+    )
+    return {"status": "expired", "plan": plan, "email": email}
+
+
 _HANDLERS = {
     "checkout.session.completed": _fulfil_checkout,
     # The same session, arriving late, for a payment method that does not
@@ -954,6 +1200,21 @@ _HANDLERS = {
     "checkout.session.async_payment_succeeded": _fulfil_checkout,
     "invoice.payment_succeeded": _renew,
     "customer.subscription.deleted": _cancel,
+    # A renewal that did not get paid. Counted, mailed, and after
+    # `DUNNING_LIMIT` of them in a row the account stops -- see `_payment_failed`
+    # for why silence for Stripe's whole three-week retry window was the wrong
+    # answer in both directions.
+    "invoice.payment_failed": _payment_failed,
+    # The bank wants the cardholder to authenticate. Not a failure yet, and the
+    # only useful thing to do is put the URL in front of the person.
+    "invoice.payment_action_required": _payment_action_required,
+    # Upgrades, downgrades, and a cancellation scheduled for period end. Stripe
+    # is the authority on the plan and the period, so both are assigned from
+    # the event rather than extended from what is stored here.
+    "customer.subscription.updated": _subscription_updated,
+    # Nothing to grant and nothing to take back; recorded so an abandoned
+    # checkout is distinguishable from one that never happened.
+    "checkout.session.expired": _checkout_expired,
     # Money going back. A refund is the operator's own doing and a dispute is
     # the buyer's, but both end with the charge reversed and access that should
     # not still be there. `dispute.created` rather than `dispute.closed`:

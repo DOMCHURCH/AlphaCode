@@ -300,6 +300,51 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
     return True
 
 
+def send_payment_failed(
+    email: str, *, attempt: int, remaining: int, invoice_url: str = ""
+) -> bool:
+    """Tell a subscriber their renewal did not go through.
+
+    Sent to the CUSTOMER, unlike `send_expiry_reminder`, which is the
+    operator's list. A failed card is the one billing event the person on the
+    other end can actually fix, and they cannot fix it if the first they hear
+    of it is their key returning 402.
+
+    The message says which attempt this is and how many are left before access
+    stops, because "your payment failed" without a deadline reads as something
+    to deal with later, and Stripe's retry schedule runs out in about three
+    weeks. Never raises: the caller is a webhook handler that must still answer
+    200, and Stripe redelivering the same event for three days would not make
+    the mail relay work.
+    """
+    if remaining > 0:
+        ending = (
+            f"This was attempt {attempt}. After "
+            f"{remaining} more failed {'attempt' if remaining == 1 else 'attempts'} "
+            "your API access pauses until a payment settles.\n"
+        )
+    else:
+        ending = (
+            "API access is now paused. It resumes the moment a payment "
+            "settles -- nothing is deleted and your key does not change.\n"
+        )
+    link = f"Update your card: {invoice_url}\n" if invoice_url else ""
+    return _send(
+        email,
+        subject="To Scale: your subscription payment did not go through",
+        text=(
+            "Stripe could not take the payment for your To Scale Pro "
+            "subscription.\n\n"
+            f"{link}"
+            "You can also manage the subscription from your dashboard:\n"
+            "  https://toscale.pro/dashboard#billing\n\n"
+            f"{ending}\n"
+            "If you think this is wrong, reply to this message.\n"
+        ),
+        event="agentmail_payment_failed_sent",
+    )
+
+
 def send_expiry_reminder(to: str, due: list[dict]) -> bool:
     """Warn the operator that Pro subscriptions are running out.
 
