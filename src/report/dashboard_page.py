@@ -392,4 +392,16 @@ def render_dashboard(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/dashboard.js?v={asset_version()}" defer></script>"""
 
-    return shell("To Scale — API access", body)
+    return shell(
+        "To Scale — API access", body,
+        description=(
+            "Your To Scale dashboard: API key, monthly usage against your "
+            "tier, the full dataset download, and billing."
+        ),
+        canonical="/dashboard",
+        # Signed out this page is a paste-your-key box, and that is what
+        # a crawler sees -- it has no session. It was in the sitemap, so
+        # Google was being handed a thin, duplicate-looking page and
+        # invited to judge the site by it.
+        noindex=True,
+    )

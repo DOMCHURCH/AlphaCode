@@ -123,8 +123,13 @@ def build(base_url: str) -> str:
     # changes when somebody rewrites it, not when a filing lands.
     for slug, updated in _compare_pages():
         parts.append(_url(f"{base}/{slug}", updated, "monthly", "0.6"))
-    parts.append(_url(f"{base}/dashboard", legal_date, "monthly", "0.7"))
-    parts.append(_url(f"{base}/login", legal_date, "yearly", "0.3"))
+    # NOT /dashboard and NOT /login. Both are `noindex` now, and a sitemap
+    # that lists a noindexed URL is two instructions that contradict each
+    # other -- Search Console reports it as an error, and the crawl budget
+    # spent resolving it comes out of the six thousand company pages that do
+    # want indexing. Signed out, the dashboard is a paste-your-key box and the
+    # login page is a single field; a crawler has no session, so that is all
+    # either one ever shows it.
     parts.append(_url(f"{base}/terms", legal_date, "yearly", "0.3"))
     parts.append(_url(f"{base}/privacy", legal_date, "yearly", "0.3"))
 

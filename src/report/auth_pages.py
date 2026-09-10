@@ -48,7 +48,21 @@ def render_login(
   </header>
 {_footer()}
 </main>"""
-        return shell("To Scale — sign in", body)
+        return shell(
+            "To Scale — sign in", body,
+            description=(
+                "Sign in to To Scale to get or rotate your SEC filings API "
+                "key, check your monthly usage, and manage billing."
+            ),
+            canonical="/login",
+            # A sign-in form is a utility, not a destination. It has
+            # nothing to rank for and was in the sitemap, so Google was
+            # being asked to index a page whose entire content is a
+            # single field. Canonical AND noindex: the canonical settles
+            # which URL it is if anything ever links to it, the noindex
+            # keeps it out of the results.
+            noindex=True,
+        )
 
     body = f"""{nav or _nav()}
 <main class="wrap" id="main">
@@ -130,7 +144,15 @@ def render_login(
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — sign in", body)
+    return shell(
+        "To Scale — sign in", body,
+        description=(
+            "Sign in to To Scale to get or rotate your SEC filings API key, "
+            "check your monthly usage, and manage billing."
+        ),
+        canonical="/login",
+        noindex=True,
+    )
 
 
 def render_verify(*, token: str, state: str) -> str:
@@ -154,7 +176,7 @@ def render_verify(*, token: str, state: str) -> str:
   </section>
 {_footer()}
 </main>"""
-        return shell("To Scale — link expired", body)
+        return shell("To Scale — link expired", body, canonical="/auth/verify", noindex=True)
 
     body = f"""{_nav()}
 <main class="wrap" id="main">
@@ -176,4 +198,4 @@ def render_verify(*, token: str, state: str) -> str:
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — signing you in", body)
+    return shell("To Scale — signing you in", body, canonical="/auth/verify", noindex=True)

@@ -49,10 +49,38 @@ SHORT_DISCLAIMER = (
 )
 
 
+# What each legal page is FOR, in one line, as its meta description. Written
+# out rather than generated from the body: the first paragraph of a terms
+# document is boilerplate, and a description lifted from it tells a searcher
+# nothing about which of the two pages they want.
+_LEGAL_META: dict[str, tuple[str, str]] = {
+    "Terms of Service": (
+        "/terms",
+        "The terms for using To Scale: what the API and dataset may be used "
+        "for, what the free and paid tiers include, refunds, and the limits "
+        "of a service built on public SEC filings.",
+    ),
+    "Privacy Policy": (
+        "/privacy",
+        "What To Scale stores about you and for how long: an email address, a "
+        "bcrypt password hash, a salted digest of your IP. No card details, "
+        "and no IP addresses in the clear.",
+    ),
+}
+
+
 def _legal_shell(title: str, nav: str, body: str) -> str:
     from src.report.nav import render_footer
+    from src.report.schema import breadcrumb_ld
 
     _footer = render_footer()
+    # These two carried a description and a partial OG block and nothing else
+    # -- no canonical, no `og:url`, no structured data -- while every other
+    # reader-facing page had the lot. They are indexable pages a person
+    # genuinely searches for ("to scale terms", "is my data stored"), so the
+    # gap was costing real impressions rather than tidiness.
+    path, description = _LEGAL_META.get(title, ("", ""))
+    crumbs = breadcrumb_ld([("Home", "/"), (title, path)]) if path else ""
     return shell(
         f"To Scale — {title}",
         f"""{nav}
@@ -71,6 +99,9 @@ def _legal_shell(title: str, nav: str, body: str) -> str:
         # wrong page to make look untrusted. It used to say `film="still"` for
         # the same reason -- consistency with the pages around it -- and the
         # pages around it have moved.
+        description=description,
+        canonical=path,
+        ld=crumbs,
     )
 
 

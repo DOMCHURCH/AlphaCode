@@ -223,3 +223,56 @@ def test_llms_txt_leaves_no_unfilled_placeholder(client):
     # `{TICKER}` is a URL PATTERN and must survive -- it is telling a crawler
     # the shape of the company URLs, not asking to be filled in.
     assert "/company/{TICKER}" in body
+
+
+# ---------------------------------------------------------------------------
+# The four pages the metadata pass skipped
+# ---------------------------------------------------------------------------
+
+def test_the_four_skipped_pages_have_canonical_and_meta(client):
+    """Six page types got description + canonical + og:url + JSON-LD. Four did
+    not: /login, /terms, /privacy, /dashboard.
+
+    Two of them are pages a person genuinely searches for, and two are
+    utilities that were being offered to Google as though they were content.
+    Both halves of that were costing something.
+    """
+    for path in ("/terms", "/privacy", "/login", "/dashboard"):
+        html = client.get(path).text
+        assert 'rel="canonical"' in html, f"{path} has no canonical"
+        assert 'property="og:url"' in html, f"{path} has no og:url"
+        assert 'name="description"' in html, f"{path} has no description"
+        assert html.count("<h1") == 1, f"{path} should have exactly one h1"
+
+
+def test_the_legal_pages_are_indexable_and_described(client):
+    """/terms and /privacy answer real searches ("is my data stored"), so they
+    keep their place in the index and get a description that says which of the
+    two a searcher wants."""
+    for path, wanted in (("/terms", "refunds"), ("/privacy", "bcrypt")):
+        html = client.get(path).text
+        assert "noindex" not in html, f"{path} must stay indexable"
+        assert "application/ld+json" in html, f"{path} has no structured data"
+        desc = html.split('name="description" content="', 1)[1].split('"', 1)[0]
+        assert wanted in desc, f"{path} description is boilerplate: {desc[:80]}"
+
+
+def test_the_utility_pages_are_noindexed(client):
+    """Signed out, the dashboard is a paste-your-key box and /login is a single
+    field. A crawler has no session, so that is all either one ever shows it."""
+    for path in ("/login", "/dashboard"):
+        assert "noindex" in client.get(path).text, f"{path} is still indexable"
+
+
+def test_the_sitemap_lists_nothing_it_tells_google_to_ignore(client):
+    """A sitemap entry and a noindex are two instructions that contradict each
+    other. Search Console reports it as an error, and the crawl budget spent
+    resolving it comes out of the six thousand pages that do want indexing."""
+    sitemap = client.get("/sitemap.xml").text
+
+    for path in ("/login", "/dashboard"):
+        assert f"<loc>https://testserver{path}</loc>" not in sitemap
+        assert path not in sitemap, f"{path} is noindexed and still in the sitemap"
+
+    for path in ("/terms", "/privacy"):
+        assert path in sitemap, f"{path} is indexable and should be listed"
