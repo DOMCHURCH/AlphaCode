@@ -103,6 +103,13 @@ def build(base_url: str) -> str:
 
     # The front door changes whenever a filing lands, because the hero drawing
     # and the counts on it are built from the data.
+    # `newest` is the newest filing date behind any drawable company, and it is
+    # None on a database with no loaded filings. Two URLs use it -- the home
+    # page and /dataset -- and both were emitted with NO `lastmod` in that
+    # state, which is the one field Google uses to decide whether to come back.
+    # Falling back to the legal date keeps the guarantee unconditional: every
+    # URL in this file carries a lastmod, whatever the database holds.
+    newest = newest or legal_date
     parts.append(_url(f"{base}/", newest, "daily", "1.0"))
     parts.append(_url(f"{base}/api", legal_date, "monthly", "0.8"))
     # Both are real pages now rather than a redirect and a dashboard tab, and
@@ -133,6 +140,17 @@ def build(base_url: str) -> str:
     # want indexing. Signed out, the dashboard is a paste-your-key box and the
     # login page is a single field; a crawler has no session, so that is all
     # either one ever shows it.
+    # The two machine-readable disclosures. Both are served as text/plain and
+    # both are advertised in robots.txt already; listing them here is what puts
+    # a `lastmod` on them, which is the field a crawler uses to decide whether
+    # to come back. Low priority deliberately -- they are for machines, and a
+    # crawler that spends a company page's budget on a text file has been
+    # misdirected.
+    #
+    # NOT /docs. That is FastAPI's generated Swagger UI and it is switched off
+    # in production; asking Google to index a 404 is worse than not asking.
+    parts.append(_url(f"{base}/llms.txt", legal_date, "monthly", "0.3"))
+    parts.append(_url(f"{base}/financial-data.txt", legal_date, "monthly", "0.3"))
     parts.append(_url(f"{base}/terms", legal_date, "yearly", "0.3"))
     parts.append(_url(f"{base}/privacy", legal_date, "yearly", "0.3"))
 

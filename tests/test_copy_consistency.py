@@ -310,3 +310,59 @@ def test_the_site_does_not_claim_a_hundred_percent(client):
         html = client.get(path).text
         assert "100% accurate" not in html
         assert "100% accuracy" not in html
+
+
+# ---------------------------------------------------------------------------
+# Sitemap completeness
+# ---------------------------------------------------------------------------
+
+def test_the_sitemap_is_a_flat_urlset_not_an_index(client):
+    """A sitemap index whose children 404 is the classic way a site ends up
+    "unknown to Google". This one is flat, so there are no children to break."""
+    xml = client.get("/sitemap.xml").text
+
+    assert "<urlset" in xml
+    assert "<sitemapindex" not in xml, (
+        "if this ever becomes an index, every child needs its own 200 check"
+    )
+
+
+def test_every_page_type_is_in_the_sitemap(client):
+    """One assertion per page TYPE, because a generator that quietly stops
+    emitting a whole category is invisible in a URL count."""
+    seed(40)
+    from src.report.blog import POSTS
+    from src.report.compare import PAGES
+
+    xml = client.get("/sitemap.xml").text
+
+    for path in (
+        "/", "/api", "/pricing", "/dataset", "/blog", "/methodology",
+        "/terms", "/privacy", "/llms.txt", "/financial-data.txt",
+    ):
+        assert f"{path}</loc>" in xml, f"{path} missing"
+
+    for post in POSTS:
+        assert f"/blog/{post.slug}</loc>" in xml, f"{post.slug} missing"
+    for page in PAGES:
+        assert f"/{page.slug}</loc>" in xml, f"{page.slug} missing"
+
+
+def test_every_sitemap_url_carries_a_lastmod(client):
+    """Google uses `lastmod` to decide what to re-crawl. A URL without one is a
+    URL it has no reason to come back to."""
+    seed(40)
+    xml = client.get("/sitemap.xml").text
+
+    assert xml.count("<loc>") > 0
+    assert xml.count("<lastmod>") == xml.count("<loc>"), (
+        f"{xml.count('<loc>')} URLs but {xml.count('<lastmod>')} lastmod tags"
+    )
+
+
+def test_the_sitemap_does_not_advertise_swagger(client):
+    """/docs is FastAPI's generated UI and is off in production. Asking Google
+    to index a 404 is worse than not asking."""
+    xml = client.get("/sitemap.xml").text
+    assert "/docs</loc>" not in xml
+    assert "/openapi.json" not in xml
