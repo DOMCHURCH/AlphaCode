@@ -18,7 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
 
@@ -882,15 +882,86 @@ async def backfill_company_names() -> int:
     return written
 
 
+def canonical_of(tickers: Iterable[str]) -> str:
+    """The one ticker a CIK's rows are stored under, given several candidates.
+
+    Shortest first, and a symbol carrying `.` or `-` loses to one that does
+    not: those punctuate a share class (`RDI.B`, `BRK-A`), so the bare symbol
+    is the common stock and the natural home for the filer's balance sheet.
+    Alphabetical breaks the remaining ties so the choice is stable across runs
+    rather than dependent on dict ordering -- a canonical ticker that moves
+    between ingests would scatter one company's history across two symbols.
+    """
+    return min(tickers, key=lambda t: (("." in t or "-" in t), len(t), t))
+
+
 async def _cik_to_ticker() -> dict[str, str]:
-    """{cik (leading zeros stripped) -> ticker} from the SEC company list."""
-    reference = await sec_edgar.fetch_company_tickers()
+    """{cik (leading zeros stripped) -> the ONE ticker its rows are stored under}.
+
+    Seeded from OUR OWN `sector_map`, with SEC's `company_tickers.json` filling
+    only the CIKs that table does not cover. That order is the fix for two
+    separate failures, both of which silently discarded real companies:
+
+    1. **SEC's file is not a complete list of filers.** Fetched 11 September
+       2026 it held 10,407 entries and did not contain AVB (AvalonBay, an S&P
+       500 REIT that files 10-Qs on schedule), WBS, SE, RMAX or LBRDK. A CIK it
+       does not list could not be resolved, so every fact for those companies
+       was dropped at ingest. `sector_map` has all of them, with CIKs --
+       the database already held the answer this function was throwing away.
+
+    2. **`setdefault` collapsed each CIK to whichever ticker SEC listed first**,
+       and that winner was frequently a symbol we do not even cover: HLX lost to
+       HOS, AREN to PAAI, BTOG to SGRX, NRDE to SNFI, FCCI to EAIQ. So the
+       ingest wrote rows for tickers no page reads while the covered ticker
+       showed an empty page. Seeding from `sector_map` makes OUR ticker win by
+       construction, because it is the only candidate considered.
+
+    Where `sector_map` itself carries several tickers for one CIK -- 1,476 of
+    its 8,056 CIKs do, every dual class, preferred and SPAC unit -- one is
+    chosen by `canonical_of` and the others are resolved to it AT READ TIME by
+    `company.lookup.canonical_ticker`. Rows are deliberately NOT written under
+    every sibling: `ticker` is what the whole codebase counts by, so a company
+    with two share classes would be counted twice by `identity_failures`,
+    `universe_check`, the stat bar and the peer list, and a pass rate would
+    quietly become share-class-weighted.
+    """
     out: dict[str, str] = {}
+
+    from sqlalchemy import select
+
+    from src.storage.db import session_scope
+    from src.storage.models import SectorMap
+
+    by_cik: dict[str, list[str]] = {}
+    try:
+        with session_scope() as session:
+            for ticker, cik in session.execute(
+                select(SectorMap.ticker, SectorMap.cik).where(SectorMap.cik.isnot(None))
+            ).all():
+                key = str(cik or "").lstrip("0")
+                if key and ticker:
+                    by_cik.setdefault(key, []).append(str(ticker).upper())
+    except Exception as exc:  # noqa: BLE001 - fall back to SEC rather than fail
+        log.warning("cik_map_sector_map_unavailable", error=str(exc)[:200])
+
+    for cik, tickers in by_cik.items():
+        out[cik] = canonical_of(tickers)
+
+    reference = await sec_edgar.fetch_company_tickers()
+    added = 0
     for r in reference:
         cik = str(r.get("cik") or "").lstrip("0")
         tkr = str(r.get("ticker") or "").upper()
-        if cik and tkr:
-            out.setdefault(cik, tkr)
+        if cik and tkr and cik not in out:
+            out[cik] = tkr
+            added += 1
+
+    log.info(
+        "cik_map_built",
+        from_sector_map=len(by_cik),
+        from_sec_file=added,
+        total=len(out),
+    )
     return out
 
 
