@@ -12,6 +12,30 @@ build costs a section of one page rather than the page.
 WHEN TO RUN IT. After an ingest that moved fundamentals or filings. A row
 carries `source_period_end`, so a page built before the newest filing is
 identifiable rather than merely suspected -- `--stale` rebuilds exactly those.
+
+RUN IT IN THE CLUSTER, NOT FROM A LAPTOP. This matters more than anything else
+on this page. `build_view1` issues roughly twenty queries per ticker and each
+one pays a network round trip, so where the loop runs decides whether this
+takes a minute or most of a day. Measured 10 September 2026 against the same
+production database:
+
+    over the public TCP proxy      4-8 s per ticker   -> 7-14 hours
+    inside Railway (private net)   12 ms per ticker   -> 76 seconds
+
+Same code, same rows, ~300x. So prefer:
+
+    curl -X POST -H "X-Admin-Secret: $ADMIN_SECRET" \\
+         https://toscale.pro/admin/page-extras/backfill
+
+which runs this work in the cluster and rebuilds only what is stale. Use the
+CLI form below for a single ticker, a small `--limit`, or local development --
+not for the universe.
+
+WHAT A FULL RUN PRODUCED (10 September 2026): 6,147 rows from 6,208 tickers.
+61 skipped for having no drawable balance sheet. Every row got an intro and
+JSON-LD, 5,741 got peers, and **none got filings** -- `filing_events` is empty
+in production, so the "Recent filings" section is absent sitewide until that
+table is backfilled. That is a data gap, not a rendering fault.
 """
 
 from __future__ import annotations
