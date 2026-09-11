@@ -155,6 +155,14 @@ def get_balance_sheet(
     if as_of is None:
         as_of = dt.date.today()
 
+    # A filer with several share classes has ONE set of rows, stored under one
+    # canonical ticker -- see `company.lookup.canonical_ticker`. Resolving here
+    # rather than at each call site means every reader of a balance sheet gets
+    # the same answer for `RDI` and `RDIB`, which are one company.
+    from src.company.lookup import canonical_ticker
+
+    ticker = canonical_ticker(ticker)
+
     with session_scope() as session:
         from sqlalchemy import select
 

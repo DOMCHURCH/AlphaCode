@@ -55,6 +55,83 @@ def reset_cache() -> None:
     """
     global _named_cache, _named_cache_at
     _named_cache, _named_cache_at = None, 0.0
+    global _alias_cache, _alias_cache_at
+    _alias_cache, _alias_cache_at = None, 0.0
+
+
+# ticker -> the ticker its filer's rows are actually stored under.
+_alias_cache: dict[str, str] | None = None
+_alias_cache_at: float = 0.0
+
+
+def canonical_ticker(ticker: str) -> str:
+    """The symbol this company's fundamentals are stored under.
+
+    A filer has one CIK and frequently several tickers -- 1,476 of the 8,056
+    CIKs in `sector_map` carry more than one, which is every dual class, every
+    preferred and every SPAC unit. The ingest writes each filer's rows exactly
+    ONCE, under a canonical ticker, because `ticker` is what the rest of this
+    codebase counts by: `identity_failures`, `universe_check`, the stat bar and
+    the peer list all group by it, and storing a company twice would make it
+    count twice in every one of them and turn the pass rate into a
+    share-class-weighted number nobody asked for.
+
+    So the siblings are resolved HERE, on the way in. `RDIB` and `RDI` are one
+    filer with one balance sheet, and both should show it -- the alternative,
+    which is what shipped, is that `/company/RDIB` renders an empty page while
+    the data sits under `RDI`. Empty is survivable; the pair being silently
+    inconsistent is not.
+
+    Returns the input unchanged when there is no alias, when the ticker is
+    unknown, or when anything at all goes wrong. A lookup that cannot resolve
+    must never be the reason a page fails to render.
+    """
+    symbol = (ticker or "").strip().upper()
+    if not symbol:
+        return symbol
+    try:
+        return _aliases().get(symbol, symbol)
+    except Exception:  # noqa: BLE001 - decoration, never a failure mode
+        return symbol
+
+
+def _aliases() -> dict[str, str]:
+    """{ticker -> canonical ticker}, for the tickers that need one.
+
+    Built from `sector_map` alone and cached for the same half hour as the name
+    list. Only CIKs with more than one covered ticker contribute an entry, so
+    this is a few thousand strings rather than a copy of the universe.
+    """
+    global _alias_cache, _alias_cache_at
+    if _alias_cache is not None and (time.monotonic() - _alias_cache_at) < _NAMES_TTL_S:
+        return _alias_cache
+
+    from sqlalchemy import select
+
+    from src.backfill import canonical_of
+    from src.storage.db import session_scope
+    from src.storage.models import SectorMap
+
+    by_cik: dict[str, list[str]] = {}
+    with session_scope() as session:
+        for ticker, cik in session.execute(
+            select(SectorMap.ticker, SectorMap.cik).where(SectorMap.cik.isnot(None))
+        ).all():
+            key = str(cik or "").lstrip("0")
+            if key and ticker:
+                by_cik.setdefault(key, []).append(str(ticker).upper())
+
+    out: dict[str, str] = {}
+    for tickers in by_cik.values():
+        if len(tickers) < 2:
+            continue
+        winner = canonical_of(tickers)
+        for t in tickers:
+            if t != winner:
+                out[t] = winner
+
+    _alias_cache, _alias_cache_at = out, time.monotonic()
+    return out
 
 
 @dataclass(frozen=True)
