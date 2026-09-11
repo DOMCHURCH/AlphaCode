@@ -173,7 +173,7 @@ it is stored. Across <strong>{COMPANIES} companies and {FACTS} data points</stro
 that reconciles to the accounting identity — against the silent failure you get from taking the
 first tag.</p>
 
-<p>The 0.1% is not rounding. Those are filings that genuinely do not balance,
+<p>The exceptions are not rounding. Those are filings that genuinely do not balance,
 and the site draws them with a red warning saying so rather than quietly
 adjusting the numbers until they agree. If a company filed something that does
 not add up, that is a fact about the company, and it should reach you as one.</p>

@@ -100,6 +100,13 @@ def test_no_page_publishes_a_numeric_accuracy_rate(client, path):
     match = BANNED_SHAPE.search(body)
     assert match is None, f"{path} publishes an accuracy rate: {match.group(0)!r}"
 
+    # Any decimal percentage at all, including inside an HTML comment -- a
+    # comment ships in the response body, so "the 0.1% is not rounding" was
+    # just as public as the headline it sat under. Money and CSS values are
+    # integers or carry a unit, so a bare `N.N%` on these pages is a rate.
+    stray = re.search(r"\d{1,3}\.\d+\s*%", body)
+    assert stray is None, f"{path} carries a percentage: {stray.group(0)!r}"
+
 
 def test_the_method_is_still_stated_on_the_homepage(client):
     """Removing the number must not remove the claim -- otherwise the page says

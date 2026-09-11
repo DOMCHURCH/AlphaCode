@@ -266,9 +266,6 @@ def _accuracy_banner() -> str:
       consolidated row.
       <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why XBRL data is wrong one
       time in five</a>, and <a href="/dashboard">get the data</a>.</p>
-    <!-- A = L + E is an identity, so a number below 100% is a claim that needs
-         a reason rather than a rounding flourish. Saying what the 0.1% IS, next
-         to the figure, is the difference between a measurement and a boast. -->
     <p class="acc-why">Every valid SEC filing we ingest reconciles to the
       accounting identity. When a filing doesn’t balance, we flag the exact
       reason — noncontrolling interests, mezzanine equity, rounding, or a
