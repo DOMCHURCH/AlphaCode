@@ -65,6 +65,9 @@ BALANCE_SHEET_CONCEPTS = {
     # equity. Not reached by `total_equity_incl_nci` nor by
     # `minority_interest` -- a different line about a different holder.
     "redeemable_noncontrolling_interest": "redeemable_noncontrolling_interest",
+    # UPREIT operating-partnership units held by outside partners: outside
+    # permanent equity, and not reached by `minority_interest`.
+    "minority_interest_operating_partnership": "minority_interest_operating_partnership",
 }
 
 
@@ -259,6 +262,7 @@ def get_balance_sheet(
             "shareholders_equity", "total_equity_incl_nci", "minority_interest",
             "temporary_equity", "redeemable_preferred_stock",
             "redeemable_noncontrolling_interest",
+            "minority_interest_operating_partnership",
         ]
 
         for concept in asset_concepts:

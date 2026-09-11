@@ -403,6 +403,7 @@ def _mezzanine(bs: Any) -> float | None:
         "temporary_equity",
         "redeemable_preferred_stock",
         "redeemable_noncontrolling_interest",
+        "minority_interest_operating_partnership",
     ):
         value = _val(bs.equity, key)
         if value:

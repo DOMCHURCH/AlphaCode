@@ -82,7 +82,8 @@ _PASS_KEYS = frozenset(k for k, _, _ in PASS_CATEGORIES)
 MEZZANINE_METRICS = (
     "temporary_equity",
     "redeemable_preferred_stock",
-    "redeemable_noncontrolling_interest",   # not ingested yet
+    "redeemable_noncontrolling_interest",
+    "minority_interest_operating_partnership",
 )
 
 

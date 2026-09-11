@@ -233,3 +233,64 @@ def test_one_unmapped_filer_logs_once_not_once_per_fact(capsys):
     out = capsys.readouterr().out
 
     assert out.count("xbrl_cik_unresolved") == 1
+
+
+# --- mezzanine tags found in real filings ------------------------------------
+def test_redeemable_nci_at_fair_value_is_mapped():
+    """CYH tags its redeemable NCI at FAIR VALUE, not carrying amount.
+
+    Confirmed against CYH's 2026-03-31 companyfacts:
+    `RedeemableNoncontrollingInterestEquityFairValue` is $260,000,000 and the
+    gap our reconstruction left was $260,000,000 to the dollar. The three
+    carrying-amount aliases already mapped do not reach it, so the filing read
+    as an unexplained shortfall on our side.
+    """
+    from src.ingest.xbrl import CONCEPTS
+
+    by_metric = {c.metric: c for c in CONCEPTS}
+    tags = by_metric["redeemable_noncontrolling_interest"].tags
+    assert "RedeemableNoncontrollingInterestEquityFairValue" in tags
+    assert "RedeemableNoncontrollingInterestEquityOtherCarryingAmount" in tags
+    # The carrying-amount alias must still lead: where a filer publishes both,
+    # the carrying amount is the balance-sheet figure.
+    assert tags[0] == "RedeemableNoncontrollingInterestEquityCarryingAmount"
+
+
+def test_operating_partnership_units_are_mapped_and_readable():
+    """UPREIT units held by outside partners sit outside permanent equity and
+    `MinorityInterest` does not reach them."""
+    from src.company.balancesheet import BALANCE_SHEET_CONCEPTS
+    from src.ingest.xbrl import CONCEPTS
+
+    by_metric = {c.metric: c for c in CONCEPTS}
+    assert "minority_interest_operating_partnership" in by_metric
+    assert by_metric["minority_interest_operating_partnership"].tags == (
+        "MinorityInterestInOperatingPartnerships",
+    )
+    # Ingested is not enough -- a metric nothing reads is the bug that left
+    # `redeemable_noncontrolling_interest` named but empty for a month.
+    assert "minority_interest_operating_partnership" in BALANCE_SHEET_CONCEPTS
+
+
+def test_every_mezzanine_metric_the_script_counts_is_actually_ingested():
+    """The script's list and the ingest's concepts must not drift apart. This
+    is the exact failure that made one category structurally empty."""
+    from scripts.identity_failures import MEZZANINE_METRICS
+    from src.ingest.xbrl import CONCEPTS
+
+    produced = {c.metric for c in CONCEPTS}
+    for metric in MEZZANINE_METRICS:
+        assert metric in produced, f"{metric} is counted but never ingested"
+
+
+def test_the_mezzanine_chain_reads_every_ingested_mezzanine_metric():
+    """`view1._mezzanine` prefers rather than sums, so a metric missing from
+    its chain is silently never consulted."""
+    import inspect
+
+    from scripts.identity_failures import MEZZANINE_METRICS
+    from src.company import view1
+
+    source = inspect.getsource(view1._mezzanine)
+    for metric in MEZZANINE_METRICS:
+        assert metric in source, f"{metric} is ingested but _mezzanine ignores it"

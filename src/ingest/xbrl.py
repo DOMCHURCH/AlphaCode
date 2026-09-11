@@ -168,7 +168,26 @@ CONCEPTS: tuple[Concept, ...] = (
             "RedeemableNoncontrollingInterestEquityCarryingAmount",
             "RedeemableNoncontrollingInterestEquityCommonCarryingAmount",
             "RedeemableNoncontrollingInterestEquityPreferredCarryingAmount",
+            # Redeemable NCI carried at FAIR VALUE rather than carrying amount.
+            # Same block on the same balance sheet -- some filers measure it
+            # the other way and tag it accordingly. Confirmed against CYH's
+            # 2026-03-31 filing, where this tag is $260,000,000 and the gap
+            # our reconstruction left was $260,000,000 to the dollar.
+            "RedeemableNoncontrollingInterestEquityFairValue",
+            # The residual bucket of the same section, for filers who split
+            # common/preferred/other rather than publishing one total.
+            "RedeemableNoncontrollingInterestEquityOtherCarryingAmount",
         ),
+        INSTANT,
+    ),
+    # Operating-partnership units held by outside partners. The UPREIT
+    # structure: the REIT owns most of an operating partnership and the rest is
+    # held by contributors of property, redeemable for shares or cash. It sits
+    # outside permanent equity for the same reason the rest of this section
+    # does, and `MinorityInterest` does not reach it.
+    Concept(
+        "minority_interest_operating_partnership",
+        ("MinorityInterestInOperatingPartnerships",),
         INSTANT,
     ),
     Concept("cash", ("CashAndCashEquivalentsAtCarryingValue",), INSTANT),
