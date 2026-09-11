@@ -310,7 +310,7 @@ codebase already measured the gap and never surfaced it:
 Neither number is dishonest. But only one of them is a claim about our
 extraction, and it is the smaller one.
 
-### This number is not final
+### This number is not final (superseded — see *After the reload*)
 
 86.84% is the **reconstructed, pre-reload** rate. 598 of the 674 failures are
 mezzanine filings whose tags are now mapped but not yet ingested. Re-running
@@ -327,6 +327,91 @@ Reproduce:
 railway run --service Postgres python scripts/identity_failures.py
 railway run --service Postgres python scripts/identity_failures.py --json
 ```
+
+## After the reload — 11 September 2026
+
+The reload this document asked for has been run. `POST /admin/reload-fundamentals?confirm=true&quarters=7`, committed in **8.5 minutes**.
+
+### Two movements, not one
+
+The mezzanine mapping was validated **before** the reload, by accident. A
+scheduled incremental ingest ran overnight on 10/11 September and carried the
+new tags into production on its own — mezzanine rows went from 0 to 1,341
+without any intervention. So there are three measurements, not two, and the
+middle one is the interesting one:
+
+| | 10 Sep | 11 Sep pre-reload | 11 Sep post-reload |
+|---|---|---|---|
+| Balances directly | 4,447 | 4,448 | 4,421 |
+| Reconciles via NCI | 1 | 0 | 0 |
+| Reconciles via mezzanine | **0** | **404** | **450** |
+| Reconciles via both | 0 | 1 | 1 |
+| Rounding | 55 | 15 | 4 |
+| Missing XBRL tag | **608** | **245** | **199** |
+| Genuinely broken | 0 | 0 | 0 |
+| Unexplained | 11 | 9 | 9 |
+| **Testable** | 5,122 | 5,122 | 5,084 |
+| **Failures** | 674 | 269 | **212** |
+| **Extraction rate** | **86.84%** | **94.75%** | **95.83%** |
+
+Mezzanine rows in `fundamentals`: **0 → 1,341 → 12,359**.
+
+The overnight incremental did most of the work (+7.91pp); the full reload added
++1.08pp by applying the mapping to older periods the incremental never
+rewrote. That ordering matters for the next time somebody asks whether a
+reload is necessary: for a newly mapped tag, the normal ingest will reach
+recent filings on its own, and the reload is only worth its cost for history.
+
+### The reload cost coverage, and that is not a rounding detail
+
+| | before | after |
+|---|---|---|
+| Rows | 1,752,729 | 1,573,194 |
+| Distinct tickers | 6,210 | 6,172 |
+
+41 tickers left the testable set and 3 entered it. Of the 41, **37 now have
+ZERO fundamentals rows** — not fewer rows, none. They include **AVB
+(AvalonBay Communities), an S&P 500 REIT**, alongside ALOT, AREN, AXIM and a
+tail of small caps.
+
+This is a real regression and it is inherent to what `reload_fundamentals`
+does: it DELETES the table and rebuilds it from 7 quarters of SEC bulk
+Financial Statement Data Sets. Anything the previous table held that those
+files do not carry — because it arrived through the XBRL frames path, or
+because the filer's period falls outside the window, or because the ticker→CIK
+match failed against the bulk `sub.txt` — is gone until another ingest puts it
+back.
+
+The extraction rate went UP partly because these companies left the
+denominator (5,122 → 5,084). That is worth saying plainly: some of the
+improvement is companies leaving rather than filings being read better.
+
+**Action:** re-run the incremental fundamentals backfill
+(`POST /backfill?kind=fundamentals`) to repopulate them, then re-check that
+`AVB` has rows. Until that happens those 37 company pages have nothing to
+draw.
+
+### What is left: 212 failures
+
+- **199 missing XBRL tag** — BLK (3.8%), UNM (20.0%), OPTU (1.8%), QXO (8.7%),
+  BAM (13.3%), A (54.4%), CYH (2.6%), SLG (4.2%). BLK and A are known: BLK
+  carries redeemable NCI our mapping still does not reach in its filed form,
+  and A is one of the nine cases in *Inside the 608* where
+  `total_equity_incl_nci` is itself wrong — its drift got WORSE after the
+  reload (7.99% → 54.4%), which is consistent with a bad figure being
+  re-extracted rather than corrected.
+- **9 unexplained** — MSC, HODL, FGDL, EZBC, XRPZ, ETHV. Commodity and crypto
+  trusts with no stated right-hand side; the same population as before.
+- **4 rounding**, **0 genuinely broken**. Still zero broken filings out of
+  5,084, across three separate measurements.
+
+### Publication status
+
+**95.83% is not published and should not be.** It is below the 98% bar set for
+publication, it moved 9 points in 24 hours, and part of the last movement was
+companies leaving the denominator. The no-number framing shipped in `f6332f9`
+stands. Revisit when the figure is both above 98% and stable across two
+consecutive measurements with no coverage loss between them.
 
 ## What goes on the site
 
