@@ -497,9 +497,11 @@ def test_the_landing_page_states_its_scale_above_the_fold(client):
     strip = body.split('class="strip"', 1)[1].split("</div></div>", 1)[0]
     assert ">12<" in strip, "the fact count"
     assert ">2<" in strip, "the company count"
-    # The cell used to print the rate. It now names the state rather than a
-    # number -- see tests/test_content_accuracy.py for why.
-    assert "balanced or flagged" in strip, "the identity cell"
+    # The cell used to print the rate. It now reports COUNTS -- reconciled,
+    # flagged, hidden -- because the denominator moves as coverage improves.
+    # See /methodology and tests/test_content_accuracy.py.
+    assert "Reconciled" in strip, "the reconciled count"
+    assert "Flagged with a reason" in strip, "the flagged count"
     assert "100.0%" not in strip, "no rate may be published"
     assert 'href="#how"' in body
 

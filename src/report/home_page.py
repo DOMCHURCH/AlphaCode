@@ -380,9 +380,16 @@ def _summary_line(stats: dict) -> str:
             f"{fmt_int(stats['companies'])} "
             f"{plural(stats['companies'], 'company', 'companies')}"
         )
-    ident = stats.get("identity") or {}
-    if ident.get("pass_rate_pct") is not None:
-        parts.append("every filing balanced or flagged")
+    bd = None
+    try:
+        from src.company.stats import identity_breakdown
+
+        bd = identity_breakdown()
+    except Exception:  # noqa: BLE001 - a count must never take the page
+        bd = None
+    if bd:
+        parts.append(f"{fmt_int(bd['reconciled'])} reconciled")
+        parts.append(f"{fmt_int(bd['flagged'])} flagged with a reason")
     if not parts:
         return '<p class="summary"><a href="#how">How this works</a></p>'
     return (
@@ -777,11 +784,21 @@ def _status_strip(stats: dict, freshness: str = "") -> str:
              count=str(stats["companies"]))
     if stats.get("latest_filing"):
         cell("Latest filing", escape(str(stats["latest_filing"])))
-    ident = stats.get("identity") or {}
-    if ident.get("pass_rate_pct") is not None:
-        # The number this whole product is an argument about, and so the one
-        # thing on the page that is allowed the accent colour.
-        cell("Identity", "balanced or flagged", live=True)
+    # Verification, as three counts rather than one rate. A percentage here
+    # would fall as coverage improves -- see /methodology -- so the strip
+    # reports what was found, not what fraction of it passed.
+    from src.company.stats import identity_breakdown
+
+    b = identity_breakdown() or {}
+    if b.get("reconciled") is not None:
+        cell("Reconciled", escape(fmt_int(b["reconciled"])),
+             count=str(b["reconciled"]), live=True)
+    if b.get("flagged") is not None:
+        cell("Flagged with a reason", escape(fmt_int(b["flagged"])),
+             count=str(b["flagged"]))
+    if b.get("counts"):
+        cell("Hidden", escape(fmt_int(b["counts"].get("broken", 0))),
+             count=str(b["counts"].get("broken", 0)))
     if freshness:
         cells.append(
             '<div class="scell"><span class="sk">Pipeline</span>'
@@ -1016,11 +1033,15 @@ def render_home(
        sentence claiming the drawings are accurate is weaker than a drawing. -->
   {_status_strip(stats or {}, freshness)}
   <header class="hero">
-    <h1 class="htitle">Every balance sheet, drawn to scale</h1>
-    <p class="hlede">Filed figures from SEC EDGAR, at true proportion. Search
-      any US public company by ticker or by name.</p>
+    <h1 class="htitle">Every SEC filing, traced to its source.</h1>
+    <p class="hlede">We pull balance sheets straight from EDGAR, verify each one
+      against the accounting identity (A&nbsp;=&nbsp;L&nbsp;+&nbsp;E), and tell
+      you exactly what we found. When a filing reconciles, you get the figure.
+      When it doesn&rsquo;t, you get the reason &mdash; never a silent wrong
+      number.</p>
     {search_form(autofocus=True)}
-    <p class="summary"><a href="#how">How this works</a></p>
+    <p class="summary"><a href="/methodology">How we verify</a>
+      &middot; <a href="#how">How this works</a></p>
   </header>
   {hero_bs}
 {disclaimer}
