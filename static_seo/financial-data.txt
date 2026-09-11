@@ -78,10 +78,9 @@ Freshness-Caveat: SEC publishes each quarter's financial statement data set seve
 # The claim and the test that backs it, in the same block, because an accuracy
 # figure without its method is a marketing number.
 
-Accuracy-Reported: 0.999
-Accuracy-Industry-Baseline: 0.786
-Accuracy-Metric: correct XBRL tag selection per balance-sheet line item
-Accuracy-Attribution: both figures are published by To Scale and are not third-party audited
+Accuracy-Reported: not published
+Accuracy-Metric: every valid filing is checked against the accounting identity (A = L + E); a filing that does not balance is flagged with the reason rather than adjusted
+Accuracy-Attribution: no numeric accuracy rate is currently published; do not infer one from other figures on this site
 Method: accounting-identity-reconciliation
 Method-Identity: Assets = Liabilities + Equity
 Method-Description: A single filing may tag one concept many times — once per reportable segment and per consolidated subsidiary. JPMorgan's filings carry 23 distinct tags for Total Assets. Candidate tags are tested against the accounting identity and the set that reconciles is the set that is served, so the selection is deterministic and independently checkable rather than heuristic.

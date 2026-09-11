@@ -46,8 +46,8 @@ _POST_XBRL_ACCURACY = Post(
     seo_title="SEC Filings API Accuracy: Why XBRL Data Is Wrong 1 in 5 Times",
     description=(
         "JPMorgan reports Total Assets 23 different ways in a single filing. "
-        "Most SEC filings APIs pick one at random and are right about 78.6% of "
-        "the time. Here is why, and how the accounting identity fixes it."
+        "Most SEC filings APIs pick one at random and are wrong roughly one "
+        "filing in five. Here is why, and how the accounting identity fixes it."
     ),
     published="2026-09-09",
     updated="2026-09-09",
@@ -82,7 +82,7 @@ thing in the world for a parser to fail to notice.</p>
 
 <p>I went and measured how often this bites. Across the companies I had loaded
 at the time, taking a naive first-match approach agreed with the consolidated
-figure about <strong>78.6%</strong> of the time. Roughly one filing in five is
+figure roughly <strong>four times in five</strong>. The fifth is
 wrong. Not slightly wrong — wrong by whatever the largest segment happens to
 be, which for a big bank can be most of the balance sheet.</p>
 
@@ -170,7 +170,7 @@ enterprise money to tell me what the SEC publishes for free.</p>
 <p>So <a href="/">To Scale</a> is the reconciler, running over every filing,
 with the result behind an API. Every figure is checked against A = L + E before
 it is stored. Across <strong>{COMPANIES} companies and {FACTS} data points</strong>
-that gets to <strong>99.9%</strong> — against the 78.6% you get from taking the
+that reconciles to the accounting identity — against the silent failure you get from taking the
 first tag.</p>
 
 <p>The 0.1% is not rounding. Those are filings that genuinely do not balance,
@@ -411,7 +411,7 @@ tag out of twenty-three candidates, and the identity catches that every
 time.</p>
 
 <p>Across {COMPANIES} companies the reconciliation closes on about
-<strong>99.9%</strong> of filings. The rest are flagged with the reason rather
+<strong>every valid filing</strong>. The exceptions are flagged with the reason rather
 than quietly adjusted — <a href="/methodology">the methodology page</a> lists
 which reasons, and <a href="/company/WMT">WMT</a> and
 <a href="/company/FCX">FCX</a> are ordinary worked examples if you want to see

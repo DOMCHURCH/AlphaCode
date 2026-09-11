@@ -29,8 +29,9 @@ _BODY = """
       <h2>Why the number is not 100%</h2>
 
       <p>Because the identity is an identity, a correctly tagged filing read on
-      the right terms satisfies it <em>exactly</em>. So 99.9% does not mean the
-      data is 99.9% good. It means that for one filing in a thousand we cannot
+      the right terms satisfies it <em>exactly</em>. So a pass rate is not a
+      measure of how good the data is. It means that for a small number of
+      filings we cannot
       reconcile the two sides, and the honest thing is to say which and why
       rather than to round the number up.</p>
 
@@ -129,7 +130,7 @@ def render_methodology(*, nav: str = "") -> str:
         "How the Accounting-Identity Check Works — To Scale",
         body,
         description=(
-            "Why To Scale reports 99.9% and not 100% on Assets = Liabilities + "
+            "Why some filings do not balance on Assets = Liabilities + "
             "Equity: noncontrolling interests, mezzanine equity, rounding, and "
             "filings that genuinely do not balance — each flagged, never fudged."
         ),

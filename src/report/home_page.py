@@ -241,25 +241,26 @@ def _compact(n: int) -> str:
 
 
 def _accuracy_banner() -> str:
-    """The differentiator, stated as two numbers side by side.
+    """The differentiator, stated as a method rather than a percentage.
 
-    The claim being made is a comparison, so both halves have to be on screen:
-    "99.9% accurate" alone is a number with nothing to be better than. The
-    second line names the specific bug behind the gap, because a reader who has
-    handled XBRL knows exactly what "the same tag 23 times in one filing" means
-    and a reader who has not learns what the problem even was.
+    This used to print "99.9%" against an industry "78.6%". Both numbers are
+    gone, and deliberately not replaced with a different one. The audit in
+    docs/internal/identity-failures.md established that the published figure
+    measured whether a filing balances against ITS OWN stated total -- very
+    nearly a self-consistency check -- and not whether we recovered every
+    component of it. Those are two different numbers, and quoting the flattering
+    one under the word "accuracy" is the thing this site exists not to do.
 
-    Deliberately not the same figure as the live reconcile rate in the stat line
-    below it: that one is computed from the database every hour and moves, this
-    one is the fixed claim about the extraction method.
+    So the claim is now the method, which is true, checkable, and does not move
+    when the extraction improves: every valid filing is tested against the
+    identity, and one that does not balance is flagged with the reason.
     """
     return """
   <div class="acc">
-    <div class="acc-pair"><span class="acc-k">Industry standard</span>
-      <span class="acc-v">78.6%</span></div>
-    <div class="acc-pair us"><span class="acc-k">To Scale</span>
-      <span class="acc-v">99.9%</span></div>
-    <p class="acc-why">Accounting-identity accuracy. The gap is the SEC
+    <div class="acc-pair us"><span class="acc-k">Every valid filing</span>
+      <span class="acc-v">reconciles</span></div>
+    <p class="acc-why">Checked against the accounting identity, not sampled.
+      The failure this avoids is the SEC
       duplicate-tag problem — JPMorgan reports “Total Assets” 23 times in one
       filing, once per segment and subsidiary — solved by isolating the
       consolidated row.
@@ -268,10 +269,10 @@ def _accuracy_banner() -> str:
     <!-- A = L + E is an identity, so a number below 100% is a claim that needs
          a reason rather than a rounding flourish. Saying what the 0.1% IS, next
          to the figure, is the difference between a measurement and a boast. -->
-    <p class="acc-why">Every valid filing we ingest reconciles to that identity.
-      The 0.1% that do not are flagged with the exact reason — noncontrolling
-      interests, mezzanine equity, rounding, or a genuinely broken filing —
-      never silently fudged. We surface the reason; we don’t hide it.
+    <p class="acc-why">Every valid SEC filing we ingest reconciles to the
+      accounting identity. When a filing doesn’t balance, we flag the exact
+      reason — noncontrolling interests, mezzanine equity, rounding, or a
+      broken filing — never silently fudged.
       <a href="/methodology">How the check works</a>.</p>
   </div>"""
 
@@ -381,7 +382,7 @@ def _summary_line(stats: dict) -> str:
         )
     ident = stats.get("identity") or {}
     if ident.get("pass_rate_pct") is not None:
-        parts.append(f"{ident['pass_rate_pct']}% reconcile")
+        parts.append("every filing balanced or flagged")
     if not parts:
         return '<p class="summary"><a href="#how">How this works</a></p>'
     return (
@@ -627,10 +628,10 @@ def _numbers(stats: dict) -> str:
     if ident.get("pass_rate_pct") is not None:
         headline = f"""
     <div class="bignum">
-      <b>{ident['pass_rate_pct']}%</b>
-      <span>of the {fmt_int(ident['checkable'])}
-        {plural(ident['checkable'], 'company', 'companies')} with a complete
-        balance sheet satisfy assets = liabilities + equity to within 1%</span>
+      <b>{fmt_int(ident['checkable'])}</b>
+      <span>{plural(ident['checkable'], 'company', 'companies')} with a complete
+        balance sheet, every one checked against assets = liabilities + equity —
+        and every one that does not balance flagged with the reason</span>
     </div>"""
 
     return f"""
@@ -780,7 +781,7 @@ def _status_strip(stats: dict, freshness: str = "") -> str:
     if ident.get("pass_rate_pct") is not None:
         # The number this whole product is an argument about, and so the one
         # thing on the page that is allowed the accent colour.
-        cell("Reconciles", f"{ident['pass_rate_pct']}%", live=True)
+        cell("Identity", "balanced or flagged", live=True)
     if freshness:
         cells.append(
             '<div class="scell"><span class="sk">Pipeline</span>'
@@ -864,13 +865,17 @@ def _trust(stats: dict) -> str:
     strengths is marketing wearing a lab coat.
     """
     ident = stats.get("identity") or {}
-    rate = ident.get("pass_rate_pct")
     checkable = ident.get("checkable")
 
+    # `rate` is still computed and still read internally; it is deliberately
+    # not rendered. See docs/internal/identity-failures.md -- the figure
+    # measures whether a filing balances against its own stated total, which is
+    # not the claim the word "accuracy" makes to a reader.
     identity_line = (
-        f"{rate}% of the {fmt_int(checkable)} companies with a complete balance "
-        "sheet satisfy assets = liabilities + equity to within 1%."
-        if rate is not None and checkable
+        f"All {fmt_int(checkable)} companies with a complete balance sheet are "
+        "checked against assets = liabilities + equity; any that do not balance "
+        "are flagged with the reason."
+        if checkable
         else "Every drawing is checked against assets = liabilities + equity."
     )
     span = (
@@ -1048,10 +1053,10 @@ def render_home(
     scale = f" {companies_label()} companies, {facts} data points." if facts else ""
 
     return _shell(
-        "To Scale — 99.9% Accurate SEC Balance Sheet API",
+        "To Scale — Reconciled SEC Balance Sheet API",
         body,
         description=(
-            "99.9% accurate reconciled balance sheet data from SEC EDGAR "
+            "Reconciled balance sheet data from SEC EDGAR "
             "filings. Most providers pick the wrong XBRL tag for Total Assets "
             "— JPMorgan reports it 23 ways. We use A = L + E to select the "
             f"right one.{scale}"

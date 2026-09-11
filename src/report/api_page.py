@@ -188,7 +188,8 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
         description=(
             "REST API for SEC XBRL balance sheet data. One X-API-Key header, "
             f"JSON back, no SDK. {_scale_clause()}"
-            "reconciled with the accounting identity to 99.9% accuracy."
+            "reconciled with the accounting identity. Exceptions are flagged, "
+            "not hidden."
         ),
         canonical="/api",
         ld=software_ld() + breadcrumb_ld([("Home", "/"), ("API", "/api")]),

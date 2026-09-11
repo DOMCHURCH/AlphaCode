@@ -112,7 +112,7 @@ preferring the filer's own stated `LiabilitiesAndStockholdersEquity` over a
 reconstructed `liabilities + equity` wherever it exists. The stated total is the
 filer's arithmetic; reconstructing it substitutes ours.
 
-**The identity pass rate went from 78.6% to 99.9%.**
+**Every valid filing now reconciles to the identity, and the ones that do not are flagged with the reason.**
 
 ### 3. Industry-specific tags
 

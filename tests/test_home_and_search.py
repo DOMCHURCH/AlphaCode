@@ -138,11 +138,12 @@ def test_home_is_the_product_not_a_redirect(client):
 
     assert r.status_code == 200
     body = r.text
-    assert "99.9% Accurate SEC Balance Sheet API" in body
+    assert "Reconciled SEC Balance Sheet API" in body
+    assert "99.9%" not in body, "the retired accuracy claim must not return"
     # The old fallback description was the SAME sentence on all eight
     # shell pages, which is one page to a search engine and eight
     # near-duplicates to a crawler. Each page carries its own now.
-    assert "reconciled balance sheet data from SEC EDGAR" in body
+    assert "econciled balance sheet data from SEC EDGAR" in body
     assert 'action="/search"' in body
     assert 'href="/company/JPM"' in body
 
@@ -496,7 +497,10 @@ def test_the_landing_page_states_its_scale_above_the_fold(client):
     strip = body.split('class="strip"', 1)[1].split("</div></div>", 1)[0]
     assert ">12<" in strip, "the fact count"
     assert ">2<" in strip, "the company count"
-    assert "100.0%" in strip, "the reconcile rate"
+    # The cell used to print the rate. It now names the state rather than a
+    # number -- see tests/test_content_accuracy.py for why.
+    assert "balanced or flagged" in strip, "the identity cell"
+    assert "100.0%" not in strip, "no rate may be published"
     assert 'href="#how"' in body
 
 
@@ -581,8 +585,17 @@ def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
     assert "satisfy assets = liabilities + equity" not in body
 
 
-def test_the_identity_line_reports_the_real_pass_rate(client):
-    """JPM balances exactly; the ghost has no complete sheet so is not counted."""
+def test_the_identity_line_counts_companies_and_publishes_no_rate(client):
+    """JPM balances exactly; the ghost has no complete sheet so is not counted.
+
+    The rate is still COMPUTED -- it is read internally and by
+    `scripts/identity_failures.py` -- and deliberately not rendered. The audit
+    in docs/internal/identity-failures.md established that it measures whether
+    a filing balances against its OWN stated total rather than whether we
+    recovered every component, so publishing it under the word "accuracy" says
+    something the number does not support. What the page shows instead is the
+    count it is entitled to: how many complete balance sheets were checked.
+    """
     from src.company.stats import identity
 
     _seed("JPM", _drawable(), sector="Financials")
@@ -592,9 +605,9 @@ def test_the_identity_line_reports_the_real_pass_rate(client):
     body = client.get("/").text
 
     assert ident["checkable"] == 1, "only companies with a full sheet count"
-    assert ident["pass_rate_pct"] == 100.0
-    assert "100.0%" in body
-    assert "satisfy assets = liabilities + equity" in body
+    assert ident["pass_rate_pct"] == 100.0, "still computed for internal use"
+    assert "100.0%" not in body, "the rate must not be published"
+    assert "checked against assets = liabilities + equity" in body
 
 
 def test_period_ends_are_never_reported_as_quarters(client):

@@ -56,8 +56,8 @@ from src.report.home_page import shell
 # reader noticing that a site selling accuracy cannot agree with itself.
 COMPANIES = "6,201"
 DATA_POINTS = "1.8 million"
-ACCURACY = "99.9%"
-NAIVE_ACCURACY = "78.6%"
+ACCURACY = "reconciled to the accounting identity"
+NAIVE_ACCURACY = "wrong roughly one filing in five"
 
 # Measured against production on 2026-09-09: three consecutive calls to
 # /api/demo/AAPL -- the same read path as the paid endpoint, minus metering --
@@ -96,7 +96,7 @@ class Page:
     extras: tuple[str, ...] = field(default_factory=tuple)
 
 
-_METHOD = f"""
+_METHOD = """
 <h2>The difference is which tag gets picked</h2>
 
 <p>Every provider in this category reads the same source. SEC EDGAR publishes
@@ -116,16 +116,16 @@ dimensions attached.</p>
 recently filed, will be right most of the time and wrong in a way that leaves
 no trace. No exception, no null, no warning. Just a number that is a segment
 instead of a company. Measured across the filings loaded here, that naive
-approach agrees with the consolidated figure about <strong>{NAIVE_ACCURACY}</strong> of
-the time. Roughly one filing in five.</p>
+approach disagrees with the consolidated figure often enough to matter —
+roughly one filing in five.</p>
 
 <p>To Scale resolves it with arithmetic rather than a heuristic: pull every
 candidate for assets, liabilities and equity, and keep the combination that
 satisfies <strong>Assets = Liabilities + Equity</strong>. The consolidated
 figures balance against each other. A segment's assets do not balance against
 the whole company's liabilities. The identity is a test, not a guideline, and
-it is the reason the number is <strong>{ACCURACY}</strong> rather than
-{NAIVE_ACCURACY}.</p>
+it is the reason a figure here is <strong>checked</strong> rather than
+guessed at.</p>
 
 <p>When nothing balances, the answer is that nothing balances. The filing is
 served as-reported with a warning on it rather than adjusted until the columns
@@ -216,7 +216,7 @@ PAGES: tuple[Page, ...] = (
         rows=(
             Row("Scope", "SEC balance sheets, reconciled", "Broad: fundamentals, prices, options, news, ESG", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
-            Row("Stated accuracy", f"{ACCURACY}, measured against the identity", "Not published as a figure"),
+            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Wider — many asset classes and vendors", False),
             Row("Latency", LATENCY + "; EDGAR swept every 6h", "Varies by feed and plan — check their site"),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Quote-based, tiered by feed — check their site"),
@@ -269,7 +269,7 @@ PAGES: tuple[Page, ...] = (
             Row("Form coverage", "Balance sheet data from periodic filings", "Every form type: 8-K, S-1, 13F, Form 4, more", False),
             Row("Selection method", "A = L + E, published and testable", "Returns the tags as filed"),
             Row("Duplicate-tag handling", "Resolved to the consolidated figure", "Yours to resolve"),
-            Row("Stated accuracy", f"{ACCURACY} against the identity", "Not applicable — it is not selecting for you"),
+            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not applicable — it is not selecting for you"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Every EDGAR filing, all form types", False),
             Row("Latency", LATENCY, "Real-time filing stream — faster to the document", False),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Tiered by call volume — check their site"),
@@ -317,7 +317,7 @@ PAGES: tuple[Page, ...] = (
             Row("Buying process", "Card, self-serve, thirty seconds", "Sales cycle, contract, procurement", False),
             Row("Asset classes", "SEC balance sheets only", "Equities, FX, rates, ETFs, indices and more", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
-            Row("Stated accuracy", f"{ACCURACY} against the identity", "Not published as a figure"),
+            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Global, many asset classes", False),
             Row("Latency", LATENCY, "Real-time market data — a different problem", False),
             Row("SLA", "None. One person.", "Contractual, with support", False),
@@ -367,7 +367,7 @@ PAGES: tuple[Page, ...] = (
             Row("Resolves duplicate XBRL tags", "Yes — A = L + E", "Ask. Most do not document it"),
             Row("As-reported, not restated", "Yes, with filing dates", "Ask — many silently serve restated"),
             Row("Point-in-time queries", "Yes — as-of respects filing dates", "Ask"),
-            Row("Publishes an accuracy figure", f"Yes — {ACCURACY}", "Rare"),
+            Row("Publishes an accuracy figure", "No — the method is published instead", "Rare"),
             Row("Free tier without a call", "Yes", "Varies"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Ask — and ask whether it is SEC-only"),
             Row("Latency", LATENCY, "Ask, and measure it yourself"),
@@ -418,7 +418,7 @@ the correct answer is identified by an absence, the easiest thing in the world
 for a parser to miss.</p>
 
 <p>Taking the first match agrees with the consolidated figure about
-<strong>""" + NAIVE_ACCURACY + """</strong> of the time. One filing in five is
+<strong>most</strong> of the time. One filing in five is
 wrong, silently, by whatever the largest segment happens to be.</p>
 
 <h2>The three questions that actually separate providers</h2>
@@ -446,7 +446,8 @@ handed a silently adjusted number.</p>
 
 <p>One reconciled dataset: """ + COMPANIES + """ SEC filers, """ + DATA_POINTS + """
 as-reported facts, every one checked against A = L + E before it is stored.
-""" + ACCURACY + """ against that test. Free tier with no card, $49 a month for
+Every valid filing reconciles against that test, and the exceptions are
+flagged rather than hidden. Free tier with no card, $49 a month for
 """ + "10,000" + """ calls, or $79.99 once for the whole thing as a CSV.</p>
 
 <p>I built it because I wanted this data for something else and could not find
@@ -479,7 +480,7 @@ you already know.</p>
             Row("Selection method", "A = L + E, published", "Not publicly documented"),
             Row("Entry price", "Free, then $49/mo", "Check their site"),
             Row("Bulk file", "$79.99 one-off", "Higher plans", False),
-            Row("Stated accuracy", f"{ACCURACY} against the identity", "Not published as a figure"),
+            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
             Row("Latency", LATENCY, "Varies by feed — check their site"),
             Row("Coverage", f"{COMPANIES} SEC filers", "Wider, including non-SEC", False),
         ),
@@ -610,8 +611,8 @@ def render(page: Page, *, nav: str = "") -> str:
       argument about it, so you can judge the claim rather than take it.</p>
     <ul class="notelist">
       <li><a href="/blog/sec-xbrl-data-wrong-one-in-five">Why SEC XBRL data is
-        wrong one time in five</a> — the measurement behind the 78.6% figure in
-        the table above, on JPMorgan's own filing.</li>
+        wrong one time in five</a> — the measurement behind the duplicate-tag
+        problem, on JPMorgan's own filing.</li>
       <li><a href="/blog/understanding-the-accounting-identity">Understanding
         the accounting identity</a> — why A = L + E works as a test on data you
         did not produce, and what happens when a filing genuinely fails it.</li>

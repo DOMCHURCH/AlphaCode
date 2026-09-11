@@ -330,50 +330,40 @@ railway run --service Postgres python scripts/identity_failures.py --json
 
 ## What goes on the site
 
-**This section is a proposal, not a change. Nothing in `home_page.py` has been
-edited.** Publishing it swaps a claim about filings for a claim about our
-extraction, and that is an owner's decision — see the caveat at the end.
+**Decided 11 September 2026: no numeric accuracy rate is published anywhere.**
 
-The paragraph the real numbers support:
+Not 99.9%, not the 99.8% the stat bar computed live, and not the 86.84%
+extraction figure this audit produced. The reasoning is in *The two pass rates,
+reconciled* above: the published number measured whether a filing balances
+against ITS OWN stated total, which is close to a self-consistency check, and
+not whether we recovered every component of it. Printing the flattering one
+under the word "accuracy" is the thing this site exists not to do.
 
-> Every valid SEC filing we ingest reconciles to the accounting identity.
-> Of the 6,208 companies we cover, 5,122 report the three totals the identity
-> needs. 4,447 of those balance directly on the components we extract, one
-> reconciles once noncontrolling interests are included, and 608 balance
-> against the filer's own stated total but not against our reconstruction —
-> almost all of them mezzanine equity, which we have only just begun to ingest.
-> 55 sit inside a rounding band and **none is a genuinely broken filing.**
-> Where a filing does not reconcile we say which of those it is. We surface the
-> reason; we don't hide it.
+The extraction figure is not published EITHER, and that is the less obvious
+half of the decision. It is a temporary engineering state -- the mezzanine tags
+are mapped and simply not yet re-ingested -- so publishing it would convert a
+fixable bug into a permanent marketing claim, and the number would be wrong
+(too low) within one reload.
 
-Three things about that draft, all of which are the reason it is a draft:
+What is published instead is the method, which is true today, stays true after
+the reload, and does not move when extraction improves:
 
-1. **It does not lead with a percentage,** because the two available
-   percentages measure different things (see *The two pass rates, reconciled*)
-   and any single number printed without its definition is the thing this
-   document exists to prevent.
-2. **"None is a genuinely broken filing" is the strongest true sentence here**
-   and it is currently buried. Zero out of 5,122 audited filers got their own
-   arithmetic wrong. That is a better claim than any accuracy percentage and it
-   costs nothing to defend.
-3. **608 is quoted as a weakness in our reading, not theirs.** That is the
-   honest framing and it is also the more credible one.
+> Every valid SEC filing we ingest reconciles to the accounting identity. When
+> a filing doesn't balance, we flag the exact reason — noncontrolling
+> interests, mezzanine equity, rounding, or a broken filing — never silently
+> fudged.
 
-### The caveat that decides whether to ship it
+Short variant for buttons, badges and JSON-LD:
 
-The 608 will shrink — probably a great deal — the first time
-`reload_fundamentals` runs against production with the mezzanine tags now
-mapped. Publishing "608" today prints a number that is about to improve, and
-publishing the reconstructed rate (86.84%) alongside an existing "99.9%
-accurate" marketing claim invites an obvious question with a long answer.
+> Every valid filing reconciles. Exceptions are flagged, not hidden.
 
-The recommended order is therefore:
+The rate is still COMPUTED. `stats.identity()` and
+`scripts/identity_failures.py` both read it and both must keep working -- it is
+not wrong, it is unpublishable. `tests/test_content_accuracy.py` asserts that
+no page renders a percentage next to "accurate"/"accuracy", and that
+`llms.txt` and `financial-data.txt` carry none either, because an answer engine
+will quote a number back with more confidence than the page gave it.
 
-1. Run the fundamentals reload (owner action — it replaces the table).
-2. Re-run `scripts/identity_failures.py` and read the new split.
-3. Then decide which number goes on the homepage, with both in front of you.
-
-Until then the existing public paragraph stands and remains defensible: the
-0.1% it refers to is `universe_check`'s definition, that figure is computed
-correctly, and this document now records exactly what it does and does not
-assert.
+**Revisit after the reload.** If the extraction rate clears 98% it becomes a
+defensible thing to publish, and this decision should be taken again with the
+real number in hand.
