@@ -386,10 +386,11 @@ The extraction rate went UP partly because these companies left the
 denominator (5,122 → 5,084). That is worth saying plainly: some of the
 improvement is companies leaving rather than filings being read better.
 
-**Action:** re-run the incremental fundamentals backfill
-(`POST /backfill?kind=fundamentals`) to repopulate them, then re-check that
-`AVB` has rows. Until that happens those 37 company pages have nothing to
-draw.
+**Action:** that recommendation was WRONG and is superseded by *The 37
+dropped companies* below. `kind=fundamentals` reads the same bulk datasets
+the reload rebuilt from, so it is a no-op; the frames path was run instead
+and restored none of them. The cause is in `_cik_to_ticker`, and the fix is
+a code change.
 
 ### What is left: 212 failures
 
@@ -412,6 +413,99 @@ publication, it moved 9 points in 24 hours, and part of the last movement was
 companies leaving the denominator. The no-number framing shipped in `f6332f9`
 stands. Revisit when the figure is both above 98% and stable across two
 consecutive measurements with no coverage loss between them.
+
+## The 37 dropped companies — diagnosed, not yet restored (11 September 2026)
+
+The reload dropped 37 companies to zero fundamentals rows. **Neither backfill
+restores them, and the reason is a bug rather than a missing run.**
+
+### What was tried
+
+`POST /backfill?kind=fundamentals` was the obvious move and would have been a
+**no-op**: its docstring says "As-reported fundamentals via the SEC bulk
+Financial Statement Data Sets" — the same source `reload_fundamentals` rebuilds
+from. Re-reading the files that omitted these companies cannot reintroduce them.
+
+`POST /backfill?kind=filings` — the XBRL frames path, which is what actually
+supplied these rows before — was run instead. It added **1 row** and restored
+**0 of 37**. AVB stayed at zero.
+
+### Why: both paths resolve identity through one incomplete file
+
+Every fundamentals ingest maps SEC data to tickers through
+`backfill._cik_to_ticker()`, which is built **solely** from SEC's
+`company_tickers.json`. Two independent defects fall out of that.
+
+**1. That file does not list every filer. 20 of the 37 are simply not in it.**
+
+Fetched 11 September 2026: 10,407 entries. `AAPL`, `MSFT` and `JPM` are
+present. `AVB`, `WBS`, `SE`, `RMAX`, `LBRDK`, `TALK`, `ALOT`, `FBRX`, `CXXIF`,
+`AACB`, `AGGI`, `AIHS`, `BBCQ`, `BCAR`, `BCARU`, `BTMCQ`, `CMII`, `DEFI`,
+`GLTK` and `IPCX` are not. AvalonBay is an S&P 500 REIT that files 10-Qs on
+schedule; it is absent from the mapping file, so its CIK cannot be resolved to
+a ticker and its rows are discarded silently at ingest.
+
+Note the asymmetry that makes this invisible: `sector_map` DOES carry AVB, with
+a CIK. The database already knows the answer the ingest throws away.
+
+**2. `setdefault` keeps one ticker per CIK. 12 more lose to a sibling.**
+
+```python
+out.setdefault(cik, tkr)   # first ticker wins, the rest are dropped
+```
+
+A CIK routinely carries several tickers — share classes, SPAC units and
+warrants. Whichever SEC happens to list first takes the CIK, and every other
+ticker on it gets nothing:
+
+| dropped | loses to | that CIK carries |
+|---|---|---|
+| HLX | HOS | HOS, HLX |
+| RDIB | RDI | RDI, RDIB |
+| AREN | PAAI | PAAI, AREN |
+| BTOG | SGRX | SGRX, BTOG |
+| NRDE | SNFI | SNFI, NRDE |
+| FCCI | EAIQ | EAIQ, FCCI |
+| SWAG | SWAGW | SWAGW, SWAG |
+| LPAA | LPAAU | LPAAU, LPAA, LPAAW |
+| SIMA | SIMAU | SIMAU, SIMA, SIMAW |
+| JAB | ATLQ | ATLQ, JAB, ATLQR, JABRU, ATLQU, ATLQW, JABRW, JABRR |
+| ACLEW | ALCE | ALCE, ACLEW, ALCED |
+| ALCED | ALCE | ALCE, ACLEW, ALCED |
+
+**The data is not lost for these twelve** — it is in the table under the winning
+ticker. HOS has 342 rows, PAAI 336, ALCE 270, SGRX 168, EAIQ 81. So
+`/company/HLX` is empty while `/company/HOS` holds exactly the balance sheet a
+reader asked for. That is arguably worse than missing data, because the site
+looks confidently wrong rather than incomplete.
+
+**3. Five are unexplained**: `AXIM`, `FBDT`, `FVTI`, `GBNY`, `REAX` are in
+`company_tickers.json`, win their CIK, and still have no rows. Not chased here.
+
+### Why the reload exposed it rather than caused it
+
+Nothing about the mapping changed on 11 September. The pre-reload table simply
+held rows from earlier runs, made when SEC's file listed different symbols —
+`fundamentals` was accumulating history that the current mapping can no longer
+reproduce. The reload deleted that accumulation and rebuilt from what the
+mapping can see today. **The 37 were already unreachable; the reload only
+stopped hiding it**, and any future reload will drop them again.
+
+### The fix, which is a code change and not a backfill
+
+1. **Seed `_cik_to_ticker` from the local `sector_map` first**, then let SEC's
+   file fill gaps. `sector_map` has 10,481 rows with CIKs and already contains
+   AVB. This alone recovers the 20.
+2. **Stop collapsing a CIK to one ticker.** Prefer the ticker that is in our
+   own universe over whichever SEC lists first; where several are ours, the
+   rows need attributing to each or the choice needs to be explicit and
+   recorded, because silently picking the warrant over the common stock is how
+   `HLX` became `HOS`.
+3. Re-run the reload afterwards, and re-check these 37 specifically.
+
+Until then the 37 pages stay empty, and `/company/HLX`, `/company/RDIB`,
+`/company/AREN` and the nine others in that table are empty while their data
+sits under another symbol.
 
 ## What goes on the site
 
