@@ -479,7 +479,8 @@ def render_pricing(
         body,
         description=(
             "SEC filings API pricing: free tier, $49/mo Pro API, $490/yr, or a "
-            "$79.99 one-time XBRL dataset download. Reconciled "
+            "$79.99 one-time XBRL dataset download. Every figure traced "
+            "to its source and every exception named. Reconciled "
             f"balance sheet data across {companies_label()} companies."
         ),
         canonical="/pricing",

@@ -96,6 +96,32 @@ class Page:
     extras: tuple[str, ...] = field(default_factory=tuple)
 
 
+# Why the method is the product. Rendered on every comparison page,
+# because the question a buyer is actually asking is not "is it right"
+# but "will it tell me when it isn't".
+_TRANSPARENCY = """
+<h2>Why transparency matters more than a number</h2>
+
+<p>Every provider in this category reads the same filings. The difference is
+what happens when a filing is hard to read. The usual answer is that you get a
+number anyway, with nothing attached to say how confident it is &mdash; and a
+figure that is quietly a segment instead of a company looks exactly like one
+that is right.</p>
+
+<p>To Scale checks every balance sheet against
+<strong>Assets = Liabilities + Equity</strong> before publishing it. A filing
+that reconciles is published with its figures. A filing that does not is
+published <em>with the reason</em>: a noncontrolling interest reported as a
+separate line, mezzanine equity outside permanent equity, rounding inside one
+percent, a component we could not read, or a filing whose own totals disagree
+with each other. The exceptions are counted in public and named individually on
+<a href="/methodology">how we verify</a>.</p>
+
+<p>That is the whole claim. Not that nothing is ever wrong &mdash; that when
+something is, you are told which number and why, instead of finding out from
+your own reconciliation three weeks later.</p>
+"""
+
 _METHOD = """
 <h2>The difference is which tag gets picked</h2>
 
@@ -216,6 +242,7 @@ PAGES: tuple[Page, ...] = (
         rows=(
             Row("Scope", "SEC balance sheets, reconciled", "Broad: fundamentals, prices, options, news, ESG", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
+            Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Wider — many asset classes and vendors", False),
             Row("Latency", LATENCY + "; EDGAR swept every 6h", "Varies by feed and plan — check their site"),
@@ -246,7 +273,7 @@ PAGES: tuple[Page, ...] = (
             "you should weigh it honestly.",
             "<b>You need decades of history across many asset classes.</b>",
         ),
-        body=_METHOD + _HONESTY.format(rival="Intrinio"),
+        body=_METHOD + _TRANSPARENCY + _HONESTY.format(rival="Intrinio"),
     ),
     Page(
         slug="compare/to-scale-vs-sec-api",
@@ -269,6 +296,7 @@ PAGES: tuple[Page, ...] = (
             Row("Form coverage", "Balance sheet data from periodic filings", "Every form type: 8-K, S-1, 13F, Form 4, more", False),
             Row("Selection method", "A = L + E, published and testable", "Returns the tags as filed"),
             Row("Duplicate-tag handling", "Resolved to the consolidated figure", "Yours to resolve"),
+            Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not applicable — it is not selecting for you"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Every EDGAR filing, all form types", False),
             Row("Latency", LATENCY, "Real-time filing stream — faster to the document", False),
@@ -294,7 +322,7 @@ PAGES: tuple[Page, ...] = (
             "about which tag is right, you want raw access, not my opinion.",
             "<b>You need real-time filing alerts.</b>",
         ),
-        body=_METHOD + _HONESTY.format(rival="sec-api.io"),
+        body=_METHOD + _TRANSPARENCY + _HONESTY.format(rival="sec-api.io"),
     ),
     Page(
         slug="compare/to-scale-vs-xignite",
@@ -317,6 +345,7 @@ PAGES: tuple[Page, ...] = (
             Row("Buying process", "Card, self-serve, thirty seconds", "Sales cycle, contract, procurement", False),
             Row("Asset classes", "SEC balance sheets only", "Equities, FX, rates, ETFs, indices and more", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
+            Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
             Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Global, many asset classes", False),
             Row("Latency", LATENCY, "Real-time market data — a different problem", False),
@@ -345,7 +374,7 @@ PAGES: tuple[Page, ...] = (
             "vendor diligence, redundancy and data lineage attestations.",
             "<b>You need global coverage.</b> This is SEC filers only.",
         ),
-        body=_METHOD + _HONESTY.format(rival="Xignite"),
+        body=_METHOD + _TRANSPARENCY + _HONESTY.format(rival="Xignite"),
     ),
     Page(
         slug="best/sec-filings-api-for-quants",
@@ -480,6 +509,7 @@ you already know.</p>
             Row("Selection method", "A = L + E, published", "Not publicly documented"),
             Row("Entry price", "Free, then $49/mo", "Check their site"),
             Row("Bulk file", "$79.99 one-off", "Higher plans", False),
+            Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
             Row("Latency", LATENCY, "Varies by feed — check their site"),
             Row("Coverage", f"{COMPANIES} SEC filers", "Wider, including non-SEC", False),
@@ -520,7 +550,7 @@ wanted is the thing on the front page.</p>
 <p><strong>If it is method</strong>, and you found a number that disagreed
 with a filing and want to know why, that is the reason I built this, and it is the
 one where I can give you a real answer.</p>
-""" + _METHOD + """
+""" + _METHOD + _TRANSPARENCY + """
 <h2>What to demand from any replacement</h2>
 
 <p>Whatever you end up choosing, including if it is not this: make the provider
