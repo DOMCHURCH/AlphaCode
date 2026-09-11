@@ -15,6 +15,17 @@ from __future__ import annotations
 from src.report.company_page import asset_version
 from src.report.home_page import shell
 
+_HEAD = """
+  <header class="mhead">
+    <h1>How we verify every number</h1>
+    <p class="lede">Every balance sheet must satisfy
+      <strong>Assets = Liabilities + Equity</strong>. It is not a statistic, it
+      is double-entry bookkeeping. A filing that does not balance has an error
+      — either in the filing, or in how we read it — and this page says which,
+      for every company we cover.</p>
+  </header>
+"""
+
 _BODY = """
 <main class="wrap post" id="main">
   <article>
@@ -114,26 +125,110 @@ _BODY = """
 """
 
 
+
+def _fmt(n: int | None) -> str:
+    return f"{n:,}" if isinstance(n, int) else "—"
+
+
+def _live_section() -> str:
+    """The counts, read from the database at render time.
+
+    Deliberately counts and never a rate. The denominator moves as coverage
+    improves -- restoring 31 unreachable companies in one session moved it
+    twice -- so a percentage would FALL as we covered more filings, which is
+    the opposite of what a quality measure should do.
+    """
+    from src.company.stats import identity_breakdown
+
+    b = identity_breakdown()
+    if not b:
+        return ""
+    c = b["counts"]
+    flagged = b["flagged"]
+    rows = [
+        ("Missing XBRL tag", c["missing_tag"],
+         "We could not read a component the filing contains. Ours, not theirs.",
+         "BLK, BAM, CYH"),
+        ("Rounding", c["rounding"],
+         "The two sides differ by under 1% of total assets — presentation "
+         "slack, not error.", "—"),
+        ("Unexplained", c["unexplained"],
+         "The filer published no stated total to referee against. Under "
+         "investigation.", "MSC"),
+        ("Genuinely broken filing", c["broken"],
+         "The filer's own stated total does not match their own assets. "
+         "Their arithmetic, not ours.", "—"),
+    ]
+    table = "".join(
+        f"<tr><th scope=\"row\">{label}</th><td class=\"num\">{_fmt(n)}</td>"
+        f"<td>{why}</td><td class=\"eg\">{eg}</td></tr>"
+        for label, n, why, eg in rows
+    )
+    return f"""
+  <section class="sec" id="counts">
+    <h2>What the check found</h2>
+    <div class="mcounts">
+      <div class="mc"><b>{_fmt(b["companies"])}</b><span>companies covered</span></div>
+      <div class="mc"><b>{_fmt(b["reconciled"])}</b><span>reconciled — balanced, or
+        balanced once noncontrolling interests or mezzanine equity are
+        included</span></div>
+      <div class="mc"><b>{_fmt(flagged)}</b><span>flagged with a specific
+        reason</span></div>
+      <div class="mc"><b>{_fmt(c["broken"])}</b><span>silently fudged</span></div>
+    </div>
+    <p class="sec-sub">{_fmt(b["not_testable"])} more report no complete set of
+      totals, so there is no identity to test. They are excluded rather than
+      counted as passes.</p>
+
+    <h3>Every flag, named</h3>
+    <table class="mtable">
+      <thead><tr><th>Category</th><th>Filings</th><th>What it means</th>
+        <th>Examples</th></tr></thead>
+      <tbody>{table}</tbody>
+    </table>
+
+    <h3>Why there is no percentage here</h3>
+    <p>The denominator moves as we improve coverage. In one week we restored 31
+      companies that had been silently unreachable — and the pass rate went
+      <em>down</em>, because the newly visible filings were the awkward ones. A
+      number that falls when quality rises is not a quality measure, it is a
+      moving target. So we publish the raw counts, and we update them as gaps
+      close.</p>
+    <p>These figures are read from the database when this page renders. They
+      are not copied into the page by hand, and they change when the data
+      does.</p>
+  </section>
+"""
+
+
 def render_methodology(*, nav: str = "") -> str:
     from src.report.nav import render_footer
-    from src.report.schema import breadcrumb_ld
+    from src.report.schema import breadcrumb_ld, webpage_ld
 
     footer = render_footer(
         "The per-category breakdown of the exceptions is maintained alongside "
         "the code."
     )
     body = (
-        f"{nav}{_BODY}\n{footer}\n</main>\n"
+        f"{nav}{_HEAD}{_live_section()}{_BODY}\n{footer}\n</main>\n"
         f'<script src="/static/nav.js?v={asset_version()}" defer></script>'
     )
     return shell(
-        "How the Accounting-Identity Check Works — To Scale",
+        "How We Verify Every Number — To Scale",
         body,
         description=(
-            "Why some filings do not balance on Assets = Liabilities + "
-            "Equity: noncontrolling interests, mezzanine equity, rounding, and "
-            "filings that genuinely do not balance — each flagged, never fudged."
+            "How every balance sheet is verified against Assets = Liabilities "
+            "+ Equity, and what happens when one does not balance: the exact "
+            "reason is flagged — noncontrolling interests, mezzanine equity, "
+            "rounding, an unread tag or a broken filing — never silently fudged."
         ),
         canonical="/methodology",
-        ld=breadcrumb_ld([("Home", "/"), ("Methodology", "/methodology")]),
+        ld=breadcrumb_ld([("Home", "/"), ("Methodology", "/methodology")])
+        + webpage_ld(
+            "How we verify every number",
+            "Every balance sheet is checked against the accounting identity. "
+            "Filings that reconcile are published with their figures; filings "
+            "that do not are published with the reason.",
+            "/methodology",
+        ),
     )

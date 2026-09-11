@@ -346,3 +346,145 @@ def _clear_row_count() -> None:
     from src.dataset import reset_count_cache
 
     reset_count_cache()
+
+
+# ---------------------------------------------------------------------------
+# The verification breakdown: what the identity check found, by category.
+# ---------------------------------------------------------------------------
+_breakdown_lock = threading.Lock()
+_breakdown: dict[str, Any] | None = None
+_breakdown_at: float = 0.0
+
+
+def _compute_breakdown() -> dict[str, Any] | None:
+    """Every company's identity outcome, counted by category.
+
+    Uses `view1.resolve_identity` -- the same function the drawing uses -- so
+    the page and the picture cannot disagree about what "reconciles" means.
+    `scripts/identity_failures.py` produces the same split from the same
+    function; this is the set-based version, because the script issues a query
+    per ticker and that is a twelve-minute walk rather than something a page
+    can wait on.
+
+    Counts, never a rate. The denominator moves as coverage improves, so a
+    percentage computed here would fall when we cover MORE companies -- see
+    docs/internal/identity-failures.md.
+    """
+    from sqlalchemy import func, select
+
+    from src.company.view1 import resolve_identity
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    WANTED = (
+        "total_assets", "total_liabilities", "total_equity",
+        "total_equity_incl_nci", "minority_interest", "liabilities_and_equity",
+        "temporary_equity", "redeemable_preferred_stock",
+        "redeemable_noncontrolling_interest",
+        "minority_interest_operating_partnership",
+    )
+    MEZZ = (
+        "temporary_equity", "redeemable_preferred_stock",
+        "redeemable_noncontrolling_interest",
+        "minority_interest_operating_partnership",
+    )
+
+    try:
+        with session_scope() as session:
+            latest = dict(
+                session.execute(
+                    select(Fundamental.ticker, func.max(Fundamental.period_end))
+                    .group_by(Fundamental.ticker)
+                ).all()
+            )
+            if not latest:
+                return None
+            rows = session.execute(
+                select(
+                    Fundamental.ticker, Fundamental.period_end,
+                    Fundamental.metric, Fundamental.value,
+                    Fundamental.filing_date,
+                ).where(Fundamental.metric.in_(WANTED))
+            ).all()
+    except Exception as exc:  # noqa: BLE001 - a page must not die for a count
+        log.warning("identity_breakdown_failed", error=str(exc)[:200])
+        return None
+
+    # Latest filing wins per (ticker, metric), matching every other read path.
+    best: dict[str, dict[str, tuple[Any, float]]] = {}
+    for ticker, period_end, metric, value, filed in rows:
+        if value is None or latest.get(ticker) != period_end:
+            continue
+        held = best.setdefault(ticker, {}).get(metric)
+        if held is None or filed > held[0]:
+            best[ticker][metric] = (filed, float(value))
+
+    counts = dict.fromkeys(
+        ("balanced", "nci", "mezzanine", "nci+mezzanine",
+         "rounding", "missing_tag", "broken", "unexplained"), 0
+    )
+    checked = 0
+    not_testable = 0
+    for ticker in latest:
+        m = {k: v for k, (_, v) in best.get(ticker, {}).items()}
+        assets = m.get("total_assets")
+        liab = m.get("total_liabilities")
+        equity = m.get("total_equity_incl_nci") or m.get("total_equity")
+        if not assets or assets <= 0 or liab is None or equity is None:
+            not_testable += 1
+            continue
+        checked += 1
+        nci = None if "total_equity_incl_nci" in m else m.get("minority_interest")
+        mezz = next((m[k] for k in MEZZ if m.get(k)), None)
+        balances, drift, basis = resolve_identity(assets, liab, equity, nci, mezz)
+        if balances:
+            counts[basis or "balanced"] += 1
+            continue
+        if drift < 1.0:
+            counts["rounding"] += 1
+            continue
+        stated = m.get("liabilities_and_equity")
+        if stated:
+            own = abs(assets - stated) / assets * 100.0
+            counts["broken" if own > 0.5 else "missing_tag"] += 1
+        else:
+            counts["unexplained"] += 1
+
+    reconciled = sum(
+        counts[k] for k in ("balanced", "nci", "mezzanine", "nci+mezzanine")
+    )
+    flagged = sum(
+        counts[k] for k in ("rounding", "missing_tag", "broken", "unexplained")
+    )
+    return {
+        "companies": len(latest),
+        "checked": checked,
+        "not_testable": not_testable,
+        "reconciled": reconciled,
+        "flagged": flagged,
+        "counts": counts,
+    }
+
+
+def identity_breakdown(max_age_s: float = IDENTITY_TTL_S) -> dict[str, Any] | None:
+    """Cached verification breakdown, or None if it has never been computed."""
+    global _breakdown, _breakdown_at
+    if _breakdown is not None and (time.monotonic() - _breakdown_at) < max_age_s:
+        return _breakdown
+    forced = max_age_s <= 0
+    if not _breakdown_lock.acquire(blocking=forced):
+        return _breakdown
+    try:
+        computed = _compute_breakdown()
+        if computed is not None:
+            _breakdown, _breakdown_at = computed, time.monotonic()
+        return _breakdown
+    finally:
+        _breakdown_lock.release()
+
+
+def reset_breakdown_cache() -> None:
+    """Forget the computed breakdown. Module state outlives a database."""
+    global _breakdown, _breakdown_at
+    with _breakdown_lock:
+        _breakdown, _breakdown_at = None, 0.0

@@ -22,6 +22,7 @@ from html import escape
 
 # (label, href, key). `key` matches the `active` argument.
 _LINKS = (
+    ("How we verify", "/methodology", "methodology"),
     ("Pricing", "/pricing", "pricing"),
     ("Notes", "/blog", "blog"),
     ("API", "/api", "api"),

@@ -137,6 +137,32 @@ def _script(payload: Any) -> str:
     return f'<script type="application/ld+json">{text}</script>'
 
 
+def webpage_ld(name: str, description: str, path: str) -> str:
+    """A `WebPage` node for a page that is itself the answer to a question.
+
+    Worth emitting only where the page states something an engine would quote:
+    /methodology says what verification means here and what happens when a
+    filing fails it, which is a claim with a URL behind it. Not added to pages
+    whose content is a list of links.
+    """
+    from src.report.home_page import SITE_ORIGIN
+
+    return _script(
+        {
+            "@context": "https://schema.org",
+            "@type": "WebPage",
+            "name": name,
+            "description": description,
+            "url": f"{SITE_ORIGIN}{path}",
+            "isPartOf": {
+                "@type": "WebSite",
+                "name": "To Scale",
+                "url": SITE_ORIGIN,
+            },
+        }
+    )
+
+
 def organization_ld() -> str:
     """Who publishes this site, and how to search it.
 
