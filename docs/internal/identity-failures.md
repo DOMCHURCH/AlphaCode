@@ -507,6 +507,75 @@ Until then the 37 pages stay empty, and `/company/HLX`, `/company/RDIB`,
 `/company/AREN` and the nine others in that table are empty while their data
 sits under another symbol.
 
+## Where this ended up — 11 September 2026
+
+**4,823 reconciled of 5,028 testable. 205 flagged. 0 genuinely broken.**
+(95.92%, internal only — see below for why it is not published.)
+
+Three rounds of work took the reconstructed rate 86.84% → 94.75% → 95.83% →
+95.92%. The last round moved it by 0.09pp, and that is the signal to stop.
+
+### The 199 is a long tail, not a bug
+
+The remaining `missing_tag` failures were investigated directly against SEC
+companyfacts for BLK, CYH and COTY. Two findings, both against the working
+hypothesis:
+
+1. **There are no company-specific extensions.** Every unmapped tag in all
+   three is standard `us-gaap`. The theory that these filers invent their own
+   taxonomy is simply wrong.
+2. **Most unmapped tags cannot close anything.** `OtherAssets`,
+   `FiniteLivedIntangibleAssetsNet`, `DeferredIncomeTaxLiabilities` and the
+   rest are COMPONENT line items inside assets or liabilities. Mapping them
+   adds detail to a drawing; it does not move the identity by a cent.
+
+Only three tags were both unmapped and capable of closing a gap, and SEC's
+frames API bounds how far each reaches:
+
+| tag | filers it reaches, of the 199 |
+|---|---|
+| `RedeemableNoncontrollingInterestEquityFairValue` | 2 |
+| `RedeemableNoncontrollingInterestEquityOtherCarryingAmount` | 3 |
+| `MinorityInterestInOperatingPartnerships` | 1 |
+
+All three are now mapped, and exactly **one is verified to close**: CYH tags
+its redeemable NCI at fair value, that tag is $260,000,000, and the gap our
+reconstruction left was $260,000,000 — drift 1.97% → 0.00%.
+
+### The specific causes behind the rest
+
+- **Separate-account and reorganised filers.** BLK's gap is $6.418bn and
+  matches no single tag on its balance sheet. It carries $58.8bn of
+  `SeparateAccountAssets`, and the CIK now filing as BLK is **2012383**, a new
+  entity from the reorganisation. This needs per-filer reading, not a mapping.
+- **Fair-value measurement of a concept we model at carrying amount** (CYH).
+  Fixed.
+- **Component line items that never enter the identity.** Not a defect.
+- **A wrong `total_equity_incl_nci`** in nine cases, six of them negative while
+  parent equity is positive (UNM, A). Recorded in *Inside the 608*; changing
+  which equity figure the site trusts is its own decision.
+
+### The ceiling
+
+Tag mapping has extracted close to everything tag mapping can. Further gains
+require reading individual filings, and 199 filings at the rate the last three
+yielded is not a good use of anyone's week. **The product answer is to publish
+the exceptions rather than shrink them**, which is what
+[/methodology](/methodology) now does.
+
+### Why no percentage is published, restated
+
+The denominator moves. It moved four times in two days: 5,122 → 5,122 → 5,084 →
+5,028, as coverage improved and as non-universe tickers stopped receiving rows.
+Restoring 31 unreachable companies *lowered* the rate, because the newly
+visible filings were the awkward ones. A number that falls when quality rises
+is not a quality measure.
+
+So the public pages carry counts — companies covered, reconciled, flagged,
+hidden — read live from `stats.identity_breakdown()`, which classifies with the
+same `resolve_identity` the drawing uses. **Zero genuinely broken filings**
+across every measurement taken, and that is the claim worth making.
+
 ## What goes on the site
 
 **Decided 11 September 2026: no numeric accuracy rate is published anywhere.**
