@@ -476,6 +476,9 @@ def extract_facts(
     filing for a period is emitted; the PIT accessor picks the latest visible one.
     """
     report = ExtractionReport()
+    # CIKs already reported this run, so one unmapped filer with 900 facts
+    # produces one warning rather than 900.
+    unresolved_ciks: set[str] = set()
     if num.empty or sub.empty:
         return [], report
 
@@ -569,6 +572,20 @@ def extract_facts(
         raw_cik = str(meta["cik"])
         ticker = cik_to_ticker.get(raw_cik.lstrip("0") or "0") or cik_to_ticker.get(raw_cik)
         if not ticker:
+            # This was silent, and the silence cost real companies. An
+            # unresolvable CIK means every fact for that filer is discarded --
+            # AvalonBay lost its entire balance sheet this way and the only
+            # evidence was a counter that nobody reads next to 6,000 working
+            # companies. Logged once per CIK per extraction, at WARNING,
+            # naming the CIK so it can be looked up.
+            if raw_cik not in unresolved_ciks:
+                unresolved_ciks.add(raw_cik)
+                log.warning(
+                    "xbrl_cik_unresolved",
+                    cik=raw_cik,
+                    hint="not in sector_map or SEC company_tickers.json; "
+                         "every fact for this filer is being dropped",
+                )
             report.dropped_no_ticker += 1
             continue
 
