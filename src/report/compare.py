@@ -590,6 +590,58 @@ def _ld(page: Page) -> str:
     return pricing_ld() + crumbs
 
 
+# The sentence that makes each cross-link worth following, per page.
+#
+# Hand-written and not derived from `description`: a nav block where every
+# line is the first sentence of the target's meta description reads as
+# machinery, and a reader skips machinery. This is the shortest honest answer
+# to "why would I click that instead of staying here".
+_WHY_THAT_ONE: dict[str, str] = {
+    "compare/to-scale-vs-intrinio":
+        "A broad multi-asset data vendor. The comparison is scope against "
+        "depth.",
+    "compare/to-scale-vs-sec-api":
+        "The closest thing to a like-for-like: another SEC-only API, "
+        "compared on how each one resolves a filing.",
+    "compare/to-scale-vs-xignite":
+        "Enterprise market data with fundamentals attached. Different buyer, "
+        "different contract.",
+    "best/sec-filings-api-for-quants":
+        "The roundup rather than a head-to-head, if you have not shortlisted "
+        "yet.",
+    "alternatives/intrinio":
+        "If Intrinio is the incumbent you are replacing, this is the "
+        "migration-shaped version of the question.",
+}
+
+
+def _other_comparisons(page: Page) -> str:
+    """Every other page in this family, from every page in this family.
+
+    Five pages that answer one question between them, and until this existed
+    each was reachable only from the sitemap: a reader who landed on the
+    Intrinio comparison from search had no way to discover the roundup that
+    would actually have answered them. Cross-linking them is the cheapest fix
+    for the worst version of that, which is a dead end on the page with the
+    most commercial intent on the site.
+    """
+    others = [p for p in PAGES if p.slug != page.slug]
+    if not others:
+        return ""
+    items = "".join(
+        f'<li><a href="/{p.slug}">{escape(p.h1)}</a> &mdash; '
+        f"{escape(_WHY_THAT_ONE.get(p.slug, ''))}</li>"
+        for p in others
+    )
+    return f"""
+  <section class="sec" id="compare-others">
+    <div class="sec-head"><h2>Compare</h2></div>
+    <p class="sec-sub">The same question from the other directions. Every one
+      of these compares on method, for the reason at the top of this page.</p>
+    <ul class="notelist">{items}</ul>
+  </section>"""
+
+
 def render(page: Page, *, nav: str = "") -> str:
     from src.report.nav import render_footer
 
@@ -648,6 +700,8 @@ def render(page: Page, *, nav: str = "") -> str:
         did not produce, and what happens when a filing genuinely fails it.</li>
     </ul>
   </section>
+
+{_other_comparisons(page)}
 
 {footer}
 </main>

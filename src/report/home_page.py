@@ -271,6 +271,10 @@ def _accuracy_banner() -> str:
       reason — noncontrolling interests, mezzanine equity, rounding, or a
       broken filing — never silently fudged.
       <a href="/methodology">How the check works</a>.</p>
+    <p class="acc-why">Weighing this against something else?
+      <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
+      considering for quant work</a> is the roundup, written to be useful
+      even where it does not conclude in my favour.</p>
   </div>"""
 
 

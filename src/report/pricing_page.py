@@ -408,6 +408,10 @@ def render_pricing(
     <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site.</p>
+    <p class="plan-note">Still shortlisting?
+      <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
+      considering for quant work</a> covers the alternatives, this one
+      included, and compares them on method rather than on price.</p>
   </section>
 
   <section class="sec" id="compare">

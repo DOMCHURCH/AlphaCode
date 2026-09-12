@@ -166,13 +166,12 @@ def test_every_internal_link_added_here_resolves(client):
     """A link that 404s is worse than no link: it spends crawl budget and tells
     a reader the site is broken."""
     # Every ticker any post links to, so this checks LINK INTEGRITY rather
-    # than fixture coverage. All eight were confirmed to resolve on production
+    # than fixture coverage. Each was confirmed to resolve on production
     # before being written into `_POST_COMPANIES` -- a hand-picked link is only
     # as good as the page behind it, and nothing else in the suite would notice
-    # a post pointing at a ticker the universe does not carry.
-    # Every ticker any post names in _POST_COMPANIES. A post that links a
-    # company this list forgets fails here as a broken link, which is the
-    # test working -- add the ticker, do not drop the link.
+    # a post pointing at a ticker the universe does not carry. A post naming a
+    # ticker missing from this list fails here as a broken link, which is the
+    # test working: add the ticker, do not drop the link.
     for ticker in ("JPM", "BAC", "GS", "WFC", "MSFT", "AAL", "WMT", "FCX",
                    "AAPL"):
         seed(ticker, sector="Financial Services" if ticker == "JPM" else None)
@@ -205,3 +204,64 @@ def test_the_new_posts_are_in_the_sitemap(client):
         "understanding-the-accounting-identity",
     ):
         assert f"/blog/{slug}" in sitemap, f"{slug} is not in the sitemap"
+
+
+# ---------------------------------------------------------------------------
+# The comparison pages have to be reachable
+# ---------------------------------------------------------------------------
+# These are the pages with commercial intent on them, and every one of them
+# had exactly one inlink: the sitemap. A page reachable only from the sitemap
+# is a page a crawler discovers and a reader does not, and the reader case is
+# the one that matters -- somebody landing on the Intrinio comparison from
+# search had no route to the roundup that would actually have answered them.
+
+MIN_INLINKS = 4
+
+
+def _pages_that_could_link() -> list[str]:
+    """Every page that is allowed to count as an inlink.
+
+    Deliberately NOT the sitemap. Counting it would let all five pages pass
+    on the single link they already had, which is the state this test exists
+    to stop.
+    """
+    pages = ["/", "/pricing", "/api", "/blog", "/methodology", "/dataset"]
+    pages += [f"/blog/{p.slug}" for p in POSTS]
+    pages += [f"/{p.slug}" for p in PAGES]
+    return pages
+
+
+def test_every_comparison_page_has_at_least_four_inlinks(client):
+    seed("JPM", sector="Financial Services")
+
+    targets = [f"/{p.slug}" for p in PAGES]
+    found: dict[str, set[str]] = {t: set() for t in targets}
+
+    for source in _pages_that_could_link():
+        r = client.get(source)
+        assert r.status_code == 200, f"{source} answered {r.status_code}"
+        hrefs = set(links_in(r.text))
+        for target in targets:
+            if target in hrefs and target != source:
+                found[target].add(source)
+
+    thin = {
+        t: sorted(v) for t, v in found.items() if len(v) < MIN_INLINKS
+    }
+    assert not thin, (
+        f"under {MIN_INLINKS} inlinks: "
+        + "; ".join(f"{t} has {len(v)} ({v})" for t, v in thin.items())
+    )
+
+
+def test_a_comparison_page_does_not_link_to_itself(client):
+    """The cross-link block is rendered from the same list the page is in, so
+    the self-exclusion is a real thing to get wrong, and a self-link in a
+    "read these instead" list reads as a bug to anyone who clicks it."""
+    seed("JPM", sector="Financial Services")
+
+    for page in PAGES:
+        html = client.get(f"/{page.slug}").text
+        block = html.split('id="compare-others"', 1)
+        assert len(block) == 2, f"/{page.slug} has no Compare section"
+        assert f'href="/{page.slug}"' not in block[1].split("</section>", 1)[0]
