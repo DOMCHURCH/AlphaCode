@@ -1546,3 +1546,208 @@ def test_static_assets_are_cached_immutably(client):
     cache = r.headers.get("cache-control", "")
     assert "max-age=31536000" in cache, cache
     assert "immutable" in cache, cache
+
+
+# ---------------------------------------------------------------------------
+# Keys issued by hand, to people with no account here
+# ---------------------------------------------------------------------------
+# Outreach keys (`src/seedkeys`, `scripts/issue_seed_key.py`). They exist so a
+# partner or a reviewer can be sent a working key in a message without meeting
+# a signup form, a card field or Stripe.
+#
+# Two properties carry the whole feature and both are asserted below. One: the
+# key is indistinguishable from a real one to whoever holds it -- same
+# generator, same digest, same 401 when it is wrong -- because a second kind of
+# key would need a second verification path, and that is the one that ends up
+# with the bug in it. Two: it is NOT a customer. No `api_users` row, no foreign
+# key in either direction, and it must never be counted in a signup total.
+
+
+def _issue(label, limit=10_000, notes=""):
+    from src import seedkeys
+
+    return seedkeys.issue(label, rate_limit=limit, notes=notes)
+
+
+def _a_company():
+    _seed_company("JPM", {
+        "total_assets": 4_424_900_000_000.0,
+        "total_liabilities": 4_062_462_000_000.0,
+        "total_equity": 362_438_000_000.0,
+    })
+
+
+def test_a_seeded_key_authenticates_like_any_other(client):
+    _a_company()
+    key = _issue("jane-doe-youtube")
+    r = client.get("/api/company/JPM", headers={"X-API-Key": key})
+    assert r.status_code == 200, r.text
+    assert r.json()["ticker"] == "JPM"
+
+
+def test_a_seeded_key_meters_against_its_own_override(client):
+    """Not the tier allowance. There is no tier: a tier is a thing you pay
+    for, and nobody paid for this."""
+    _a_company()
+    key = _issue("two-calls-only", limit=2)
+    head = {"X-API-Key": key}
+
+    assert client.get("/api/company/JPM", headers=head).status_code == 200
+    assert client.get("/api/company/JPM", headers=head).status_code == 200
+
+    over = client.get("/api/company/JPM", headers=head)
+    assert over.status_code == 429, over.text
+    detail = over.json()["detail"]
+    # The message names the override and the label, and offers no upgrade --
+    # there is no dashboard this person has an account on.
+    assert "2/2" in detail, detail
+    assert "two-calls-only" in detail, detail
+    assert "/dashboard" not in detail, detail
+
+
+def test_a_free_tier_key_is_untouched_by_any_of_this(client):
+    """The guardrail: the flow a real customer walks through does not change."""
+    _a_company()
+    from src.config.settings import get_settings
+
+    _issue("somebody-else", limit=1)
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": "real@example.com", "accept_terms": True},
+    )
+    assert reg.status_code in (200, 201), reg.text
+    head = {"X-API-Key": reg.json()["api_key"]}
+
+    for _ in range(3):
+        assert client.get("/api/company/JPM", headers=head).status_code == 200
+    status = client.get("/api/user/status", headers=head).json()
+    assert status["calls_limit"] == get_settings().free_tier_monthly_calls
+    assert status["calls_used_this_month"] == 3
+    assert status["email"] == "real@example.com"
+
+
+def test_a_seeded_key_reports_its_own_usage(client):
+    """It is metered somewhere else -- `usage_logs.user_id` is a foreign key
+    into `api_users` and there is no row over there -- so the endpoint that
+    reports usage has to know that, or it reports a confident zero."""
+    _a_company()
+    key = _issue("counts-itself", limit=5)
+    head = {"X-API-Key": key}
+    client.get("/api/company/JPM", headers=head)
+    client.get("/api/company/JPM", headers=head)
+
+    status = client.get("/api/user/status", headers=head).json()
+    assert status["calls_limit"] == 5
+    assert status["calls_used_this_month"] == 2
+    assert status["calls_remaining"] == 3
+    assert status["api_key_last_used"], "last_used_at was never stamped"
+    # Nobody signed up, so there is no address to report. An invented one
+    # would show up in the roster as a person.
+    assert status["email"] == ""
+
+
+def test_revoking_a_seeded_key_stops_it(client):
+    _a_company()
+    from src import seedkeys
+
+    key = _issue("gone-quiet")
+    head = {"X-API-Key": key}
+    assert client.get("/api/company/JPM", headers=head).status_code == 200
+
+    assert seedkeys.revoke("gone-quiet") is True
+    # The same 401 an invented key gets, from the same path: revocation is
+    # "not found", not a second rejection branch to keep in step with the first.
+    assert client.get("/api/company/JPM", headers=head).status_code == 401
+    # Revoking twice is not an error to the caller, it is a False.
+    assert seedkeys.revoke("gone-quiet") is False
+    assert seedkeys.revoke("never-existed") is False
+
+
+def test_a_label_names_exactly_one_key(client):
+    """Revoking is by label, so two keys sharing one makes that a coin toss."""
+    from src import seedkeys
+
+    _issue("only-once")
+    with pytest.raises(seedkeys.LabelTaken):
+        _issue("only-once")
+
+
+def test_a_seeded_key_is_not_a_customer(client):
+    """It must never be counted as a signup. A dashboard that tells you the
+    business is bigger than it is, is worse than no dashboard."""
+    _issue("outreach-one")
+    _issue("outreach-two")
+
+    stats = client.get("/api/admin/stats", headers=ADMIN).json()
+    assert stats["total_users"] == 0
+    assert stats["free"] == 0
+    assert stats["revenue_estimate"]["mrr_usd"] == 0
+
+
+def test_the_admin_payload_lists_them_without_any_key_material(client):
+    _a_company()
+    key = _issue("listed-here", limit=3, notes="Q4 pilot")
+    client.get("/api/company/JPM", headers={"X-API-Key": key})
+    from src import seedkeys
+
+    seedkeys.revoke("listed-here")
+    _issue("still-live")
+
+    seeded = client.get("/api/admin/stats", headers=ADMIN).json()["seeded_keys"]
+    assert seeded["active"] == 1 and seeded["revoked"] == 1
+    by_label = {k["label"]: k for k in seeded["keys"]}
+    assert set(by_label) == {"listed-here", "still-live"}
+
+    used = by_label["listed-here"]
+    assert used["rate_limit"] == 3
+    assert used["notes"] == "Q4 pilot"
+    assert used["issued_at"] and used["last_used_at"] and used["revoked_at"]
+    # Never used, still live: the one the operator is meant to notice.
+    assert by_label["still-live"]["last_used_at"] is None
+    assert by_label["still-live"]["revoked_at"] is None
+
+    # Not the key, and not the digest either.
+    blob = client.get("/api/admin/stats", headers=ADMIN).text
+    assert key not in blob
+    for row in seeded["keys"]:
+        assert not any("key" in field for field in row), row
+
+
+def test_no_route_can_issue_a_seeded_key(client):
+    """Issuing is an operator at a terminal with the database URL. That is the
+    entire security model for a credential that skips the card, so the absence
+    of an endpoint is a property worth pinning rather than a thing to remember.
+    """
+    import inspect
+
+    from src import api
+
+    paths = [r.path for r in api.app.routes if hasattr(r, "path")]
+    assert not [p for p in paths if "seed" in p.lower()], paths
+
+    # And nothing served over HTTP reaches the two functions that mint or kill
+    # one. `accounts` imports this module for the read side only.
+    source = inspect.getsource(api) + inspect.getsource(
+        __import__("src.accounts", fromlist=["x"])
+    )
+    assert "seedkeys.issue" not in source
+    assert "seedkeys.revoke" not in source
+
+
+def test_a_seeded_key_is_not_a_session(client):
+    """/api/auth/me is cookie auth. A key means nothing to it, and the answer
+    must not become a way to read a seeded key's details back."""
+    key = _issue("not-a-session")
+    r = client.get("/api/auth/me", headers={"X-API-Key": key})
+    assert r.status_code == 401
+    assert "not-a-session" not in r.text
+    assert key not in r.text
+
+
+def test_a_seeded_key_does_not_buy_the_dataset(client):
+    """It grants the metered API and nothing else. The dataset is a purchase,
+    and this key has not made one -- 402 is the right answer, and it is the
+    same 402 any free account gets."""
+    key = _issue("api-only")
+    r = client.get("/api/download-dataset", headers={"X-API-Key": key})
+    assert r.status_code == 402, r.status_code

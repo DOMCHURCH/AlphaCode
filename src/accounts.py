@@ -106,10 +106,37 @@ class Account:
     # an identifier leaking for no benefit. It answers exactly one question:
     # is there any billing here to manage.
     has_billing: bool = False
+    # Set only on a key issued by hand for partner outreach (`src/seedkeys`).
+    # `seed_source` is what every branch in this module tests, and it is empty
+    # on every account that came through registration. Behind one of these
+    # there is no account row, no email and no tier -- a tier is a thing you
+    # pay for.
+    seed_source: str = ""
+    seed_label: str = ""
+    seed_limit: int = 0
+
+    @property
+    def is_seeded(self) -> bool:
+        """Whether this caller is a hand-issued outreach key.
+
+        The one test, spelled once. `seedkeys.find` matches on the same value,
+        so a row with any other source never becomes an Account at all and
+        cannot arrive here wearing this one's allowance.
+        """
+        from src.seedkeys import SOURCE
+
+        return self.seed_source == SOURCE
 
     @property
     def call_limit(self) -> int:
-        return tier_limit(self.tier)
+        """The monthly allowance in force.
+
+        A seeded key carries its own, set when it was issued, and it stands in
+        for the tier lookup entirely rather than sitting beside it. Putting it
+        HERE is what keeps the rest of the change to one branch: everything
+        that meters, reports or refuses already reads this property.
+        """
+        return self.seed_limit if self.is_seeded else tier_limit(self.tier)
 
     @property
     def days_remaining(self) -> int | None:
@@ -321,11 +348,49 @@ def lookup(api_key: str) -> Account | None:
     key = (api_key or "").strip()
     if not key:
         return None
+    digest = hash_api_key(key)
     with session_scope() as session:
         row = session.execute(
-            select(ApiUser).where(ApiUser.api_key == hash_api_key(key))
+            select(ApiUser).where(ApiUser.api_key == digest)
         ).scalar_one_or_none()
-        return _snapshot(row) if row is not None else None
+        if row is not None:
+            return _snapshot(row)
+    return _seed_snapshot(digest)
+
+
+def _seed_snapshot(digest: str) -> Account | None:
+    """An Account for a hand-issued key, or None.
+
+    Reached only after the customer table has missed, so the hot path is
+    exactly the one indexed equality test it was before this existed.
+
+    A REVOKED key is not found here, which is the whole of revocation: the
+    caller gets the same None an unknown key gets and the same 401 behind it,
+    with no second rejection path to keep in step with the first.
+
+    Logged at INFO on every authentication rather than on every metered call.
+    An outreach key that authenticates and then 429s is still a key somebody
+    is holding and using, and that is the thing worth seeing in the log.
+    """
+    from src import seedkeys
+
+    seed = seedkeys.find(digest)
+    if seed is None:
+        return None
+    log.info("seed_key_used", label=seed["label"], source=seed["source"],
+             prefix=seed["prefix"])
+    return Account(
+        id=seed["id"],
+        # No address: nobody signed up, nobody confirmed anything, and an
+        # invented one would appear in the customer roster as a person.
+        email="",
+        api_key_prefix=seed["prefix"],
+        tier="free",
+        has_paid_download=False,
+        seed_source=seed["source"],
+        seed_label=seed["label"],
+        seed_limit=seed["rate_limit"],
+    )
 
 
 def by_email(email: str) -> Account | None:
@@ -540,6 +605,29 @@ def key_last_used_at(user_id: str) -> dt.datetime | None:
         ).scalar_one_or_none()
 
 
+def used_this_month(account: Account) -> int:
+    """This month's calls, from whichever meter holds them.
+
+    A seeded key is not in `usage_logs` and cannot be: that table's `user_id`
+    is a foreign key into `api_users`, and these keys are decoupled from it on
+    purpose. Its counter lives on its own row.
+    """
+    if account.is_seeded:
+        from src import seedkeys
+
+        return seedkeys.usage(account.id)[0]
+    return calls_this_month(account.id)
+
+
+def last_used(account: Account) -> dt.datetime | None:
+    """When this key last made a metered call. Same split, same reason."""
+    if account.is_seeded:
+        from src import seedkeys
+
+        return seedkeys.usage(account.id)[1]
+    return key_last_used_at(account.id)
+
+
 def enforce_monthly_limit(account: Account) -> int:
     """Raise 429 if this month's allowance is spent. Returns calls used.
 
@@ -562,15 +650,24 @@ def enforce_monthly_limit(account: Account) -> int:
             ),
         )
     limit = account.call_limit
-    used = calls_this_month(account.id)
+    used = used_this_month(account)
     if limit and used >= limit:
+        # The seeded wording drops the tier and the upgrade line. Neither is
+        # true of somebody who was handed a key: there is no tier to name and
+        # no dashboard they have an account on to upgrade from.
+        where = (
+            f"on the seeded key {account.seed_label!r}" if account.is_seeded
+            else f"on the {account.tier} tier"
+        )
+        after = (
+            "It resets on the 1st (UTC). Reply to whoever sent you this key "
+            "if you need more." if account.is_seeded
+            else "It resets on the 1st (UTC). Upgrade for a larger allowance "
+                 "-- see /dashboard."
+        )
         raise HTTPException(
             status_code=429,
-            detail=(
-                f"Monthly limit reached: {used}/{limit} calls on the "
-                f"{account.tier} tier. It resets on the 1st (UTC). "
-                "Upgrade for a larger allowance -- see /dashboard."
-            ),
+            detail=f"Monthly limit reached: {used}/{limit} calls {where}. {after}",
         )
     return used
 
@@ -583,6 +680,11 @@ def record_call(account: Account, endpoint: str) -> None:
     deliberately absent: checking your own balance must not spend it, and the
     download is gated by payment rather than by the counter.
     """
+    if account.is_seeded:
+        from src import seedkeys
+
+        seedkeys.record_call(account.id)
+        return
     try:
         with session_scope() as session:
             session.add(
@@ -758,8 +860,8 @@ def apply_admin_action(
 
 def status_payload(account: Account) -> dict:
     """What `/api/user/status` returns, and what the dashboard renders."""
-    used = calls_this_month(account.id)
-    last_used = key_last_used_at(account.id)
+    used = used_this_month(account)
+    seen = last_used(account)
     return {
         "email": account.email,
         "tier": account.tier,
@@ -767,7 +869,7 @@ def status_payload(account: Account) -> dict:
         # digest. These two are what the dashboard shows in its place -- which
         # key this is, and whether it is in use.
         "api_key_prefix": account.api_key_prefix,
-        "api_key_last_used": _aware(last_used).isoformat() if last_used else None,
+        "api_key_last_used": _aware(seen).isoformat() if seen else None,
         "has_paid_download": account.has_paid_download,
         "calls_used_this_month": used,
         "calls_limit": account.call_limit,
@@ -900,12 +1002,20 @@ def customer_stats(recent: int = 10) -> dict[str, object]:
     """
     from sqlalchemy import desc, func, select
 
+    from src import seedkeys
     from src.config.settings import get_settings
     from src.storage.db import session_scope
     from src.storage.models import ApiUser
 
     s = get_settings()
     now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+    # Beside the customer counts and deliberately not inside them: a seeded
+    # key is not a signup and must never be added to `total_users` or to the
+    # revenue estimate. It is here because this is the payload an operator
+    # already reads, and a credential that bypasses payment should be in front
+    # of them without their having to go looking for it.
+    seeded = seedkeys.listing()
 
     with session_scope() as session:
         total = int(
@@ -987,6 +1097,7 @@ def customer_stats(recent: int = 10) -> dict[str, object]:
         "pro_comped": comped,
         "pro_lapsed": lapsed,
         "dataset_buyers": download,
+        "seeded_keys": seeded,
         "recent_signups": signups,
         "revenue_estimate": {
             "mrr_usd": round(

@@ -857,6 +857,70 @@ __all__ = [c.__name__ for c in ALL_TABLES] + ["Base", "ALL_TABLES"]
 _ = ForeignKeyConstraint
 
 
+
+class SeededKey(Base):
+    """A key issued by hand, to somebody who has no account here.
+
+    For partner and influencer outreach: the recipient gets a working key in a
+    message and never sees a signup form, a card field or an email
+    confirmation. That is the whole feature, and it is why this table exists
+    instead of a flag on `api_users` -- a row over there is a CUSTOMER, counted
+    in the roster, counted in revenue estimates, and carrying columns
+    (`stripe_customer_id`, `has_paid_download`, `pro_expires_at`) that mean
+    nothing here. Mixing the two would make "how many customers are there" a
+    question with two answers.
+
+    NO FOREIGN KEY TO `api_users`, deliberately and permanently. These keys are
+    decoupled: deleting the outreach programme must not touch a customer, and
+    deleting a customer must not touch these. Nothing here joins.
+
+    The consequence to know about is that `usage_logs.user_id` is a foreign key
+    into `api_users`, so a seeded key cannot be metered there. Its meter is the
+    two columns at the bottom of this table: a month and a count, rolled over
+    when the month changes. A counter rather than rows, which is the opposite
+    of the choice `usage_logs` makes and right for the opposite reason -- there
+    are a handful of these keys, nobody is going to audit a partner's usage
+    against an invoice, and the alternative was a foreign key this table must
+    not have.
+    """
+
+    __tablename__ = "seeded_keys"
+
+    id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
+    # The digest, exactly as `api_users.api_key` holds it: same generator, same
+    # SHA-256, same prefix rule. A seeded key is indistinguishable from any
+    # other key to whoever is holding it, and unrecoverable here.
+    api_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    api_key_prefix: Mapped[str | None] = mapped_column(String(16))
+    # Who it went to, in whatever words the operator used. UNIQUE because it is
+    # the handle for revoking: `revoke_seed_key.py --label x` has to name one
+    # key, and two keys sharing a label makes that command a coin toss.
+    label: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    issued_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow
+    )
+    # Calls per calendar month. Stands in for the tier allowance entirely --
+    # these keys have no tier, because a tier is a thing you pay for.
+    rate_limit_override: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Why this row exists, as a value rather than as tribal knowledge. One
+    # value today; a second outreach programme gets its own rather than being
+    # told apart by reading labels.
+    source: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="influencer_seed"
+    )
+    notes: Mapped[str | None] = mapped_column(String(500))
+    # Set, never deleted. A revoked key stops authenticating immediately and
+    # stays in the list, because "we gave this person a key and took it back"
+    # is the thing worth being able to see later.
+    revoked_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    last_used_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+    # The meter. `usage_month` is the month `calls_this_month` counts, so a
+    # rollover is a comparison rather than a scheduled job.
+    usage_month: Mapped[str | None] = mapped_column(String(7))
+    calls_this_month: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0
+    )
+
 class JobState(Base):
     """One row per scheduled data job. The auto-updater's memory.
 

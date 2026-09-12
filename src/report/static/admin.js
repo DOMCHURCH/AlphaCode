@@ -110,6 +110,23 @@ async function loadCustomers() {
     row("One-time sales (estimate)", money(rev.one_time_usd)),
   ].join("");
 
+  /* Hand-issued outreach keys. Counted separately from everything above --
+     none of these is a signup, and adding them to a customer count is how a
+     dashboard tells you the business is bigger than it is. Listed rather than
+     just counted because the useful question is WHICH one has never been
+     used: an outreach key that never made a call is outreach that did not
+     land, and is worth revoking rather than leaving live. */
+  const seed = d.seeded_keys || { active: 0, revoked: 0, keys: [] };
+  const when = (v) => (v ? new Date(v).toLocaleDateString() : "never");
+  $("customers").innerHTML += [
+    row("Seeded keys — active", seed.active),
+    row("Seeded keys — revoked", seed.revoked, seed.revoked ? "warn" : ""),
+  ].concat((seed.keys || []).map((k) => row(
+    "  " + k.label + (k.revoked_at ? " (revoked)" : ""),
+    "last used " + when(k.last_used_at),
+    !k.revoked_at && !k.last_used_at ? "warn" : ""
+  ))).join("");
+
   const list = d.recent_signups || [];
   $("signups").innerHTML = list.length
     ? list.map((u) => {
