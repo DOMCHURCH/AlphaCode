@@ -164,7 +164,19 @@ def test_root_is_the_home_page(client):
     # The old fallback description was the SAME sentence on all eight
     # shell pages, which is one page to a search engine and eight
     # near-duplicates to a crawler. Each page carries its own now.
-    assert "reconciled balance sheet data from SEC EDGAR" in r.text
+    #
+    # Asserted as "this page has its own description, and it is short enough
+    # to survive a SERP" rather than by quoting the sentence. The exact
+    # wording was pinned here and went stale the moment the descriptions were
+    # shortened under 155 characters, which is a copy edit and not a
+    # regression -- a test that fails on those is a test nobody will trust.
+    import re as _re
+
+    meta = _re.search(r'<meta name="description" content="([^"]+)"', r.text)
+    assert meta, "the home page carries no meta description"
+    desc = meta.group(1)
+    assert "SEC EDGAR" in desc
+    assert len(desc) <= 160, f"description is {len(desc)} chars: {desc!r}"
     assert 'action="/search"' in r.text
     assert 'href="/admin"' in r.text
 
