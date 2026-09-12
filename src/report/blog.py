@@ -662,10 +662,193 @@ data quality problem yet. You have one you cannot see.</p>
 )
 
 
+_POST_DUPLICATE_TAGS = Post(
+    slug="sec-xbrl-duplicate-tags",
+    title="Why Your SEC Filing Data Is Wrong (And How to Check)",
+    seo_title="SEC XBRL Duplicate Tags: How to Check SEC Filings Data Accuracy",
+    description=(
+        "One filing reports the same concept many times, and the consolidated "
+        "figure is the one with no dimensions on it. Why picking the first tag "
+        "fails silently, and a five minute test you can run against your own "
+        "data."
+    ),
+    published="2026-09-12",
+    updated="2026-09-12",
+    minutes=6,
+    body="""
+<p class="lede">The first filing that broke my parser was American Airlines.
+The code returned total equity as a positive number. The actual figure is
+negative, and has been for years.</p>
+
+<p>Nothing errored. No exception, no warning, no null. The parser found a tag
+called <code>StockholdersEquity</code>, read a plausible dollar figure out of
+it, and handed it back. It was a real number from a real filing. It was just
+the wrong one: a subsidiary's equity rather than the consolidated deficit that
+belongs on the face of the balance sheet.</p>
+
+<p>That is the failure mode worth understanding, because it is silent. Bad SEC
+data almost never arrives as a crash or an obviously broken figure. It arrives
+as a number that looks exactly like the number you wanted.</p>
+
+<h2>Why one filing contains the same figure many times</h2>
+
+<p>XBRL lets a filer attach dimensions to a fact. The same concept, tagged
+repeatedly, each instance qualified: this figure but for the consumer segment,
+this one for the investment bank, this one for a named subsidiary, this one
+for a geography.</p>
+
+<p>That is a good design. A bank's consumer arm and its investment arm are
+genuinely different businesses, and flattening them into a single line would
+throw away information somebody needs.</p>
+
+<p>The problem is how the consolidated figure is distinguished from the rest.
+It is not flagged. It is not first. It does not carry a label saying
+"consolidated". It is the instance with <em>no</em> dimensions attached. The
+number you want is defined by an absence.</p>
+
+<p>JPMorgan reports <code>Assets</code> twenty-three times in a single filing.
+Twenty-two of those are dimensioned. One is not, and that one is the bank. If
+your code takes the first <code>Assets</code> fact it finds, it gets whichever
+one the document happens to list first, and nothing tells it that a choice was
+made at all.</p>
+
+<h2>Why "take the first tag" fails more than it looks like it should</h2>
+
+<p>The reason first-match survives casual testing is that it is right for
+simple filers. A single-segment company reports <code>Assets</code> once, and
+the first match is the only match. Test against a handful of mid-cap
+industrials and the approach looks fine.</p>
+
+<p>It breaks on exactly the filings that matter most. Banks, insurers,
+conglomerates, REITs with joint ventures, anything with a captive finance arm,
+anything post-acquisition that still reports the acquired entity separately.
+The companies with the most segments are also the companies people most want
+data on, so the error rate on the filings you care about is higher than the
+error rate across the filer universe.</p>
+
+<p>I am not going to put a percentage on it. Any figure I could quote would
+depend on which companies were in the sample, which quarters, and how I
+counted a partial match, and a number with those caveats stripped off becomes
+a marketing claim rather than a measurement. The failure mode is the point:
+picking by position picks a segment, and picking a segment is silent.</p>
+
+<h2>A five minute test you can run on your own data</h2>
+
+<p>You do not have to take my word for any of this. Pick a company you already
+hold figures for and ask SEC directly. The companyfacts endpoint returns every
+XBRL fact a filer has ever reported, with dimensions intact:</p>
+
+<pre class="code"><code class="language-bash"># JPMorgan. The CIK is zero-padded to ten digits.
+curl -H "User-Agent: You you@example.com" \
+  https://data.sec.gov/api/xbrl/companyfacts/CIK0000019617.json \
+  -o jpm.json</code></pre>
+
+<pre class="code"><code class="language-python">import json
+from collections import Counter
+
+facts = json.load(open("jpm.json"))
+units = facts["facts"]["us-gaap"]["Assets"]["units"]["USD"]
+
+# Group by period end. Anything with more than one entry for a single
+# period is the same concept reported at several levels at once.
+per_period = Counter(f["end"] for f in units)
+for end, n in sorted(per_period.items())[-4:]:
+    print(end, n, "reported values")
+    for f in units:
+        if f["end"] == end:
+            print("   ", f"{f['val']:>20,}", f.get("frame", "(dimensioned)"))</code></pre>
+
+<p>Run it and you will see several figures for one date. Then check which one
+your current data source gave you. If it matches the largest, you are probably
+fine on that filing. If it matches something else, you have found the bug, and
+you have found it on one company out of however many you are carrying.</p>
+
+<h2>The check that actually resolves it</h2>
+
+<p>Heuristics do not fix this. "Take the largest" fails on a company whose
+parent is smaller than a consolidated subsidiary line. "Take the one without
+dimensions" is closer but depends on every filer tagging cleanly, which they
+do not.</p>
+
+<p>Arithmetic fixes it. A balance sheet balances, and that gives you a test
+rather than a guess:</p>
+
+<p class="pull">Assets = Liabilities + Equity</p>
+
+<p>Pull every candidate for assets, every candidate for liabilities, every
+candidate for equity, and find the combination that reconciles. Consolidated
+figures balance against each other. A segment's assets do not balance against
+the whole company's liabilities. The arithmetic identifies the right set
+without needing to know anything about the company.</p>
+
+<p>Three adjustments make it hold in the real world.</p>
+
+<p><strong>Noncontrolling interests belong in equity.</strong> When a parent
+consolidates a subsidiary it does not wholly own, the outside shareholders'
+stake sits in equity as NCI. <code>StockholdersEquity</code> excludes it;
+<code>StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest</code>
+includes it. Use the wrong one and the identity misses by exactly the minority
+stake, which reads as a reconciliation failure when the filing is fine.</p>
+
+<p><strong>Mezzanine is neither, and it is not optional for SPACs.</strong>
+Redeemable preferred and redeemable NCI sit between liabilities and equity on
+the face of the sheet. A SPAC with shares subject to possible redemption
+carries most of its balance sheet there. Ignore the mezzanine line and the
+identity fails on every one of them.</p>
+
+<p><strong>The tolerance is a fraction, not a constant.</strong> Filers round.
+Half a percent of assets absorbs that at any size. A fixed dollar tolerance
+either rejects every large bank or accepts anything at a small cap.</p>
+
+<h2>When it still does not balance</h2>
+
+<p>Sometimes no combination reconciles. The tempting move is to return the
+closest match, and it is the wrong one. A figure that is wrong by a segment is
+worse than a missing figure, because a gap gets investigated and a plausible
+number does not.</p>
+
+<p>So I do not hide the failures, I name them. A filing that does not
+reconcile is drawn on the site with a red warning saying so, rather than
+quietly adjusted until it agrees. If a company filed something that does not
+add up, that is a fact about the company and it should reach you as one. The
+same goes for missing components: if a filer does not break out receivables,
+you get a labelled remainder rather than a zero, because a zero is a claim and
+"they did not say" is not.</p>
+
+<p>This is also why I publish the method and not a rate. The
+<a href="/methodology">methodology page</a> shows what is checked, how, and
+what is currently failing, with live counts read off the database rather than
+a figure written down once. A single accuracy percentage is the easiest thing
+in the world to quote and the hardest to verify, and I would rather hand you
+something you can check.</p>
+
+<h2>What to do with this</h2>
+
+<p>Run the companyfacts test above against three companies you have data for.
+Pick a bank, a REIT and something with a recent acquisition, because those are
+where it breaks. If the figures agree, your source is doing the reconciliation
+and you can stop worrying about it. If they do not, you now know which
+direction the error goes.</p>
+
+<p>If you would rather not maintain that yourself,
+<a href="/">To Scale</a> runs the check above over every filing before storing
+anything, across {COMPANIES} companies and {FACTS} data points. You can look
+up any company on the site with no key and no account. The
+<a href="/compare/to-scale-vs-intrinio">comparison with Intrinio</a> covers how
+that differs from a general-purpose financial data feed, and
+<a href="/pricing">pricing</a> has the tiers.</p>
+
+<p>And if you find a figure that disagrees with the filing, tell me. That is
+the bug report I actually want.</p>
+""",
+)
+
+
 # Newest first. The index renders in this order and so does the sitemap, so
 # the order here is the editorial decision rather than a detail of the loop.
 POSTS: tuple[Post, ...] = (
     _POST_EDGAR_PIPELINE,
+    _POST_DUPLICATE_TAGS,
     _POST_XBRL_ACCURACY,
     _POST_BANK_BALANCE_SHEETS,
     _POST_ACCOUNTING_IDENTITY,
@@ -768,6 +951,11 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
     "build-scalable-sec-edgar-pipeline": (
         ("JPM", "the filing whose 23 Assets tags broke the pipeline"),
         ("AAPL", "a clean single-segment filer, for contrast"),
+    ),
+    "sec-xbrl-duplicate-tags": (
+        ("AAL", "the negative equity the parser got wrong first"),
+        ("JPM", "23 tags for one figure, in one filing"),
+        ("WFC", "a deposit-funded sheet with the same segment problem"),
     ),
     "understanding-the-accounting-identity": (
         ("AAL", "negative equity that balances perfectly"),

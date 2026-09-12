@@ -169,6 +169,7 @@ FORBIDDEN_PRONOUNS: tuple[str, ...] = (" we ", " our ", " ours ", " us ")
 # right technical term would be the test making the writing worse.
 STYLED_SLUGS: tuple[str, ...] = (
     "build-scalable-sec-edgar-pipeline",
+    "sec-xbrl-duplicate-tags",
 )
 
 
