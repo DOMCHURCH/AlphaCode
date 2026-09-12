@@ -284,11 +284,16 @@ def robots(base_url: str) -> str:
         "Disallow: /admin",
         "Disallow: /api/",
         "",
-        f"Sitemap: {base}/sitemap.xml",
         # Not standard directives, and harmless to a crawler that ignores
-        # them -- but llms.txt has no discovery mechanism of its own, and this
-        # is the first place an agent looks.
+        # them -- but none of these three has a discovery mechanism of its
+        # own, and this is the first place an agent looks. Above the sitemap
+        # line rather than below it, because an agent that came here for them
+        # should not have to read past a declaration meant for a search
+        # engine to find the ones meant for it.
         f"# llms.txt: {base}/llms.txt",
+        f"# llms-full.txt: {base}/llms-full.txt",
         f"# financial data disclosure: {base}/financial-data.txt",
+        "",
+        f"Sitemap: {base}/sitemap.xml",
         "",
     ])
