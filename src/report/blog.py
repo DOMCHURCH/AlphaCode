@@ -422,7 +422,250 @@ a closed identity drawn.</p>
 
 # Newest first: /blog lists them in this order, and a reader arriving at
 # the hub should meet the most recent thinking rather than the oldest.
+_POST_EDGAR_PIPELINE = Post(
+    slug="build-scalable-sec-edgar-pipeline",
+    title="How to Build a Scalable SEC EDGAR Pipeline Under the 10 RPS Limit",
+    seo_title="SEC EDGAR API Rate Limit: Building a Python Pipeline Under 10 RPS",
+    description=(
+        "SEC EDGAR blocks you for ten minutes when you exceed 10 requests a "
+        "second, and time.sleep(0.1) does not stop it once you add a second "
+        "worker. The User-Agent rule, a shared token bucket, and the bulk "
+        "loads that replace the crawl."
+    ),
+    published="2026-09-12",
+    updated="2026-09-12",
+    minutes=8,
+    body="""
+<p class="lede">SEC EDGAR banned my IP three times while I was building To Scale.
+Not rate-limited. Banned.</p>
+
+<p>Each one arrived the same way: a run that had been going fine for twenty
+minutes started returning 403 on every request, including the ones that had
+worked a second earlier. No <code>Retry-After</code>, no JSON error body, no
+429. Just a wall of HTML telling me my access had been suspended, and a ten
+minute wait before anything worked again.</p>
+
+<p>All three had different causes, and none of them were "I was going too
+fast". Here is what actually breaks a pipeline against EDGAR, in the order it
+broke mine.</p>
+
+<h2>The limit is 10 requests per second, and it is not the hard part</h2>
+
+<p>SEC publishes a <a href="https://www.sec.gov/about/webmaster-frequently-asked-questions"
+rel="noopener">fair access policy</a>: no more than ten requests per second,
+across all of <code>sec.gov</code> and <code>data.sec.gov</code>, per
+requester. Exceed it and you are blocked for ten minutes.</p>
+
+<p>Ten per second is generous. The entire public filer universe is a few
+thousand companies. At ten per second you can walk all of them in under ten
+minutes. The reason people still get banned is that "ten per second" is easy
+to say and surprisingly hard to actually guarantee.</p>
+
+<h2>Ban one: no User-Agent</h2>
+
+<p>SEC requires a descriptive <code>User-Agent</code> carrying a real contact
+address. This is not advisory. A request that arrives with
+<code>python-requests/2.31.0</code> on it gets a 403, and the 403 looks
+exactly like the rate limit 403, which is how I spent an afternoon tuning a
+delay that was never the problem.</p>
+
+<pre class="code"><code class="language-python"># The header is the difference between a working client and a 403.
+# Put a real address in it. Someone at SEC will use it if your
+# crawler misbehaves, which is better than being cut off silently.
+HEADERS = {
+    "User-Agent": "To Scale dominique@example.com",
+    "Accept-Encoding": "gzip, deflate",
+}
+
+r = httpx.get(
+    "https://data.sec.gov/submissions/CIK0000019617.json",
+    headers=HEADERS,
+    timeout=30,
+)</code></pre>
+
+<p>Set it at client construction and make the constructor raise if it is
+missing. A default that quietly falls back to the library's own User-Agent is
+a 403 you will debug at some point, probably at the least convenient moment.</p>
+
+<h2>Ban two: time.sleep(0.1) is not a rate limiter</h2>
+
+<p>This is the line almost everyone writes first, including me:</p>
+
+<pre class="code"><code class="language-python">for cik in ciks:
+    fetch(cik)
+    time.sleep(0.1)   # "10 per second"</code></pre>
+
+<p>It holds exactly as long as you have one worker. The moment you add a
+second process, or an async gather, or a retry that fires while the main loop
+is still going, each one sleeps its own 0.1 seconds and the combined rate is
+whatever you multiplied by. Four workers at "10 per second" is 40 per second,
+and 40 per second is a ban.</p>
+
+<p>It also paces the wrong thing. <code>sleep(0.1)</code> after a request that
+took 800ms means you made one request in 900ms, so you are running at roughly
+one per second and the crawl that should take ten minutes takes two hours. The
+sleep punishes you for slow responses and does nothing about fast ones.</p>
+
+<h2>What a shared limiter looks like</h2>
+
+<p>The fix is a token bucket that lives outside the process, so every worker
+draws from one budget. Redis with a Lua script does this in a few lines, and
+the script matters: reading the bucket, computing the refill and writing it
+back has to be one atomic operation, or two workers read the same token count
+and both spend it.</p>
+
+<pre class="code"><code class="language-python"># One bucket per source, shared by every worker.
+#
+# `rate` is the sustained refill in tokens/second and `burst` is the
+# capacity. Running at 9/sec against a 10/sec ceiling leaves room for
+# the clock skew between your box and theirs, which is the margin
+# that stops a "compliant" crawler tripping the limit anyway.
+LUA = '''
+local tokens = tonumber(redis.call('HGET', KEYS[1], 'tokens'))
+local ts     = tonumber(redis.call('HGET', KEYS[1], 'ts'))
+local rate, burst, now = tonumber(ARGV[1]), tonumber(ARGV[2]), tonumber(ARGV[3])
+if tokens == nil then tokens, ts = burst, now end
+tokens = math.min(burst, tokens + math.max(0, now - ts) * rate)
+local wait = 0
+if tokens >= 1 then
+  tokens = tokens - 1
+else
+  wait = (1 - tokens) / rate
+end
+redis.call('HSET', KEYS[1], 'tokens', tokens, 'ts', now)
+return tostring(wait)
+'''
+
+async def acquire(source):
+    while True:
+        wait = float(await redis.eval(LUA, 1, f"bucket:{source}", 9.0, 10, time.time()))
+        if wait &lt;= 0:
+            return
+        await asyncio.sleep(wait)</code></pre>
+
+<p>Two things I would do differently if I were starting again. Give
+<code>acquire</code> a maximum wait and raise past it, so a misconfigured
+bucket stalls one stage instead of hanging the whole run. And fall back to a
+process local bucket when Redis is unreachable, so local development does not
+require a Redis container to make one request.</p>
+
+<h2>The requests you do not make</h2>
+
+<p>Pacing is the small win. The large one is not sending the request at all.</p>
+
+<p><strong>companyfacts returns the whole history.</strong> The endpoint at
+<code>data.sec.gov/api/xbrl/companyfacts/CIK##########.json</code> hands back
+every XBRL fact that company has ever filed, for every period, in one
+response. If you are looping over quarters and fetching each one, you are
+making forty requests for a payload you already had after the first. Pull it
+once, cache it, serve every question about that filer out of the cache.</p>
+
+<p><strong>The bulk datasets replace the crawl entirely.</strong> SEC publishes
+<a href="https://www.sec.gov/dera/data/financial-statement-data-sets"
+rel="noopener">Financial Statement Data Sets</a>: one ZIP per quarter holding
+<code>sub.txt</code> (submission metadata) and <code>num.txt</code> (every
+numeric XBRL fact filed that quarter), tab separated, joined on the accession
+number. That is one download instead of one request per company per concept.
+For seeding history it is not a marginal improvement, it is a different order
+of magnitude, and it is how I load fundamentals now.</p>
+
+<pre class="code"><code class="language-bash"># One file. Every numeric fact filed in that quarter, every filer.
+curl -H "User-Agent: You you@example.com" -O \
+  https://www.sec.gov/files/dera/data/financial-statement-data-sets/2026q1.zip
+
+unzip -p 2026q1.zip num.txt | head -3
+# adsh              tag      version   ddate     qtrs  uom  value
+# 0000019617-26-...  Assets   us-gaap/2026  20260331  0   USD  4210000000000</code></pre>
+
+<p><strong>Stay current from the feed, not from a re-crawl.</strong> Once
+history is seeded, the only thing you need is what changed. The current-events
+Atom feed lists filings as they land, so an incremental job is a handful of
+requests a day rather than a full sweep:</p>
+
+<pre class="code"><code class="language-bash">curl -H "User-Agent: You you@example.com" \
+  "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&amp;type=10-Q&amp;output=atom"</code></pre>
+
+<p>Between the bulk seed and the feed, the steady state load on SEC is small
+enough that the rate limiter almost never has to say no. Which is the actual
+goal: the limiter is a seatbelt, not an engine.</p>
+
+<h2>Ban three was not a rate limit at all</h2>
+
+<p>The third one taught me the thing I did not expect. I had the limiter
+working, the bulk seed loading, the feed running. And the numbers were wrong.</p>
+
+<p>I pulled JPMorgan's balance sheet and got a total assets figure that was
+too small by a lot. Not corrupted, not truncated. Just a different real
+number.</p>
+
+<p>XBRL lets a filer attach dimensions to a fact: this figure, but for this
+segment, this legal entity, this geography. JPMorgan reports
+<code>Assets</code> twenty-three times in one filing. Twenty-two of them are
+segments and subsidiaries. The consolidated figure, the one on the face of the
+balance sheet, is the one with <em>no</em> dimensions attached. So the number
+you want is defined by an absence, and taking the first match gets you a
+segment with nothing anywhere telling you so.</p>
+
+<p>The fix is arithmetic rather than heuristics. A balance sheet balances:</p>
+
+<pre class="code"><code class="language-python"># Every candidate for each concept, dimensioned ones included.
+# Exactly one combination satisfies A = L + E, and it is the
+# consolidated one. A segment's assets do not balance against the
+# whole company's liabilities.
+def reconcile(assets, liabilities, equity, tolerance=0.005):
+    best = None
+    for a in assets:
+        if a &lt;= 0:
+            continue
+        for lia in liabilities:
+            for eq in equity:
+                gap = abs(a - (lia + eq)) / a
+                if gap &lt;= tolerance and (best is None or gap &lt; best[0]):
+                    best = (gap, a, lia, eq)
+    if best is None:
+        return None          # it does not balance: say so, do not guess
+    _, a, lia, eq = best
+    return {"total_assets": a, "total_liabilities": lia, "total_equity": eq}</code></pre>
+
+<p>The tolerance is a fraction and not a constant, because filers round and a
+fixed dollar tolerance either rejects every bank or accepts anything at a
+small cap. And when nothing balances, return nothing. The closest match is the
+tempting answer and it is the wrong one: a number that is wrong by a segment
+is worse than no number, because you will never go back and audit the one you
+were handed.</p>
+
+<h2>Build it or buy it</h2>
+
+<p>Build it if the pipeline is the point, or if you need something specific
+enough that no general dataset will carry it. Everything above is a weekend of
+work plus however long it takes to discover the parts nobody writes down,
+which for me was about three bans and a month of wrong numbers.</p>
+
+<p>Do not build it if you want balance sheets. I did, and the result is
+<a href="/">To Scale</a>: the reconciler above running over every filing, with
+the result behind an API. Every figure is checked against A = L + E before it
+is stored, and the filings that genuinely do not balance are flagged as such
+rather than quietly adjusted. Across {COMPANIES} companies and {FACTS} data
+points, that check is the whole product.</p>
+
+<p>The <a href="/methodology">methodology page</a> shows what is checked and
+what is still failing, with live counts rather than a claim. The
+<a href="/pricing">pricing page</a> has the tiers, and the free one needs no
+card. If you are comparing options,
+<a href="/best/sec-filings-api-for-quants">the SEC filings APIs worth
+considering for quant work</a> covers the alternatives, mine included.</p>
+
+<p>Either way, run the reconciliation. If you build your own pipeline and it
+does not check that assets equal liabilities plus equity, you do not have a
+data quality problem yet. You have one you cannot see.</p>
+""",
+)
+
+
+# Newest first. The index renders in this order and so does the sitemap, so
+# the order here is the editorial decision rather than a detail of the loop.
 POSTS: tuple[Post, ...] = (
+    _POST_EDGAR_PIPELINE,
     _POST_XBRL_ACCURACY,
     _POST_BANK_BALANCE_SHEETS,
     _POST_ACCOUNTING_IDENTITY,
@@ -521,6 +764,10 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
         ("JPM", "deposits and loans at the scale the post describes"),
         ("WFC", "a deposit-funded balance sheet"),
         ("MSFT", "the contrast — asset-light, equity-funded"),
+    ),
+    "build-scalable-sec-edgar-pipeline": (
+        ("JPM", "the filing whose 23 Assets tags broke the pipeline"),
+        ("AAPL", "a clean single-segment filer, for contrast"),
     ),
     "understanding-the-accounting-identity": (
         ("AAL", "negative equity that balances perfectly"),

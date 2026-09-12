@@ -170,7 +170,11 @@ def test_every_internal_link_added_here_resolves(client):
     # before being written into `_POST_COMPANIES` -- a hand-picked link is only
     # as good as the page behind it, and nothing else in the suite would notice
     # a post pointing at a ticker the universe does not carry.
-    for ticker in ("JPM", "BAC", "GS", "WFC", "MSFT", "AAL", "WMT", "FCX"):
+    # Every ticker any post names in _POST_COMPANIES. A post that links a
+    # company this list forgets fails here as a broken link, which is the
+    # test working -- add the ticker, do not drop the link.
+    for ticker in ("JPM", "BAC", "GS", "WFC", "MSFT", "AAL", "WMT", "FCX",
+                   "AAPL"):
         seed(ticker, sector="Financial Services" if ticker == "JPM" else None)
 
     pages = ["/company/JPM", "/blog"]

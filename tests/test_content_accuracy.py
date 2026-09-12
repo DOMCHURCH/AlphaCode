@@ -141,3 +141,125 @@ def test_the_machine_readable_files_publish_no_rate():
             assert banned not in text, f"{name} still publishes {banned}"
         assert "0.999" not in text, f"{name} still publishes 0.999"
         assert "0.786" not in text, f"{name} still publishes 0.786"
+
+
+# ---------------------------------------------------------------------------
+# House style
+# ---------------------------------------------------------------------------
+# The second half of the same problem. The rule above stops a NUMBER drifting
+# back in; this stops the VOICE drifting, which is the thing that makes a post
+# read as generated. Every word here is one I do not use and would not notice
+# myself typing at the end of a long draft.
+
+FORBIDDEN_WORDS: tuple[str, ...] = (
+    "delve", "unlock", "seamless", "robust", "leverage",
+    "in today's", "in today\u2019s", "game-changer", "game changer",
+)
+
+# Matched with spaces around them so "however" does not fire on "how ever" and
+# "us" does not fire inside "thus". The posts are written in the first person
+# singular: this is one author, and a corporate "we" here is a fiction.
+FORBIDDEN_PRONOUNS: tuple[str, ...] = (" we ", " our ", " ours ", " us ")
+
+# The style rules apply to posts written under them. They are NOT run over the
+# back catalogue, for one concrete reason: "why-bank-balance-sheets-are-
+# different" uses the word "leverage", correctly, as the noun for a bank's
+# equity-to-assets ratio. The rule is aimed at the corporate verb ("leverage
+# our platform"), and a test that forced that post to find a synonym for the
+# right technical term would be the test making the writing worse.
+STYLED_SLUGS: tuple[str, ...] = (
+    "build-scalable-sec-edgar-pipeline",
+)
+
+
+def _post_slugs() -> list[str]:
+    from src.report.blog import POSTS
+
+    return [p.slug for p in POSTS]
+
+
+def _visible_text(html: str) -> str:
+    """Rendered prose, with tags and entities out of the way.
+
+    Tag names would otherwise trip the checks all by themselves: every page
+    carries a `<header>`, and "leverage" has to be findable in prose without
+    `<em>` and `&amp;` getting in the way first.
+    """
+    text = re.sub(r"<script.*?</script>", " ", html, flags=re.S | re.I)
+    text = re.sub(r"<style.*?</style>", " ", text, flags=re.S | re.I)
+    text = re.sub(r"<[^>]+>", " ", text)
+    text = (
+        text.replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        .replace("&mdash;", "-").replace("&nbsp;", " ")
+    )
+    return re.sub(r"\s+", " ", text)
+
+
+@pytest.mark.parametrize("slug", STYLED_SLUGS)
+def test_no_post_uses_a_forbidden_word(client, slug):
+    r = client.get(f"/blog/{slug}")
+    assert r.status_code == 200, f"/blog/{slug} did not render"
+    text = _visible_text(r.text).lower()
+    for word in FORBIDDEN_WORDS:
+        assert word not in text, f"/blog/{slug} uses {word!r}"
+
+
+@pytest.mark.parametrize("slug", STYLED_SLUGS)
+def test_no_post_writes_in_the_first_person_plural(client, slug):
+    """One author. "We" is a company voice a one-person project has not
+    earned, and it is the tell that a draft was not written by the person
+    whose name is on it.
+
+    Case-SENSITIVE, and that is not a detail: lowercasing first makes "a large
+    US bank" match the pronoun "us", so the check would fire on the country
+    and teach everyone to ignore it.
+    """
+    from src.report.blog import BY_SLUG
+
+    text = " " + _visible_text(BY_SLUG[slug].body) + " "
+    for pronoun in FORBIDDEN_PRONOUNS:
+        assert pronoun not in text, f"/blog/{slug} says {pronoun.strip()!r}"
+        capitalised = " " + pronoun.strip().capitalize() + " "
+        assert capitalised not in text, f"/blog/{slug} says {capitalised.strip()!r}"
+
+
+@pytest.mark.parametrize("slug", _post_slugs())
+def test_no_post_ends_with_a_conclusion_heading(client, slug):
+    """A section called "Conclusion" is a section with nothing in it. If the
+    last point is worth making it gets a heading that says what it is."""
+    from src.report.blog import BY_SLUG
+
+    headings = re.findall(r"<h[23][^>]*>(.*?)</h[23]>", BY_SLUG[slug].body, re.S)
+    for h in headings:
+        plain = re.sub(r"<[^>]+>", "", h).strip().lower()
+        assert plain not in ("conclusion", "in conclusion", "summary"), (
+            f"/blog/{slug} has a {plain!r} heading"
+        )
+
+
+@pytest.mark.parametrize("slug", _post_slugs())
+def test_every_post_carries_its_schema_and_its_links(client, slug):
+    """A post nothing links out of is a dead end, and one without BlogPosting
+    is invisible to the thing most likely to quote it."""
+    r = client.get(f"/blog/{slug}")
+    assert r.status_code == 200
+    body = r.text
+    assert "BlogPosting" in body, f"/blog/{slug} has no BlogPosting schema"
+    assert f'rel="canonical" href="https://toscale.pro/blog/{slug}"' in body
+    assert 'property="og:title"' in body
+    for target in ('href="/pricing"', 'href="/api"'):
+        assert target in body, f"/blog/{slug} does not link {target}"
+    assert re.search(r'href="/company/[A-Z.]+"', body), (
+        f"/blog/{slug} links no company page"
+    )
+
+
+def test_the_new_posts_carry_no_invented_percentage(client):
+    """The posts added for search discuss accuracy, which is exactly where a
+    comparative percentage would be tempting to write."""
+    for slug in STYLED_SLUGS:
+        body = client.get(f"/blog/{slug}").text
+        for banned in BANNED_EXACT:
+            assert banned not in body, f"/blog/{slug} publishes {banned}"
+        match = BANNED_SHAPE.search(body)
+        assert match is None, f"/blog/{slug} publishes {match.group(0)!r}"
