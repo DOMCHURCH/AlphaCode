@@ -69,7 +69,7 @@ def render_api(
     body = f"""{nav}
 <main class="wrap" id="main">
   <header class="hero">
-    <h1 class="htitle">The API</h1>
+    <h1 class="htitle">SEC Filings API Reference</h1>
     <p class="hlede">Every balance sheet on this site, as JSON. One header, one
       key, no SDK. Every figure is reconciled against A = L + E before it is
       stored — <a href="/blog/sec-xbrl-data-wrong-one-in-five">here is why that

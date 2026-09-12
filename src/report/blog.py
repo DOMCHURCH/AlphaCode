@@ -919,7 +919,7 @@ def render_index(*, nav: str = "") -> str:
     body = f"""{nav_html}
 <main class="wrap" id="main">
   <header class="hero">
-    <h1 class="htitle">Notes</h1>
+    <h1 class="htitle">SEC XBRL Data Notes</h1>
     <p class="hlede">What I learned building a reconciler over every SEC filing
       — the parts that surprised me, written down while they were still
       surprising.</p>
@@ -945,7 +945,7 @@ def render_index(*, nav: str = "") -> str:
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
 
     return shell(
-        "Notes — To Scale",
+        "SEC XBRL Data Notes — To Scale",
         body,
         description=(
             "Notes on SEC XBRL data quality, balance sheet reconciliation and "

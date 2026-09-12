@@ -370,6 +370,19 @@ _DISCLAIMERS = (
 _PRODUCT_FIT = ("best for:",)
 
 
+# The href of the API roundup, which has "best" in its URL and is linked from
+# the home page. Stripped as the exact PATH and nothing wider: the ban exists
+# to stop this site telling somebody a stock is a good one, and a slug about
+# which SEC filings API suits quant work is not that. The link's visible text
+# carries no ranking word at all, so a reader never sees the judgement -- only
+# a crawler reading the URL does.
+#
+# Deliberately not a relaxation of the word itself. "best" written as a
+# judgement anywhere on these pages still fails, including in the anchor text
+# of this very link.
+_OWN_URLS = ("/best/sec-filings-api-for-quants",)
+
+
 def _body_without_disclaimers(client, path: str = "/") -> str:
     """The page's PROSE, lower-cased, with the legitimate uses removed.
 
@@ -384,7 +397,7 @@ def _body_without_disclaimers(client, path: str = "/") -> str:
     body = re.sub(
         r'<script type="application/ld\+json">.*?</script>', "", body, flags=re.S
     )
-    for phrase in _DISCLAIMERS + _PRODUCT_FIT:
+    for phrase in _DISCLAIMERS + _PRODUCT_FIT + _OWN_URLS:
         body = body.replace(phrase, "")
     return body
 

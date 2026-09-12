@@ -359,7 +359,7 @@ def render_pricing(
     body = f"""{nav}
 <main class="wrap" id="main">
   <header class="hero">
-    <h1 class="htitle">Pricing</h1>
+    <h1 class="htitle">SEC Filings API Pricing</h1>
     <p class="hlede">The drawings are free and always will be. The
       machine-readable version is what costs money — and it comes two ways,
       which are not the same product.</p>
