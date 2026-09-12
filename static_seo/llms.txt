@@ -39,3 +39,7 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 
 - [Terms of service](https://toscale.pro/terms): Usage limits, redistribution restrictions, billing and refund terms.
 - [Privacy policy](https://toscale.pro/privacy): What account data is stored and how payment is handled.
+
+## Full text
+
+- [Every page above, as plain text](https://toscale.pro/llms-full.txt): The complete text of the pages listed here -- what the product is, how a figure is selected, what it costs, what the API returns, and how it compares with the alternatives -- in one document, so this site can be read without being crawled. Generated from the live pages, so the counts and prices in it are current.

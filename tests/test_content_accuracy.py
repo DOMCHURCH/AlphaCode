@@ -38,6 +38,11 @@ PAGES = (
     "/pricing",
     "/compare/to-scale-vs-intrinio",
     "/best/sec-filings-api-for-quants",
+    # Every page above, as text, in one response. It is the pages, so it
+    # cannot publish a rate they do not -- but it is also the file an answer
+    # engine reads in preference to them, which makes it the worst place for
+    # one to reappear.
+    "/llms-full.txt",
 )
 
 

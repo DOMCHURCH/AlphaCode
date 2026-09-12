@@ -3227,6 +3227,64 @@ def llms_txt() -> Response:
     return _seo_file("llms.txt")
 
 
+@app.get("/llms-full.txt", include_in_schema=False)
+def llms_full_txt(request: Request) -> Response:
+    """Every page llms.txt points at, as text, in one response.
+
+    llms.txt is the map; this is the ground. A model holding both does not
+    need thirteen HTML requests to answer a question about what this product
+    does, and what it then says is what the pages say rather than what it
+    inferred from a navigation bar.
+    """
+    from src.report.llms_full import render
+
+    origin = _public_origin(request)
+    return Response(
+        content=render(_llms_full_sections(request), origin=origin),
+        media_type="text/plain; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+def _llms_full_sections(request: Request) -> list[tuple[str, str]]:
+    """(path, rendered HTML) for every page whose prose belongs in that file.
+
+    Each one is what the ROUTE returns, called as the plain function it is.
+    Rendering them a second time here, with arguments assembled by hand, would
+    be a second copy of every page -- and the argument that gets forgotten is
+    always the one that was added last.
+
+    Blog posts and comparison pages are read from the same tuples the routes
+    and the sitemap read, so a page added there appears here without anybody
+    remembering to add it.
+
+    Company pages are deliberately absent. There are thousands of them, each
+    one a drawing and a table of figures, and the way to read those is the API.
+    """
+    from src.report.blog import POSTS
+    from src.report.compare import PAGES as COMPARISONS
+
+    def body(page: HTMLResponse) -> str:
+        return page.body.decode("utf-8")
+
+    sections = [
+        ("/", body(home(request))),
+        ("/methodology", body(methodology_page(request))),
+        ("/pricing", body(pricing(request))),
+        ("/api", body(api_page(request))),
+    ]
+    sections += [
+        (f"/blog/{post.slug}", body(blog_post(request, post.slug)))
+        for post in POSTS
+    ]
+    sections += [
+        (f"/{page.slug}",
+         body(_compare_page(page.kind, page.slug.split("/", 1)[1], request)))
+        for page in COMPARISONS
+    ]
+    return sections
+
+
 @app.get("/financial-data.txt", include_in_schema=False)
 def financial_data_txt() -> Response:
     """Provenance for the data itself: source, coverage, cadence, method.
@@ -3364,7 +3422,7 @@ _INDEX_ENDPOINTS: tuple[str, ...] = (
     "POST /admin/raw-facts",
     "/pricing  (plans, dataset vs API, FAQ)",
     "/blog  (notes)",
-    "/llms.txt", "/financial-data.txt",
+    "/llms.txt", "/llms-full.txt", "/financial-data.txt",
     "/dataset  (what is in the CSV, and its snapshot date)",
     "POST /api/billing/checkout",
     "POST /admin/simulate-purchase  (admin secret; no money moves)",
