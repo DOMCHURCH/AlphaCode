@@ -122,7 +122,7 @@ async function loadCustomers() {
     row("Seeded keys — active", seed.active),
     row("Seeded keys — revoked", seed.revoked, seed.revoked ? "warn" : ""),
   ].concat((seed.keys || []).map((k) => row(
-    "  " + k.label + (k.revoked_at ? " (revoked)" : ""),
+    "  " + (k.display_name || k.label) + (k.revoked_at ? " (revoked)" : ""),
     "last used " + when(k.last_used_at),
     !k.revoked_at && !k.last_used_at ? "warn" : ""
   ))).join("");

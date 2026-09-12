@@ -39,9 +39,15 @@ REVIEW THESE PERIODICALLY
     model for a credential that skips the card.
 
 USAGE
-    python3 scripts/issue_seed_key.py --label "jane-doe-youtube"
+    python3 scripts/issue_seed_key.py --label "stefano-sec-edgar-mcp" \
+        --display-name "Stefano Amorelli — sec-edgar-mcp"
     python3 scripts/issue_seed_key.py --label "acme-partner" \
+        --display-name "Acme — integration pilot" \
         --rate-limit 50000 --notes "Q4 integration pilot, revisit in January"
+
+    The label is the handle: unique, typed, and what `revoke_seed_key.py`
+    takes. The display name is the same key said in words, and is the column
+    /admin reads -- ten of these are unreadable as a list of handles.
 
 Needs DATABASE_URL in the environment, same as the service.
 """
@@ -73,6 +79,11 @@ def main() -> int:
              f"{seedkeys.DEFAULT_RATE_LIMIT})",
     )
     parser.add_argument(
+        "--display-name", default="",
+        help='how it should read on /admin: "Real Name — Project". '
+             "Defaults to the label.",
+    )
+    parser.add_argument(
         "--notes", default="",
         help="why this was issued, for whoever reads the list in six months",
     )
@@ -88,7 +99,8 @@ def main() -> int:
 
     try:
         key = seedkeys.issue(
-            args.label, rate_limit=args.rate_limit, notes=args.notes
+            args.label, rate_limit=args.rate_limit, notes=args.notes,
+            display_name=args.display_name,
         )
     except seedkeys.LabelTaken:
         print(
@@ -104,7 +116,8 @@ def main() -> int:
         return 2
 
     print()
-    print(f"  Issued to : {args.label}")
+    print(f"  Issued to : {args.display_name or args.label}")
+    print(f"  Label     : {args.label}   (the handle; revoking takes this)")
     print(f"  Limit     : {args.rate_limit:,} calls per calendar month")
     if args.notes:
         print(f"  Notes     : {args.notes}")

@@ -59,7 +59,7 @@ class LabelTaken(Exception):
 
 
 def issue(label: str, *, rate_limit: int = DEFAULT_RATE_LIMIT,
-          notes: str = "") -> str:
+          notes: str = "", display_name: str = "") -> str:
     """Create one seeded key. Returns the PLAINTEXT, which exists only here.
 
     The database gets the digest. There is no query, here or from a dump, that
@@ -93,6 +93,10 @@ def issue(label: str, *, rate_limit: int = DEFAULT_RATE_LIMIT,
             api_key=hash_api_key(plaintext),
             api_key_prefix=key_prefix(plaintext),
             label=name,
+            # Defaulted to the label rather than left NULL, so the listing has
+            # something to show for a key issued without one and the fallback
+            # below is only ever exercised by rows older than the column.
+            display_name=(display_name or "").strip()[:200] or name,
             rate_limit_override=int(rate_limit),
             source=SOURCE,
             notes=(notes or "").strip()[:500] or None,
@@ -211,6 +215,9 @@ def listing(limit: int = 50) -> dict:
             "revoked": revoked,
             "keys": [{
                 "label": r.label,
+                # Never blank: the label is the fallback, because a list of
+                # empty cells is worse than a list of handles.
+                "display_name": r.display_name or r.label,
                 "source": r.source,
                 "rate_limit": int(r.rate_limit_override),
                 "issued_at": _iso(r.issued_at),

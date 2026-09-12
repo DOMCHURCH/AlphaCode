@@ -896,6 +896,13 @@ class SeededKey(Base):
     # the handle for revoking: `revoke_seed_key.py --label x` has to name one
     # key, and two keys sharing a label makes that command a coin toss.
     label: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    # How the operator wants to READ that label: "Stefano Amorelli —
+    # sec-edgar-mcp" against a label of "stefano-sec-edgar-mcp". The label
+    # stays the handle -- unique, typed at a terminal, the thing revocation
+    # takes -- and this is the same key said in words. Nullable because rows
+    # issued before this column existed have none, and every reader falls back
+    # to the label rather than rendering a blank.
+    display_name: Mapped[str | None] = mapped_column(String(200))
     issued_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow
     )

@@ -1804,3 +1804,50 @@ def test_user_status_unchanged_for_paid_tier(client):
     assert body["tier"] == "pro"
     assert "rate_limit_override" not in body
     assert "access_note" not in body
+
+
+def test_seeded_key_stores_display_name(client):
+    """The label is the handle; this is the same key said in words. Ten of
+    these read as a list of handles unless somebody writes the names down."""
+    from src import seedkeys
+
+    seedkeys.issue(
+        "stefano-sec-edgar-mcp",
+        display_name="Stefano Amorelli \u2014 sec-edgar-mcp",
+    )
+    row = seedkeys.listing()["keys"][0]
+    assert row["label"] == "stefano-sec-edgar-mcp"
+    assert row["display_name"] == "Stefano Amorelli \u2014 sec-edgar-mcp"
+
+
+def test_seeded_key_defaults_display_name_to_label(client):
+    """Never blank. A list of empty cells is worse than a list of handles."""
+    from src import seedkeys
+
+    seedkeys.issue("jerbouma-financetoolkit")
+    assert seedkeys.listing()["keys"][0]["display_name"] == "jerbouma-financetoolkit"
+
+    # And a row predating the column reads the same way, because the fallback
+    # lives in the listing rather than only in the write.
+    from src.storage.db import session_scope
+    from src.storage.models import SeededKey
+
+    with session_scope() as session:
+        session.query(SeededKey).one().display_name = None
+    assert seedkeys.listing()["keys"][0]["display_name"] == "jerbouma-financetoolkit"
+
+
+def test_admin_lists_display_name_for_seeded_keys(client):
+    """What /admin renders. The panel reads this field and falls back to the
+    label, so the operator sees a name rather than a handle."""
+    from src import seedkeys
+
+    seedkeys.issue("zoharbabin-edgar-analytics",
+                   display_name="Zohar Babin \u2014 edgar_analytics")
+    seedkeys.issue("no-name-given")
+
+    seeded = client.get("/api/admin/stats", headers=ADMIN).json()["seeded_keys"]
+    names = {k["label"]: k["display_name"] for k in seeded["keys"]}
+    assert names["zoharbabin-edgar-analytics"] == "Zohar Babin \u2014 edgar_analytics"
+    assert names["no-name-given"] == "no-name-given"
+    assert seeded["active"] == 2
