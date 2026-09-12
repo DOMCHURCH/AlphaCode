@@ -7,6 +7,7 @@ to hydrate, no half-loaded state.
 
 from __future__ import annotations
 
+import re
 from html import escape
 from pathlib import Path
 from typing import Any
@@ -386,6 +387,67 @@ def _company_meta(d: dict[str, Any]) -> str:
     return "\n".join(tags)
 
 
+# A <title> over ~60 characters is cut off in a result listing, and the part
+# that survives is the part search engines show. 1,022 of 6,184 company pages
+# were over it, because SEC's registered names carry their legal form and
+# often a state marker: "HORNBECK OFFSHORE SERVICES, INC." spends six of its
+# characters on ", INC.".
+#
+# Only the TITLE is shortened. The heading keeps the name exactly as filed,
+# which is the rule the rest of this site runs on -- nothing here is a claim
+# about what the company is called, only about what fits in a tab.
+_TITLE_LIMIT = 60
+
+# Trailing legal forms, stripped repeatedly: "PLC HOLDINGS LTD" is three.
+_LEGAL_SUFFIX = re.compile(
+    r"[,\s]+(?:INC\.?|INCORPORATED|CORP\.?|CORPORATION|CO\.?|COMPANY|"
+    r"L\.?L\.?C\.?|L\.?P\.?|LTD\.?|LIMITED|PLC|N\.?V\.?|S\.?A\.?|"
+    r"A\.?G\.?|HOLDINGS?)\s*$",
+    re.I,
+)
+# "/DE/", "/CA", "\DE\\" -- SEC's state-of-incorporation marker, never part of
+# a name. Both slash directions appear in the file, sometimes on one company.
+_STATE_MARKER = re.compile(r"\s*[/\\][A-Z]{2}[/\\]?\s*$")
+# What a stripped suffix can leave dangling: "JPMORGAN CHASE & CO" must not
+# become "JPMORGAN CHASE &".
+_DANGLING = re.compile(r"[\s,.&/-]+$|\s+(?:AND|&)$", re.I)
+
+
+def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
+    """The company name as it should appear in the <title>, trimmed to fit.
+
+    Drops the legal form and the state marker first, because those are the
+    characters carrying the least meaning to somebody scanning results. Only
+    truncates when that is not enough, and then on a word boundary: a title
+    cut mid-word reads as a bug rather than as an abbreviation.
+
+    Never returns empty. A name that is nothing but a legal form -- and there
+    are a few -- keeps what it was given.
+    """
+    original = (name or "").strip()
+    if not original:
+        return original
+
+    out = _STATE_MARKER.sub("", original).strip()
+    previous = None
+    while previous != out:
+        previous = out
+        out = _LEGAL_SUFFIX.sub("", out)
+        out = _STATE_MARKER.sub("", out)
+        out = _DANGLING.sub("", out).strip()
+    if not out:
+        out = original
+
+    # Everything the title spends on something other than the name.
+    fixed = len(f" ({ticker}) Balance Sheet \u2014 To Scale")
+    budget = limit - fixed
+    if budget < 8 or len(out) <= budget:
+        return out
+
+    cut = out[:budget].rsplit(" ", 1)[0].rstrip(" ,.&-")
+    return (cut or out[:budget].rstrip()) + "\u2026"
+
+
 def render_company_page(
     view: View1,
     flow: View3 | None = None,
@@ -576,7 +638,7 @@ def render_company_page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(d["company_name"] or d["ticker"])} ({escape(d["ticker"])}) Balance Sheet — To Scale</title>
+<title>{escape(title_name(d["company_name"] or d["ticker"], str(d["ticker"])))} ({escape(d["ticker"])}) Balance Sheet — To Scale</title>
 {_company_meta(d)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">

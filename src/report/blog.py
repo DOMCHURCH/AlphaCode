@@ -449,12 +449,10 @@ a closed identity drawn.</p>
 _POST_EDGAR_PIPELINE = Post(
     slug="build-scalable-sec-edgar-pipeline",
     title="How to Build a Scalable SEC EDGAR Pipeline Under the 10 RPS Limit",
-    seo_title="SEC EDGAR API Rate Limit: Building a Python Pipeline Under 10 RPS",
+    seo_title="SEC EDGAR API Rate Limits: A Python Pipeline Under 10 RPS",
     description=(
-        "SEC EDGAR blocks you for ten minutes when you exceed 10 requests a "
-        "second, and time.sleep(0.1) does not stop it once you add a second "
-        "worker. The User-Agent rule, a shared token bucket, and the bulk "
-        "loads that replace the crawl."
+        "SEC EDGAR blocks you for ten minutes if you exceed 10 requests/sec. "
+        "Here's the token-bucket setup and bulk loads that actually work."
     ),
     summary=(
         "Three IP bans, and none of them were going too fast. The "
@@ -695,12 +693,10 @@ data quality problem yet. You have one you cannot see.</p>
 _POST_DUPLICATE_TAGS = Post(
     slug="sec-xbrl-duplicate-tags",
     title="Why Your SEC Filing Data Is Wrong (And How to Check)",
-    seo_title="SEC XBRL Duplicate Tags: How to Check SEC Filings Data Accuracy",
+    seo_title="SEC XBRL Duplicate Tags: How to Check Your Data",
     description=(
-        "One filing reports the same concept many times, and the consolidated "
-        "figure is the one with no dimensions on it. Why picking the first tag "
-        "fails silently, and a five minute test you can run against your own "
-        "data."
+        "One filing reports the same figure up to 23 times. Why picking the "
+        "first XBRL tag fails silently, and a 5-minute test to check your data."
     ),
     summary=(
         "The consolidated figure in an XBRL filing is the one with no "

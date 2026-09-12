@@ -541,3 +541,105 @@ def test_a_rename_that_predates_the_filing_is_not_mentioned(db):
     html = render_company_page(view)
     assert "filed as" not in html
     assert "APPLE INC" not in html
+
+
+# ---------------------------------------------------------------------------
+# The <title>, which has about 60 characters before a result listing cuts it
+# ---------------------------------------------------------------------------
+# 1,022 of 6,184 company pages were over it, because SEC's registered names
+# carry their legal form and often a state marker. Only the title is
+# shortened; the heading keeps the name exactly as filed.
+
+TITLE_TAIL = " (XXXX) Balance Sheet \u2014 To Scale"
+
+
+def _title_len(short, ticker):
+    return len(f"{short} ({ticker}) Balance Sheet \u2014 To Scale")
+
+
+def test_the_legal_form_is_dropped_before_anything_is_truncated():
+    from src.report.company_page import title_name
+
+    assert title_name("HORNBECK OFFSHORE SERVICES, INC.", "HLX") == (
+        "HORNBECK OFFSHORE SERVICES"
+    )
+    assert title_name("Walmart Inc.", "WMT") == "Walmart"
+    assert title_name("NVIDIA CORP", "NVDA") == "NVIDIA"
+    assert title_name("Apple Inc.", "AAPL") == "Apple"
+
+
+def test_a_stripped_suffix_never_leaves_a_dangling_conjunction():
+    """"JPMORGAN CHASE & CO" minus "CO" is "JPMORGAN CHASE &", which reads as
+    a truncation bug. Caught by running the rule over the real name list."""
+    from src.report.company_page import title_name
+
+    assert title_name("JPMORGAN CHASE & CO", "JPM") == "JPMORGAN CHASE"
+
+
+def test_the_state_marker_goes_whichever_way_it_leans():
+    """SEC writes it both ways, sometimes for one company."""
+    from src.report.company_page import title_name
+
+    assert title_name("CACI INTERNATIONAL INC /DE/", "CACI") == "CACI INTERNATIONAL"
+    assert title_name("US BANCORP \\DE\\", "USB") == "US BANCORP"
+
+
+def test_several_legal_forms_are_stripped_not_just_the_last():
+    """"PLC HOLDINGS LTD" is three of them. "Group" is NOT one: it belongs to
+    the trading name, and dropping it turns Marex Group into Marex and the
+    Glimpse Group into Glimpse."""
+    from src.report.company_page import title_name
+
+    assert title_name("Marex Group plc", "MRX") == "Marex Group"
+    assert title_name("VivoPower International PLC", "VIVO") == (
+        "VivoPower International"
+    )
+    assert title_name("Arena Group Holdings, Inc.", "AREN") == "Arena Group"
+    assert title_name("Alps Global Holding Pubco Ltd", "ALPS").endswith("Pubco")
+
+
+def test_a_name_too_long_even_stripped_is_cut_on_a_word_boundary():
+    """A title cut mid-word reads as a bug rather than an abbreviation."""
+    from src.report.company_page import title_name
+
+    long = "PERUSAHAAN PERSEROAN PERSERO PT TELEKOMUNIKASI INDONESIA TBK"
+    short = title_name(long, "TLK")
+    assert _title_len(short, "TLK") <= 60
+    assert short.endswith("\u2026")
+    assert " " not in short[-2:], "cut mid-word"
+    assert long.startswith(short[:-1].rstrip())
+
+
+def test_a_name_that_is_only_a_legal_form_keeps_it():
+    """Stripping everything would leave a page headed by nothing."""
+    from src.report.company_page import title_name
+
+    assert title_name("INC", "ZZZ") == "INC"
+    assert title_name("Holdings", "HLD") == "Holdings"
+    assert title_name("", "X") == ""
+
+
+def test_the_page_title_fits_and_the_heading_does_not_change(db):
+    """The two are deliberately different: the heading is the name as filed."""
+    import datetime as dt
+
+    from src.company.view1 import build_view1
+    from src.report.company_page import render_company_page
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed_filer("HLX", "866829", in_sector_map=True)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date(2026, 9, 7), ticker="HLX",
+            name="HORNBECK OFFSHORE SERVICES, INC.", cik="866829",
+        ))
+
+    html = render_company_page(build_view1("HLX"))
+    import re as _re
+
+    title = _re.search(r"<title>(.*?)</title>", html).group(1)
+    assert len(title) <= 60, f"{len(title)}: {title}"
+    assert title.startswith("HORNBECK OFFSHORE SERVICES (HLX)")
+    # The heading is untouched.
+    assert "<h1 class=\"cname\">HORNBECK OFFSHORE SERVICES, INC.</h1>" in html
