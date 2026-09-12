@@ -385,3 +385,102 @@ def test_the_page_costs_one_extra_query(client):
 
     assert len(seen) == 1, f"expected exactly one read, got {len(seen)}: {seen}"
     assert seen[0].lower().lstrip().startswith("select")
+
+
+# ---------------------------------------------------------------------------
+# The meta description, which has 155 characters before a result snippet cuts
+# it off. 224 of the 6,184 company pages were over, all of them because the
+# SEC registered name is long: the sentence around the name spends 111
+# characters, and the names run to 60.
+# ---------------------------------------------------------------------------
+
+
+def _description(name, ticker="ZZ", total=673.8e9, period="2025-06-30"):
+    import html as _html
+
+    from src.report.company_page import _company_meta
+
+    tags = _company_meta({
+        "company_name": name, "ticker": ticker,
+        "period_end": period, "total_assets": total,
+    })
+    found = re.search(r'<meta name="description" content="(.*?)">', tags)
+    assert found, tags
+    # Decoded, because "&amp;" is one ampersand to whatever reads the snippet.
+    return _html.unescape(found.group(1))
+
+
+# Every one of these was over 155 in production.
+LONGEST_REAL_NAMES = [
+    ("TLK", "PERUSAHAAN PERSEROAN PERSERO PT TELEKOMUNIKASI INDONESIA TBK"),
+    ("HCAI", "Huachen AI Parking Management Technology Holding Co., Ltd"),
+    ("VLRS", "Controladora Vuela Compania de Aviacion, S.A.B. de C.V."),
+    ("NRUC", "NATIONAL RURAL UTILITIES COOPERATIVE FINANCE CORP /DC/"),
+    ("FREVS", "FIRST REAL ESTATE INVESTMENT TRUST OF NEW JERSEY, INC."),
+    ("ZION", "ZIONS BANCORPORATION, NATIONAL ASSOCIATION /UT/"),
+    ("FNMA", "FEDERAL NATIONAL MORTGAGE ASSOCIATION FANNIE MAE"),
+    ("KCA-UN", "Kensington Capital Acquisition Corp. VI"),
+]
+
+
+@pytest.mark.parametrize("ticker,name", LONGEST_REAL_NAMES)
+def test_the_description_fits_a_snippet_however_long_the_name_is(ticker, name):
+    desc = _description(name, ticker)
+    assert len(desc) <= 155, f"{len(desc)}: {desc}"
+
+
+def test_the_bound_holds_at_the_widest_the_figure_can_print():
+    """The name is fitted against what the rest of the sentence left, so a
+    trillion-dollar filer cannot push the description over on its own."""
+    name = "PERUSAHAAN PERSEROAN PERSERO PT TELEKOMUNIKASI INDONESIA TBK"
+    for total in (5.02e12, 673.8e9, 12.3e6, None):
+        desc = _description(name, "ABCDEF", total)
+        assert len(desc) <= 155, f"{total}: {len(desc)}: {desc}"
+
+
+def test_a_name_that_already_fits_is_never_truncated():
+    """The legal form goes from every description, not only the ones that are
+    over, so that a snippet and the title above it name the company the same
+    way. What a name that already fits does NOT get is an ellipsis."""
+    desc = _description("NVIDIA CORP", "NVDA", 125.5e9)
+    assert desc.startswith("NVIDIA (NVDA) balance sheet,")
+    assert "\u2026" not in desc
+
+
+def test_the_legal_form_goes_before_any_character_is_truncated():
+    """Dropping ", INC." costs a reader nothing. Cutting the name costs them
+    the word they searched for, so it happens last and only if it must."""
+    desc = _description("FIRST REAL ESTATE INVESTMENT TRUST OF NEW JERSEY, INC.",
+                        "FREVS", 400e6)
+    assert "FIRST REAL ESTATE INVESTMENT TRUST" in desc
+
+
+def test_a_truncated_name_is_cut_on_a_word_boundary():
+    """A name cut mid-word reads as a bug rather than as an abbreviation."""
+    name = "PERUSAHAAN PERSEROAN PERSERO PT TELEKOMUNIKASI INDONESIA TBK"
+    desc = _description(name, "TLK", 17.2e9)
+    shown = desc.split(" (TLK)", 1)[0]
+    assert shown.endswith("\u2026")
+    assert name.startswith(shown[:-1])
+    assert name[len(shown) - 1] == " ", f"cut mid-word: {shown!r}"
+
+
+def test_the_description_still_says_what_the_page_is_and_what_was_checked():
+    """Shorter, not emptier. The identity check is the claim being made."""
+    desc = _description("NVIDIA CORP", "NVDA", 125.5e9)
+    assert "balance sheet" in desc
+    assert "Total assets $125.5B." in desc
+    assert "A = L + E" in desc
+
+
+def test_the_rendered_page_carries_a_description_inside_the_limit(client):
+    """End to end, through the real route rather than the helper."""
+    import html as _html
+
+    _seed_sector([("AAA", 100e9), ("BBB", 90e9)], "Technology")
+    page = client.get("/company/AAA")
+    assert page.status_code == 200
+    found = re.search(r'<meta name="description" content="(.*?)">', page.text)
+    assert found, "the company page carries no meta description"
+    desc = _html.unescape(found.group(1))
+    assert len(desc) <= 155, f"{len(desc)}: {desc}"

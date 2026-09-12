@@ -360,12 +360,20 @@ def _company_meta(d: dict[str, Any]) -> str:
     name = d["company_name"] or d["ticker"]
     total = d.get("total_assets")
     size = f" Total assets {money(total)}." if total else ""
-    # Under 155 characters so Google shows the whole thing. The company name
-    # and the figure lead, because those are what the searcher typed.
-    desc = (
-        f"{name} ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
-        f"scale.{size} As filed with the SEC, checked against A = L + E."
+    # Under 155 characters so Google shows the whole thing -- which for 224 of
+    # these 6,184 pages it did not, because the sentence around the name spends
+    # 111 characters before the name is written and an SEC registered name runs
+    # to 60. Two things give way, in this order: the closing claim was said in
+    # fewer words, and the name drops its legal form. Truncation is the last
+    # resort and lands on 8 pages.
+    #
+    # The name is built LAST, against whatever the rest of the sentence left,
+    # so the bound holds however wide the figure prints.
+    rest = (
+        f" ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
+        f"scale.{size} As filed. Verified against A = L + E."
     )
+    desc = fit_name(name, _DESC_LIMIT - len(rest)) + rest
     url = f"{SITE_ORIGIN}/company/{d['ticker']}"
     crumbs = breadcrumb_ld(
         [("Home", "/"), (f"{name} ({d['ticker']})", f"/company/{d['ticker']}")]
@@ -397,6 +405,8 @@ def _company_meta(d: dict[str, Any]) -> str:
 # which is the rule the rest of this site runs on -- nothing here is a claim
 # about what the company is called, only about what fits in a tab.
 _TITLE_LIMIT = 60
+# A meta description over ~155 characters is cut off in the same place.
+_DESC_LIMIT = 155
 
 # Trailing legal forms, stripped repeatedly: "PLC HOLDINGS LTD" is three.
 _LEGAL_SUFFIX = re.compile(
@@ -413,12 +423,12 @@ _STATE_MARKER = re.compile(r"\s*[/\\][A-Z]{2}[/\\]?\s*$")
 _DANGLING = re.compile(r"[\s,.&/-]+$|\s+(?:AND|&)$", re.I)
 
 
-def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
-    """The company name as it should appear in the <title>, trimmed to fit.
+def fit_name(name: str, budget: int) -> str:
+    """The company name inside `budget` characters.
 
     Drops the legal form and the state marker first, because those are the
     characters carrying the least meaning to somebody scanning results. Only
-    truncates when that is not enough, and then on a word boundary: a title
+    truncates when that is not enough, and then on a word boundary: a name
     cut mid-word reads as a bug rather than as an abbreviation.
 
     Never returns empty. A name that is nothing but a legal form -- and there
@@ -437,15 +447,21 @@ def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
         out = _DANGLING.sub("", out).strip()
     if not out:
         out = original
-
-    # Everything the title spends on something other than the name.
-    fixed = len(f" ({ticker}) Balance Sheet \u2014 To Scale")
-    budget = limit - fixed
     if budget < 8 or len(out) <= budget:
         return out
 
+    # The ellipsis is one of the budgeted characters. Without the second
+    # branch a name with no space inside the budget comes back one over it.
     cut = out[:budget].rsplit(" ", 1)[0].rstrip(" ,.&-")
-    return (cut or out[:budget].rstrip()) + "\u2026"
+    if not cut or len(cut) >= budget:
+        cut = out[:budget - 1].rstrip(" ,.&-")
+    return cut + "\u2026"
+
+
+def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
+    """`fit_name` against what the <title> has left after its own words."""
+    fixed = len(f" ({ticker}) Balance Sheet \u2014 To Scale")
+    return fit_name(name, limit - fixed)
 
 
 def render_company_page(
