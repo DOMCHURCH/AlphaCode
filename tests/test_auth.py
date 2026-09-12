@@ -464,8 +464,13 @@ def test_the_privacy_policy_describes_this_service_and_not_a_template(client):
     # We store salted digests, never addresses. That is stronger AND true.
     assert "We do not store IP addresses" in text
 
-    # API keys are NOT encrypted, and the policy must not pretend they are.
-    assert "not encrypted or hashed" in text
+    # API keys ARE hashed, and the policy must say so. It said the opposite
+    # for as long as it took to notice: the keys were hashed and the document
+    # describing them was not changed with them. The assertion is kept pointing
+    # both ways, because the failure mode here is a policy drifting away from
+    # the code in EITHER direction.
+    assert "SHA-256 hash" in text
+    assert "not encrypted or hashed" not in text
 
     # The question box is the one place user-typed text leaves the service.
     assert "OpenRouter" in text

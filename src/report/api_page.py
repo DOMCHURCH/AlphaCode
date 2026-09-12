@@ -91,12 +91,15 @@ def render_api(
     <div class="sec-head"><h2>Authentication</h2></div>
     <p class="sec-sub">Send the key in an <code>X-API-Key</code> header. It is
       not a bearer token, it does not expire, and there is no OAuth dance.
-      Treat it like a password: it is stored as issued, so anyone holding it
-      can spend your calls.</p>
+      Treat it like a password: anyone holding it can spend your calls. Your
+      key is stored as a hash. The full value is shown once at issue;
+      regenerate from the dashboard if lost.</p>
     <pre class="code api-code"><code>curl -H "X-API-Key: YOUR_KEY" \\
   {host}/api/company/JPM</code></pre>
-    <p class="plan-note">Lost it? <a href="/dashboard">Sign in</a> and it is on
-      the dashboard, or have it emailed to you from the same page.</p>
+    <p class="plan-note">Lost it? <a href="/dashboard">Sign in</a>. The
+      dashboard shows the first eight characters, so you can tell which key
+      an account is holding, and a Regenerate button that issues a new one —
+      the old key stops working the moment you press it.</p>
   </section>
 
   <section class="sec">

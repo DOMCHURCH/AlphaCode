@@ -792,10 +792,12 @@ class DemoUsage(Base):
 class MagicLink(Base):
     """One row per login link issued. Single use, short lived.
 
-    The token is stored as issued rather than hashed, matching how `api_users`
-    already holds its keys: hashing here would be a lock on a door standing
-    beside an open one, and the window is fifteen minutes and one use wide
-    either way.
+    The token is stored as issued rather than hashed. That used to be argued
+    from `api_users`, which held its keys the same way -- a lock on a door
+    standing beside an open one. `api_users` hashes now, so the argument has
+    to stand on its own, and it does: this token is single use and dies
+    fifteen minutes after it is written, so what a leaked table yields is a
+    login link that has already expired or already been spent.
 
     `used` is a column rather than a delete so a second click on the same link
     can be told apart from a link that never existed -- the first deserves

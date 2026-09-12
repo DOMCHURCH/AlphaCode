@@ -16,11 +16,14 @@ where their data goes:
 * **IP addresses are never stored.** What is kept is a salted digest
   (`analytics.hash_ip`), which is a stronger and truer claim than the usual
   "we collect IP addresses".
-* **API keys are NOT encrypted at rest.** They are stored as issued, on
-  purpose (see `models.ApiUser`). Claiming encryption there would be the exact
-  kind of security assertion that matters when it turns out to be untrue, so
-  the policy states the real position and tells people to treat the key as a
-  password.
+* **API keys are stored as a SHA-256 hash** (see `models.ApiUser`), with the
+  first eight characters kept beside it so an account can be told which key it
+  holds. This bullet said the exact opposite for as long as it took to notice:
+  the keys were hashed and the policy that describes them was not updated with
+  them. A security claim that has gone stale in the flattering direction is the
+  dangerous one and this had gone stale in the other, which makes it harmless
+  and still wrong -- and a privacy policy that is wrong about the easy,
+  checkable part is not one to be believed about the rest.
 * **The optional question box sends text to OpenRouter.** A third party that a
   template would not know about, and the only one that receives anything a user
   typed.
@@ -293,13 +296,14 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
       <li>The site is served over HTTPS.</li>
       <li>Passwords are hashed with bcrypt and are not recoverable by us.</li>
       <li>Session cookies are signed, HttpOnly and Secure.</li>
-      <li><strong>API keys are stored as issued, not encrypted or hashed.</strong>
-        That is a deliberate trade: the key is read-only over data that is
-        already public, and a recoverable key means a lost key is a lookup
-        rather than a re-registration. It also means you should treat your key
-        as a password, and that anyone with access to our database could read
-        it. If you would rather it were not sitting there, you can regenerate
-        it at any time, and access is revocable.</li>
+      <li><strong>API keys are stored as a SHA-256 hash, not in plain
+        text.</strong> The full key is shown once, at the moment it is issued.
+        After that this database holds the hash and the first eight characters
+        — enough to tell you which key your account is on, and not enough to
+        use it. Nobody here can read your key back to you, which means a lost
+        key is a regeneration rather than a lookup. Treat it as a password
+        anyway: anyone holding it can spend your calls. You can regenerate at
+        any time, and doing so stops the old key immediately.</li>
     </ul>
     <p>No system is perfectly secure and we do not claim otherwise.</p>
 
