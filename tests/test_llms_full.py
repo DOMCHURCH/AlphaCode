@@ -343,11 +343,21 @@ def test_no_unfilled_placeholder_reaches_a_reader(full):
         assert token not in full, f"{token} was never filled"
 
 
-def test_a_count_that_cannot_be_read_becomes_a_sentence_not_a_hole():
+def test_a_count_that_cannot_be_read_becomes_a_sentence_not_a_hole(monkeypatch):
     """The figures are whole phrases rather than bare numbers precisely so an
-    unreadable table degrades into something still true. Run against no
-    database at all, which is the worst day this can have."""
+    unreadable table degrades into something still true.
+
+    Both labels are stubbed rather than the database being emptied. The first
+    version of this relied on there being no data and passed or failed on test
+    ORDER, because the row count is memoised at module level and outlives the
+    fixture that seeded it -- so it was measuring the previous test.
+    """
+    import src.dataset as dataset
+    import src.report.home_page as home_page
     from src.report.compare import live_counts
+
+    monkeypatch.setattr(dataset, "facts_label", lambda: "")
+    monkeypatch.setattr(home_page, "companies_label", lambda: "")
 
     counts = live_counts()
     assert counts["{FILERS}"] == "SEC filers"
