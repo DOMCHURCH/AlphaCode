@@ -33,7 +33,7 @@ _HEAD = """
 _BODY = """
   <article>
     <header class="hero">
-      <h1 class="htitle">How the accounting-identity check works</h1>
+      <h2 class="htitle">How the accounting-identity check works</h2>
       <p class="hlede">Assets = Liabilities + Equity is not a rule filers
         follow. It is a consequence of double-entry bookkeeping — which is
         exactly what makes it usable as a test on data you did not produce.</p>

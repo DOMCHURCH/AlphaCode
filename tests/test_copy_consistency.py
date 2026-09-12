@@ -279,9 +279,13 @@ def test_the_sitemap_lists_nothing_it_tells_google_to_ignore(client):
 
 
 def test_the_methodology_page_explains_all_four_exception_categories(client):
-    """A = L + E is an identity, so 99.9% is a claim that needs a reason. The
-    page is that reason, and a category quietly dropped from it turns the
-    honest number back into a marketing one."""
+    """A = L + E is an identity, so every exception to it needs a reason. The
+    page is that reason, and a category quietly dropped from it turns an
+    honest count back into a marketing one.
+
+    The `<h1` count is part of the same claim and it was failing: the page
+    carried two, because the prose section below the live counts opened with
+    its own. That one is an h2 now."""
     html = client.get("/methodology").text
 
     assert html.count("<h1") == 1
@@ -296,10 +300,16 @@ def test_the_methodology_page_explains_all_four_exception_categories(client):
     assert 'rel="canonical"' in html
 
 
-def test_the_homepage_says_what_the_missing_tenth_of_a_percent_is(client):
+def test_the_homepage_says_what_happens_when_a_filing_does_not_balance(client):
+    """This asserted `"99.9%" in html` until the rate was retired, which put
+    it in direct contradiction with tests/test_content_accuracy.py: one test
+    demanded the figure and the other banned it. The part worth keeping is
+    not the number, it is the promise underneath it -- that a filing which
+    fails the check is named rather than quietly adjusted, and that the
+    explanation is one click away."""
     html = client.get("/").text
 
-    assert "99.9%" in html, "the claim itself must stay"
+    assert "99.9%" not in html, "the retired rate is back on the home page"
     assert "never silently fudged" in html
     assert "/methodology" in html, "the explanation must be reachable"
 
