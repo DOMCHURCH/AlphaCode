@@ -26,8 +26,11 @@ _HEAD = """
   </header>
 """
 
+# NB: no `<main>` here. The wrapper is opened in `render` so that `_HEAD` and
+# the live counts land INSIDE it. They used to be emitted before it, which
+# made them direct children of <body> with no page gutter at all: the H1, the
+# lede and the whole counts table started at x=0, hard against the window.
 _BODY = """
-<main class="wrap post" id="main">
   <article>
     <header class="hero">
       <h1 class="htitle">How the accounting-identity check works</h1>
@@ -210,7 +213,8 @@ def render_methodology(*, nav: str = "") -> str:
         "the code."
     )
     body = (
-        f"{nav}{_HEAD}{_live_section()}{_BODY}\n{footer}\n</main>\n"
+        f'{nav}\n<main class="wrap post" id="main">\n'
+        f"{_HEAD}{_live_section()}{_BODY}\n{footer}\n</main>\n"
         f'<script src="/static/nav.js?v={asset_version()}" defer></script>'
     )
     return shell(

@@ -34,6 +34,11 @@
   --disp:"Jost",system-ui,-apple-system,"Segoe UI",sans-serif;
   --mono:"Space Mono",ui-monospace,"SF Mono",Menlo,Consolas,monospace;
 
+  /* Layout: the measure and the gutter. See `.wrap` below for why these are
+     fixed rather than fluid. `--gut` drops to 16px on narrow screens, where
+     24px of each edge is a real fraction of the line. */
+  --measure:1100px; --gut:24px;
+
   --r1:12px; --r2:18px; --r3:26px;
   /* Raised: lit from the top-left, as everything on this page is. */
   --up:7px 7px 15px var(--lo), -7px -7px 15px var(--hi);
@@ -54,8 +59,28 @@ body{margin:0;background:var(--bg);color:var(--ink);
   font:16px/1.55 var(--disp);-webkit-font-smoothing:antialiased;color-scheme:light;
   overflow-x:hidden}
 a{color:var(--ink)}
-.wrap{width:100%;max-width:100%;margin:0 auto;
-  padding:0 clamp(18px,4vw,64px)}
+/* The page column. Two numbers, used everywhere.
+
+   `--measure` caps the line length. Without it `.wrap` was `max-width:100%`
+   with a fluid gutter, which reads as "padded" on a laptop and as nothing at
+   all on a wide monitor: at 2560px the gutter capped at 64px and body
+   paragraphs ran 2432px, which is both unreadable and looks like text pinned
+   to the glass. A measure is the fix for that; more padding is not, because
+   padding that scales with the viewport is still a fraction of it.
+
+   `--gut` is the breathing room on either side, and it is a fixed pixel value
+   on purpose. It is the smallest gap that stops text feeling stuck to the
+   edge, and that distance does not get bigger because the screen did.
+
+   The nav opts out immediately below: it is a full-bleed shelf and the logo
+   sits against the page edge by design. */
+.wrap{width:100%;max-width:var(--measure);margin:0 auto;
+  padding:0 var(--gut)}
+
+/* Full-bleed, and deliberately. The nav is a shelf across the whole window,
+   so constraining it to the measure would walk the logo inwards on a wide
+   screen and leave it floating in the middle of the bar. */
+nav .wrap{max-width:none;padding:0 clamp(18px,4vw,64px)}
 
 /* Visually hidden, but read by assistive tech: table captions, the ask-box
    label, and anything else a screen reader needs and the eye does not. */
@@ -426,10 +451,15 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
 .prov{font-family:var(--mono);font-size:10.5px;color:var(--ink2);margin:14px 0 0;
   line-height:1.6}
 
+/* One number, not a per-element override: every block that sits in `.wrap`
+   narrows with it. */
+@media(max-width:640px){
+  :root{--gut:16px}
+}
+
 /* 320px: the drawing keeps its two columns (that IS the view), so labels get
    tighter rather than the columns getting fewer. */
 @media(max-width:359px){
-  .wrap{padding:0 14px}
   .hero{padding:28px 20px 26px}
   .chead,.empty{padding:22px 18px}
   .bs{padding:18px 16px 0}
