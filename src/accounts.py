@@ -862,7 +862,7 @@ def status_payload(account: Account) -> dict:
     """What `/api/user/status` returns, and what the dashboard renders."""
     used = used_this_month(account)
     seen = last_used(account)
-    return {
+    payload = {
         "email": account.email,
         "tier": account.tier,
         # The key itself is never in here and cannot be: the database holds a
@@ -889,6 +889,20 @@ def status_payload(account: Account) -> dict:
         "has_billing": account.has_billing,
         "api_access_paused": account.api_access_paused,
     }
+    if account.is_seeded:
+        # A partner reading this is not on the free tier -- they were handed a
+        # key with its own allowance, usually a large multiple of it, and
+        # "free" invites them to go and find the upgrade page for something
+        # they already have. Said here rather than by giving the Account a
+        # third tier value: `tier` is what BILLING means by the word, every
+        # branch in this module reads it, and a fourth value would have to be
+        # taught to all of them to change one string in one response.
+        payload["tier"] = "seeded"
+        payload["rate_limit_override"] = account.seed_limit
+        payload["access_note"] = (
+            "Seeded access: issued directly, no subscription, no expiry."
+        )
+    return payload
 
 
 # ---------------------------------------------------------------------------

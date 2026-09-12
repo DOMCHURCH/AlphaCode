@@ -1751,3 +1751,56 @@ def test_a_seeded_key_does_not_buy_the_dataset(client):
     key = _issue("api-only")
     r = client.get("/api/download-dataset", headers={"X-API-Key": key})
     assert r.status_code == 402, r.status_code
+
+
+def test_user_status_reports_seeded_for_seed_keys(client):
+    """"free" is accurate and reads wrong. Somebody handed a key with ten
+    thousand calls on it should not be told they are on the tier whose page
+    invites them to upgrade."""
+    _a_company()
+    key = _issue("reads-as-seeded", limit=7500)
+    head = {"X-API-Key": key}
+    client.get("/api/company/JPM", headers=head)
+
+    body = client.get("/api/user/status", headers=head).json()
+    assert body["tier"] == "seeded"
+    assert body["rate_limit_override"] == 7500
+    assert body["calls_limit"] == 7500
+    assert "seeded access" in body["access_note"].lower()
+    # Still no key material, which is the one thing this response must never
+    # start carrying however much else it says.
+    assert key not in str(body)
+    assert body["api_key_prefix"] == key[:8]
+
+
+def test_user_status_unchanged_for_free_tier(client):
+    """The guardrail: a real account's response shape does not move."""
+    _a_company()
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": "free@example.com", "accept_terms": True},
+    )
+    head = {"X-API-Key": reg.json()["api_key"]}
+    body = client.get("/api/user/status", headers=head).json()
+
+    assert body["tier"] == "free"
+    assert "rate_limit_override" not in body
+    assert "access_note" not in body
+    assert body["email"] == "free@example.com"
+
+
+def test_user_status_unchanged_for_paid_tier(client):
+    _a_company()
+    reg = client.post(
+        "/api/auth/register",
+        json={"email": "paid@example.com", "accept_terms": True},
+    )
+    head = {"X-API-Key": reg.json()["api_key"]}
+    from src import accounts
+
+    accounts.apply_admin_action("paid@example.com", "grant_pro", "test")
+
+    body = client.get("/api/user/status", headers=head).json()
+    assert body["tier"] == "pro"
+    assert "rate_limit_override" not in body
+    assert "access_note" not in body
