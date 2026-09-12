@@ -217,10 +217,9 @@ def render_methodology(*, nav: str = "") -> str:
         "How We Verify Every Number — To Scale",
         body,
         description=(
-            "How every balance sheet is verified against Assets = Liabilities "
-            "+ Equity, and what happens when one does not balance: the exact "
-            "reason is flagged — noncontrolling interests, mezzanine equity, "
-            "rounding, an unread tag or a broken filing — never silently fudged."
+            "Every SEC filing is verified against A = L + E. Filings that do "
+            "not balance are flagged with the reason, never silently fudged. "
+            "The counts are public."
         ),
         canonical="/methodology",
         ld=breadcrumb_ld([("Home", "/"), ("Methodology", "/methodology")])

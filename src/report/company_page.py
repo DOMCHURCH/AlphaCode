@@ -359,10 +359,11 @@ def _company_meta(d: dict[str, Any]) -> str:
     name = d["company_name"] or d["ticker"]
     total = d.get("total_assets")
     size = f" Total assets {money(total)}." if total else ""
+    # Under 155 characters so Google shows the whole thing. The company name
+    # and the figure lead, because those are what the searcher typed.
     desc = (
-        f"{name} ({d['ticker']}) balance sheet as filed with the SEC for the "
-        f"period ended {d['period_end']}, drawn to scale.{size} As-reported "
-        f"XBRL figures reconciled with the accounting identity."
+        f"{name} ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
+        f"scale.{size} As filed with the SEC, checked against A = L + E."
     )
     url = f"{SITE_ORIGIN}/company/{d['ticker']}"
     crumbs = breadcrumb_ld(

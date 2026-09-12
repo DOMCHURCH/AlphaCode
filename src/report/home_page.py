@@ -1074,10 +1074,8 @@ def render_home(
         "To Scale — Reconciled SEC Balance Sheet API",
         body,
         description=(
-            "Reconciled balance sheet data from SEC EDGAR "
-            "filings. Most providers pick the wrong XBRL tag for Total Assets "
-            "— JPMorgan reports it 23 ways. We use A = L + E to select the "
-            f"right one.{scale}"
+            "Balance sheets from SEC EDGAR, every one checked against "
+            f"A = L + E. Exceptions flagged with the reason.{scale}"
         ),
         canonical="/",
         ld=organization_ld() + software_ld(),
