@@ -62,6 +62,22 @@ class UniverseSnapshot(Base):
     sector_source: Mapped[str | None] = mapped_column(String(8))
     industry: Mapped[str | None] = mapped_column(String(128))
     cik: Mapped[str | None] = mapped_column(String(16))
+    # The name this filer reported under before the current one, and the date
+    # that name stopped being in force. Both nullable and both from SEC's
+    # `formerNames`.
+    #
+    # Kept HERE, beside `name`, because it is the same fact about the same
+    # registrant and the company page already reads this row -- so showing it
+    # costs no extra query. The alternative was a second table and a second
+    # read on the hot path, to display one line.
+    #
+    # It matters because `name` is SEC's CURRENT name for a CIK while the
+    # filings on the page are whatever was filed earlier: Equity Residential's
+    # balance sheets render under "VIVMARK RESIDENTIAL", which is correct and
+    # unrecognisable. SEC has the same problem and does not solve it --
+    # `companyfacts` labels those identical facts with the new name too.
+    former_name: Mapped[str | None] = mapped_column(String(256))
+    former_name_until: Mapped[dt.date | None] = mapped_column(Date)
     market_cap: Mapped[float | None] = mapped_column(Float)
     close: Mapped[float | None] = mapped_column(Float)
     adv_20d: Mapped[float | None] = mapped_column(Float)

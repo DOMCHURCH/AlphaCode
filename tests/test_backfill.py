@@ -623,3 +623,179 @@ def test_a_blank_name_from_sec_is_left_blank_not_filled_with_the_ticker(
 
     assert report["unnamed"] == ["BLANK"]
     assert report["named"] == 0 and report["written"] == 0
+
+
+# ---------------------------------------------------------------------------
+# The name the filings were actually filed under
+# ---------------------------------------------------------------------------
+# `universe.name` is SEC's CURRENT name for a CIK, and the filings on a page
+# were filed earlier. Equity Residential renamed to Vivmark Residential on
+# 2026-08-12 and its balance sheets, all filed before that, now render under a
+# name no reader recognises. SEC does not solve this either: companyfacts
+# labels the identical facts with the new name.
+
+
+def test_the_most_recent_former_name_is_the_one_kept():
+    """Helix has two. The page has room for the one a reader might recognise,
+    and the full history is one click away on EDGAR."""
+    import datetime as dt
+
+    from src.backfill import _latest_former_name
+
+    name, until = _latest_former_name({"formerNames": [
+        {"name": "CAL DIVE INTERNATIONAL INC",
+         "from": "1996-09-04T04:00:00.000Z", "to": "2006-03-06T05:00:00.000Z"},
+        {"name": "HELIX ENERGY SOLUTIONS GROUP INC",
+         "from": "2006-03-09T05:00:00.000Z", "to": "2026-08-31T04:00:00.000Z"},
+    ]})
+    assert name == "HELIX ENERGY SOLUTIONS GROUP INC"
+    assert until == dt.date(2026, 8, 31)
+
+
+def test_a_company_that_never_renamed_records_nothing():
+    from src.backfill import _latest_former_name
+
+    assert _latest_former_name({}) == (None, None)
+    assert _latest_former_name({"formerNames": []}) == (None, None)
+    # An entry with no end date is a name still in force, not a former one.
+    assert _latest_former_name(
+        {"formerNames": [{"name": "X", "from": "2020-01-01", "to": ""}]}
+    ) == (None, None)
+    assert _latest_former_name(
+        {"formerNames": [{"name": "X", "to": "not-a-date"}]}
+    ) == (None, None)
+
+
+def test_the_former_name_is_written_onto_the_row_the_page_reads(bf_db, monkeypatch):
+    """Onto the ticker's EXISTING snapshot, never a fresh one at today's date.
+
+    `save_universe` upserts on (as_of_date, ticker), so writing at a date the
+    ticker has no row for inserts one whose name and cik are NULL -- and that
+    row, being newest, is the one the company page reads. The page would lose
+    the company's name to a change meant to show more of it.
+    """
+    import asyncio
+    import datetime as dt
+
+    from sqlalchemy import select
+
+    from src import backfill
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed_company("EQR", name="VIVMARK RESIDENTIAL", cik="906107",
+                  as_of=dt.date(2026, 9, 7))
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, cik):
+        assert str(cik) == "906107"
+        return {"formerNames": [
+            {"name": "EQUITY RESIDENTIAL", "from": "2002-11-13T05:00:00.000Z",
+             "to": "2026-08-12T04:00:00.000Z"},
+        ]}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    report = asyncio.run(backfill.backfill_former_names(rps=0))
+    assert report["named"] == 1 and report["written"] == 1
+
+    with session_scope() as s:
+        rows = list(s.execute(
+            select(UniverseSnapshot).where(UniverseSnapshot.ticker == "EQR")
+        ).scalars())
+    assert len(rows) == 1, "a second, nameless row was inserted"
+    assert rows[0].as_of_date == dt.date(2026, 9, 7)
+    assert rows[0].name == "VIVMARK RESIDENTIAL", "the current name was lost"
+    assert rows[0].former_name == "EQUITY RESIDENTIAL"
+    assert rows[0].former_name_until == dt.date(2026, 8, 12)
+
+
+def test_a_rerun_does_not_re_ask_about_companies_already_recorded(bf_db, monkeypatch):
+    import asyncio
+    import datetime as dt
+
+    from src import backfill
+
+    _seed_company("EQR", name="VIVMARK RESIDENTIAL", cik="906107",
+                  as_of=dt.date(2026, 9, 7))
+
+    calls = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, cik):
+        calls.append(str(cik))
+        return {"formerNames": [
+            {"name": "EQUITY RESIDENTIAL", "to": "2026-08-12T04:00:00.000Z"},
+        ]}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    asyncio.run(backfill.backfill_former_names(rps=0))
+    asyncio.run(backfill.backfill_former_names(rps=0))
+    assert calls == ["906107"], "the second run re-fetched a recorded company"
+
+    # ...unless asked to look again, which is what a long gap needs.
+    asyncio.run(backfill.backfill_former_names(rps=0, only_missing=False))
+    assert calls == ["906107", "906107"]
+
+
+def test_a_company_with_no_cik_is_skipped(bf_db, monkeypatch):
+    import asyncio
+    import datetime as dt
+
+    from src import backfill
+
+    _seed_company("GHOST", name="Ghost Inc", cik=None, as_of=dt.date(2026, 9, 7))
+
+    async def boom(*_a, **_k):  # pragma: no cover - must never be reached
+        raise AssertionError("SEC was called for a company with no CIK")
+
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", boom)
+    report = asyncio.run(backfill.backfill_former_names(rps=0))
+    assert report["checked"] == 0 and report["named"] == 0
+
+
+def test_sec_re_recording_the_current_name_is_not_a_rename(bf_db, monkeypatch):
+    """ADM, Cisco and Citigroup all carry a formerNames entry dated yesterday
+    whose name is what they are still called. Storing those would put
+    "formerly <the current name>" under hundreds of headings."""
+    import asyncio
+    import datetime as dt
+
+    from src import backfill
+
+    _seed_company("ADM", name="Archer-Daniels-Midland Co", cik="7084",
+                  as_of=dt.date(2026, 9, 7))
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, _cik):
+        return {"formerNames": [
+            {"name": "Archer-Daniels-Midland Co", "to": "2026-09-11T04:00:00.000Z"},
+        ]}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    report = asyncio.run(backfill.backfill_former_names(rps=0))
+    assert report["checked"] == 1
+    assert report["named"] == 0, "a same-name entry was stored as a rename"

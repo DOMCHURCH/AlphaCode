@@ -123,6 +123,11 @@ class View1:
     total_liabilities: float | None = None
     total_equity: float | None = None
     missing_components: list[str] = field(default_factory=list)
+    # SEC's previous name for this registrant, and when it stopped applying.
+    # Defaulted because every construction predates them and a missing former
+    # name is the ordinary case, not an error.
+    former_name: str | None = None
+    former_name_until: dt.date | None = None
     # Set when total liabilities was computed from the identity rather than
     # read off the filing. Never left implicit.
     liabilities_derived_from: str | None = None
@@ -180,6 +185,11 @@ class View1:
         return {
             "ticker": self.ticker,
             "company_name": self.company_name,
+            "former_name": self.former_name,
+            "former_name_until": (
+                self.former_name_until.isoformat()
+                if self.former_name_until else None
+            ),
             "sector": self.sector,
             "period_end": self.period_end.isoformat(),
             "filing_date": self.filing_date.isoformat(),
@@ -261,6 +271,8 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     view = View1(
         ticker=bs.ticker,
         company_name=bs.company_name,
+        former_name=bs.former_name,
+        former_name_until=bs.former_name_until,
         sector=sector,
         period_end=bs.period_end,
         filing_date=bs.filing_date,

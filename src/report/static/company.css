@@ -181,6 +181,13 @@ main{padding:6px 0 72px}
   color:var(--ink2);margin:0 0 6px}
 .cname{font-size:clamp(26px,7vw,38px);line-height:1.06;font-weight:600;
   letter-spacing:-.03em;margin:0 0 16px}
+/* Sits between the heading and the chips: the name the filings on this page
+   were actually filed under, when SEC's current name for the CIK is a later
+   one. Subdued, because it is context for the heading rather than a caveat
+   about the figures. */
+.cformer{font-family:var(--mono);font-size:11.5px;letter-spacing:.02em;
+  color:var(--ink2);margin:-8px 0 14px}
+.cformer b{font-weight:700;color:var(--ink)}
 .cmeta{display:flex;flex-wrap:wrap;gap:8px}
 /* Shown only when the URL's symbol is not the one the filings are stored
    under: a share class, or a registrant that renamed and took a new ticker.

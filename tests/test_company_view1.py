@@ -472,3 +472,44 @@ def test_the_page_says_the_two_symbols_are_one_filer(db):
     # And nothing is said when the URL already names the canonical ticker.
     plain = render_company_page(view, requested_ticker="EQR")
     assert "same registrant" not in plain
+
+
+def test_the_page_shows_the_name_the_filings_were_filed_under(db):
+    """A renamed registrant renders under SEC's current name. The former name
+    is what makes the page recognisable to somebody looking for the company
+    that actually filed it."""
+    import datetime as dt
+
+    from src.company.view1 import build_view1
+    from src.report.company_page import render_company_page
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed_filer("EQR", "906107", in_sector_map=True)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date(2026, 9, 7), ticker="EQR",
+            name="VIVMARK RESIDENTIAL", cik="906107",
+            former_name="EQUITY RESIDENTIAL",
+            former_name_until=dt.date(2026, 8, 12),
+        ))
+
+    view = build_view1("EQR")
+    assert view.company_name == "VIVMARK RESIDENTIAL"
+    assert view.former_name == "EQUITY RESIDENTIAL"
+
+    html = render_company_page(view)
+    assert "VIVMARK RESIDENTIAL" in html
+    assert "formerly" in html
+    assert "EQUITY RESIDENTIAL" in html
+    assert "until 2026" in html
+
+
+def test_a_company_that_never_renamed_gets_no_former_line(db):
+    from src.company.view1 import build_view1
+    from src.report.company_page import render_company_page
+
+    _seed_filer("AAPL", "320193")
+    view = build_view1("AAPL")
+    assert view.former_name is None
+    assert "formerly" not in render_company_page(view)

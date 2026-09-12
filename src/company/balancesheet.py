@@ -87,6 +87,11 @@ class BalanceSheet:
     """Complete balance sheet for a company as of a date."""
     ticker: str
     company_name: str | None
+    # SEC's previous name for this CIK, and when it stopped applying. The
+    # page shows them because `company_name` is today's name over filings
+    # made under the old one.
+    former_name: str | None
+    former_name_until: dt.date | None
     period_end: dt.date
     filing_date: dt.date
     assets: dict[str, BalanceSheetValue]  # concept -> value
@@ -173,6 +178,8 @@ def get_balance_sheet(
 
         # Get company name from universe
         company_name = None
+        former_name = None
+        former_name_until = None
         univ = session.execute(
             select(UniverseSnapshot)
             .where(UniverseSnapshot.ticker == ticker.upper())
@@ -186,6 +193,8 @@ def get_balance_sheet(
             # AttributeError for any ticker actually present in the universe
             # table -- invisible in tests only because that table was empty.
             company_name = univ.name
+            former_name = univ.former_name
+            former_name_until = univ.former_name_until
 
         # Get fundamentals for this ticker, most recent period first
         from sqlalchemy import and_
@@ -333,6 +342,8 @@ def get_balance_sheet(
         return BalanceSheet(
             ticker=ticker.upper(),
             company_name=company_name,
+            former_name=former_name,
+            former_name_until=former_name_until,
             period_end=period_end,
             filing_date=filing_date,
             assets=assets,

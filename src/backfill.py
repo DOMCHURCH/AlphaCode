@@ -1117,6 +1117,147 @@ async def backfill_missing_company_names(
     }
 
 
+async def backfill_former_names(
+    *, limit: int | None = None, rps: float = _NAME_FALLBACK_RPS,
+    only_missing: bool = True,
+) -> dict[str, Any]:
+    """Record the name each drawable company filed under before its current one.
+
+    `universe.name` is SEC's CURRENT name for a CIK. The filings on a company
+    page were filed earlier, sometimes under a different name, and a rename is
+    invisible in the data: Equity Residential's balance sheets now render under
+    "VIVMARK RESIDENTIAL" with nothing on the page connecting the two. SEC has
+    the same problem and does not solve it -- `companyfacts` labels those
+    identical facts with the new name as well -- so the former name has to be
+    fetched and stored, or the page cannot show it.
+
+    One submissions request per company, which is why this is a periodic job
+    and not something a page render does. Paced at 5 requests/second against
+    SEC's limit of 10.
+
+    `only_missing` skips companies that already have a former name recorded, so
+    a re-run costs requests only for the ones it has never asked about. Pass
+    False after a long gap, when a company may have renamed since.
+
+    Writes NOTHING when SEC reports no former name. The absence is the common
+    case -- most companies have never renamed -- and a blank is the honest
+    representation of it.
+    """
+    from sqlalchemy import select
+
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as session:
+        drawable = {
+            t for (t,) in session.execute(
+                select(Fundamental.ticker)
+                .where(Fundamental.metric == "total_assets", Fundamental.value > 0)
+                .distinct()
+            )
+        }
+        latest: dict[str, tuple[dt.date, str | None, str | None, str | None]] = {}
+        for ticker, as_of, cik, former, name in session.execute(
+            select(
+                UniverseSnapshot.ticker, UniverseSnapshot.as_of_date,
+                UniverseSnapshot.cik, UniverseSnapshot.former_name,
+                UniverseSnapshot.name,
+            )
+        ):
+            seen = latest.get(ticker)
+            if seen is None or as_of > seen[0]:
+                latest[ticker] = (as_of, cik, former, name)
+
+    targets: list[tuple[str, str, dt.date, str]] = []
+    for ticker in sorted(drawable):
+        row = latest.get(ticker)
+        if row is None or not row[1]:
+            continue
+        if only_missing and (row[2] or "").strip():
+            continue
+        targets.append((ticker, str(row[1]).strip(), row[0], row[3] or ""))
+    if limit is not None:
+        targets = targets[:limit]
+
+    log.info("former_names_start", candidates=len(targets))
+    if not targets:
+        return {"checked": 0, "named": 0, "written": 0}
+
+    delay = 1.0 / rps if rps > 0 else 0.0
+    # Keyed by the snapshot date each ticker's newest row already sits on.
+    # NOT today's: `save_universe` upserts on (as_of_date, ticker), so writing
+    # a former name at a date a ticker has no row for would INSERT one whose
+    # `name` and `cik` are NULL -- and that row, being the newest, is the one
+    # the company page reads. The page would lose the company's name to a
+    # change whose entire purpose is showing more of it.
+    by_date: dict[dt.date, list[dict[str, Any]]] = {}
+    named = 0
+    async with sec_edgar.make_client(concurrency=1) as client:
+        for ticker, cik, as_of, current in targets:
+            try:
+                payload = await sec_edgar.fetch_submissions(client, cik)
+            except Exception as exc:  # noqa: BLE001 - one bad CIK is survivable
+                log.warning("former_name_fetch_failed", ticker=ticker,
+                            cik=cik, error=str(exc)[:200])
+                await asyncio.sleep(delay)
+                continue
+            former, until = _latest_former_name(payload)
+            # SEC re-records the SAME name as a formerNames entry surprisingly
+            # often -- ADM, CSCO and Citigroup all carry one dated yesterday
+            # whose name is what they are still called. Storing those would
+            # fill the column with "formerly <the current name>" for hundreds
+            # of companies that have never renamed.
+            if former and former.strip().upper() == current.strip().upper():
+                former = None
+            if former:
+                by_date.setdefault(as_of, []).append({
+                    "ticker": ticker, "former_name": former[:256],
+                    "former_name_until": until,
+                })
+                named += 1
+            await asyncio.sleep(delay)
+
+    written = 0
+    for as_of, rows in by_date.items():
+        for i in range(0, len(rows), 2000):
+            with session_scope() as session:
+                written += repository.save_universe(
+                    session, as_of, rows[i : i + 2000]
+                )
+
+    log.info("former_names_done", named=named, written=written)
+    return {"checked": len(targets), "named": named, "written": written}
+
+
+def _latest_former_name(
+    payload: Mapping[str, Any],
+) -> tuple[str | None, dt.date | None]:
+    """The most recent entry in SEC's `formerNames`, and when it lapsed.
+
+    The most recent one, not all of them: the page has room for the name a
+    reader might recognise, and for Helix that is "HELIX ENERGY SOLUTIONS
+    GROUP INC" rather than also "CAL DIVE INTERNATIONAL INC" from 2006. The
+    full history stays one click away on EDGAR.
+
+    Pure, so it can be tested without a network.
+    """
+    best_name: str | None = None
+    best_until: dt.date | None = None
+    for entry in ((payload or {}).get("formerNames") or []):
+        if not isinstance(entry, Mapping):
+            continue
+        name = str(entry.get("name") or "").strip()
+        raw = str(entry.get("to") or "")[:10]
+        if not name or not raw:
+            continue
+        try:
+            until = dt.date.fromisoformat(raw)
+        except ValueError:
+            continue
+        if best_until is None or until > best_until:
+            best_name, best_until = name, until
+    return best_name, best_until
+
+
 def canonical_of(tickers: Iterable[str]) -> str:
     """The one ticker a CIK's rows are stored under, given several candidates.
 
@@ -1491,6 +1632,11 @@ def main() -> None:
         help="cap the number of companies for the fundamentals/sector pass",
     )
     parser.add_argument(
+        "--former-names", action="store_true",
+        help="record each drawable company's previous SEC name, so a page "
+             "renamed out from under its filings still shows the old one",
+    )
+    parser.add_argument(
         "--repair-names", action="store_true",
         help="name drawable companies company_tickers.json does not list "
              "(SEC submissions API, one request per company)",
@@ -1515,6 +1661,9 @@ def main() -> None:
             log.info("company_names_repaired", **{
                 k: v for k, v in report.items() if k not in ("no_cik", "unnamed")
             })
+        if args.former_names:
+            log.info("former_names_recorded",
+                     **await backfill_former_names(limit=args.limit))
 
     asyncio.run(run())
 

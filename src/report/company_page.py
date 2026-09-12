@@ -541,6 +541,22 @@ def render_company_page(
         f'<span class="chip">{escape(d["sector"])}</span>' if d["sector"] else ""
     )
 
+    # `company_name` is SEC's CURRENT name for this CIK, and the filings below
+    # it were filed under whatever the name was at the time. For a registrant
+    # that renamed recently those are different companies to a reader:
+    # Equity Residential's balance sheets render under "VIVMARK RESIDENTIAL",
+    # which is accurate and unrecognisable. The former name is the line that
+    # makes the page findable by the name the filings were actually filed
+    # under. Rendered only when SEC has one, and never invented.
+    formerly = ""
+    former = (d.get("former_name") or "").strip()
+    if former and former.upper() != str(d["company_name"] or "").upper():
+        until = (d.get("former_name_until") or "")[:4]
+        when = f" until {escape(until)}" if until else ""
+        formerly = (
+            f'<p class="cformer">formerly <b>{escape(former)}</b>{when}</p>'
+        )
+
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -577,6 +593,7 @@ def render_company_page(
   <header class="chead">
     {eyebrow}
     <h1 class="cname">{name}</h1>
+    {formerly}
     <div class="cmeta">
       {sector}
       <span class="chip">Quarter ended {escape(d["period_end"])}</span>
