@@ -18,6 +18,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import datetime as dt
+import time
 from collections.abc import Iterable, Mapping
 from pathlib import Path
 from typing import Any
@@ -1124,7 +1125,8 @@ async def backfill_missing_company_names(
 
 async def backfill_former_names(
     *, limit: int | None = None, rps: float = _NAME_FALLBACK_RPS,
-    only_missing: bool = True,
+    only_missing: bool = True, concurrency: int = 5,
+    deadline_s: float | None = 300.0,
 ) -> dict[str, Any]:
     """Record the name each drawable company filed under before its current one.
 
@@ -1137,8 +1139,17 @@ async def backfill_former_names(
     fetched and stored, or the page cannot show it.
 
     One submissions request per company, which is why this is a periodic job
-    and not something a page render does. Paced at 5 requests/second against
-    SEC's limit of 10.
+    and not something a page render does. Requests go out CONCURRENTLY against
+    one shared token bucket capped at 5/second, so the ceiling is a property of
+    the run rather than of each request. The first version issued them one at a
+    time with a sleep between, which meant the rate was bounded by SEC's
+    round-trip latency rather than by the limiter: 6,184 companies took 84
+    minutes and had not finished. The same work through the bucket takes
+    seconds per hundred.
+
+    `deadline_s` stops it rather than letting it run on. At the deadline it
+    writes what it has and reports the rest, because a job with no bound is one
+    that gets killed by something else and reports nothing.
 
     `only_missing` skips companies that already have a former name recorded, so
     a re-run costs requests only for the ones it has never asked about. Pass
@@ -1217,15 +1228,43 @@ async def backfill_former_names(
         by_date.clear()
         return done
 
-    async with sec_edgar.make_client(concurrency=1) as client:
-        for ticker, cik, as_of, current in targets:
-            try:
-                payload = await sec_edgar.fetch_submissions(client, cik)
-            except Exception as exc:  # noqa: BLE001 - one bad CIK is survivable
-                log.warning("former_name_fetch_failed", ticker=ticker,
-                            cik=cik, error=str(exc)[:200])
-                await asyncio.sleep(delay)
-                continue
+    started = time.monotonic()
+    gate = asyncio.Semaphore(max(1, concurrency))
+    next_slot = started
+    slot_lock = asyncio.Lock()
+    unreached: list[str] = []
+
+    async def take_a_token() -> None:
+        """One shared bucket. Every worker draws from it, so N workers make N
+        requests no faster than the whole run is allowed to."""
+        nonlocal next_slot
+        async with slot_lock:
+            now = time.monotonic()
+            wait = max(0.0, next_slot - now)
+            next_slot = max(now, next_slot) + delay
+        if wait:
+            await asyncio.sleep(wait)
+
+    async with sec_edgar.make_client(concurrency=concurrency) as client:
+        async def one(ticker: str, cik: str, as_of: dt.date, current: str) -> None:
+            nonlocal named, written
+            # Checked INSIDE the gate, not before it. `asyncio.gather` starts
+            # every coroutine at once, so a check at task entry runs while the
+            # clock still reads zero for all of them and the deadline stops
+            # nothing. Here it runs when this request is about to go out,
+            # which is the moment the budget actually applies to.
+            async with gate:
+                if (deadline_s is not None
+                        and time.monotonic() - started > deadline_s):
+                    unreached.append(ticker)
+                    return
+                await take_a_token()
+                try:
+                    payload = await sec_edgar.fetch_submissions(client, cik)
+                except Exception as exc:  # noqa: BLE001 - one bad CIK survives
+                    log.warning("former_name_fetch_failed", ticker=ticker,
+                                cik=cik, error=str(exc)[:200])
+                    return
             former, until = _latest_former_name(payload)
             # SEC re-records the SAME name as a formerNames entry surprisingly
             # often -- ADM, CSCO and Citigroup all carry one dated yesterday
@@ -1234,21 +1273,29 @@ async def backfill_former_names(
             # of companies that have never renamed.
             if former and former.strip().upper() == current.strip().upper():
                 former = None
-            if former:
-                by_date.setdefault(as_of, []).append({
-                    "ticker": ticker, "former_name": former[:256],
-                    "former_name_until": until,
-                })
-                named += 1
-                if sum(len(v) for v in by_date.values()) >= _FORMER_NAME_FLUSH:
-                    written += _flush()
-                    log.info("former_names_progress", named=named,
-                             written=written)
-            await asyncio.sleep(delay)
+            if not former:
+                return
+            by_date.setdefault(as_of, []).append({
+                "ticker": ticker, "former_name": former[:256],
+                "former_name_until": until,
+            })
+            named += 1
+            if sum(len(v) for v in by_date.values()) >= _FORMER_NAME_FLUSH:
+                written += _flush()
+                log.info("former_names_progress", named=named, written=written)
+
+        await asyncio.gather(*(
+            one(t, c, a, cur) for t, c, a, cur in targets
+        ))
 
     written += _flush()
-    log.info("former_names_done", named=named, written=written)
-    return {"checked": len(targets), "named": named, "written": written}
+    if unreached:
+        log.warning("former_names_deadline", unreached=len(unreached),
+                    seconds=round(time.monotonic() - started, 1))
+    log.info("former_names_done", named=named, written=written,
+             unreached=len(unreached))
+    return {"checked": len(targets) - len(unreached), "named": named,
+            "written": written, "unreached": sorted(unreached)}
 
 
 def _latest_former_name(

@@ -799,3 +799,88 @@ def test_sec_re_recording_the_current_name_is_not_a_rename(bf_db, monkeypatch):
     report = asyncio.run(backfill.backfill_former_names(rps=0))
     assert report["checked"] == 1
     assert report["named"] == 0, "a same-name entry was stored as a rename"
+
+
+def test_the_shared_bucket_paces_the_whole_run_not_each_worker(bf_db, monkeypatch):
+    """Five workers against one bucket must still respect the run's ceiling.
+
+    The version this replaces slept between sequential requests, so the rate
+    was set by SEC's round-trip latency rather than by the limiter: 6,184
+    companies took 84 minutes and did not finish.
+    """
+    import asyncio
+    import datetime as dt
+    import time
+
+    from src import backfill
+
+    for i in range(12):
+        _seed_company(f"T{i:02d}", name=f"Co {i}", cik=f"{1000 + i}",
+                      as_of=dt.date(2026, 9, 7))
+
+    stamps = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, _cik):
+        stamps.append(time.monotonic())
+        await asyncio.sleep(0.05)      # stand in for SEC's latency
+        return {"formerNames": [{"name": "Old Co", "to": "2026-08-01"}]}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    # 20/sec, so 12 requests should need at least 11 intervals of 0.05s.
+    began = time.monotonic()
+    report = asyncio.run(backfill.backfill_former_names(rps=20.0, concurrency=5))
+    took = time.monotonic() - began
+
+    assert report["named"] == 12
+    assert len(stamps) == 12
+    assert took >= 11 * 0.05, "the bucket did not bound the run"
+    # ...and concurrency actually helped: serialised, 12 x 0.05s of latency on
+    # top of the pacing would take roughly twice as long.
+    assert took < 12 * (0.05 + 0.05), "requests were not overlapped"
+
+
+def test_the_deadline_stops_it_and_says_what_is_left(bf_db, monkeypatch):
+    """A job with no bound is one that gets killed by something else and
+    reports nothing."""
+    import asyncio
+    import datetime as dt
+
+    from src import backfill
+
+    for i in range(6):
+        _seed_company(f"D{i:02d}", name=f"Co {i}", cik=f"{2000 + i}",
+                      as_of=dt.date(2026, 9, 7))
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, _cik):
+        await asyncio.sleep(0.05)      # each one outlasts the deadline
+        return {"formerNames": [{"name": "Old Co", "to": "2026-08-01"}]}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    # One at a time, so the first request alone spends the whole budget and
+    # everything behind it is abandoned rather than started.
+    report = asyncio.run(
+        backfill.backfill_former_names(rps=1000.0, concurrency=1, deadline_s=0.02)
+    )
+    assert report["named"] < 6, "the deadline did not stop anything"
+    assert report["unreached"], "the remainder was not reported"
+    assert report["named"] + len(report["unreached"]) == 6, (
+        "a company was neither fetched nor reported as unreached"
+    )
