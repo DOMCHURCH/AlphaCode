@@ -500,9 +500,9 @@ def test_the_page_shows_the_name_the_filings_were_filed_under(db):
 
     html = render_company_page(view)
     assert "VIVMARK RESIDENTIAL" in html
-    assert "formerly" in html
+    assert "filed as" in html
     assert "EQUITY RESIDENTIAL" in html
-    assert "until 2026" in html
+    assert "2026-08-12" in html
 
 
 def test_a_company_that_never_renamed_gets_no_former_line(db):
@@ -513,3 +513,31 @@ def test_a_company_that_never_renamed_gets_no_former_line(db):
     view = build_view1("AAPL")
     assert view.former_name is None
     assert "formerly" not in render_company_page(view)
+
+
+def test_a_rename_that_predates_the_filing_is_not_mentioned(db):
+    """SEC's formerNames covers the whole life of a CIK. Apple was "APPLE INC"
+    until 2019 and NVIDIA "NVIDIA CORP/CA" until 2002 -- both true, neither
+    anything to do with a 2026 balance sheet. The line exists to reconcile a
+    heading with the filings under it, so it only earns its place when those
+    filings were made under the old name."""
+    import datetime as dt
+
+    from src.company.view1 import build_view1
+    from src.report.company_page import render_company_page
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed_filer("AAPL", "320193", in_sector_map=True)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date(2026, 9, 7), ticker="AAPL", name="Apple Inc.",
+            cik="320193", former_name="APPLE INC",
+            former_name_until=dt.date(2019, 1, 1),
+        ))
+
+    view = build_view1("AAPL")
+    assert view.former_name == "APPLE INC", "the record itself still stands"
+    html = render_company_page(view)
+    assert "filed as" not in html
+    assert "APPLE INC" not in html

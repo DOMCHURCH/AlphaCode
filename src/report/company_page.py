@@ -548,13 +548,27 @@ def render_company_page(
     # which is accurate and unrecognisable. The former name is the line that
     # makes the page findable by the name the filings were actually filed
     # under. Rendered only when SEC has one, and never invented.
+    #
+    # Shown only when THESE figures were filed under the old name, which is
+    # `filing_date <= former_name_until`. Without that test the line is
+    # trivia on almost every page: SEC's formerNames covers the whole life of
+    # a CIK, so Apple carried "formerly APPLE INC until 2019" and NVIDIA
+    # "formerly NVIDIA CORP/CA until 2002" -- true, and nothing to do with the
+    # balance sheet underneath. Of 2,400 companies with a former name on
+    # record, 56 have one that postdates the filing on their page.
     formerly = ""
     former = (d.get("former_name") or "").strip()
-    if former and former.upper() != str(d["company_name"] or "").upper():
-        until = (d.get("former_name_until") or "")[:4]
-        when = f" until {escape(until)}" if until else ""
+    until = (d.get("former_name_until") or "")
+    filed = str(d.get("filing_date") or "")
+    renamed_after_this_filing = bool(until) and bool(filed) and filed <= until
+    if (
+        former
+        and renamed_after_this_filing
+        and former.upper() != str(d["company_name"] or "").upper()
+    ):
         formerly = (
-            f'<p class="cformer">formerly <b>{escape(former)}</b>{when}</p>'
+            f'<p class="cformer">These figures were filed as '
+            f"<b>{escape(former)}</b>, renamed {escape(until[:10])}.</p>"
         )
 
     return f"""<!DOCTYPE html>
