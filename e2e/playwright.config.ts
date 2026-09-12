@@ -1,6 +1,15 @@
+import { mkdirSync } from 'node:fs';
+
 import { defineConfig, devices } from '@playwright/test';
 
-import { SERVER_ENV } from './server-env';
+import { DATA_DIR, SERVER_ENV } from './server-env';
+
+// Here rather than in globalSetup, which Playwright runs AFTER it launches
+// the server. The suite passed either way, but a server booting against a
+// directory that does not exist yet logs a screenful of "unable to open
+// database file" first, and a contributor's first run should not open with
+// errors that turn out not to matter.
+mkdirSync(DATA_DIR, { recursive: true });
 
 /**
  * The dashboard's API-key flow lives almost entirely in the browser, which is

@@ -1,7 +1,6 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync } from 'node:fs';
 
-import { DATA_DIR, REPO_ROOT, SERVER_ENV } from './server-env';
+import { REPO_ROOT, SERVER_ENV } from './server-env';
 
 /**
  * Make the database the server is about to use, and put the schema in it.
@@ -10,7 +9,8 @@ import { DATA_DIR, REPO_ROOT, SERVER_ENV } from './server-env';
  * answers 500 and the key box stays on its em-dash placeholder.
  *
  * 1. SQLite creates the FILE but never the folder above it, so the data
- *    directory has to exist first.
+ *    directory has to exist first -- made in playwright.config.ts, which is
+ *    loaded before the server is launched, unlike this.
  * 2. The API binds and answers /health BEFORE `init_db` has finished --
  *    deliberately, so a slow Postgres cannot fail a healthcheck in
  *    production. /health then returns 200 with `database: degraded`, and
@@ -25,8 +25,6 @@ import { DATA_DIR, REPO_ROOT, SERVER_ENV } from './server-env';
  * pass is then a no-op.
  */
 export default function globalSetup(): void {
-  mkdirSync(DATA_DIR, { recursive: true });
-
   execFileSync('python', ['-m', 'src.migrate'], {
     cwd: REPO_ROOT,
     env: { ...process.env, ...SERVER_ENV },
