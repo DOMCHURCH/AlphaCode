@@ -215,7 +215,7 @@ def test_every_page_that_belongs_in_it_is_in_it(full):
     from src.report.compare import PAGES as COMPARISONS
 
     for path in ("/", "/methodology", "/pricing", "/api"):
-        assert f"Source: http://testserver{path}\n" in full, f"{path} missing"
+        assert f"URL: http://testserver{path}\n" in full, f"{path} missing"
     for post in POSTS:
         assert f"/blog/{post.slug}\n" in full, f"{post.slug} missing"
     for page in COMPARISONS:
@@ -264,7 +264,7 @@ def test_no_company_gets_a_section_of_its_own(client):
     """
     _seed_balanced()
     text = client.get("/llms-full.txt").text
-    assert "Source: http://testserver/company/" not in text
+    assert "URL: http://testserver/company/" not in text
 
 
 def test_a_drawing_stays_on_the_page_and_the_prose_around_it_comes_here():

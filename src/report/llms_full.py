@@ -253,8 +253,12 @@ def render(sections: list[tuple[str, str]], *, origin: str) -> str:
     for path, html in sections:
         heading, body = page_text(html)
         parts.append(
+            # "URL:" and not "Source:", which is what the home page's own
+            # status strip calls the thing it reads: "Source: SEC EDGAR". Two
+            # different claims must not be written the same way in a file
+            # whose whole purpose is to be quoted.
             f"## {heading or path}\n"
-            f"Source: {origin}{path}\n\n"
+            f"URL: {origin}{path}\n\n"
             f"{body}\n"
         )
     return _BLANK_RUN.sub("\n\n", "\n\n".join(parts)).strip() + "\n"
