@@ -34,6 +34,12 @@ class Post:
     # others. Keeping them separate is the difference between the two jobs.
     seo_title: str
     description: str
+    # What the INDEX says about this post, which is not the meta description.
+    # A meta description is written to be read in a result list beside nine
+    # others and has 155 characters to work in; this is read by somebody
+    # already on the page, deciding which of five to open. Same distinction
+    # as `title` and `seo_title`, for the same reason.
+    summary: str
     published: str
     updated: str
     minutes: int
@@ -48,6 +54,12 @@ _POST_XBRL_ACCURACY = Post(
         "JPMorgan reports Total Assets 23 different ways in a single filing. "
         "Most SEC filings APIs pick one at random and are wrong roughly one "
         "filing in five. Here is why, and how the accounting identity fixes it."
+    ),
+    summary=(
+        "JPMorgan tags Total Assets 23 times in one filing and exactly one "
+        "of them is the bank. This is how a parser picks the wrong one "
+        "without ever raising an error, and what the accounting identity "
+        "does about it."
     ),
     published="2026-09-09",
     updated="2026-09-09",
@@ -212,6 +224,12 @@ _POST_BANK_BALANCE_SHEETS = Post(
         "liabilities, loans are assets, and equity is a sliver. What that "
         "means when you read JPM, BAC or WFC at true proportion."
     ),
+    summary=(
+        "A bank runs on roughly ten cents of equity per dollar of assets, "
+        "where a software company might run on sixty. Why that is the "
+        "business rather than a warning sign, and what it looks like drawn "
+        "at true proportion."
+    ),
     published="2026-09-10",
     updated="2026-09-10",
     minutes=5,
@@ -320,6 +338,12 @@ _POST_ACCOUNTING_IDENTITY = Post(
         "Assets = Liabilities + Equity is not a rule filers follow. It is a "
         "consequence of double-entry bookkeeping, which is what makes it "
         "usable as a test on data you did not produce."
+    ),
+    summary=(
+        "Assets = Liabilities + Equity is not a guideline, it is what makes "
+        "the document a balance sheet. That makes it a test you can run "
+        "against data you did not produce, including on companies with "
+        "negative equity."
     ),
     published="2026-09-10",
     updated="2026-09-10",
@@ -431,6 +455,12 @@ _POST_EDGAR_PIPELINE = Post(
         "second, and time.sleep(0.1) does not stop it once you add a second "
         "worker. The User-Agent rule, a shared token bucket, and the bulk "
         "loads that replace the crawl."
+    ),
+    summary=(
+        "Three IP bans, and none of them were going too fast. The "
+        "User-Agent rule, why time.sleep(0.1) stops working the moment you "
+        "add a second worker, and the bulk loads that make the rate limiter "
+        "almost irrelevant."
     ),
     published="2026-09-12",
     updated="2026-09-12",
@@ -672,6 +702,12 @@ _POST_DUPLICATE_TAGS = Post(
         "fails silently, and a five minute test you can run against your own "
         "data."
     ),
+    summary=(
+        "The consolidated figure in an XBRL filing is the one with no "
+        "dimensions attached, so the right answer is defined by an absence. "
+        "A five minute test you can run against your own data to find out "
+        "which one you have."
+    ),
     published="2026-09-12",
     updated="2026-09-12",
     minutes=6,
@@ -875,7 +911,7 @@ def render_index(*, nav: str = "") -> str:
         f"""
       <li class="post-item">
         <a class="post-link" href="/blog/{escape(p.slug)}">{escape(p.title)}</a>
-        <p class="post-desc">{escape(p.description)}</p>
+        <p class="post-desc">{escape(p.summary)}</p>
         <p class="post-meta">{escape(p.published)} · {p.minutes} min read</p>
       </li>"""
         for p in POSTS
@@ -889,6 +925,19 @@ def render_index(*, nav: str = "") -> str:
       surprising.</p>
   </header>
   <section class="sec">
+    <p class="sec-sub">These are working notes rather than articles: each one
+      starts from something that broke while I was building
+      <a href="/">To Scale</a> and works out why. Most of them are about XBRL,
+      because XBRL is where the surprises are. A filing can report the same
+      figure twenty-three times, all of them correct, and hand you the wrong
+      one without raising anything.</p>
+    <p class="sec-sub">The recurring theme is that bad financial data almost
+      never looks bad. It arrives as a plausible number from a real filing,
+      which is why every note here ends in a check you can run yourself rather
+      than a claim you have to take. Where there is code, it is the code this
+      site actually runs. Where there is a figure, it is counted live or it is
+      not published: the <a href="/methodology">methodology page</a> shows
+      what is checked and what is currently failing.</p>
     <ul class="post-list">{items}</ul>
   </section>
 {footer}
