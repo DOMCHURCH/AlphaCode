@@ -894,6 +894,11 @@ _NAME_FALLBACK_RPS = 5.0
 # there is no rule: nothing in the data distinguishes "the name is RH" from
 # "the name was never loaded" except knowing that RH is a company called RH.
 # Three names, checked by hand against their filings.
+# How many former names to hold before writing them. Small enough that an
+# interrupted run has left most of its work behind, large enough that the
+# write is not one statement per company.
+_FORMER_NAME_FLUSH = 50
+
 _NAME_IS_THE_TICKER: frozenset[str] = frozenset({
     "RH",     # RH, formerly Restoration Hardware
     "CTW",    # CTW Cayman
@@ -1191,6 +1196,27 @@ async def backfill_former_names(
     # change whose entire purpose is showing more of it.
     by_date: dict[dt.date, list[dict[str, Any]]] = {}
     named = 0
+    written = 0
+
+    def _flush() -> int:
+        """Persist what has been fetched so far and forget it.
+
+        Called periodically rather than once at the end. This job is ~6,000
+        sequential requests at 5/second, so it runs for the better part of an
+        hour; holding every result until the last one means a disconnect an
+        hour in writes nothing at all, and the re-run starts from zero because
+        `only_missing` has nothing to skip.
+        """
+        done = 0
+        for as_of, rows in by_date.items():
+            for i in range(0, len(rows), 2000):
+                with session_scope() as session:
+                    done += repository.save_universe(
+                        session, as_of, rows[i : i + 2000]
+                    )
+        by_date.clear()
+        return done
+
     async with sec_edgar.make_client(concurrency=1) as client:
         for ticker, cik, as_of, current in targets:
             try:
@@ -1214,16 +1240,13 @@ async def backfill_former_names(
                     "former_name_until": until,
                 })
                 named += 1
+                if sum(len(v) for v in by_date.values()) >= _FORMER_NAME_FLUSH:
+                    written += _flush()
+                    log.info("former_names_progress", named=named,
+                             written=written)
             await asyncio.sleep(delay)
 
-    written = 0
-    for as_of, rows in by_date.items():
-        for i in range(0, len(rows), 2000):
-            with session_scope() as session:
-                written += repository.save_universe(
-                    session, as_of, rows[i : i + 2000]
-                )
-
+    written += _flush()
     log.info("former_names_done", named=named, written=written)
     return {"checked": len(targets), "named": named, "written": written}
 
