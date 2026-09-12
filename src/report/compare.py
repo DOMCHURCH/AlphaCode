@@ -38,24 +38,25 @@ from src.report.home_page import shell
 # Facts about THIS product, in one place, so five pages cannot drift from each
 # other or from the pricing page.
 #
-# These are constants rather than a live read of `stats.counts()`, and that is
-# a deliberate trade. `counts()` is an uncached COUNT(*) plus COUNT(DISTINCT)
-# over the 1.24M-row fundamentals table -- it is already the single largest
-# cost on the home page, and putting it on five more would be spending a page
-# render on a number that moves four times a year.
+# The coverage figures were literals here -- "6,201 SEC filers, 1.8 million
+# facts" -- and the comment that used to sit in this spot defended them: a
+# live read meant `stats.counts()`, an uncached COUNT(*) plus COUNT(DISTINCT)
+# over the fundamentals table, and putting that on five more pages to print a
+# number that moves four times a year was not worth the render.
 #
-# The price of that trade is drift, and it had ALREADY been paid before these
-# constants were copied: "1.7 million" was what the home page, /api, the blog
-# and llms.txt all said, while /dataset counted the same table live and said
-# 1.8M. Four literals typed at four different times, and the one page that
-# computed the number was the odd one out.
+# Both halves of that have since stopped being true. `counts()` and
+# `dataset.row_count()` are memoised for fifteen minutes, so the read costs
+# nothing; and the drift the comment accepted as the price duly arrived --
+# 6,201 against a live 6,222, and 1.8 million against a live 1.6M, on the
+# pages whose whole argument is that this product's figures agree with each
+# other. The literals were also the only claim here that a reader could check
+# in one click and find wrong.
 #
-# Those four now read `dataset.facts_label()`. These two stay literals for the
-# reason above, and `tests/test_copy_consistency.py` asserts no stale figure
-# survives anywhere -- so if this drifts again, a test says so rather than a
-# reader noticing that a site selling accuracy cannot agree with itself.
-COMPANIES = "6,201"
-DATA_POINTS = "1.8 million"
+# So the figures are now tokens, filled at render time from the same two
+# functions the home page, /api, the blog and llms.txt read. They are whole
+# PHRASES rather than bare numbers, because a count that cannot be read is
+# not a count to guess at: the sentence gives up the figure and keeps the
+# claim, instead of carrying a stale one.
 ACCURACY = "reconciled to the accounting identity"
 NAIVE_ACCURACY = "wrong roughly one filing in five"
 
@@ -244,7 +245,7 @@ PAGES: tuple[Page, ...] = (
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published"),
-            Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Wider — many asset classes and vendors", False),
+            Row("Coverage", "{COVERAGE}", "Wider — many asset classes and vendors", False),
             Row("Latency", LATENCY + "; EDGAR swept every 6h", "Varies by feed and plan — check their site"),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Quote-based, tiered by feed — check their site"),
             Row("Free tier", "Yes, no card", "Sandbox keys available — check their site"),
@@ -298,7 +299,7 @@ PAGES: tuple[Page, ...] = (
             Row("Duplicate-tag handling", "Resolved to the consolidated figure", "Yours to resolve"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not applicable — it is not selecting for you"),
-            Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Every EDGAR filing, all form types", False),
+            Row("Coverage", "{COVERAGE}", "Every EDGAR filing, all form types", False),
             Row("Latency", LATENCY, "Real-time filing stream — faster to the document", False),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Tiered by call volume — check their site"),
             Row("Bulk download", "$79.99, one CSV", "Available — check their site", False),
@@ -347,7 +348,7 @@ PAGES: tuple[Page, ...] = (
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
-            Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Global, many asset classes", False),
+            Row("Coverage", "{COVERAGE}", "Global, many asset classes", False),
             Row("Latency", LATENCY, "Real-time market data — a different problem", False),
             Row("SLA", "None. One person.", "Contractual, with support", False),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Enterprise quote — check their site"),
@@ -398,7 +399,7 @@ PAGES: tuple[Page, ...] = (
             Row("Point-in-time queries", "Yes — as-of respects filing dates", "Ask"),
             Row("Publishes an accuracy figure", "No — the method is published instead", "Rare"),
             Row("Free tier without a call", "Yes", "Varies"),
-            Row("Coverage", f"{COMPANIES} SEC filers, {DATA_POINTS} facts", "Ask — and ask whether it is SEC-only"),
+            Row("Coverage", "{COVERAGE}", "Ask — and ask whether it is SEC-only"),
             Row("Latency", LATENCY, "Ask, and measure it yourself"),
             Row("Price", "Free · $49/mo · $490/yr · $79.99 one-off", "Often quote-based"),
             Row("Bulk download", "$79.99, one CSV", "Varies"),
@@ -473,8 +474,8 @@ handed a silently adjusted number.</p>
 
 <h2>What To Scale is, plainly</h2>
 
-<p>One reconciled dataset: """ + COMPANIES + """ SEC filers, """ + DATA_POINTS + """
-as-reported facts, every one checked against A = L + E before it is stored.
+<p>One reconciled dataset: {COVERAGE_PROSE}, every one checked
+against A = L + E before it is stored.
 Every valid filing reconciles against that test, and the exceptions are
 flagged rather than hidden. Free tier with no card, $49 a month for
 """ + "10,000" + """ calls, or $79.99 once for the whole thing as a CSV.</p>
@@ -512,7 +513,7 @@ you already know.</p>
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
             Row("Latency", LATENCY, "Varies by feed — check their site"),
-            Row("Coverage", f"{COMPANIES} SEC filers", "Wider, including non-SEC", False),
+            Row("Coverage", "{FILERS}", "Wider, including non-SEC", False),
         ),
         choose_us=(
             "<b>Scope is your reason.</b> If you evaluated a platform and "
@@ -642,6 +643,37 @@ def _other_comparisons(page: Page) -> str:
   </section>"""
 
 
+def live_counts() -> dict[str, str]:
+    """The coverage phrases, counted from the table at render time.
+
+    Whole phrases and not bare numbers, so that a count which cannot be read
+    degrades into a sentence rather than into a hole: "SEC filers" is true on
+    the worst day this can have, and "" is not.
+    """
+    from src.dataset import facts_label
+    from src.report.home_page import companies_label
+
+    companies = companies_label()
+    facts = facts_label()
+    filers = f"{companies} SEC filers" if companies else "SEC filers"
+    return {
+        "{FILERS}": filers,
+        "{COVERAGE}": f"{filers}, {facts} facts" if facts else filers,
+        "{COVERAGE_PROSE}": (
+            f"{filers}, {facts} as-reported facts" if facts
+            else f"{filers}, as reported"
+        ),
+    }
+
+
+def _fill_counts(html: str) -> str:
+    """Substituted on the finished page, so the table, the prose and the
+    metadata are all filled by the one pass and none of them can be missed."""
+    for token, value in live_counts().items():
+        html = html.replace(token, value)
+    return html
+
+
 def render(page: Page, *, nav: str = "") -> str:
     from src.report.nav import render_footer
 
@@ -707,10 +739,10 @@ def render(page: Page, *, nav: str = "") -> str:
 </main>
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
 
-    return shell(
+    return _fill_counts(shell(
         page.seo_title,
         body,
         description=page.description,
         canonical=f"/{page.slug}",
         ld=_ld(page),
-    )
+    ))

@@ -324,3 +324,55 @@ def _seed_balanced() -> None:
                 ticker="AAA", metric=metric, value=value, period_end=q,
                 fiscal_period="FY", filing_date=dt.date(2026, 2, 13), source="sec",
             ))
+
+
+# ---------------------------------------------------------------------------
+# The coverage figures the comparison pages quote
+# ---------------------------------------------------------------------------
+# Asserted here, of all places, because here is where the stale ones did their
+# damage. "6,201 SEC filers, 1.8 million facts" sat in the at-a-glance table of
+# five pages against a live 6,222 and 1.6M, and this file is what an answer
+# engine reads in preference to the pages -- so a figure that is wrong here is
+# one quoted back with more confidence than the page gave it.
+
+
+def test_no_unfilled_placeholder_reaches_a_reader(full):
+    """A crawler reading `{COVERAGE}` verbatim is worse than a stale number."""
+    for token in ("{COVERAGE_PROSE}", "{COVERAGE}", "{FILERS}",
+                  "{COMPANIES}", "{FACTS}"):
+        assert token not in full, f"{token} was never filled"
+
+
+def test_a_count_that_cannot_be_read_becomes_a_sentence_not_a_hole():
+    """The figures are whole phrases rather than bare numbers precisely so an
+    unreadable table degrades into something still true. Run against no
+    database at all, which is the worst day this can have."""
+    from src.report.compare import live_counts
+
+    counts = live_counts()
+    assert counts["{FILERS}"] == "SEC filers"
+    assert counts["{COVERAGE}"] == "SEC filers"
+    assert counts["{COVERAGE_PROSE}"] == "SEC filers, as reported"
+    assert not any(c.isdigit() for c in "".join(counts.values()))
+
+
+def test_the_comparison_pages_count_the_table_the_rest_of_the_site_counts(client):
+    """One source, not a sixth literal. Four pages already read
+    `facts_label()` and drifted away from the one page that computed it; this
+    is the same fix applied to the five that were never converted."""
+    from src.company.stats import reset_counts_cache
+    from src.dataset import facts_label, reset_count_cache
+    from src.report.compare import live_counts
+    from src.report.home_page import companies_label
+
+    _seed_balanced()
+    reset_count_cache()
+    reset_counts_cache()
+
+    companies, facts = companies_label(), facts_label()
+    assert companies and facts, "the seeded table should be readable"
+
+    html = client.get("/compare/to-scale-vs-intrinio").text
+    assert live_counts()["{COVERAGE}"] in html
+    assert f"{companies} SEC filers" in html
+    assert "6,201" not in html and "1.8 million" not in html
