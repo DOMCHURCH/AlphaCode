@@ -269,3 +269,65 @@ def test_the_new_posts_carry_no_invented_percentage(client):
             assert banned not in body, f"/blog/{slug} publishes {banned}"
         match = BANNED_SHAPE.search(body)
         assert match is None, f"/blog/{slug} publishes {match.group(0)!r}"
+
+
+# ---------------------------------------------------------------------------
+# Code samples
+# ---------------------------------------------------------------------------
+# A different way to be wrong on a page than publishing a rate: a command a
+# reader pastes has to be the command that was written. Four of these lost
+# their shell line continuations without anybody touching them -- a backslash
+# at the end of a line inside a non-raw Python string is a LINE CONTINUATION,
+# so Python removed the backslash and the newline before the string existed,
+# and the page rendered a folded command that no longer showed its own shape.
+#
+# Invisible in the source, which is why the assertion reads the RENDER.
+
+
+def test_a_shell_continuation_survives_into_the_rendered_page(client):
+    """Every backslash-newline written in a bash sample must still be one."""
+    import html as _html
+
+    from src.report.blog import POSTS
+
+    block = re.compile(r"<pre[^>]*><code[^>]*>(.*?)</code></pre>", re.S)
+    checked = 0
+    for post in POSTS:
+        page = client.get(f"/blog/{post.slug}")
+        assert page.status_code == 200, post.slug
+        for raw in block.findall(page.text):
+            lines = _html.unescape(raw).split("\n")
+            for i, line in enumerate(lines):
+                if not line.rstrip().endswith("\\"):
+                    continue
+                checked += 1
+                # A continuation on the last line continues into nothing.
+                assert i < len(lines) - 1, (
+                    f"/blog/{post.slug}: a continuation with nothing after it"
+                )
+    assert checked >= 4, (
+        f"expected at least the four known continuations, found {checked} -- "
+        "they were eaten by the string literal once already"
+    )
+
+
+def test_no_curl_example_is_folded_onto_one_line_with_its_url(client):
+    """The shape the bug left behind: the flags and the URL on one line with
+    the backslash gone, which still runs and no longer reads as a wrap."""
+    import html as _html
+
+    from src.report.blog import POSTS
+
+    block = re.compile(r"<pre[^>]*><code[^>]*>(.*?)</code></pre>", re.S)
+    for post in POSTS:
+        text = _html.unescape(client.get(f"/blog/{post.slug}").text)
+        for code in block.findall(text):
+            for line in code.split("\n"):
+                if "curl" not in line or "-H " not in line:
+                    continue
+                if "http" in line and not line.rstrip().endswith("\\"):
+                    # One short command on one line is fine; a long one that
+                    # was WRITTEN wrapped is what this catches.
+                    assert len(line) < 80, (
+                        f"/blog/{post.slug}: folded curl: {line!r}"
+                    )

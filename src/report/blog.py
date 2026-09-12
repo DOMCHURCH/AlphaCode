@@ -598,7 +598,7 @@ For seeding history it is not a marginal improvement, it is a different order
 of magnitude, and it is how I load fundamentals now.</p>
 
 <pre class="code"><code class="language-bash"># One file. Every numeric fact filed in that quarter, every filer.
-curl -H "User-Agent: You you@example.com" -O \
+curl -H "User-Agent: You you@example.com" -O \\
   https://www.sec.gov/files/dera/data/financial-statement-data-sets/2026q1.zip
 
 unzip -p 2026q1.zip num.txt | head -3
@@ -610,7 +610,7 @@ history is seeded, the only thing you need is what changed. The current-events
 Atom feed lists filings as they land, so an incremental job is a handful of
 requests a day rather than a full sweep:</p>
 
-<pre class="code"><code class="language-bash">curl -H "User-Agent: You you@example.com" \
+<pre class="code"><code class="language-bash">curl -H "User-Agent: You you@example.com" \\
   "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&amp;type=10-Q&amp;output=atom"</code></pre>
 
 <p>Between the bulk seed and the feed, the steady state load on SEC is small
@@ -771,8 +771,8 @@ hold figures for and ask SEC directly. The companyfacts endpoint returns every
 XBRL fact a filer has ever reported, with dimensions intact:</p>
 
 <pre class="code"><code class="language-bash"># JPMorgan. The CIK is zero-padded to ten digits.
-curl -H "User-Agent: You you@example.com" \
-  https://data.sec.gov/api/xbrl/companyfacts/CIK0000019617.json \
+curl -H "User-Agent: You you@example.com" \\
+  https://data.sec.gov/api/xbrl/companyfacts/CIK0000019617.json \\
   -o jpm.json</code></pre>
 
 <pre class="code"><code class="language-python">import json
