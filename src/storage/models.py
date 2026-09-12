@@ -563,23 +563,34 @@ class ApiUser(Base):
     all the same operation, and the state of an account can still be read and
     changed from a phone.
 
-    `api_key` is stored in the clear rather than hashed. It is a read-only key
-    over data that is already public (SEC filings), the worst case of a leak is
-    somebody else's free quota being spent, and a recoverable key means a lost
-    key is a lookup rather than a re-registration. That trade would be wrong for
-    a password and is right for this.
+    `api_key` holds a SHA-256 HEX DIGEST, never the key itself. The key is
+    shown once, when it is issued, and is unrecoverable afterwards -- there is
+    no query that can produce it, here or from a database dump. An earlier
+    version stored it in the clear on the argument that it only guards public
+    SEC data; that argument covers the value of the data and not the cost of
+    the leak, because the same row carries an email address and the key is what
+    spends somebody's paid quota. Hashing costs one `sha256` per request and
+    removes the whole class of problem.
+
+    SHA-256 rather than bcrypt on purpose. This is a 256-bit random token, not
+    a password: there is no dictionary to run against it, so the slow hash buys
+    nothing and would put a ~100ms KDF on every single API call.
     """
 
     __tablename__ = "api_users"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True, default=_new_id)
     email: Mapped[str] = mapped_column(String(254), nullable=False, unique=True)
-    # 128, not 64. The keys this service ISSUES are token_urlsafe(32) -- 43
-    # characters -- but DEMO_API_KEY is chosen by whoever runs the
-    # deployment, and a longer one is a perfectly reasonable thing to pick.
-    # At 64 it failed the insert with StringDataRightTruncation, which
-    # surfaced to the reader as "the demo is not configured".
+    # The SHA-256 hex digest of the key: always 64 characters, whatever the
+    # key's own length. The column stays at 128 rather than shrinking to 64 --
+    # narrowing it would be a destructive ALTER on a live table to save eight
+    # bytes a row, and `_widen_columns` only ever grows.
     api_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    # The first 8 characters of the key, kept so the dashboard can show WHICH
+    # key an account holds without being able to show the key. Nullable
+    # because `_sync_added_columns` skips a NOT NULL column with no default,
+    # which would have meant this silently never existing in production.
+    api_key_prefix: Mapped[str | None] = mapped_column(String(16))
     # "free" | "pro". A plain string, not a SQLAlchemy Enum: a native Postgres
     # enum type cannot be widened by the additive ALTER that `init_db` runs, so
     # adding a third tier later would need a real migration to add a word.

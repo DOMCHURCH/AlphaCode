@@ -333,8 +333,9 @@ def test_the_api_key_cannot_rotate_itself(client):
 
 
 def test_a_signed_in_reader_can_rotate_their_key_and_the_old_one_dies(client):
-    sign_up_with_password(client)
-    old = client.get("/api/auth/me").json()["api_key"]
+    # From the signup response, which is the only place the key is ever shown.
+    # `/api/auth/me` cannot hand it over: the database holds a digest.
+    old = sign_up_with_password(client).json()["api_key"]
 
     r = client.post("/api/auth/regenerate-key")
     assert r.status_code == 200, r.text
@@ -369,8 +370,7 @@ def test_the_meter_can_be_read_without_moving_it(client):
 
 
 def test_signing_out_ends_the_session_but_not_the_key(client):
-    sign_up_with_password(client)
-    key = client.get("/api/auth/me").json()["api_key"]
+    key = sign_up_with_password(client).json()["api_key"]
 
     assert client.post("/api/auth/logout").status_code == 200
     assert client.get("/api/auth/me").status_code == 401

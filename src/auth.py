@@ -297,7 +297,10 @@ def account_for_login(email: str, accepted_terms: bool = False):
                 "request a new link."
             ),
         )
-    account = accounts.register(address)
+    # The plaintext key is discarded here on purpose. A magic-link signup has
+    # no response body to put a show-once secret in, and the dashboard's
+    # "Regenerate" is how this account gets a key it can read.
+    account, _key = accounts.register(address)
     stamp_terms(address)
     log.info("account_created_via_magic_link", email=address)
     return account
@@ -308,6 +311,10 @@ def regenerate_key(email: str) -> str:
 
     Instant revocation: the old key stops working on the next request. That is
     the point -- this is the button somebody presses because their key leaked.
+
+    It is also the ONLY way to see a key after registration, since the
+    database holds a digest. "I lost my key" and "my key leaked" are therefore
+    the same button, which is the right shape: both end with a new key.
     """
     from src import accounts
 
@@ -319,7 +326,8 @@ def regenerate_key(email: str) -> str:
         ).scalar_one_or_none()
         if user is None:
             raise HTTPException(status_code=404, detail="No such account.")
-        user.api_key = new_key
+        user.api_key = accounts.hash_api_key(new_key)
+        user.api_key_prefix = accounts.key_prefix(new_key)
         user.updated_at = dt.datetime.now(dt.UTC)
     log.info("api_key_regenerated", email=address)
     return new_key

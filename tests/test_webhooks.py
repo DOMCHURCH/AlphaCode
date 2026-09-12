@@ -505,9 +505,15 @@ def test_an_unsigned_body_never_reaches_a_handler(client, stripe_calls, mails):
 
 
 def _key_for(client, email=BUYER):
-    """The API key of an account created by a webhook, read back through admin."""
-    from src import accounts
+    """A usable API key for an account created by a webhook.
+
+    Rotated rather than read. Keys are stored as SHA-256 digests, so there is
+    no "read it back" any more -- and issuing a fresh one is exactly what the
+    account holder would do, so the test exercises a real path instead of a
+    back door that only tests have.
+    """
+    from src import accounts, auth
 
     acct = accounts.by_email(email)
     assert acct is not None
-    return acct.api_key
+    return auth.regenerate_key(email)

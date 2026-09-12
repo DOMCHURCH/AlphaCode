@@ -160,6 +160,60 @@ def _widen_columns(engine: Engine) -> None:
                         error=str(exc)[:200])
 
 
+def hash_plaintext_api_keys(engine: Engine) -> int:
+    """Replace any key still stored in the clear with its digest. Returns the
+    count changed.
+
+    A data migration and not a schema one, so it lives here rather than in
+    `_sync_added_columns`, and it runs AFTER that call because it writes the
+    `api_key_prefix` column that call adds.
+
+    Idempotent, and the test for "already done" is exact rather than a guess:
+    a digest is 64 hex characters, and an issued key is `token_urlsafe(32)` --
+    43 characters, from an alphabet that includes `-`, `_` and upper case. No
+    live key can be mistaken for a digest, in either direction.
+
+    A key found in the clear is hashed IN PLACE and keeps working. The prefix
+    is recoverable here and only here: after this runs, the plaintext is gone
+    from the database for good, which is the point.
+    """
+    from src.accounts import hash_api_key, key_prefix, looks_hashed
+
+    changed = 0
+    try:
+        insp = inspect(engine)
+        if not insp.has_table("api_users"):
+            return 0
+        columns = {c["name"] for c in insp.get_columns("api_users")}
+        if "api_key_prefix" not in columns:
+            # The ADD COLUMN above failed. Hashing now would destroy the only
+            # copy of the key and leave nothing to display in its place.
+            log.warning("api_key_hash_skipped", reason="api_key_prefix missing")
+            return 0
+        with engine.begin() as conn:
+            rows = conn.execute(
+                text('SELECT id, api_key FROM api_users')
+            ).all()
+            for row_id, stored in rows:
+                if looks_hashed(stored or ""):
+                    continue
+                conn.execute(
+                    text(
+                        'UPDATE api_users SET api_key = :h, api_key_prefix = :p '
+                        "WHERE id = :i"
+                    ),
+                    {"h": hash_api_key(stored or ""), "p": key_prefix(stored or ""),
+                     "i": row_id},
+                )
+                changed += 1
+    except Exception as exc:  # noqa: BLE001 - a failed migration must not stall boot
+        log.warning("api_key_hash_failed", error=str(exc)[:200])
+        return 0
+    if changed:
+        log.info("api_keys_hashed", rows=changed)
+    return changed
+
+
 def init_db(engine: Engine | None = None) -> None:
     """Create all tables, sync added columns, and build performance indexes.
 
@@ -171,6 +225,7 @@ def init_db(engine: Engine | None = None) -> None:
     Base.metadata.create_all(engine)
     _sync_added_columns(engine)
     _widen_columns(engine)
+    hash_plaintext_api_keys(engine)
     with engine.begin() as conn:
         for name, ddl in EXTRA_INDEXES:
             try:

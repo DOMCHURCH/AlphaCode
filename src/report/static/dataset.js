@@ -190,9 +190,14 @@
     fetch("/api/auth/me", { credentials: "same-origin" })
       .then(function (res) { return res.ok ? res.json() : null; })
       .then(function (me) {
-        if (!me || !me.api_key) return;
-        remember(me.api_key);
-        field.value = me.api_key;
+        /* /api/auth/me no longer carries the key -- it is stored hashed.
+           Whatever this browser kept when the key was issued is the only
+           readable copy, so the box is hidden only when there IS one. Being
+           signed in is no longer enough to fill it in for somebody. */
+        if (!me) return;
+        var held = storedKey();
+        if (!held) return;
+        field.value = held;
         $("dl-key-field").hidden = true;
       })
       .catch(function () { /* the pasted-key path still works */ });

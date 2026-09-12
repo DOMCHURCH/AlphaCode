@@ -1,7 +1,7 @@
 """Outgoing mail over AgentMail. One message type: a key someone has lost.
 
 Replaces the earlier `smtplib` implementation. The contract is unchanged --
-`is_configured()` and `send_api_key()` are what the API calls, and neither the
+`is_configured()` and `send_recovery_link()` are what the API calls, and neither
 routes nor the dashboard know or care what is behind them.
 
 Two properties carried over from the SMTP version, because they are the ones
@@ -144,17 +144,24 @@ def _resolve_inbox(client) -> str | None:
     return None
 
 
-def _body(api_key: str, admin_email: str) -> str:
+def _recovery_body(url: str, ttl_minutes: int, admin_email: str) -> str:
+    """The "I lost my key" email. A sign-in link, never a key.
+
+    It cannot carry the key: the database holds a SHA-256 digest and there is
+    nothing to look up. That turns out to be the better mail anyway -- the old
+    one put a live credential in an inbox, in plain text, forever.
+    """
     signature = f"\n{admin_email}" if admin_email else ""
     return (
-        "Someone asked to be reminded of the To Scale API key for this "
-        "address.\n\n"
-        f"    {api_key}\n\n"
-        "Send it as an X-API-Key header:\n\n"
-        f'    curl -H "X-API-Key: {api_key}" <host>/api/company/JPM\n\n'
-        "If this was not you, nothing has changed -- the key is the same one "
-        "you already had, and it was sent only to this address. If you would "
-        "like it replaced, reply to this message.\n\n"
+        "Someone asked to recover the To Scale API key for this address.\n\n"
+        "Keys are stored hashed, so nobody -- including us -- can read yours "
+        "back. Sign in with the link below and press Regenerate on your "
+        "dashboard to issue a new one:\n\n"
+        f"    {url}\n\n"
+        f"This link expires in {ttl_minutes} minutes and can be used once.\n\n"
+        "Regenerating replaces the old key immediately. If this was not you, "
+        "ignore this email -- nothing has changed and your current key still "
+        "works.\n\n"
         f"— To Scale{signature}\n"
     )
 
@@ -192,7 +199,7 @@ def send_purchase_key(email: str, api_key: str) -> bool:
     """Mail a buyer their key, in purchase words rather than recovery words.
 
     Same relay, same guarantees, same never-raises contract as
-    `send_api_key` -- only the subject and body differ. Split rather than
+    `send_recovery_link` -- only the subject and body differ. Split rather than
     parameterised because the two are read by people in completely different
     situations, and the copy is the entire difference between them.
     """
@@ -237,14 +244,17 @@ def _send(email: str, *, subject: str, text: str, event: str) -> bool:
     return True
 
 
-def send_api_key(email: str, api_key: str) -> bool:
-    """Mail somebody their own key. True if AgentMail accepted it.
+def send_recovery_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
+    """Mail a sign-in link to somebody who has lost their key.
 
-    The key goes to the REGISTERED address and nowhere else -- that is the whole
-    security model of this feature. Someone who types another person's address
-    into the recovery box causes an email to that person's inbox and learns
-    nothing themselves, which is why this can exist while registration still
-    refuses to show a key at all.
+    Replaces `send_api_key`, which mailed the key itself and could not survive
+    hashing it. The link goes to the REGISTERED address and nowhere else,
+    which is the same security model the old mail had: typing a stranger's
+    address sends mail to the stranger and teaches the sender nothing.
+
+    Deliberately a link rather than an automatic rotation. An unauthenticated
+    endpoint that replaced somebody's key on request would let anyone who knows
+    a customer's address break that customer's integration at will.
 
     Never raises. The caller is a background task with nobody to report to, and
     a failed send must leave a log line rather than an unhandled exception in a
@@ -252,16 +262,16 @@ def send_api_key(email: str, api_key: str) -> bool:
     """
     return _send(
         email,
-        subject="Your To Scale API key",
-        text=_body(api_key, get_settings().admin_email),
-        event="agentmail_key_sent",
+        subject="Recover your To Scale API key",
+        text=_recovery_body(url, ttl_minutes, get_settings().admin_email),
+        event="agentmail_recovery_sent",
     )
 
 
 def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
     """Mail a login link. True if AgentMail accepted it.
 
-    Same never-raises contract as `send_api_key`: the caller is a background
+    Same never-raises contract as `send_recovery_link`: the caller is a background
     task with nobody to report an exception to.
 
     The body says what to do if it was not you, because this is the one message

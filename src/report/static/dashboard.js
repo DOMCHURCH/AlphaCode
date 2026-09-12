@@ -162,6 +162,58 @@
     // Rotating a key requires proving you own the address, not holding the key.
     show($("regen-box"), !!session);
     show($("regen-hint"), !session && CFG.loginEnabled);
+    show($("copy-key"), true);
+    note($("key-note"), "");
+  }
+
+  /* Signed in, but the key itself is not on this device.
+
+     The server stores a hash, so /api/auth/me can only say WHICH key this
+     account holds, never what it is. Showing the prefix beats showing a dash:
+     it lets somebody check that the key in their deploy config is the one this
+     account is on, which is the actual question people open this page with. */
+  function renderKeyPrefix(prefix, lastUsed) {
+    var shown = prefix ? prefix + "\u2026" : "\u2014";
+    $("key-value").textContent = shown;
+    $("pay-key").textContent = shown;
+    fillExamples("");
+    show($("get-key"), false);
+    show($("tabs"), true);
+    selectTab(storedTab());
+    show($("regen-box"), true);
+    show($("regen-hint"), false);
+    // Nothing worth copying: the box holds eight characters and an ellipsis.
+    show($("copy-key"), false);
+    note(
+      $("key-note"),
+      "Keys are stored hashed and are shown once, when issued. This is not "
+        + "stored in this browser. " + lastUsedText(lastUsed)
+        + " Press Regenerate to issue a new one \u2014 the old key stops "
+        + "working immediately."
+    );
+  }
+
+  function lastUsedText(iso) {
+    if (!iso) return "It has never been used.";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return "Last used: " + d.toLocaleDateString() + ".";
+  }
+
+  /* One entry point for "the session answered".
+
+     The server can no longer correct what this browser holds -- /me returns a
+     digest-derived prefix, not the key -- so the prefix IS the check. Without
+     it, regenerating on one device leaves every other device rendering the
+     dead key as live, curl examples and all, with nothing to notice it by. */
+  function renderSession(data) {
+    var full = getKey();
+    if (full && data.api_key_prefix && full.slice(0, 8) === data.api_key_prefix) {
+      renderKey(full);
+      return;
+    }
+    if (full) setKey("");   // it belongs to a key this account no longer has
+    renderKeyPrefix(data.api_key_prefix, data.api_key_last_used);
   }
 
   function renderSignedOut() {
@@ -301,15 +353,17 @@
   // ---- loading --------------------------------------------------------------
 
   function load() {
-    /* Ask about the session first. It is the stronger claim, and it carries the
-       key -- so when it answers, whatever is in localStorage is stale by
-       definition and gets overwritten. */
+    /* Ask about the session first. It is the stronger claim about WHO this
+       is -- but it no longer carries the key, so what is in localStorage is
+       the only readable copy and must survive this call. */
     return api("/api/auth/me")
       .then(function (r) {
         if (r.ok) {
           session = r.data;
-          setKey(r.data.api_key);
-          renderKey(r.data.api_key);
+          /* Deliberately does NOT call setKey. This response carries no key
+             to store, and clearing the stored one here would throw away the
+             only copy the person has. */
+          renderSession(r.data);
           renderStatus(r.data);
           return;
         }
@@ -650,6 +704,19 @@
       if (!r.data.has_paid_download) {
         note($("dl-note"), "");
         openPayModal(payText("The full dataset", "a one-time " + CFG.datasetPrice));
+        return;
+      }
+      /* The download authenticates with the KEY, not the session cookie, and
+         the key is only here if this browser stored it when it was issued.
+         Saying so beats sending `api_key=` and letting it 401. */
+      if (!getKey()) {
+        note(
+          $("dl-note"),
+          "This browser does not have your key — it is stored hashed and "
+            + "shown only when issued. Press Regenerate above to issue a new "
+            + "one, then download.",
+          "bad"
+        );
         return;
       }
       note($("dl-note"), "Starting the download. It is a large file — leave this tab open.");

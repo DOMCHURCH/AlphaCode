@@ -207,13 +207,19 @@ def test_me_is_shut_without_a_session(client):
     assert client.get("/api/auth/me").status_code == 401
 
 
-def test_me_returns_the_account_and_its_key(client):
+def test_me_returns_the_account_but_never_the_key(client):
+    """It shows WHICH key, not the key. The column is a SHA-256 digest, so
+    there is nothing here that could be handed back even if it were wanted --
+    and the point is that the session cookie is no longer equivalent to the
+    credential it used to be exchangeable for."""
     sign_in(client)
     body = client.get("/api/auth/me").json()
     assert body["email"] == "user@example.com"
     assert body["tier"] == "free"
     assert body["calls_limit"] == 5
-    assert len(body["api_key"]) >= 32
+    assert "api_key" not in body
+    assert len(body["api_key_prefix"]) == 8
+    assert "api_key_last_used" in body
 
 
 def test_a_forged_cookie_is_simply_not_signed_in(client):
@@ -256,7 +262,8 @@ def test_the_session_reflects_a_grant_immediately(client):
 
 def test_regenerate_replaces_the_key_and_kills_the_old_one(client):
     sign_in(client)
-    old = client.get("/api/auth/me").json()["api_key"]
+    # Two rotations rather than a read, because the key cannot be read back.
+    old = client.post("/api/auth/regenerate-key").json()["api_key"]
     new = client.post("/api/auth/regenerate-key").json()["api_key"]
     assert new != old
     assert client.get(
@@ -271,7 +278,7 @@ def test_a_leaked_key_cannot_rotate_itself(client):
     """The reason to press regenerate is that the key leaked. A key that can
     rotate itself lets whoever holds it lock the owner out."""
     sign_in(client)
-    key = client.get("/api/auth/me").json()["api_key"]
+    key = client.post("/api/auth/regenerate-key").json()["api_key"]
     client.post("/api/auth/logout")
     r = client.post("/api/auth/regenerate-key", headers={"X-API-Key": key})
     assert r.status_code == 401

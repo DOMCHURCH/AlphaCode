@@ -1885,13 +1885,13 @@ def api_register(body: RegisterRequest) -> JSONResponse:
             status_code=422, detail="That does not look like an email address."
         )
     try:
-        account = accounts.register(address)
+        account, plaintext = accounts.register(address)
     except accounts.EmailTaken:
         raise HTTPException(
             status_code=409,
             detail=(
-                "That address is already registered. Keys are not re-sent from "
-                "here -- contact the site owner if you have lost yours."
+                "That address is already registered. Keys cannot be re-sent -- "
+                "sign in and regenerate yours from the dashboard."
             ),
         ) from None
     _stamp_terms_quietly(address)
@@ -1899,11 +1899,17 @@ def api_register(body: RegisterRequest) -> JSONResponse:
     return JSONResponse(
         status_code=201,
         content={
-            "api_key": account.api_key,
+            # The one and only time this value leaves the server. The database
+            # has a digest of it and no way back.
+            "api_key": plaintext,
             "email": account.email,
             "tier": account.tier,
             "calls_limit": account.call_limit,
-            "note": "Send this key as an X-API-Key header. Keep it: it is not re-issued.",
+            "note": (
+                "Send this key as an X-API-Key header. This key will not be "
+                "shown again. Store it now. If you lose it, regenerate from "
+                "the dashboard."
+            ),
         },
     )
 
@@ -1914,12 +1920,19 @@ class ResendRequest(BaseModel):
 
 @app.post("/api/auth/resend-key")
 def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
-    """Mail somebody the key they already have. Never shows it in the response.
+    """Mail a sign-in link to somebody who has lost their key.
 
-    This is the counterpart to register's 409, and it is safe for the same
-    reason that refusal is: the key travels to the REGISTERED inbox and nowhere
-    else, so typing a stranger's address sends mail to the stranger and teaches
-    the sender nothing.
+    It used to mail the key. It cannot any more, and that is not a
+    regression to work around: keys are stored as SHA-256 digests, so there
+    is nothing here to re-send. What goes out instead is a one-time login
+    link, and the dashboard's Regenerate button on the other side of it.
+
+    NOT an automatic rotation, which is the tempting shortcut. This endpoint
+    is unauthenticated by necessity -- the whole point is that the caller has
+    lost their credential -- so a version that replaced the key on request
+    would hand anyone who knows a customer's address a button that breaks
+    that customer's integration, repeatedly. Requiring the inbox first costs
+    one click and closes that.
 
     The reply is identical whether or not the address is registered. Anything
     else turns this into an account-enumeration oracle, and it would be a poor
@@ -1928,16 +1941,19 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
     Sending happens in a background task: a relay that hangs for its full
     ten-second timeout must not be a ten-second request.
     """
-    from src import accounts, mailer
+    from src import accounts, auth, demo, mailer
 
     _enforce_rate(_resend_gate, "key recovery")
 
     address = accounts.normalise_email(body.email)
-    configured = mailer.is_configured()
     s = get_settings()
     where = s.admin_email or "the site owner"
 
-    if not configured:
+    # Two different outages with two different explanations. Both end in 503
+    # and both say who to contact, but "we cannot send email" and "this
+    # deployment has no logins" send an operator to different settings, and
+    # collapsing them into one message costs somebody an afternoon.
+    if not mailer.is_configured():
         # Told plainly rather than pretending to send. A recovery flow that
         # accepts the request and drops it leaves somebody waiting on an email
         # that was never going to arrive.
@@ -1948,16 +1964,31 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
                 "detail": f"Email is not configured. Contact {where} to recover your key.",
             },
         )
+    if not auth.is_enabled():
+        # Recovery is a sign-in link now, so no logins means no recovery.
+        return JSONResponse(
+            status_code=503,
+            content={
+                "sent": False,
+                "detail": (
+                    f"Sign-in is not enabled on this deployment. Contact {where} "
+                    "to recover your key."
+                ),
+            },
+        )
 
     # Uniform response, computed before any branch on whether the user exists.
     ok = {
         "sent": True,
         "detail": (
-            "If that address has a key, it has just been emailed. Check spam."
+            "If that address has a key, a sign-in link is on its way. Keys "
+            "cannot be re-sent -- sign in and regenerate. Check spam."
         ),
     }
 
-    if accounts.valid_email(address):
+    # The shared demo account is not a person and has no inbox. Barring it
+    # stops the row being pried loose via a login and then regenerate-key.
+    if accounts.valid_email(address) and address != demo.DEMO_EMAIL:
         cooling = accounts.resend_cooldown_remaining(address)
         if cooling:
             # Still the uniform answer: a distinct "wait" reply for registered
@@ -1966,8 +1997,20 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
             return JSONResponse(ok)
         account = accounts.by_email(address)
         if account is not None:
+            # `accept_terms=True`: this address already registered, so the
+            # acceptance happened then. Asking again on a recovery link would
+            # be demanding consent the account has already given.
+            token = auth.create_link(account.email, accept_terms=True)
+            if token is None:
+                log.info("resend_link_on_cooldown")  # uniform reply regardless
+                return JSONResponse(ok)
             accounts.mark_resent(address)
-            tasks.add_task(mailer.send_api_key, account.email, account.api_key)
+            tasks.add_task(
+                mailer.send_recovery_link,
+                account.email,
+                auth.link_url(token),
+                s.magic_link_ttl_s // 60,
+            )
             log.info("resend_queued", email=address)
         else:
             log.info("resend_unknown_address", email=address)
@@ -2058,17 +2101,21 @@ def api_verify(body: VerifyRequest) -> JSONResponse:
 
 @app.get("/api/auth/me")
 def api_me(request: Request) -> JSONResponse:
-    """Who is signed in, and their key. Cookie-gated, never key-gated.
+    """Who is signed in. Cookie-gated, never key-gated.
 
-    Returning the API key here is what lets the dashboard show it instead of
-    asking for a paste -- which also means this cookie IS the key, hence Secure
-    and HttpOnly on it.
+    It does NOT return the API key, and could not: the database holds a
+    SHA-256 digest. What it returns instead is the key's first eight
+    characters and when it was last used -- enough to recognise your own key
+    and to tell whether something is still calling with it.
+
+    That is a real loss of convenience and it buys a real thing: this cookie
+    is no longer equivalent to the key, so a stolen session can no longer be
+    turned into a durable credential that survives signing out.
     """
     from src import accounts, auth
 
     account = auth.require_account(request)
     payload = accounts.status_payload(account)
-    payload["api_key"] = account.api_key
     payload["signed_in"] = True
     return JSONResponse(payload)
 
@@ -2203,7 +2250,7 @@ def api_register_password(body: PasswordLogin) -> JSONResponse:
     _require_terms(body.accept_terms)
     auth.check_password_shape(body.password)
     try:
-        account = accounts.register(address)
+        account, plaintext = accounts.register(address)
     except accounts.EmailTaken:
         raise HTTPException(
             status_code=409,
@@ -2220,7 +2267,12 @@ def api_register_password(body: PasswordLogin) -> JSONResponse:
         content={
             "ok": True,
             "email": account.email,
-            "api_key": account.api_key,
+            # Shown once, here. Not retrievable from /api/auth/me afterwards.
+            "api_key": plaintext,
+            "note": (
+                "This key will not be shown again. Store it now. If you lose "
+                "it, regenerate from the dashboard."
+            ),
         },
     )
     auth.issue_session(response, account.email)
@@ -3315,7 +3367,7 @@ _INDEX_ENDPOINTS: tuple[str, ...] = (
 
 _KEYED_ENDPOINTS: tuple[str, ...] = (
     "POST /api/auth/register",
-    "POST /api/auth/resend-key",
+    "POST /api/auth/resend-key  (mails a sign-in link; keys are not re-sent)",
     "POST /api/auth/magic-link  (dashboard login)",
     "POST /api/auth/login  (password)",
     "POST /api/auth/register-password",

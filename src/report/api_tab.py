@@ -42,13 +42,15 @@ def render_api_tab() -> str:
   <section class="sec keyed panel" id="panel-api" data-panel="api" hidden>
     <div class="sec-head"><h2>Your key</h2></div>
     <p class="sec-sub">Send it as an <code>X-API-Key</code> header on an
-      ordinary GET. No SDK, no OAuth, no token exchange. Kept in this browser;
-      signing in fetches it for you instead.</p>
+      ordinary GET. No SDK, no OAuth, no token exchange. Stored hashed on our
+      side and shown once when issued, so this box reads it out of this
+      browser; if it is not here, regenerate below.</p>
     <div class="keyrow">
       <code class="keybox" id="key-value">—</code>
       <button type="button" class="btn" id="copy-key">Copy</button>
     </div>
     <p class="formnote" id="copy-note" role="status" aria-live="polite"></p>
+    <p class="formnote" id="key-note" role="status" aria-live="polite"></p>
 
     <div class="tiles">
       <div class="tile">
@@ -82,8 +84,9 @@ def render_api_tab() -> str:
 
     <!-- ---- how to use the key ---- -->
     <div class="sec-head sub"><h3>Using your key</h3></div>
-    <p class="sec-sub">Both examples below are filled in with your real key and
-      this deployment's host. Copy either one and it runs as-is.</p>
+    <p class="sec-sub">Both examples below are filled in with this
+      deployment's host, and with your real key when this browser holds it.
+      Copy either one and it runs as-is.</p>
 
     <p class="exlabel">curl</p>
     <pre class="code"><code id="curl-example">curl -H "X-API-Key: YOUR_KEY" \\

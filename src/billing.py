@@ -624,7 +624,7 @@ def _account_for(email: str):
     if existing is not None:
         return existing
     try:
-        account = accounts.register(email)
+        account, plaintext = accounts.register(email)
     except accounts.EmailTaken:
         account = accounts.by_email(email)
         if account is None:  # pragma: no cover - taken and absent is impossible
@@ -635,7 +635,11 @@ def _account_for(email: str):
     # longer the buyer's ONLY way in -- the return trip from Stripe signs them
     # in against a verified session id -- so a dropped email now costs them a
     # convenience rather than the thing they paid for.
-    mailer.send_purchase_key(account.email, account.api_key)
+    # `plaintext` and not a lookup: this is the last point at which the key
+    # exists anywhere, and it is the only reason the buyer's email can carry
+    # one at all. An existing account (the branch above) gets no mail, because
+    # there is nothing left to send.
+    mailer.send_purchase_key(account.email, plaintext)
     log.info("stripe_account_provisioned", email=email)
     return account
 

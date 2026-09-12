@@ -59,6 +59,8 @@ def ensure_demo_user() -> bool:
     sitting on the free tier would go dark for everybody on the tenth call of
     the month, which reads as a broken site rather than as a spent allowance.
     """
+    from src import accounts
+
     global _last_error
 
     s = get_settings()
@@ -71,18 +73,25 @@ def ensure_demo_user() -> bool:
             user = session.execute(
                 select(ApiUser).where(ApiUser.email == DEMO_EMAIL)
             ).scalar_one_or_none()
+            # The digest, like every other key. DEMO_API_KEY stays plaintext
+            # in the environment -- it has to, the operator publishes it -- but
+            # the database side of it is stored the same way as a customer's.
+            hashed = accounts.hash_api_key(s.demo_api_key)
+            prefix = accounts.key_prefix(s.demo_api_key)
             if user is None:
                 session.add(
                     ApiUser(
                         email=DEMO_EMAIL,
-                        api_key=s.demo_api_key,
+                        api_key=hashed,
+                        api_key_prefix=prefix,
                         subscription_tier="pro",
                         has_paid_download=False,
                     )
                 )
                 log.info("demo_user_created")
             else:
-                user.api_key = s.demo_api_key
+                user.api_key = hashed
+                user.api_key_prefix = prefix
                 user.subscription_tier = "pro"
                 # Never the dataset. The demo shows one company, not the product.
                 user.has_paid_download = False

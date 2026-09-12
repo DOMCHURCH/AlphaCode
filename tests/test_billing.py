@@ -468,9 +468,14 @@ def test_paying_from_an_unknown_address_creates_the_account_and_mails_the_key(
 ):
     """Never take money and no-op. A first purchase has no account yet.
 
-    `send_purchase_key`, not `send_api_key`: somebody who has just paid used to
-    receive the key-RECOVERY template, which mentions no purchase and reads
-    like a reminder they did not ask for.
+    `send_purchase_key`, not the recovery template: somebody who has just
+    paid used to receive the key-RECOVERY mail, which mentions no purchase and
+    reads like a reminder they did not ask for.
+
+    This is also the only mail that can still carry a key at all. Keys are
+    stored hashed, so the plaintext exists for exactly as long as the call
+    that created the account -- which is why `_account_for` passes it along
+    rather than looking it up again.
     """
     sent: list[tuple[str, str]] = []
     from src import mailer
@@ -490,8 +495,12 @@ def test_paying_from_an_unknown_address_creates_the_account_and_mails_the_key(
     account = accounts.by_email("stranger@example.com")
     assert account is not None
     assert account.tier == "pro"
-    # The key is mailed, because the buyer has no other way to learn it.
-    assert sent == [("stranger@example.com", account.api_key)]
+    # The key is mailed, because the buyer has no other way to learn it --
+    # asserted by USING it, since there is no stored copy to compare against.
+    assert [e for e, _ in sent] == ["stranger@example.com"]
+    mailed = sent[0][1]
+    assert accounts.lookup(mailed) is not None, "the mailed key does not work"
+    assert accounts.lookup(mailed).email == "stranger@example.com"
 
 
 def test_a_second_purchase_from_a_new_address_does_not_fail_on_the_account(

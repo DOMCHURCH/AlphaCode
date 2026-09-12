@@ -365,10 +365,15 @@ def test_the_dashboard_renders_with_the_configured_prices(client):
     assert "/static/dashboard.js" in r.text
 
 
-def test_the_home_page_carries_the_accuracy_banner(client):
+def test_the_home_page_leads_on_provenance_and_not_a_percentage(client):
+    """It used to assert the accuracy banner. The banner is gone on purpose --
+    see tests/test_content_accuracy.py for why a published rate was retired --
+    and this test went on demanding the figure that test forbids. Two tests
+    asserting opposite things about one page is worse than either."""
     r = client.get("/")
     assert r.status_code == 200
-    assert "78.6%" in r.text and "99.9%" in r.text
+    assert "78.6%" not in r.text and "99.9%" not in r.text
+    assert "traced to its source" in r.text
     assert 'href="/dashboard"' in r.text
 
 

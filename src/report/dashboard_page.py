@@ -150,7 +150,9 @@ def render_dashboard(
          A login link rather than a key resend: it lands the person on a working
          dashboard instead of leaving them to paste a string back in. -->
     <div class="resend" id="resend-box" hidden>
-      <p>That address already has a key. A sign-in link takes you straight to it.</p>
+      <p>That address already has a key. Keys are stored hashed and cannot
+        be re-sent — a sign-in link takes you to the dashboard, where you
+        can issue a new one.</p>
       <button type="button" class="btn" id="resend-btn">Email me a login link</button>
       <p class="formnote" id="resend-note" role="status" aria-live="polite"></p>
     </div>

@@ -441,7 +441,10 @@ def test_returning_from_a_paid_checkout_signs_the_buyer_in(client, monkeypatch):
     me = client.get("/api/auth/me")
     assert me.status_code == 200
     assert me.json()["email"] == "locked-out@example.com"
-    assert me.json()["api_key"], "signed in but no key to show them"
+    # The prefix, not the key: keys are stored hashed and shown once. What
+    # this asserts is that the buyer lands on a dashboard that knows who they
+    # are and can rotate a key for them.
+    assert me.json()["api_key_prefix"], "signed in but no key to show them"
 
 
 def test_an_unverifiable_session_id_signs_nobody_in(client, monkeypatch):

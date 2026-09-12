@@ -22,6 +22,10 @@ def client(tmp_path, monkeypatch):
     db = tmp_path / "features.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
     monkeypatch.setenv("ADMIN_SECRET", ADMIN_SECRET)
+    # Recovery mails a SIGN-IN LINK rather than the key, so it needs logins to
+    # be enabled as well as mail. Without this the route 503s for the other
+    # reason and every recovery assertion here reads as a broken endpoint.
+    monkeypatch.setenv("SESSION_SECRET", "test-session-secret-not-for-real-use")
     monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
     monkeypatch.setenv("FREE_TIER_MONTHLY_CALLS", "7")
     monkeypatch.setenv("PRO_TIER_MONTHLY_CALLS", "5000")
@@ -206,7 +210,8 @@ def test_recovery_says_the_same_thing_for_known_and_unknown_addresses(
     client.post("/api/auth/register", json={"email": "known@example.com", "accept_terms": True})
     sent = []
     monkeypatch.setattr(
-        "src.mailer.send_api_key", lambda e, k: sent.append((e, k)) or True
+        "src.mailer.send_recovery_link",
+        lambda e, u, t=15: sent.append((e, u)) or True,
     )
 
     a = client.post("/api/auth/resend-key", json={"email": "known@example.com", "accept_terms": True})
@@ -222,7 +227,9 @@ def test_the_recovery_response_never_contains_the_key(client, monkeypatch):
     from src.config.settings import get_settings
 
     get_settings.cache_clear()
-    monkeypatch.setattr("src.mailer.send_api_key", lambda e, k: True)
+    monkeypatch.setattr(
+        "src.mailer.send_recovery_link", lambda e, u, t=15: True
+    )
 
     key = client.post(
         "/api/auth/register", json={"email": "keeper@example.com", "accept_terms": True}
@@ -250,7 +257,7 @@ def test_one_address_cannot_be_mailed_repeatedly(client, monkeypatch):
     get_settings.cache_clear()
     sent = []
     monkeypatch.setattr(
-        "src.mailer.send_api_key", lambda e, k: sent.append(e) or True
+        "src.mailer.send_recovery_link", lambda e, u, t=15: sent.append(e) or True
     )
 
     client.post("/api/auth/register", json={"email": "target@example.com", "accept_terms": True})
@@ -262,7 +269,7 @@ def test_one_address_cannot_be_mailed_repeatedly(client, monkeypatch):
     assert len(sent) == 1
 
 
-def test_the_mail_body_carries_the_key(monkeypatch):
+def test_the_mail_body_carries_a_link_and_not_a_key(monkeypatch):
     """The one place the key is legitimately written down."""
     import src.mailer as mailer
     from src.config.settings import get_settings
@@ -286,19 +293,24 @@ def test_the_mail_body_carries_the_key(monkeypatch):
         inboxes = FakeInboxes()
 
     monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
-    assert mailer.send_api_key("someone@example.com", "SECRET-KEY-123") is True
+    assert mailer.send_recovery_link(
+        "someone@example.com", "https://toscale.pro/auth/verify?token=t0ken", 15
+    ) is True
 
     assert sent["inbox_id"] == "inbox_fixed"
     assert sent["to"] == "someone@example.com"
-    assert sent["subject"] == "Your To Scale API key"
-    assert "SECRET-KEY-123" in sent["text"]
+    assert sent["subject"] == "Recover your To Scale API key"
+    assert "https://toscale.pro/auth/verify?token=t0ken" in sent["text"]
+    # The mail that used to go out had a live credential in it, in plain text,
+    # in an inbox, forever. It cannot now: there is no key to put in it.
+    assert "X-API-Key" not in sent["text"]
     assert sent["reply_to"] == "owner@example.com"
     get_settings.cache_clear()
     mailer.reset_inbox_cache()
 
 
 def test_a_failing_upstream_is_a_false_return_not_an_exception(monkeypatch):
-    """`send_api_key` runs in a background task with nobody to catch it."""
+    """`send_recovery_link` runs in a background task with nobody to catch it."""
     import src.mailer as mailer
     from src.config.settings import get_settings
 
@@ -318,7 +330,7 @@ def test_a_failing_upstream_is_a_false_return_not_an_exception(monkeypatch):
         inboxes = FakeInboxes()
 
     monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
-    assert mailer.send_api_key("someone@example.com", "k") is False
+    assert mailer.send_recovery_link("someone@example.com", "https://x/y") is False
     get_settings.cache_clear()
     mailer.reset_inbox_cache()
 
@@ -344,7 +356,7 @@ def test_a_missing_sdk_is_off_rather_than_a_crash(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", no_agentmail)
     assert mailer._client() is None
-    assert mailer.send_api_key("someone@example.com", "k") is False
+    assert mailer.send_recovery_link("someone@example.com", "https://x/y") is False
     get_settings.cache_clear()
 
 
@@ -382,8 +394,8 @@ def test_the_inbox_is_resolved_once_and_reused(monkeypatch):
     client = FakeClient()
     monkeypatch.setattr(mailer, "_client", lambda: client)
 
-    assert mailer.send_api_key("a@example.com", "k") is True
-    assert mailer.send_api_key("b@example.com", "k") is True
+    assert mailer.send_recovery_link("a@example.com", "https://x/y") is True
+    assert mailer.send_recovery_link("b@example.com", "https://x/y") is True
     assert len(creates) == 1, "the inbox must be created once, not per message"
     assert creates[0].client_id == mailer._INBOX_CLIENT_ID
     get_settings.cache_clear()
@@ -428,7 +440,7 @@ def test_an_existing_inbox_is_found_when_create_conflicts(monkeypatch):
         inboxes = FakeInboxes()
 
     monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
-    assert mailer.send_api_key("a@example.com", "k") is True
+    assert mailer.send_recovery_link("a@example.com", "https://x/y") is True
     assert sent["inbox_id"] == "inbox_existing"
     get_settings.cache_clear()
     mailer.reset_inbox_cache()

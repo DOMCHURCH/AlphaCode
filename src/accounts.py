@@ -24,6 +24,7 @@ blocking query here does not block the event loop.
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
 import re
 import secrets
 from dataclasses import dataclass
@@ -77,7 +78,9 @@ class Account:
 
     id: str
     email: str
-    api_key: str
+    # The first 8 characters of the key, not the key. Nothing can read the key
+    # back out of this process: it exists only in the response that issued it.
+    api_key_prefix: str
     # The tier that is IN FORCE, not the column. A subscription whose date has
     # passed reads "free" here, so every caller gets the right answer without
     # remembering to check the expiry itself -- which is the sort of thing one
@@ -136,6 +139,41 @@ def generate_api_key() -> str:
     return secrets.token_urlsafe(32)
 
 
+def hash_api_key(key: str) -> str:
+    """The value stored in `api_users.api_key`. One-way, and the only writer.
+
+    Stripped first, because `lookup` strips too and a key stored with a stray
+    newline would otherwise never match itself. SHA-256 and not bcrypt: the
+    input is a 256-bit random token with no dictionary behind it, so a slow KDF
+    would add latency to every API call and close no attack.
+    """
+    return hashlib.sha256((key or "").strip().encode("utf-8")).hexdigest()
+
+
+def key_prefix(key: str) -> str:
+    """The part of a key that is safe to show: enough to tell two keys apart.
+
+    Eight characters of a 43-character urlsafe token. Recognising your own key
+    in a dashboard needs a handful of characters; guessing the rest needs the
+    other 35, which is 208 bits.
+    """
+    return (key or "").strip()[:8]
+
+
+def looks_hashed(stored: str) -> bool:
+    """Whether a stored value is already a digest rather than a live key.
+
+    The migration's only question. Unambiguous by construction: a digest is
+    exactly 64 hex characters and an issued key is 43 characters of urlsafe
+    base64, which always contains at least one character outside [0-9a-f] --
+    and even the vanishingly unlikely all-hex key is the wrong length.
+    """
+    value = (stored or "").strip()
+    if len(value) != 64:
+        return False
+    return all(c in "0123456789abcdef" for c in value.lower())
+
+
 def _aware(when: dt.datetime) -> dt.datetime:
     """Naive timestamps come back from some backends; compare on one footing."""
     return when if when.tzinfo else when.replace(tzinfo=dt.UTC)
@@ -161,7 +199,7 @@ def _snapshot(row: ApiUser) -> Account:
     return Account(
         id=row.id,
         email=row.email,
-        api_key=row.api_key,
+        api_key_prefix=str(row.api_key_prefix or ""),
         tier=live,
         has_paid_download=bool(row.has_paid_download),
         pro_expires_at=row.pro_expires_at,
@@ -178,8 +216,14 @@ def _snapshot(row: ApiUser) -> Account:
 # Registration
 # ---------------------------------------------------------------------------
 
-def register(email: str) -> Account:
-    """Create one account and return it. Raises `EmailTaken` if it exists.
+def register(email: str) -> tuple[Account, str]:
+    """Create one account. Returns the account AND the plaintext key.
+
+    The key is returned separately and not on the `Account` because this is
+    the only moment it exists: the database gets the digest, and nothing can
+    recover it afterwards. A tuple rather than a field is deliberate -- it
+    makes every caller name what it does with a show-once secret instead of
+    carrying one around in a snapshot that gets logged and serialised.
 
     It must NOT return the existing key for an address already registered.
     Doing so would turn this open, unauthenticated endpoint into a key-recovery
@@ -187,6 +231,7 @@ def register(email: str) -> Account:
     handed that customer's paid key.
     """
     address = normalise_email(email)
+    plaintext = generate_api_key()
     with session_scope() as session:
         existing = session.execute(
             select(ApiUser).where(ApiUser.email == address)
@@ -195,13 +240,14 @@ def register(email: str) -> Account:
             raise EmailTaken(address)
         user = ApiUser(
             email=address,
-            api_key=generate_api_key(),
+            api_key=hash_api_key(plaintext),
+            api_key_prefix=key_prefix(plaintext),
             subscription_tier="free",
             has_paid_download=False,
         )
         session.add(user)
         session.flush()  # populate defaults (id) before the snapshot
-        return _snapshot(user)
+        return _snapshot(user), plaintext
 
 
 # ---------------------------------------------------------------------------
@@ -265,12 +311,19 @@ def fingerprint(key: str | None) -> str:
 
 
 def lookup(api_key: str) -> Account | None:
+    """The account holding this key, or None.
+
+    Hashes and then compares, so this is still one indexed equality test and
+    not a scan-and-verify over every row. That is the practical reason the
+    digest is unsalted: a per-row salt would force exactly that scan on the
+    hottest query in the service.
+    """
     key = (api_key or "").strip()
     if not key:
         return None
     with session_scope() as session:
         row = session.execute(
-            select(ApiUser).where(ApiUser.api_key == key)
+            select(ApiUser).where(ApiUser.api_key == hash_api_key(key))
         ).scalar_one_or_none()
         return _snapshot(row) if row is not None else None
 
@@ -471,6 +524,20 @@ def calls_this_month(user_id: str, month: str | None = None) -> int:
                 .where(UsageLog.month == (month or current_month()))
             ).scalar_one()
         )
+
+
+def key_last_used_at(user_id: str) -> dt.datetime | None:
+    """When this account last made a metered call, or None if it never has.
+
+    Read out of `usage_logs` rather than kept as a `last_used_at` column on
+    the account. The column would be a write on every single API request, to
+    answer a question asked once per dashboard load, and the meter already
+    records the same fact with an index that makes this a cheap max().
+    """
+    with session_scope() as session:
+        return session.execute(
+            select(func.max(UsageLog.called_at)).where(UsageLog.user_id == user_id)
+        ).scalar_one_or_none()
 
 
 def enforce_monthly_limit(account: Account) -> int:
@@ -692,9 +759,15 @@ def apply_admin_action(
 def status_payload(account: Account) -> dict:
     """What `/api/user/status` returns, and what the dashboard renders."""
     used = calls_this_month(account.id)
+    last_used = key_last_used_at(account.id)
     return {
         "email": account.email,
         "tier": account.tier,
+        # The key itself is never in here and cannot be: the database holds a
+        # digest. These two are what the dashboard shows in its place -- which
+        # key this is, and whether it is in use.
+        "api_key_prefix": account.api_key_prefix,
+        "api_key_last_used": _aware(last_used).isoformat() if last_used else None,
         "has_paid_download": account.has_paid_download,
         "calls_used_this_month": used,
         "calls_limit": account.call_limit,
