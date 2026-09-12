@@ -346,3 +346,280 @@ def test_yahoo_rows_are_written(bf_db, monkeypatch):
 async def _done(value):
     """Wrap a plain value as an awaited result, for stubbing async helpers."""
     return value
+
+
+# ---------------------------------------------------------------------------
+# Naming the companies company_tickers.json does not list
+# ---------------------------------------------------------------------------
+# The bug this covers rendered as "AVB (AVB) Balance Sheet": a company with
+# filed fundamentals, a drawable balance sheet, and no row in `universe` at
+# all, because the reference file lists CURRENT listings and a company page
+# exists for anything that has ever filed. 73 companies were in that state.
+
+
+def _seed_company(ticker, *, name=None, as_of=dt.date(2026, 9, 7), cik=None,
+                  assets=1000.0, in_universe=True):
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as s:
+        if in_universe:
+            s.add(UniverseSnapshot(
+                as_of_date=as_of, ticker=ticker, name=name, cik=cik,
+            ))
+        s.add(Fundamental(
+            ticker=ticker, metric="total_assets", value=assets,
+            period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+            filing_date=dt.date(2026, 8, 1), source="sec",
+        ))
+
+
+def test_a_drawable_company_absent_from_the_universe_is_selected(bf_db):
+    """The AVB case. No universe row at all, so nothing to read a name from."""
+    from src.backfill import _drawable_without_a_name
+    from src.storage.db import session_scope
+
+    _seed_company("AVB", in_universe=False)
+    _seed_company("WMT", name="Walmart Inc.")
+
+    with session_scope() as s:
+        assert _drawable_without_a_name(s) == ["AVB"]
+
+
+def test_a_name_equal_to_the_ticker_counts_as_missing(bf_db):
+    from src.backfill import _drawable_without_a_name
+    from src.storage.db import session_scope
+
+    _seed_company("XYZ", name="XYZ")
+    _seed_company("ABC", name="")
+    _seed_company("DEF", name=None)
+    _seed_company("GHI", name="Ghi Industries Inc")
+
+    with session_scope() as s:
+        assert _drawable_without_a_name(s) == ["ABC", "DEF", "XYZ"]
+
+
+def test_the_newest_row_decides_even_when_an_older_one_has_a_name(bf_db):
+    """The reader takes the most recent universe row at or before today, so a
+    named row from last month does not rescue an unnamed one from today. A
+    looser "has any row with a name" query would call this fixed while the
+    page still rendered the bare ticker."""
+    from src.backfill import _drawable_without_a_name
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed_company("OLD", name="Old Industries", as_of=dt.date(2026, 1, 1))
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date(2026, 9, 7), ticker="OLD", name=None,
+        ))
+
+    with session_scope() as s:
+        assert _drawable_without_a_name(s) == ["OLD"]
+
+
+def test_a_company_with_no_balance_sheet_is_not_selected(bf_db):
+    """There is no page to fix. Naming it would spend an SEC request on a
+    ticker nobody can reach."""
+    from src.backfill import _drawable_without_a_name
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as s:
+        s.add(Fundamental(
+            ticker="NOPE", metric="total_assets", value=0.0,
+            period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+            filing_date=dt.date(2026, 8, 1), source="sec",
+        ))
+
+    with session_scope() as s:
+        assert _drawable_without_a_name(s) == []
+
+
+def test_the_cik_is_found_in_any_table_that_has_one(bf_db):
+    """A ticker missing from `universe` is the whole point of this pass, so
+    the CIK lookup cannot depend on `universe` alone."""
+    from src.backfill import _cik_for
+    from src.storage.db import session_scope
+    from src.storage.models import FilingEvent, SectorMap
+
+    _seed_company("FROMUNI", name=None, cik="0000000111")
+    with session_scope() as s:
+        s.add(SectorMap(ticker="FROMSEC", cik="0000000222"))
+        s.add(FilingEvent(
+            ticker="FROMFIL", cik="0000000333", form="10-Q",
+            filing_date=dt.date(2026, 8, 1), accession="0001",
+        ))
+
+    with session_scope() as s:
+        assert _cik_for(s, "FROMUNI") == "0000000111"
+        assert _cik_for(s, "FROMSEC") == "0000000222"
+        assert _cik_for(s, "FROMFIL") == "0000000333"
+        assert _cik_for(s, "NOWHERE") is None
+
+
+def test_the_repair_writes_the_name_sec_returns(bf_db, monkeypatch):
+    import asyncio
+
+    from sqlalchemy import select
+
+    from src import backfill
+    from src.storage.db import session_scope
+    from src.storage.models import SectorMap, UniverseSnapshot
+
+    _seed_company("AVB", in_universe=False)
+    with session_scope() as s:
+        s.add(SectorMap(ticker="AVB", cik="0000915912"))
+
+    seen = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, cik):
+        seen.append(str(cik))
+        return {"name": "AVALONBAY COMMUNITIES INC"}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    report = asyncio.run(backfill.backfill_missing_company_names(rps=0))
+
+    assert seen == ["0000915912"]
+    assert report["named"] == 1 and report["written"] == 1
+    assert report["no_cik"] == [] and report["unnamed"] == []
+
+    with session_scope() as s:
+        rows = list(s.execute(
+            select(UniverseSnapshot).where(UniverseSnapshot.ticker == "AVB")
+        ).scalars())
+    assert [r.name for r in rows] == ["AVALONBAY COMMUNITIES INC"]
+    assert rows[0].as_of_date == dt.date.today(), (
+        "backdating into an old snapshot would rewrite what was known then"
+    )
+
+
+def test_the_three_companies_named_after_their_ticker_are_left_alone(
+    bf_db, monkeypatch
+):
+    """RH, CTW and VTEX match the query and are not broken. Rewriting them
+    would spend requests to confirm what is already there, and counting them
+    as failures would make a clean run look permanently unfinished."""
+    import asyncio
+
+    from src import backfill
+
+    for t in ("RH", "CTW", "VTEX"):
+        _seed_company(t, name=t)
+
+    async def boom(*_a, **_k):  # pragma: no cover - must never be reached
+        raise AssertionError("SEC was called for a company that is not broken")
+
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", boom)
+
+    report = asyncio.run(backfill.backfill_missing_company_names(rps=0))
+
+    assert report["matched"] == 3
+    assert report["checked"] == 0
+    assert report["named"] == 0
+    assert report["name_is_the_ticker"] == ["CTW", "RH", "VTEX"]
+
+
+def test_a_ticker_with_no_cik_anywhere_is_reported_not_guessed(bf_db, monkeypatch):
+    """Inventing a CIK writes another company's name onto this page, which is
+    worse than the empty field it replaces."""
+    import asyncio
+
+    from src import backfill
+
+    _seed_company("GHOST", in_universe=False)
+
+    async def no_reference():
+        return []
+
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_company_tickers", no_reference)
+
+    report = asyncio.run(backfill.backfill_missing_company_names(rps=0))
+
+    assert report["no_cik"] == ["GHOST"]
+    assert report["named"] == 0 and report["written"] == 0
+
+
+def test_a_missing_cik_falls_back_to_secs_own_ticker_file(bf_db, monkeypatch):
+    """Two of the 73 had no CIK in any table but were in company_tickers.json.
+    Asking SEC's own file is not guessing -- it is the authority the rest of
+    this module already uses."""
+    import asyncio
+
+    from sqlalchemy import select
+
+    from src import backfill
+    from src.storage.db import session_scope
+    from src.storage.models import UniverseSnapshot
+
+    _seed_company("LGSP", in_universe=False)
+
+    async def reference():
+        return [{"ticker": "LGSP", "cik": 1970129, "name": "ignored"}]
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, cik):
+        assert str(cik) == "1970129"
+        return {"name": "LEGEND SPICES, INC."}
+
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_company_tickers", reference)
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    report = asyncio.run(backfill.backfill_missing_company_names(rps=0))
+
+    assert report["no_cik"] == []
+    assert report["named"] == 1
+
+    with session_scope() as s:
+        name = s.execute(
+            select(UniverseSnapshot.name)
+            .where(UniverseSnapshot.ticker == "LGSP")
+        ).scalar_one()
+    assert name == "LEGEND SPICES, INC."
+
+
+def test_a_blank_name_from_sec_is_left_blank_not_filled_with_the_ticker(
+    bf_db, monkeypatch
+):
+    """A 200 with no name is a real answer -- some CIKs are trusts or filing
+    agents. Writing the ticker there would satisfy the query and tell the
+    reader nothing true."""
+    import asyncio
+
+    from src import backfill
+
+    _seed_company("BLANK", name=None, cik="0000000444")
+
+    class _FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_):
+            return None
+
+    async def fake_submissions(_client, _cik):
+        return {"name": "   "}
+
+    monkeypatch.setattr(backfill.sec_edgar, "make_client", lambda **k: _FakeClient())
+    monkeypatch.setattr(backfill.sec_edgar, "fetch_submissions", fake_submissions)
+
+    report = asyncio.run(backfill.backfill_missing_company_names(rps=0))
+
+    assert report["unnamed"] == ["BLANK"]
+    assert report["named"] == 0 and report["written"] == 0

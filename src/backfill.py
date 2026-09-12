@@ -882,6 +882,241 @@ async def backfill_company_names() -> int:
     return written
 
 
+# Companies `company_tickers.json` does not carry. See
+# `backfill_missing_company_names` for why that file is not enough on its own.
+_NAME_FALLBACK_RPS = 5.0
+
+# Companies whose legal name genuinely IS their ticker, so "name equals
+# ticker" is the right answer rather than a missing one. They match the
+# broken-name query and must not be counted as failures or rewritten.
+#
+# A hardcoded list is the honest shape here. The alternative is a rule, and
+# there is no rule: nothing in the data distinguishes "the name is RH" from
+# "the name was never loaded" except knowing that RH is a company called RH.
+# Three names, checked by hand against their filings.
+_NAME_IS_THE_TICKER: frozenset[str] = frozenset({
+    "RH",     # RH, formerly Restoration Hardware
+    "CTW",    # CTW Cayman
+    "VTEX",   # VTEX, the Brazilian commerce platform
+})
+
+
+def _drawable_without_a_name(session) -> list[str]:
+    """Tickers with a balance sheet to draw and no company name to put on it.
+
+    The rule is the one `company/balancesheet.py` uses to READ the name -- the
+    most recent universe row at or before today -- rather than "has any row
+    with a name". Matching the reader matters: a ticker whose only named row
+    is older than an unnamed one renders as its own ticker, and a looser query
+    here would call that fixed.
+
+    Written in two plain queries rather than one DISTINCT ON, because
+    DISTINCT ON is Postgres-only and the tests run on SQLite.
+    """
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    drawable = {
+        t for (t,) in session.execute(
+            select(Fundamental.ticker)
+            .where(Fundamental.metric == "total_assets", Fundamental.value > 0)
+            .distinct()
+        )
+    }
+    if not drawable:
+        return []
+
+    latest: dict[str, tuple[dt.date, str | None]] = {}
+    for ticker, as_of, name in session.execute(
+        select(
+            UniverseSnapshot.ticker, UniverseSnapshot.as_of_date,
+            UniverseSnapshot.name,
+        )
+    ):
+        seen = latest.get(ticker)
+        if seen is None or as_of > seen[0]:
+            latest[ticker] = (as_of, name)
+
+    broken = []
+    for ticker in sorted(drawable):
+        row = latest.get(ticker)
+        if row is None:                      # not in the universe at all
+            broken.append(ticker)
+            continue
+        name = (row[1] or "").strip()
+        if not name or name == ticker:
+            broken.append(ticker)
+    return broken
+
+
+def _cik_for(session, ticker: str) -> str | None:
+    """Any CIK this database holds for a ticker, newest first.
+
+    Three tables carry one and they disagree in coverage: `universe` has it for
+    companies the reference load reached, `sector_map` for anything the SIC
+    pull touched, and `filing_events` for anything that has ever filed. A
+    ticker missing from the first is exactly the case this function exists for,
+    so all three are tried before giving up.
+    """
+    from src.storage.models import FilingEvent, SectorMap, UniverseSnapshot
+
+    found = session.execute(
+        select(UniverseSnapshot.cik)
+        .where(UniverseSnapshot.ticker == ticker, UniverseSnapshot.cik.isnot(None))
+        .order_by(UniverseSnapshot.as_of_date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if found:
+        return str(found).strip() or None
+
+    found = session.execute(
+        select(SectorMap.cik).where(
+            SectorMap.ticker == ticker, SectorMap.cik.isnot(None)
+        ).limit(1)
+    ).scalar_one_or_none()
+    if found:
+        return str(found).strip() or None
+
+    found = session.execute(
+        select(FilingEvent.cik)
+        .where(FilingEvent.ticker == ticker, FilingEvent.cik.isnot(None))
+        .order_by(FilingEvent.filing_date.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    return (str(found).strip() or None) if found else None
+
+
+async def backfill_missing_company_names(
+    *, limit: int | None = None, rps: float = _NAME_FALLBACK_RPS,
+    skip: frozenset[str] = _NAME_IS_THE_TICKER,
+) -> dict[str, Any]:
+    """Name the drawable companies that `company_tickers.json` leaves out.
+
+    `backfill_company_names` reads that file, which lists companies with a
+    CURRENT exchange listing. A company page exists for anything with filed
+    fundamentals, and those two sets are not the same: a delisted filer, a
+    completed SPAC, a ticker that moved -- AVB among them -- has balance sheets
+    to draw and no entry in the reference file. Its page rendered as
+    "AVB (AVB) Balance Sheet", the company name field silently empty.
+
+    The submissions API answers per CIK rather than per listing, so it has the
+    name for anything that has ever filed. One request each, which is why this
+    is a repair pass over a short list and not how names are loaded normally.
+
+    Paced at 5 requests/second against SEC's limit of 10. The shared token
+    bucket would allow 9; this is slower on purpose, because the whole job is
+    a few dozen requests and there is nothing to gain by crowding a limit whose
+    penalty is a ten-minute block.
+
+    Never invents a CIK. The database is asked first and SEC's own ticker
+    file second; a ticker neither of them knows is reported and skipped.
+    Guessing one would write another company's name onto this page, which is
+    worse than the empty field it replaces.
+
+    `_NAME_IS_THE_TICKER` is left alone: those companies match the query and
+    are not broken, and the count of remaining matches after a successful run
+    is exactly that set.
+    """
+    with session_scope() as session:
+        matched = _drawable_without_a_name(session)
+        targets = [t for t in matched if t not in skip]
+        if limit is not None:
+            targets = targets[:limit]
+        ciks = {t: _cik_for(session, t) for t in targets}
+    by_design = sorted(t for t in matched if t in skip)
+
+    # A ticker with no CIK in any of our tables may still have one in SEC's
+    # own reference file -- which is the case for tickers that arrived in that
+    # file after the last universe load. Consulting it is not inventing a CIK;
+    # it is asking the same authority the rest of this module asks, and it is
+    # the difference between "cannot be named" and "we had not looked".
+    #
+    # Fetched once, and only when something actually needs it.
+    if any(not c for c in ciks.values()):
+        try:
+            reference = await sec_edgar.fetch_company_tickers()
+        except Exception as exc:  # noqa: BLE001 - the DB CIKs still stand
+            log.warning("company_name_reference_failed", error=str(exc)[:200])
+            reference = []
+        by_ticker = {
+            str(r.get("ticker", "")).upper(): r.get("cik")
+            for r in reference if r.get("ticker") and r.get("cik") is not None
+        }
+        for ticker, cik in list(ciks.items()):
+            if cik:
+                continue
+            found = by_ticker.get(ticker.upper())
+            if found is not None:
+                ciks[ticker] = str(found).strip()
+                log.info("company_name_cik_from_reference",
+                         ticker=ticker, cik=ciks[ticker])
+
+    missing_cik = sorted(t for t, c in ciks.items() if not c)
+    resolvable = [(t, c) for t, c in sorted(ciks.items()) if c]
+
+    log.info(
+        "company_name_repair_start",
+        matched=len(matched), candidates=len(targets),
+        resolvable=len(resolvable), no_cik=len(missing_cik),
+        name_is_the_ticker=len(by_design),
+    )
+    if not resolvable:
+        return {"matched": len(matched), "checked": len(targets), "named": 0,
+                "written": 0, "no_cik": missing_cik, "unnamed": [],
+                "name_is_the_ticker": by_design}
+
+    delay = 1.0 / rps if rps > 0 else 0.0
+    rows: list[dict[str, Any]] = []
+    unnamed: list[str] = []
+    async with sec_edgar.make_client(concurrency=1) as client:
+        for ticker, cik in resolvable:
+            try:
+                payload = await sec_edgar.fetch_submissions(client, cik)
+            except Exception as exc:  # noqa: BLE001 - one bad CIK is survivable
+                log.warning("company_name_fetch_failed", ticker=ticker,
+                            cik=cik, error=str(exc)[:200])
+                unnamed.append(ticker)
+                await asyncio.sleep(delay)
+                continue
+            name = str((payload or {}).get("name") or "").strip()
+            if not name:
+                # A 200 with no name is a real answer and not an error: some
+                # CIKs are filing agents or trusts with no entity name. Left
+                # empty rather than filled with the ticker.
+                log.info("company_name_absent", ticker=ticker, cik=cik)
+                unnamed.append(ticker)
+            else:
+                rows.append({
+                    "ticker": ticker, "name": name[:256],
+                    "cik": str(cik).strip()[:16],
+                })
+            await asyncio.sleep(delay)
+
+    written = 0
+    if rows:
+        # Today's date, the same as `backfill_company_names`. NOT backdated
+        # into the last snapshot: that snapshot is a record of what was known
+        # then, and editing it to say a name was there would be a small lie in
+        # the one table the point-in-time reads depend on.
+        today = dt.date.today()
+        for i in range(0, len(rows), 2000):
+            with session_scope() as session:
+                written += repository.save_universe(
+                    session, today, rows[i : i + 2000]
+                )
+
+        from src.company.lookup import reset_cache
+
+        reset_cache()
+
+    log.info("company_name_repair_done", named=len(rows), written=written,
+             no_cik=len(missing_cik), unnamed=len(unnamed))
+    return {
+        "matched": len(matched), "checked": len(targets), "named": len(rows),
+        "written": written, "no_cik": missing_cik, "unnamed": unnamed,
+        "name_is_the_ticker": by_design,
+    }
+
+
 def canonical_of(tickers: Iterable[str]) -> str:
     """The one ticker a CIK's rows are stored under, given several candidates.
 
@@ -1255,6 +1490,11 @@ def main() -> None:
         "--limit", type=int, default=None,
         help="cap the number of companies for the fundamentals/sector pass",
     )
+    parser.add_argument(
+        "--repair-names", action="store_true",
+        help="name drawable companies company_tickers.json does not list "
+             "(SEC submissions API, one request per company)",
+    )
     parser.add_argument("--skip-bars", action="store_true")
     args = parser.parse_args()
 
@@ -1270,6 +1510,11 @@ def main() -> None:
             await backfill_fundamentals()
         if args.earnings:
             await backfill_earnings()
+        if args.repair_names:
+            report = await backfill_missing_company_names(limit=args.limit)
+            log.info("company_names_repaired", **{
+                k: v for k, v in report.items() if k not in ("no_cik", "unnamed")
+            })
 
     asyncio.run(run())
 
