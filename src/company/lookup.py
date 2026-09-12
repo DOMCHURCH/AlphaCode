@@ -82,6 +82,12 @@ def canonical_ticker(ticker: str) -> str:
     the data sits under `RDI`. Empty is survivable; the pair being silently
     inconsistent is not.
 
+    The same resolution covers a renamed registrant, where the symbol moved
+    rather than the filings: EQR became VMRK and the balance sheet stayed on
+    CIK 906107, so `/company/VMRK` has to reach the page stored under EQR.
+    That is the case where 404 is worst, because the symbol that fails is the
+    only one a reader can still look up.
+
     Returns the input unchanged when there is no alias, when the ticker is
     unknown, or when anything at all goes wrong. A lookup that cannot resolve
     must never be the reason a page fails to render.
@@ -98,9 +104,25 @@ def canonical_ticker(ticker: str) -> str:
 def _aliases() -> dict[str, str]:
     """{ticker -> canonical ticker}, for the tickers that need one.
 
-    Built from `sector_map` alone and cached for the same half hour as the name
-    list. Only CIKs with more than one covered ticker contribute an entry, so
-    this is a few thousand strings rather than a copy of the universe.
+    Two sources, in this order, cached for the same half hour as the name list.
+
+    **`sector_map`** gives the share-class siblings: one CIK with several
+    covered tickers, `RDIB` alongside `RDI`. Only CIKs with more than one
+    covered ticker contribute, so this is a few thousand strings rather than a
+    copy of the universe.
+
+    **`universe`** then adds the tickers SEC currently lists for a CIK we
+    already cover under a different symbol. That is the renamed-registrant
+    case, and `sector_map` cannot answer it: when Equity Residential became
+    Vivmark Residential the filings stayed on CIK 906107 and the market symbol
+    changed from EQR to VMRK, so `/company/VMRK` -- the only symbol a reader
+    can now look up -- rendered a 404 while the balance sheet sat under EQR.
+    `universe` carries SEC's own `company_tickers.json` mapping, refreshed by
+    the scheduled names job, so the answer is already in the database and this
+    costs one more query rather than a request to SEC on the hot path.
+
+    Sibling entries win. A ticker `sector_map` already knows is one we cover
+    directly, and the reverse mapping must not move it.
     """
     global _alias_cache, _alias_cache_at
     if _alias_cache is not None and (time.monotonic() - _alias_cache_at) < _NAMES_TTL_S:
@@ -110,9 +132,10 @@ def _aliases() -> dict[str, str]:
 
     from src.backfill import canonical_of
     from src.storage.db import session_scope
-    from src.storage.models import SectorMap
+    from src.storage.models import SectorMap, UniverseSnapshot
 
     by_cik: dict[str, list[str]] = {}
+    covered: set[str] = set()
     with session_scope() as session:
         for ticker, cik in session.execute(
             select(SectorMap.ticker, SectorMap.cik).where(SectorMap.cik.isnot(None))
@@ -120,15 +143,30 @@ def _aliases() -> dict[str, str]:
             key = str(cik or "").lstrip("0")
             if key and ticker:
                 by_cik.setdefault(key, []).append(str(ticker).upper())
+                covered.add(str(ticker).upper())
 
-    out: dict[str, str] = {}
-    for tickers in by_cik.values():
-        if len(tickers) < 2:
-            continue
-        winner = canonical_of(tickers)
-        for t in tickers:
-            if t != winner:
-                out[t] = winner
+        out: dict[str, str] = {}
+        canonical_by_cik: dict[str, str] = {}
+        for cik, tickers in by_cik.items():
+            winner = canonical_of(tickers) if len(tickers) > 1 else tickers[0]
+            canonical_by_cik[cik] = winner
+            for t in tickers:
+                if t != winner:
+                    out[t] = winner
+
+        # The live symbols for a CIK we cover under an older one.
+        for ticker, cik in session.execute(
+            select(UniverseSnapshot.ticker, UniverseSnapshot.cik)
+            .where(UniverseSnapshot.cik.isnot(None))
+            .distinct()
+        ).all():
+            symbol = str(ticker or "").upper()
+            key = str(cik or "").lstrip("0")
+            if not symbol or not key or symbol in covered or symbol in out:
+                continue
+            winner = canonical_by_cik.get(key)
+            if winner and winner != symbol:
+                out[symbol] = winner
 
     _alias_cache, _alias_cache_at = out, time.monotonic()
     return out

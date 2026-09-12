@@ -355,3 +355,120 @@ def test_label_tiers_never_exceed_their_band(db):
     assert b(12.0).label_style == "full"
     assert b(7.0).label_style == "compact"
     assert b(1.0).label_style == "none"
+
+
+# ---------------------------------------------------------------------------
+# Resolving the symbol a reader actually has
+# ---------------------------------------------------------------------------
+# Two ways the URL's ticker is not the one the filings are stored under. The
+# share-class case was already handled. The second is a registrant that
+# renamed and took a new symbol: Equity Residential became Vivmark
+# Residential, the filings stayed on CIK 906107, and the market symbol went
+# from EQR to VMRK. /company/VMRK -- the only symbol a reader can now look up
+# -- answered 404 while the balance sheet sat under EQR.
+
+
+def _seed_filer(ticker, cik, *, in_sector_map=True, in_universe=False,
+                name=None, assets=1000.0):
+    import datetime as dt
+
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
+
+    with session_scope() as s:
+        if in_sector_map:
+            s.add(SectorMap(ticker=ticker, cik=cik))
+        if in_universe:
+            s.add(UniverseSnapshot(
+                as_of_date=dt.date(2026, 9, 7), ticker=ticker, name=name,
+                cik=cik,
+            ))
+        if assets is not None:
+            for metric, value in (("total_assets", assets),
+                                  ("total_liabilities", assets * 0.6),
+                                  ("total_equity", assets * 0.4)):
+                s.add(Fundamental(
+                    ticker=ticker, metric=metric, value=value,
+                    period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+                    filing_date=dt.date(2026, 8, 1), source="sec",
+                ))
+
+
+def test_a_live_symbol_resolves_to_the_ticker_the_filings_are_under(db):
+    """The EQR/VMRK case. VMRK is in `universe` with the same CIK and is not
+    in `sector_map` at all, which is exactly why the old resolution missed
+    it."""
+    from src.company.lookup import canonical_ticker, reset_cache
+
+    _seed_filer("EQR", "906107")
+    _seed_filer("VMRK", "906107", in_sector_map=False, in_universe=True,
+                name="VIVMARK RESIDENTIAL", assets=None)
+    reset_cache()
+
+    assert canonical_ticker("VMRK") == "EQR"
+    assert canonical_ticker("vmrk") == "EQR"
+    assert canonical_ticker("EQR") == "EQR", "the canonical must not move"
+
+
+def test_the_page_renders_for_the_live_symbol(db):
+    from src.company.lookup import reset_cache
+    from src.company.view1 import build_view1
+
+    _seed_filer("EQR", "906107")
+    _seed_filer("VMRK", "906107", in_sector_map=False, in_universe=True,
+                name="VIVMARK RESIDENTIAL", assets=None)
+    reset_cache()
+
+    view = build_view1("VMRK")
+    assert view is not None, "the live symbol still has nothing to draw"
+    assert view.ticker == "EQR"
+    assert view.total_assets == 1000.0
+
+
+def test_a_covered_ticker_is_never_moved_by_the_reverse_mapping(db):
+    """A ticker `sector_map` knows is one we cover directly. If the universe
+    pass could move it, a share class with its own page would start
+    redirecting to its sibling."""
+    from src.company.lookup import canonical_ticker, reset_cache
+
+    _seed_filer("RDI", "1086222")
+    _seed_filer("RDIB", "1086222")
+    _seed_filer("RDI", "1086222", in_sector_map=False, in_universe=True,
+                name="Reading International", assets=None)
+    reset_cache()
+
+    # Both are covered, so the share-class rule decides and the universe pass
+    # leaves them alone.
+    assert canonical_ticker("RDI") == "RDI"
+    assert canonical_ticker("RDIB") == "RDI"
+
+
+def test_an_unknown_symbol_is_returned_unchanged(db):
+    from src.company.lookup import canonical_ticker, reset_cache
+
+    _seed_filer("EQR", "906107")
+    reset_cache()
+    assert canonical_ticker("NOSUCH") == "NOSUCH"
+    assert canonical_ticker("") == ""
+
+
+def test_the_page_says_the_two_symbols_are_one_filer(db):
+    """Rendered rather than redirected: the fact worth conveying is that they
+    are the same registrant, and a 301 hides exactly that."""
+    from src.company.lookup import reset_cache
+    from src.company.view1 import build_view1
+    from src.report.company_page import render_company_page
+
+    _seed_filer("EQR", "906107")
+    _seed_filer("VMRK", "906107", in_sector_map=False, in_universe=True,
+                name="VIVMARK RESIDENTIAL", assets=None)
+    reset_cache()
+
+    view = build_view1("VMRK")
+    html = render_company_page(view, requested_ticker="VMRK")
+    assert "same registrant" in html
+    assert "VMRK" in html
+
+    # And nothing is said when the URL already names the canonical ticker.
+    plain = render_company_page(view, requested_ticker="EQR")
+    assert "same registrant" not in plain

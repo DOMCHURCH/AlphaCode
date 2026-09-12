@@ -182,6 +182,12 @@ main{padding:6px 0 72px}
 .cname{font-size:clamp(26px,7vw,38px);line-height:1.06;font-weight:600;
   letter-spacing:-.03em;margin:0 0 16px}
 .cmeta{display:flex;flex-wrap:wrap;gap:8px}
+/* Shown only when the URL's symbol is not the one the filings are stored
+   under: a share class, or a registrant that renamed and took a new ticker.
+   Quiet, because it explains the page rather than qualifying the figures. */
+.cnote{font-size:12.5px;line-height:1.5;color:var(--ink2);margin:14px 0 0;
+  max-width:62ch}
+.cnote b{color:var(--ink);font-weight:600}
 .chip{font-size:11.5px;font-weight:500;letter-spacing:.01em;color:var(--ink2);
   padding:7px 13px;border-radius:999px;box-shadow:var(--up-sm);background:var(--bg)}
 /* The filing date is the page's provenance, so it is pressed in rather than

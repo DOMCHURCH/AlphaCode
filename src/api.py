@@ -1510,7 +1510,11 @@ def company_page(ticker: str) -> HTMLResponse:
     # the page renders without those sections.
     from src.report.page_extras_store import load_extras
 
-    extras = load_extras(symbol)
+    # `view.ticker`, not `symbol`. The views resolve a share class or a
+    # renamed registrant to the ticker the filings are stored under, and the
+    # extras row is keyed by that -- looking it up under the symbol in the URL
+    # silently drops the prose from every aliased page.
+    extras = load_extras(view.ticker)
     return HTMLResponse(
         render_company_page(
             view,
@@ -1518,6 +1522,7 @@ def company_page(ticker: str) -> HTMLResponse:
             scale=scale,
             ask_available=_ASK_MODEL is not None,
             extras=extras,
+            requested_ticker=symbol,
         )
     )
 

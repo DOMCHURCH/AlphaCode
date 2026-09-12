@@ -392,6 +392,7 @@ def render_company_page(
     scale: View2 | None = None,
     ask_available: bool = False,
     extras: dict[str, str] | None = None,
+    requested_ticker: str | None = None,
 ) -> str:
     """`extras` is the one row from `company_page_extras`, already rendered.
 
@@ -399,6 +400,12 @@ def render_company_page(
     the page's query count remains something you can read off the route. None
     is the ordinary case for a ticker that has not been backfilled yet, and it
     renders the page exactly as it was before those sections existed.
+
+    `requested_ticker` is the symbol in the URL, which is not always the one
+    the filings are stored under: a share-class sibling and a renamed
+    registrant both arrive here resolved to the canonical ticker. When they
+    differ the page says so, because a reader who typed VMRK and got a page
+    headed EQR is owed the sentence explaining that those are one filer.
     """
     # The SAME backdrop every other page gets, from the one function that
     # owns it. This page renders its own <head> and <body> rather than
@@ -519,6 +526,17 @@ def render_company_page(
     eyebrow = (
         f'<p class="cticker">{escape(d["ticker"])}</p>' if has_name else ""
     )
+    # Said plainly rather than redirected. A redirect would hide that the two
+    # symbols are the same filer, and that is the one fact a reader who
+    # arrived on the other symbol actually needs.
+    asked = (requested_ticker or "").strip().upper()
+    same_registrant = ""
+    if asked and asked != str(d["ticker"]).upper():
+        same_registrant = (
+            f'<p class="cnote">Showing <b>{escape(str(d["ticker"]))}</b>. '
+            f"{escape(asked)} is the same registrant &mdash; one filer, one "
+            f"set of filings, reported under both symbols.</p>"
+        )
     sector = (
         f'<span class="chip">{escape(d["sector"])}</span>' if d["sector"] else ""
     )
@@ -564,6 +582,7 @@ def render_company_page(
       <span class="chip">Quarter ended {escape(d["period_end"])}</span>
       <span class="chip filed">Filed {escape(d["filing_date"])}</span>
     </div>
+    {same_registrant}
   </header>
 
   {intro_html}
