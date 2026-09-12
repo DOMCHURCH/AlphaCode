@@ -24,3 +24,11 @@ audit-page.html
 # The local agent worktrees and session scratch. Not source, and a worktree
 # committed into the repo it is a worktree OF is a loop nobody wants to debug.
 .claude/
+
+# Browser tests. The suite AND its lockfile are tracked -- an unpinned
+# Playwright is a CI run that breaks on somebody else's release. The browser
+# download, the throwaway database and the reports are not.
+e2e/node_modules/
+e2e/playwright-report/
+e2e/test-results/
+e2e/.data/

@@ -1,0 +1,14 @@
+{
+  "name": "toscale-e2e",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser tests for the flows pytest cannot reach. Deliberately a separate package: nothing Python needs Node, and nothing here belongs in requirements.txt.",
+  "scripts": {
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "report": "playwright show-report"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.1"
+  }
+}
