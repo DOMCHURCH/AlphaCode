@@ -265,6 +265,57 @@ async def count_visits(request: Request, call_next):
     return response
 
 
+# The old domain is dead. Registered after count_visits, which makes Starlette
+# layer it OUTERMOST -- the 301 is returned before the analytics middleware
+# runs, so traffic to the retired host is not recorded as page visits.
+#
+# This only fires while toscale.pro DNS still resolves to this service. Once
+# DNS is repointed, the redirect has to live at the DNS or proxy layer instead,
+# because the request never reaches this process.
+_DEAD_HOST = "toscale.pro"
+_LIVE_ORIGIN = "https://balanceproof.dev"
+
+
+@app.middleware("http")
+async def redirect_dead_domain(request: Request, call_next):
+    """301 every request on the retired domain, /api included.
+
+    No carve-out for the API: the path is unchanged, so a key holder's script
+    keeps working the moment it follows the redirect, and leaving one host
+    alive would keep the old brand in circulation indefinitely.
+    """
+    # Host carries a port on non-standard deployments; compare the name only.
+    host = request.headers.get("host", "").split(":")[0].strip().lower()
+    if host == _DEAD_HOST or host.endswith("." + _DEAD_HOST):
+        target = f"{_LIVE_ORIGIN}{request.url.path}"
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        log.info("dead_domain_redirect", source_host=host, target=target)
+        return RedirectResponse(url=target, status_code=301)
+    return await call_next(request)
+
+
+# Slugs that carried the old brand. They are indexed, so they keep answering --
+# with a 301 to the renamed page rather than the 404 a silent rename would give.
+_RENAMED_PATHS = {
+    "/compare/to-scale-vs-intrinio": "/compare/balanceproof-vs-intrinio",
+    "/compare/to-scale-vs-sec-api": "/compare/balanceproof-vs-sec-api",
+    "/compare/to-scale-vs-xignite": "/compare/balanceproof-vs-xignite",
+}
+
+
+@app.middleware("http")
+async def redirect_renamed_paths(request: Request, call_next):
+    """301 the pre-rebrand comparison URLs to their renamed equivalents."""
+    target = _RENAMED_PATHS.get(request.url.path.rstrip("/"))
+    if target:
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        log.info("renamed_path_redirect", source=request.url.path, target=target)
+        return RedirectResponse(url=target, status_code=301)
+    return await call_next(request)
+
+
 # Every data load takes this, scheduled or manual, so an auto-refresh and a tap
 # on /admin can never run at once. It lives in src/locks.py because the
 # auto-updater holds the SAME lock and the two modules must not import each

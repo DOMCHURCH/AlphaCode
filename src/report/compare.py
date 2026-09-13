@@ -226,7 +226,7 @@ def _choose(page: Page) -> str:
 
 PAGES: tuple[Page, ...] = (
     Page(
-        slug="compare/to-scale-vs-intrinio",
+        slug="compare/balanceproof-vs-intrinio",
         h1="BalanceProof vs Intrinio: SEC Filings API Comparison",
         seo_title="BalanceProof vs Intrinio — SEC Filings API Comparison (2026)",
         description=(
@@ -598,7 +598,7 @@ def _ld(page: Page) -> str:
 # machinery, and a reader skips machinery. This is the shortest honest answer
 # to "why would I click that instead of staying here".
 _WHY_THAT_ONE: dict[str, str] = {
-    "compare/to-scale-vs-intrinio":
+    "compare/balanceproof-vs-intrinio":
         "A broad multi-asset data vendor. The comparison is scope against "
         "depth.",
     "compare/balanceproof-vs-sec-api":

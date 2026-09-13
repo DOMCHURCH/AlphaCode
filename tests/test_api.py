@@ -2058,3 +2058,63 @@ def test_a_stale_month_is_not_reported_as_this_month(client):
     k = client.get("/api/admin/stats", headers=ADMIN).json(
     )["seeded_keys"]["keys"][0]
     assert k["calls_this_month"] == 0
+
+
+# --------------------------------------------------------------------------
+# The retired toscale.pro domain. Every request on it is 301'd to
+# balanceproof.dev with the path and query intact -- /api routes included.
+# --------------------------------------------------------------------------
+
+
+def _no_follow(client, path, host):
+    return client.get(path, headers={"host": host}, follow_redirects=False)
+
+
+def test_301_redirect_from_toscale_apex_to_balanceproof(client):
+    r = _no_follow(client, "/", "toscale.pro")
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://balanceproof.dev/"
+
+
+def test_301_redirect_from_toscale_www_to_balanceproof(client):
+    r = _no_follow(client, "/", "www.toscale.pro")
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://balanceproof.dev/"
+
+
+def test_301_redirect_preserves_path_and_query(client):
+    r = _no_follow(client, "/search?q=JPM&limit=5", "toscale.pro")
+    assert r.status_code == 301
+    assert r.headers["location"] == (
+        "https://balanceproof.dev/search?q=JPM&limit=5"
+    )
+
+
+def test_no_redirect_when_host_is_balanceproof(client):
+    r = _no_follow(client, "/", "balanceproof.dev")
+    assert r.status_code == 200
+
+
+def test_301_redirect_applies_to_api_paths_too(client):
+    """No carve-out for the API. The old host is dead for every path."""
+    r = _no_follow(client, "/api/company/JPM", "toscale.pro")
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://balanceproof.dev/api/company/JPM"
+
+
+def test_redirect_ignores_a_port_on_the_host_header(client):
+    r = _no_follow(client, "/", "toscale.pro:8080")
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://balanceproof.dev/"
+
+
+def test_renamed_compare_slugs_301_to_their_new_paths(client):
+    """The pre-rebrand comparison URLs are indexed; they must not 404."""
+    for old, new in (
+        ("/compare/to-scale-vs-intrinio", "/compare/balanceproof-vs-intrinio"),
+        ("/compare/to-scale-vs-sec-api", "/compare/balanceproof-vs-sec-api"),
+        ("/compare/to-scale-vs-xignite", "/compare/balanceproof-vs-xignite"),
+    ):
+        r = _no_follow(client, old, "balanceproof.dev")
+        assert r.status_code == 301, old
+        assert r.headers["location"] == new
