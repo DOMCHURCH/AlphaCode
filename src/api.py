@@ -602,12 +602,32 @@ _seed_admin_gate = _KeyedRateGate(10, window_s=60.0)
 # anybody willing to loop, at a rate the global gate alone put at roughly three
 # times the Pro monthly allowance PER DAY.
 #
-# A hundred an hour is far above reading the site (the home page spends one per
-# search) and far below enumerating six thousand companies. It is not a
-# security boundary: X-Forwarded-For is client-settable, so a caller who
-# rotates it gets a fresh budget each time. It raises the cost of scraping and
-# leaves the global window as the backstop, which is the honest description.
-_demo_ip_gate = _KeyedRateGate(100, window_s=3600.0)
+# DISABLED (0) ON THIS DEPLOYMENT, and the reason is the whole comment.
+#
+# A hundred an hour would be far above reading the site and far below
+# enumerating six thousand companies, and that is what this was set to. In
+# production it did something else entirely: EVERY caller landed in the same
+# bucket, so it behaved as a single global 100/hour cap and answered 429 to
+# every visitor once any one caller had spent it.
+#
+# Measured, not guessed. With the window already spent from one machine, a
+# request carrying `X-Forwarded-For: 9.9.9.9`, one carrying `X-Real-IP:
+# 8.8.8.8`, and one from an unrelated network entirely all came back 429 with
+# THIS gate's message and a Retry-After counting down the first caller's
+# window. Distinct addresses were sharing one key.
+#
+# So `analytics.client_ip` is not returning the caller's address behind this
+# proxy -- it resolves to one constant value, which also means the unique
+# visitor count it feeds is wrong in the same way. Until that is fixed there
+# is nothing to key a per-caller window on, and a "per-IP" limit that cannot
+# identify the IP is just a global limit wearing the wrong name and the wrong
+# number. `_KeyedRateGate.check` is a no-op at 0, so the global `_demo_gate`
+# is once again the only thing in front of the demo.
+#
+# The tests still exercise the mechanism: they substitute their own gate, and
+# under TestClient there is no proxy in the way, so per-address separation is
+# still proved -- which is exactly why this did not show up before deploy.
+_demo_ip_gate = _KeyedRateGate(0, window_s=3600.0)
 
 
 def _enforce_keyed_rate(

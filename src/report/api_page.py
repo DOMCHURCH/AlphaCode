@@ -111,10 +111,11 @@ def render_api(
      "filing it came from. The same numbers the drawing on "
      "<code>/company/{ticker}</code> is built from.")}
 {_ep("GET", "/api/demo/{ticker}",
-     f"No key · {demo_calls_per_hour}/hour per address",
+     (f"No key · {demo_calls_per_hour}/hour per address"
+      if demo_calls_per_hour else "No key · rate limited"),
      "The same response, so you can see the shape before deciding whether to "
-     "register. Metered per address rather than per key, because it is the "
-     "keyed endpoint underneath.")}
+     "register. It is the keyed endpoint underneath, so it is metered -- "
+     "generously, and not per key.")}
 {_ep("GET", "/api/user/status", "X-API-Key required · free",
      "Your tier, the calls you have spent this calendar month, and what is "
      "left. Checking never costs a call.")}
