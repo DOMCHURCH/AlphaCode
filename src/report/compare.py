@@ -328,7 +328,7 @@ PAGES: tuple[Page, ...] = (
     Page(
         slug="compare/balanceproof-vs-xignite",
         h1="BalanceProof vs Xignite: Financial Data API Comparison",
-        seo_title="BalanceProof vs Xignite — Financial Data API for Fundamentals",
+        seo_title="BalanceProof vs Xignite — Financial Data API",
         description=(
             "BalanceProof vs Xignite for SEC fundamentals: an independent "
             "XBRL reconciler against an enterprise market-data platform. "
