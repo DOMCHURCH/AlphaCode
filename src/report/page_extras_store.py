@@ -243,6 +243,42 @@ def _filings(session: Any, ticker: str) -> list[dict[str, Any]]:
     ]
 
 
+def origin_drift(origin: str, sample: int = 5) -> tuple[int, list[str]]:
+    """Rows whose stored JSON-LD does NOT name `origin`, with a few tickers.
+
+    `jsonld` is rendered once and kept, so it carries whatever origin was
+    current when it was built. That is invisible to every check that reads the
+    source tree: at the toscale.pro -> balanceproof.dev rebrand the canonical
+    tag and og:url moved with the code and 6,184 stored blocks did not, so each
+    company page told a crawler two different things about itself.
+
+    A substring test rather than a URL parse, deliberately: the block is built
+    by `build_company_ld` with exactly one origin interpolated into it, so a
+    row that does not contain the current origin anywhere was built against a
+    different one. Cheap enough to run at boot and impossible to get subtly
+    wrong.
+
+    Returns (count, sample_tickers). Never raises: a drift check that breaks
+    boot is worse than the drift it looks for.
+    """
+    from sqlalchemy import select
+
+    from src.storage.db import session_scope
+    from src.storage.models import CompanyPageExtras
+
+    try:
+        with session_scope() as session:
+            rows = session.execute(
+                select(CompanyPageExtras.ticker)
+                .where(CompanyPageExtras.jsonld.isnot(None))
+                .where(~CompanyPageExtras.jsonld.contains(origin))
+            ).scalars().all()
+    except Exception as exc:  # noqa: BLE001 - advisory only
+        log.warning("page_extras_origin_drift_check_failed", error=str(exc)[:200])
+        return 0, []
+    return len(rows), sorted(rows)[:sample]
+
+
 def compute_and_store(ticker: str, origin: str) -> bool:
     """Build every fragment for one ticker and write the single row.
 

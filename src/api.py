@@ -79,6 +79,29 @@ async def _boot(app: FastAPI) -> None:
 
     await _verify_ask_model()
 
+    # The stored company-page JSON-LD names an origin, and nothing in the
+    # source tree can tell you which one. Checked here so a domain change that
+    # leaves 6,184 rows pointing at the old host is a line in the boot log
+    # rather than something a crawler finds first. Advisory only -- it reports,
+    # it does not rewrite; `POST /admin/page-extras/backfill` does that.
+    try:
+        from src.report.home_page import SITE_ORIGIN
+        from src.report.page_extras_store import origin_drift
+
+        drifted, sample = await asyncio.to_thread(origin_drift, SITE_ORIGIN)
+        if drifted:
+            log.warning(
+                "page_extras_origin_drift",
+                rows=drifted,
+                expected=SITE_ORIGIN,
+                sample=sample,
+                fix="POST /admin/page-extras/backfill",
+            )
+        else:
+            log.info("page_extras_origin_ok", expected=SITE_ORIGIN)
+    except Exception as exc:  # noqa: BLE001 - a drift check must not stop boot
+        log.warning("page_extras_origin_check_skipped", error=str(exc)[:200])
+
     # The home page states its own identity pass rate. Computing it walks every
     # company, so it is warmed once here rather than on a reader's request; the
     # page renders without it and simply omits the line until it lands.
@@ -1528,7 +1551,11 @@ def _refresh_page_extras() -> int:
     fundamentals reload as failed.
     """
     from src.report.home_page import SITE_ORIGIN
-    from src.report.page_extras_store import compute_and_store, reset_sector_cache
+    from src.report.page_extras_store import (
+        compute_and_store,
+        origin_drift,
+        reset_sector_cache,
+    )
 
     rebuilt = 0
     # The fundamentals table was just replaced; anything memoised from before
@@ -1551,6 +1578,23 @@ def _refresh_page_extras() -> int:
                 )
             ).all())
         stale = [t for t, period in newest if built.get(t) != period]
+        # A row can also be stale WITHOUT its filing having moved: the stored
+        # JSON-LD carries the origin it was built with, so after a domain
+        # change every row is correct about its balance sheet and wrong about
+        # where it lives. Period-only staleness would rebuild none of them and
+        # report success, which is how 6,184 pages kept naming the dead domain
+        # through a deploy that had already fixed the code.
+        drifted, _sample = origin_drift(SITE_ORIGIN)
+        if drifted:
+            with session_scope() as session:
+                stale_extra = session.execute(
+                    select(CompanyPageExtras.ticker)
+                    .where(CompanyPageExtras.jsonld.isnot(None))
+                    .where(~CompanyPageExtras.jsonld.contains(SITE_ORIGIN))
+                ).scalars().all()
+            known = set(stale)
+            stale += [t for t in stale_extra if t not in known]
+            log.info("page_extras_origin_drift_queued", rows=drifted)
         for ticker in stale:
             try:
                 if compute_and_store(ticker, SITE_ORIGIN):

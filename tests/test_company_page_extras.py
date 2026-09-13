@@ -484,3 +484,99 @@ def test_the_rendered_page_carries_a_description_inside_the_limit(client):
     assert found, "the company page carries no meta description"
     desc = _html.unescape(found.group(1))
     assert len(desc) <= 155, f"{len(desc)}: {desc}"
+
+
+# --------------------------------------------------------------------------
+# Origin drift. `jsonld` is rendered once and stored, so it keeps whatever
+# origin was current when it was built -- invisible to any check that reads
+# the source tree. This is what let 6,184 company pages go on naming
+# toscale.pro after the code had already moved to balanceproof.dev.
+# --------------------------------------------------------------------------
+
+
+def _seed_extras_row(ticker: str, origin: str) -> None:
+    """One page_extras row whose JSON-LD names `origin`."""
+    from src.storage.db import session_scope
+    from src.storage.models import CompanyPageExtras
+
+    with session_scope() as s:
+        s.add(CompanyPageExtras(
+            ticker=ticker,
+            intro_html="<p>x</p>",
+            peers_html="",
+            filings_html="",
+            jsonld=(
+                '<script type="application/ld+json">'
+                '{"@context":"https://schema.org","@type":"Organization",'
+                f'"name":"{ticker} Inc","url":"{origin}/company/{ticker}"}}'
+                "</script>"
+            ),
+            source_period_end=dt.date(2026, 3, 31),
+            computed_at=dt.datetime(2026, 4, 1, 12, 0, 0),
+        ))
+
+
+def test_origin_drift_finds_a_row_built_against_the_old_domain(client):
+    """The exact shape of the rebrand bug: stored block names a dead host."""
+    from src.report.page_extras_store import origin_drift
+
+    _seed_extras_row("OLD", "https://toscale.pro")
+
+    count, sample = origin_drift("https://balanceproof.dev")
+    assert count == 1
+    assert sample == ["OLD"]
+
+
+def test_origin_drift_is_silent_when_the_row_matches(client):
+    from src.report.page_extras_store import origin_drift
+
+    _seed_extras_row("NEW", "https://balanceproof.dev")
+
+    count, sample = origin_drift("https://balanceproof.dev")
+    assert count == 0
+    assert sample == []
+
+
+def test_origin_drift_counts_only_the_rows_that_drifted(client):
+    """A mixed table reports the stale ones and leaves the good ones alone."""
+    from src.report.page_extras_store import origin_drift
+
+    _seed_extras_row("OLDA", "https://toscale.pro")
+    _seed_extras_row("OLDB", "https://toscale.pro")
+    _seed_extras_row("GOOD", "https://balanceproof.dev")
+
+    count, sample = origin_drift("https://balanceproof.dev")
+    assert count == 2
+    assert sample == ["OLDA", "OLDB"]
+    assert "GOOD" not in sample
+
+
+def test_origin_drift_ignores_rows_with_no_jsonld(client):
+    """A row that was never given a block has no origin to be wrong about."""
+    from src.report.page_extras_store import origin_drift
+    from src.storage.db import session_scope
+    from src.storage.models import CompanyPageExtras
+
+    with session_scope() as s:
+        s.add(CompanyPageExtras(
+            ticker="BARE", intro_html="<p>x</p>", jsonld=None,
+            source_period_end=dt.date(2026, 3, 31),
+            computed_at=dt.datetime(2026, 4, 1, 12, 0, 0),
+        ))
+
+    assert origin_drift("https://balanceproof.dev") == (0, [])
+
+
+def test_origin_drift_survives_a_broken_database(client, monkeypatch):
+    """Advisory only: it must never be the reason a boot or a reload fails."""
+    from src.report import page_extras_store
+
+    def boom():
+        raise RuntimeError("database is on fire")
+
+    monkeypatch.setattr(page_extras_store, "session_scope", boom, raising=False)
+    import src.storage.db as db
+
+    monkeypatch.setattr(db, "session_scope", boom)
+
+    assert page_extras_store.origin_drift("https://balanceproof.dev") == (0, [])
