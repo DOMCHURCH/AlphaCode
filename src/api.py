@@ -3590,6 +3590,32 @@ def google_site_verification(token: str) -> Response:
     )
 
 
+@app.get("/BingSiteAuth.xml", include_in_schema=False)
+def bing_site_verification() -> Response:
+    """Bing Webmaster Tools' XML-file check.
+
+    Read from `static/verify/` rather than returned as a literal, for the same
+    reason the Google route reads from disk: the token is proved by somebody
+    with write access to the repository, and there is then exactly one copy of
+    it to rotate. A missing file is a 404 rather than a 500 -- Bing reads that
+    as "not verified yet", which is the truth, where a stack trace on a public
+    URL is noise.
+
+    The path is fixed and case-sensitive: Bing fetches `/BingSiteAuth.xml`
+    exactly, so this route takes no parameter and nothing reaches the
+    filesystem from the request.
+    """
+    path = _STATIC_DIR / "verify" / "BingSiteAuth.xml"
+    if not path.is_file():
+        log.warning("bing_verification_missing", path=str(path))
+        raise HTTPException(status_code=404, detail="Not found")
+    return Response(
+        content=path.read_bytes(),
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
 @app.get("/api", response_class=HTMLResponse)
 def api_page(request: Request) -> HTMLResponse:
     """The API reference, as a page.
