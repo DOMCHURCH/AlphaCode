@@ -233,7 +233,7 @@ def page_text(html: str) -> tuple[str, str]:
     return heading, to_text(inner)
 
 
-_PREAMBLE = """# To Scale — full text
+_PREAMBLE = """# BalanceProof — full text
 
 Every page of prose on toscale.pro, in one document: what the product is, how
 the figures are selected, what it costs, what the API returns, and how it

@@ -1,4 +1,4 @@
-/* To Scale — sign-in and the verify hand-off.
+/* BalanceProof — sign-in and the verify hand-off.
    ---------------------------------------------------------------------------
    Two small jobs on two pages:
 

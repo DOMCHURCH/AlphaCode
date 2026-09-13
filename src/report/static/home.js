@@ -1,4 +1,4 @@
-/* To Scale — the home page's live API demo.
+/* BalanceProof — the home page's live API demo.
    ---------------------------------------------------------------------------
    Calls /api/demo/{ticker}, which is the ordinary company endpoint with the
    demo account's key attached SERVER-SIDE. There is deliberately no key in this

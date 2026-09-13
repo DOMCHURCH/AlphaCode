@@ -395,9 +395,9 @@ def render_dashboard(
 <script src="/static/dashboard.js?v={asset_version()}" defer></script>"""
 
     return shell(
-        "To Scale — API access", body,
+        "BalanceProof — API access", body,
         description=(
-            "Your To Scale dashboard: API key, monthly usage against your "
+            "Your BalanceProof dashboard: API key, monthly usage against your "
             "tier, the full dataset download, and billing."
         ),
         canonical="/dashboard",

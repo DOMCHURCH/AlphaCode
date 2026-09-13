@@ -52,7 +52,7 @@ def render_dataset(
     as_of: str = "the last quarterly load",
     newest_filing: str = "",
     columns: tuple[str, ...] = (),
-    filename: str = "to-scale-facts.csv",
+    filename: str = "balanceproof-facts.csv",
 ) -> str:
     from src.report.nav import render_footer
 
@@ -190,7 +190,7 @@ def render_dataset(
     from src.report.schema import breadcrumb_ld, dataset_ld
 
     return shell(
-        "SEC XBRL Dataset Download — To Scale",
+        "SEC XBRL Dataset Download — BalanceProof",
         body,
         description=(
             f"Download every as-reported SEC balance sheet figure as one CSV — "

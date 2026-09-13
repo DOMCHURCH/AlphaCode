@@ -1,4 +1,4 @@
-/* To Scale — API dashboard.
+/* BalanceProof — API dashboard.
    ---------------------------------------------------------------------------
    Two ways to be here, and they are not equal:
 

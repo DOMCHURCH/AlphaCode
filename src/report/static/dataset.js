@@ -1,4 +1,4 @@
-/* To Scale — the /dataset download page.
+/* BalanceProof — the /dataset download page.
    ---------------------------------------------------------------------------
    A deliberately small script, and not a second dashboard. Everything it does
    is one of three things:

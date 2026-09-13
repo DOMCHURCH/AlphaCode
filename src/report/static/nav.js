@@ -1,4 +1,4 @@
-/* To Scale — navigation: the mobile collapse, and why Dashboard is greyed.
+/* BalanceProof — navigation: the mobile collapse, and why Dashboard is greyed.
    ---------------------------------------------------------------------------
    Both jobs are enhancements. The bar is rendered by the server, complete and
    correct, before this file loads: the links are already visible and already

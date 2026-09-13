@@ -464,7 +464,7 @@ def render_pricing(
             "is current every time you call it.",
         ),
         (
-            "How do I use the To Scale API key?",
+            "How do I use the BalanceProof API key?",
             "Send it as an X-API-Key header on an ordinary GET. There is no "
             "SDK, no OAuth and no token exchange: "
             'curl -H "X-API-Key: YOUR_KEY" https://toscale.pro/api/company/AAPL',
@@ -479,7 +479,7 @@ def render_pricing(
         ),
     ]
     return shell(
-        "Pricing — To Scale",
+        "Pricing — BalanceProof",
         body,
         description=(
             "Free tier, $49/mo Pro, or $79.99 once for the dataset. Every "

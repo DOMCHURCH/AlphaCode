@@ -78,7 +78,7 @@ SITE = "https://toscale.pro"
 ORG_ID = f"{SITE}/#organization"
 SITE_ID = f"{SITE}/#website"
 
-ORG_NAME = "To Scale"
+ORG_NAME = "BalanceProof"
 
 # The one-sentence description, in one place. It appears in the Organization
 # block, and it is the sentence an assistant is most likely to repeat when
@@ -156,7 +156,7 @@ def webpage_ld(name: str, description: str, path: str) -> str:
             "url": f"{SITE_ORIGIN}{path}",
             "isPartOf": {
                 "@type": "WebSite",
-                "name": "To Scale",
+                "name": "BalanceProof",
                 "url": SITE_ORIGIN,
             },
         }
@@ -227,7 +227,7 @@ def pricing_ld() -> str:
     **Why `Product` and not `FinancialProduct`.** `FinancialProduct` is
     schema.org's type for the thing a bank sells — a loan, a deposit account,
     an insurance policy — and it carries properties like `interestRate` and
-    `annualPercentageRate` that mean nothing here. To Scale sells data about
+    `annualPercentageRate` that mean nothing here. BalanceProof sells data about
     finance, which is not a financial product; marking it as one would fail
     validation on the properties that type expects and would tell an engine
     this site is a lender. `Product` with `Offer` children is the type the
@@ -255,7 +255,7 @@ def pricing_ld() -> str:
         {
             "@context": "https://schema.org",
             "@type": "Product",
-            "name": "To Scale — reconciled SEC balance sheet data",
+            "name": "BalanceProof — reconciled SEC balance sheet data",
             "description": ORG_DESCRIPTION,
             "brand": _ORG_REF,
             "url": f"{SITE}/pricing",
@@ -363,7 +363,7 @@ def dataset_ld(rows: int, companies: int, as_of: str) -> str:
         {
             "@context": "https://schema.org",
             "@type": "Dataset",
-            "name": "To Scale — reconciled US balance sheet dataset",
+            "name": "BalanceProof — reconciled US balance sheet dataset",
             "description": (
                 "Reconciled balance sheets for "
                 f"{companies:,} US-listed companies, {rows:,} data points, "
@@ -453,7 +453,7 @@ def software_ld() -> str:
         {
             "@context": "https://schema.org",
             "@type": ["SoftwareApplication", "WebAPI"],
-            "name": "To Scale API",
+            "name": "BalanceProof API",
             "description": (
                 "REST API returning reconciled balance sheets for US-listed "
                 "companies as JSON, derived from SEC EDGAR XBRL filings."
@@ -592,7 +592,7 @@ def breadcrumb_ld(items: Sequence[tuple[str, str]] | Iterable[tuple[str, str]]) 
     """The path from the home page to here, for the engine that draws it.
 
     Two things this earns. In a search result, the breadcrumb replaces the raw
-    URL under the title, so `To Scale › Companies › JPMorgan Chase` appears
+    URL under the title, so `BalanceProof › Companies › JPMorgan Chase` appears
     instead of `toscale.pro/company/JPM` — more legible, and it names the
     brand in a place the brand was not before. In an answer engine, it is a
     statement about where a page sits, which is most of what a flat site of

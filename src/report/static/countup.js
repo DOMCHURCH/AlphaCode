@@ -1,4 +1,4 @@
-/* To Scale — the one animation on the site.
+/* BalanceProof — the one animation on the site.
    ---------------------------------------------------------------------------
    The status strip's counts run up to their real value once, on load. That is
    the whole of the motion budget for this page: no fade-slide-up per section,

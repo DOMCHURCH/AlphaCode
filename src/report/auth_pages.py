@@ -49,9 +49,9 @@ def render_login(
 {_footer()}
 </main>"""
         return shell(
-            "To Scale — sign in", body,
+            "BalanceProof — sign in", body,
             description=(
-                "Sign in to To Scale to get or rotate your SEC filings API "
+                "Sign in to BalanceProof to get or rotate your SEC filings API "
                 "key, check your monthly usage, and manage billing."
             ),
             canonical="/login",
@@ -145,9 +145,9 @@ def render_login(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
     return shell(
-        "To Scale — sign in", body,
+        "BalanceProof — sign in", body,
         description=(
-            "Sign in to To Scale to get or rotate your SEC filings API key, "
+            "Sign in to BalanceProof to get or rotate your SEC filings API key, "
             "check your monthly usage, and manage billing."
         ),
         canonical="/login",
@@ -176,7 +176,7 @@ def render_verify(*, token: str, state: str) -> str:
   </section>
 {_footer()}
 </main>"""
-        return shell("To Scale — link expired", body, canonical="/auth/verify", noindex=True)
+        return shell("BalanceProof — link expired", body, canonical="/auth/verify", noindex=True)
 
     body = f"""{_nav()}
 <main class="wrap" id="main">
@@ -198,4 +198,4 @@ def render_verify(*, token: str, state: str) -> str:
 
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/auth.js?v={asset_version()}" defer></script>"""
-    return shell("To Scale — signing you in", body, canonical="/auth/verify", noindex=True)
+    return shell("BalanceProof — signing you in", body, canonical="/auth/verify", noindex=True)

@@ -382,7 +382,7 @@ def _company_meta(d: dict[str, Any]) -> str:
         f'<meta name="description" content="{escape(desc)}">',
         f'<link rel="canonical" href="{escape(url)}">',
         '<meta property="og:type" content="article">',
-        '<meta property="og:site_name" content="To Scale">',
+        '<meta property="og:site_name" content="BalanceProof">',
         f'<meta property="og:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
         f'<meta property="og:description" content="{escape(desc)}">',
         f'<meta property="og:url" content="{escape(url)}">',
@@ -460,7 +460,7 @@ def fit_name(name: str, budget: int) -> str:
 
 def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
     """`fit_name` against what the <title> has left after its own words."""
-    fixed = len(f" ({ticker}) Balance Sheet \u2014 To Scale")
+    fixed = len(f" ({ticker}) Balance Sheet \u2014 BalanceProof")
     return fit_name(name, limit - fixed)
 
 
@@ -654,7 +654,7 @@ def render_company_page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(title_name(d["company_name"] or d["ticker"], str(d["ticker"])))} ({escape(d["ticker"])}) Balance Sheet — To Scale</title>
+<title>{escape(title_name(d["company_name"] or d["ticker"], str(d["ticker"])))} ({escape(d["ticker"])}) Balance Sheet — BalanceProof</title>
 {_company_meta(d)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">

@@ -218,7 +218,7 @@ def render_methodology(*, nav: str = "") -> str:
         f'<script src="/static/nav.js?v={asset_version()}" defer></script>'
     )
     return shell(
-        "How We Verify Every Number — To Scale",
+        "How We Verify Every Number — BalanceProof",
         body,
         description=(
             "Every SEC filing is verified against A = L + E. Filings that do "

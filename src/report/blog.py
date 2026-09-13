@@ -179,7 +179,7 @@ else entirely and I could not find a source I trusted enough to build on. Every
 free one I tried disagreed with the filing somewhere, and the paid ones wanted
 enterprise money to tell me what the SEC publishes for free.</p>
 
-<p>So <a href="/">To Scale</a> is the reconciler, running over every filing,
+<p>So <a href="/">BalanceProof</a> is the reconciler, running over every filing,
 with the result behind an API. Every figure is checked against A = L + E before
 it is stored. Across <strong>{COMPANIES} companies and {FACTS} data points</strong>
 that reconciles to the accounting identity — against the silent failure you get from taking the
@@ -464,7 +464,7 @@ _POST_EDGAR_PIPELINE = Post(
     updated="2026-09-12",
     minutes=8,
     body="""
-<p class="lede">SEC EDGAR banned my IP three times while I was building To Scale.
+<p class="lede">SEC EDGAR banned my IP three times while I was building BalanceProof.
 Not rate-limited. Banned.</p>
 
 <p>Each one arrived the same way: a run that had been going fine for twenty
@@ -501,7 +501,7 @@ delay that was never the problem.</p>
 # Put a real address in it. Someone at SEC will use it if your
 # crawler misbehaves, which is better than being cut off silently.
 HEADERS = {
-    "User-Agent": "To Scale dominique@example.com",
+    "User-Agent": "BalanceProof dominique@example.com",
     "Accept-Encoding": "gzip, deflate",
 }
 
@@ -670,7 +670,7 @@ work plus however long it takes to discover the parts nobody writes down,
 which for me was about three bans and a month of wrong numbers.</p>
 
 <p>Do not build it if you want balance sheets. I did, and the result is
-<a href="/">To Scale</a>: the reconciler above running over every filing, with
+<a href="/">BalanceProof</a>: the reconciler above running over every filing, with
 the result behind an API. Every figure is checked against A = L + E before it
 is stored, and the filings that genuinely do not balance are flagged as such
 rather than quietly adjusted. Across {COMPANIES} companies and {FACTS} data
@@ -863,7 +863,7 @@ and you can stop worrying about it. If they do not, you now know which
 direction the error goes.</p>
 
 <p>If you would rather not maintain that yourself,
-<a href="/">To Scale</a> runs the check above over every filing before storing
+<a href="/">BalanceProof</a> runs the check above over every filing before storing
 anything, across {COMPANIES} companies and {FACTS} data points. You can look
 up any company on the site with no key and no account. The
 <a href="/compare/to-scale-vs-intrinio">comparison with Intrinio</a> covers how
@@ -923,7 +923,7 @@ def render_index(*, nav: str = "") -> str:
   <section class="sec">
     <p class="sec-sub">These are working notes rather than articles: each one
       starts from something that broke while I was building
-      <a href="/">To Scale</a> and works out why. Most of them are about XBRL,
+      <a href="/">BalanceProof</a> and works out why. Most of them are about XBRL,
       because XBRL is where the surprises are. A filing can report the same
       figure twenty-three times, all of them correct, and hand you the wrong
       one without raising anything.</p>
@@ -941,7 +941,7 @@ def render_index(*, nav: str = "") -> str:
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
 
     return shell(
-        "SEC XBRL Data Notes — To Scale",
+        "SEC XBRL Data Notes — BalanceProof",
         body,
         description=(
             "Notes on SEC XBRL data quality, balance sheet reconciliation and "

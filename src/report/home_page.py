@@ -419,9 +419,9 @@ def _head_meta(
     card at all -- so a link shared into Slack, iMessage or a group chat
     rendered as a bare URL with no card.
 
-    `og:title` deliberately drops the " - To Scale" suffix that the <title>
+    `og:title` deliberately drops the " - BalanceProof" suffix that the <title>
     carries: the card shows the site name on its own line already, and a card
-    reading "To Scale - To Scale" is the kind of detail that makes a product
+    reading "BalanceProof - BalanceProof" is the kind of detail that makes a product
     look unfinished at exactly the moment somebody is deciding whether to
     click it.
     """
@@ -436,7 +436,7 @@ def _head_meta(
         f'<meta name="description" content="{escape(desc)}">',
         f'<link rel="canonical" href="{escape(url)}">' if canonical else "",
         '<meta property="og:type" content="website">',
-        '<meta property="og:site_name" content="To Scale">',
+        '<meta property="og:site_name" content="BalanceProof">',
         f'<meta property="og:title" content="{escape(social)}">',
         f'<meta property="og:description" content="{escape(desc)}">',
         f'<meta property="og:url" content="{escape(url)}">' if canonical else "",
@@ -1075,7 +1075,7 @@ def render_home(
     scale = f" {companies_label()} companies, {facts} data points." if facts else ""
 
     return _shell(
-        "To Scale — Reconciled SEC Balance Sheet API",
+        "BalanceProof — Reconciled SEC Balance Sheet API",
         body,
         description=(
             "Balance sheets from SEC EDGAR, every one checked against "
@@ -1133,7 +1133,7 @@ def render_matches(
   <div class="sugg">{sugg}</div>
 </main>"""
     return _shell(
-        f"{query} — To Scale",
+        f"{query} — BalanceProof",
         body,
         # A query string makes an unbounded set of thin, near-duplicate
         # pages under one route. `noindex,follow` rather than a
@@ -1171,7 +1171,7 @@ def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
     <div class="sugg">{sugg}</div>
   </div>
 </main>"""
-    return _shell("Search by ticker — To Scale", body, noindex=True)
+    return _shell("Search by ticker — BalanceProof", body, noindex=True)
 
 
 def render_search_empty(suggestions: list[Suggestion]) -> str:
@@ -1196,4 +1196,4 @@ def render_search_empty(suggestions: list[Suggestion]) -> str:
     <div class="sugg">{sugg}</div>
   </div>
 </main>"""
-    return _shell("To Scale — search", body, noindex=True)
+    return _shell("BalanceProof — search", body, noindex=True)

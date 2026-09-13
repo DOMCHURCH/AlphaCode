@@ -109,7 +109,7 @@ number anyway, with nothing attached to say how confident it is &mdash; and a
 figure that is quietly a segment instead of a company looks exactly like one
 that is right.</p>
 
-<p>To Scale checks every balance sheet against
+<p>BalanceProof checks every balance sheet against
 <strong>Assets = Liabilities + Equity</strong> before publishing it. A filing
 that reconciles is published with its figures. A filing that does not is
 published <em>with the reason</em>: a noncontrolling interest reported as a
@@ -146,7 +146,7 @@ instead of a company. Measured across the filings loaded here, that naive
 approach disagrees with the consolidated figure often enough to matter —
 roughly one filing in five.</p>
 
-<p>To Scale resolves it with arithmetic rather than a heuristic: pull every
+<p>BalanceProof resolves it with arithmetic rather than a heuristic: pull every
 candidate for assets, liabilities and equity, and keep the combination that
 satisfies <strong>Assets = Liabilities + Equity</strong>. The consolidated
 figures balance against each other. A segment's assets do not balance against
@@ -193,10 +193,10 @@ def _table(page: Page) -> str:
     return f"""
     <div class="tablewrap">
       <table class="compare compare-3">
-        <caption class="vh">To Scale compared with {escape(page.rival)}</caption>
+        <caption class="vh">BalanceProof compared with {escape(page.rival)}</caption>
         <thead>
           <tr><th scope="col">&nbsp;</th>
-              <th scope="col">To Scale</th>
+              <th scope="col">BalanceProof</th>
               <th scope="col">{escape(page.rival)}</th></tr>
         </thead>
         <tbody>{rows}</tbody>
@@ -218,7 +218,7 @@ def _choose(page: Page) -> str:
   <section class="sec" id="which">
     <div class="sec-head"><h2>When to choose each</h2></div>
     <div class="split">
-      {half("Choose To Scale", "If the number has to be right.", page.choose_us)}
+      {half("Choose BalanceProof", "If the number has to be right.", page.choose_us)}
       {half(f"Choose {page.rival}", "If any of these is you.", page.choose_them)}
     </div>
   </section>"""
@@ -227,16 +227,16 @@ def _choose(page: Page) -> str:
 PAGES: tuple[Page, ...] = (
     Page(
         slug="compare/to-scale-vs-intrinio",
-        h1="To Scale vs Intrinio: SEC Filings API Comparison",
-        seo_title="To Scale vs Intrinio — SEC Filings API Comparison (2026)",
+        h1="BalanceProof vs Intrinio: SEC Filings API Comparison",
+        seo_title="BalanceProof vs Intrinio — SEC Filings API Comparison (2026)",
         description=(
-            "An honest comparison of To Scale and Intrinio for SEC XBRL "
+            "An honest comparison of BalanceProof and Intrinio for SEC XBRL "
             "balance sheet data: reconciliation method, coverage, pricing "
             "model and when each is the right choice for a quant team."
         ),
         rival="Intrinio",
         lede=(
-            "Intrinio is a broad financial data platform. To Scale does one "
+            "Intrinio is a broad financial data platform. BalanceProof does one "
             "thing. That is the entire comparison, and which way it cuts "
             "depends on what you are building."
         ),
@@ -277,11 +277,11 @@ PAGES: tuple[Page, ...] = (
         body=_METHOD + _TRANSPARENCY + _HONESTY.format(rival="Intrinio"),
     ),
     Page(
-        slug="compare/to-scale-vs-sec-api",
-        h1="To Scale vs sec-api.io: Which SEC XBRL API Should You Use?",
-        seo_title="To Scale vs sec-api.io — SEC XBRL API Comparison",
+        slug="compare/balanceproof-vs-sec-api",
+        h1="BalanceProof vs sec-api.io: Which SEC XBRL API Should You Use?",
+        seo_title="BalanceProof vs sec-api.io — SEC XBRL API Comparison",
         description=(
-            "To Scale vs sec-api.io for SEC filings data: filing access versus "
+            "BalanceProof vs sec-api.io for SEC filings data: filing access versus "
             "reconciled financials, what each returns, and which one fits a "
             "screener, a backtest or a filings pipeline."
         ),
@@ -326,18 +326,18 @@ PAGES: tuple[Page, ...] = (
         body=_METHOD + _TRANSPARENCY + _HONESTY.format(rival="sec-api.io"),
     ),
     Page(
-        slug="compare/to-scale-vs-xignite",
-        h1="To Scale vs Xignite: Financial Data API Comparison",
-        seo_title="To Scale vs Xignite — Financial Data API for Fundamentals",
+        slug="compare/balanceproof-vs-xignite",
+        h1="BalanceProof vs Xignite: Financial Data API Comparison",
+        seo_title="BalanceProof vs Xignite — Financial Data API for Fundamentals",
         description=(
-            "To Scale vs Xignite for fundamentals: an independent SEC XBRL "
+            "BalanceProof vs Xignite for fundamentals: an independent SEC XBRL "
             "reconciler against an enterprise market-data platform. Pricing "
             "model, coverage, accuracy method and who each one is built for."
         ),
         rival="Xignite",
         lede=(
             "Xignite sells market data to institutions at institutional scale. "
-            "To Scale sells one reconciled dataset to whoever wants it. If you "
+            "BalanceProof sells one reconciled dataset to whoever wants it. If you "
             "are choosing between these two you probably already know which "
             "side of that line you are on."
         ),
@@ -455,7 +455,7 @@ wrong, silently, by whatever the largest segment happens to be.</p>
 
 <p><strong>How do you pick which tag is the right one?</strong> If the answer
 is vague, that is your answer. This is the entire difficulty of the category
-and a provider who has solved it will tell you how. To Scale uses the
+and a provider who has solved it will tell you how. BalanceProof uses the
 accounting identity: keep the combination of assets, liabilities and equity
 that balances, because the consolidated figures balance against each other and
 a segment's do not.</p>
@@ -472,7 +472,7 @@ provider returns 0, your ratios are wrong and nothing tells you. And when a
 filing genuinely does not balance (it happens), you want to be told, not
 handed a silently adjusted number.</p>
 
-<h2>What To Scale is, plainly</h2>
+<h2>What BalanceProof is, plainly</h2>
 
 <p>One reconciled dataset: {COVERAGE_PROSE}, every one checked
 against A = L + E before it is stored.
@@ -601,10 +601,10 @@ _WHY_THAT_ONE: dict[str, str] = {
     "compare/to-scale-vs-intrinio":
         "A broad multi-asset data vendor. The comparison is scope against "
         "depth.",
-    "compare/to-scale-vs-sec-api":
+    "compare/balanceproof-vs-sec-api":
         "The closest thing to a like-for-like: another SEC-only API, "
         "compared on how each one resolves a filing.",
-    "compare/to-scale-vs-xignite":
+    "compare/balanceproof-vs-xignite":
         "Enterprise market data with fundamentals attached. Different buyer, "
         "different contract.",
     "best/sec-filings-api-for-quants":

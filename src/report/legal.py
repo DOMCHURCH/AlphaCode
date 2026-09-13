@@ -59,13 +59,13 @@ SHORT_DISCLAIMER = (
 _LEGAL_META: dict[str, tuple[str, str]] = {
     "Terms of Service": (
         "/terms",
-        "The terms for using To Scale: what the API and dataset may be used "
+        "The terms for using BalanceProof: what the API and dataset may be used "
         "for, what the free and paid tiers include, refunds, and the limits "
         "of a service built on public SEC filings.",
     ),
     "Privacy Policy": (
         "/privacy",
-        "What To Scale stores about you and for how long: an email address, a "
+        "What BalanceProof stores about you and for how long: an email address, a "
         "bcrypt password hash, a salted digest of your IP. No card details, "
         "and no IP addresses in the clear.",
     ),
@@ -80,12 +80,12 @@ def _legal_shell(title: str, nav: str, body: str) -> str:
     # These two carried a description and a partial OG block and nothing else
     # -- no canonical, no `og:url`, no structured data -- while every other
     # reader-facing page had the lot. They are indexable pages a person
-    # genuinely searches for ("to scale terms", "is my data stored"), so the
+    # genuinely searches for ("balanceproof terms", "is my data stored"), so the
     # gap was costing real impressions rather than tidiness.
     path, description = _LEGAL_META.get(title, ("", ""))
     crumbs = breadcrumb_ld([("Home", "/"), (title, path)]) if path else ""
     return shell(
-        f"To Scale — {title}",
+        f"BalanceProof — {title}",
         f"""{nav}
 <main class="wrap legal" id="main">
   <header class="hero">
@@ -113,7 +113,7 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
     body = f"""
   <section class="sec doc">
     <h2>1. What this is</h2>
-    <p>To Scale draws the balance sheets that US public companies filed with the
+    <p>BalanceProof draws the balance sheets that US public companies filed with the
       SEC, and serves the same figures through an API. The underlying filings
       are public records published by the SEC. This service is the drawing and
       the plumbing around them.</p>

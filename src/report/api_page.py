@@ -186,7 +186,7 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
     from src.report.schema import breadcrumb_ld, software_ld
 
     return shell(
-        "SEC Filings API Reference — To Scale",
+        "SEC Filings API Reference — BalanceProof",
         body,
         description=(
             "SEC XBRL balance sheets over REST. One X-API-Key header, JSON "
