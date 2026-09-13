@@ -235,7 +235,7 @@ def page_text(html: str) -> tuple[str, str]:
 
 _PREAMBLE = """# BalanceProof — full text
 
-Every page of prose on toscale.pro, in one document: what the product is, how
+Every page of prose on balanceproof.dev, in one document: what the product is, how
 the figures are selected, what it costs, what the API returns, and how it
 compares with the alternatives.
 

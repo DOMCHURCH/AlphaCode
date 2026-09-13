@@ -1,4 +1,4 @@
-# robots.txt for https://toscale.pro
+# robots.txt for https://balanceproof.dev
 #
 # PROPOSED CONTENT ONLY. The live file is generated per-request by
 # src/sitemap.py:robots() (lines 180-196) and is not read from disk. Merge
@@ -10,8 +10,8 @@
 # anything already crawled and buys nothing back.
 #
 # Discovery hint for LLM assistants:
-# https://toscale.pro/llms.txt
-# https://toscale.pro/financial-data.txt
+# https://balanceproof.dev/llms.txt
+# https://balanceproof.dev/financial-data.txt
 
 User-agent: *
 Allow: /
@@ -62,7 +62,7 @@ Disallow: /reconcile
 Disallow: /health
 Disallow: /*?*utm_
 
-Sitemap: https://toscale.pro/sitemap.xml
+Sitemap: https://balanceproof.dev/sitemap.xml
 
 # NOTE — /search is deliberately NOT disallowed here.
 #

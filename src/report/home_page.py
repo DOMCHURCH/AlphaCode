@@ -406,7 +406,7 @@ DEFAULT_DESCRIPTION = (
     "Filed SEC balance sheets, drawn at true proportion. Reconciled with the "
     "accounting identity so the figures agree with the filing."
 )
-SITE_ORIGIN = "https://toscale.pro"
+SITE_ORIGIN = "https://balanceproof.dev"
 
 
 def _head_meta(

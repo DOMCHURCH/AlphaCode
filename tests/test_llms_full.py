@@ -88,9 +88,9 @@ def test_a_code_sample_keeps_its_line_breaks():
     """A shell command whose continuation was folded into the line above it is
     a command that no longer runs."""
     text = to_text('<pre class="code"><code>curl -H "X-API-Key: KEY" \\\n'
-                   '  https://toscale.pro/api/company/JPM</code></pre>')
+                   '  https://balanceproof.dev/api/company/JPM</code></pre>')
     assert text == ('curl -H "X-API-Key: KEY" \\\n'
-                    '  https://toscale.pro/api/company/JPM')
+                    '  https://balanceproof.dev/api/company/JPM')
 
 
 def test_a_comparison_table_stays_a_table():

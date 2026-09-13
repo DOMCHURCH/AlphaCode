@@ -62,7 +62,7 @@ The `/admin` dashboard lists every seeded key under the customer counts, and
 `/api/admin/stats` carries the same data as JSON:
 
 ```
-curl -H "X-Admin-Secret: $ADMIN_SECRET" https://toscale.pro/api/admin/stats
+curl -H "X-Admin-Secret: $ADMIN_SECRET" https://balanceproof.dev/api/admin/stats
 ```
 
 - Each row shows the display name, the label underneath it in mono (that is

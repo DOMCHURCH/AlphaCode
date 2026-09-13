@@ -25,7 +25,7 @@ production database:
 Same code, same rows, ~300x. So prefer:
 
     curl -X POST -H "X-Admin-Secret: $ADMIN_SECRET" \\
-         https://toscale.pro/admin/page-extras/backfill
+         https://balanceproof.dev/admin/page-extras/backfill
 
 which runs this work in the cluster and rebuilds only what is stale. Use the
 CLI form below for a single ticker, a small `--limit`, or local development --

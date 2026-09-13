@@ -129,7 +129,7 @@ def main() -> int:
     print("  This is the only time it is shown. The database holds a hash of")
     print("  it and nothing here can read it back. Send it now.")
     print()
-    print("  Used as:  curl -H 'X-API-Key: <key>' https://toscale.pro"
+    print("  Used as:  curl -H 'X-API-Key: <key>' https://balanceproof.dev"
           "/api/company/JPM")
     print(f"  Revoke:   python3 scripts/revoke_seed_key.py --label "
           f"{args.label!r}")

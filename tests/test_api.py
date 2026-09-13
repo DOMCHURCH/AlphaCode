@@ -1136,7 +1136,7 @@ def test_api_page_examples_use_the_scheme_the_reader_arrived_on(client):
 
 
 # ------------------------------------------------- Search Console verification
-# The real token Search Console issued for toscale.pro. Named here so that
+# The real token Search Console issued for balanceproof.dev. Named here so that
 # deleting or renaming the file breaks a test rather than breaking verification
 # quietly -- Google re-checks this URL periodically, not just once, and a
 # property silently un-verifying is exactly the kind of thing nobody notices.
@@ -1345,31 +1345,31 @@ def test_sitemap_omits_the_search_endpoint(client):
 
 
 def test_sitemap_names_the_host_the_crawler_asked_on(client):
-    """One process answers on toscale.pro and on the Railway hostname. A sitemap
+    """One process answers on balanceproof.dev and on the Railway hostname. A sitemap
     that advertised the other one would fail Search Console's cross-submission
     check, and the memo is keyed on the host so it cannot serve one to the
     other."""
     from src import sitemap
 
     sitemap.reset_cache()
-    a = client.get("/sitemap.xml", headers={"host": "toscale.pro",
+    a = client.get("/sitemap.xml", headers={"host": "balanceproof.dev",
                                             "x-forwarded-proto": "https"}).text
     b = client.get("/sitemap.xml", headers={"host": "example.invalid",
                                             "x-forwarded-proto": "https"}).text
 
-    assert "https://toscale.pro/" in a
+    assert "https://balanceproof.dev/" in a
     assert "example.invalid" not in a
     assert "https://example.invalid/" in b
 
 
 def test_robots_points_at_the_sitemap(client):
     """A sitemap nobody is told about is found only if it is submitted by hand."""
-    r = client.get("/robots.txt", headers={"host": "toscale.pro",
+    r = client.get("/robots.txt", headers={"host": "balanceproof.dev",
                                            "x-forwarded-proto": "https"})
 
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/plain")
-    assert "Sitemap: https://toscale.pro/sitemap.xml" in r.text
+    assert "Sitemap: https://balanceproof.dev/sitemap.xml" in r.text
     assert "Disallow: /admin" in r.text
 
 

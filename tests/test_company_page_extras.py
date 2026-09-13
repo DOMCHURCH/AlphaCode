@@ -230,12 +230,12 @@ def test_a_filing_with_no_url_is_still_listed_as_text():
 def test_the_company_jsonld_describes_the_company_not_the_publisher():
     block = build_company_ld(
         ticker="JPM", company_name="JPMorgan Chase & Co.",
-        sector="Financial Services", origin="https://toscale.pro",
+        sector="Financial Services", origin="https://balanceproof.dev",
         assets=4.42e12, period_end=Q,
     )
     assert '"@type":"Organization"' in block
     assert '"tickerSymbol":"JPM"' in block
-    assert "https://toscale.pro/company/JPM" in block
+    assert "https://balanceproof.dev/company/JPM" in block
     # A dated figure, so it cannot age into an undated claim.
     assert '"observationDate":"2025-12-31"' in block
 
@@ -243,7 +243,7 @@ def test_the_company_jsonld_describes_the_company_not_the_publisher():
 def test_the_jsonld_cannot_close_its_own_script_tag():
     block = build_company_ld(
         ticker="X", company_name="</script><script>alert(1)</script>",
-        sector=None, origin="https://toscale.pro",
+        sector=None, origin="https://balanceproof.dev",
     )
     assert "</script><script>" not in block[:-9]
     assert block.endswith("</script>")
@@ -322,7 +322,7 @@ def test_the_page_carries_every_section_once_it_is_backfilled(client):
         [("AAA", 100e9), ("BBB", 90e9), ("CCC", 80e9), ("DDD", 70e9), ("EEE", 60e9)],
         "Technology",
     )
-    assert compute_and_store("AAA", "https://toscale.pro") is True
+    assert compute_and_store("AAA", "https://balanceproof.dev") is True
 
     html = client.get("/company/AAA").text
     assert "company-intro" in html
@@ -359,7 +359,7 @@ def test_the_page_costs_one_extra_query(client):
     from src.storage.db import get_engine
 
     _seed_sector([("AAA", 100e9), ("BBB", 90e9)], "Technology")
-    compute_and_store("AAA", "https://toscale.pro")
+    compute_and_store("AAA", "https://balanceproof.dev")
 
     seen: list[str] = []
 

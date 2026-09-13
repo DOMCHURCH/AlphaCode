@@ -201,7 +201,7 @@ you get a labelled remainder rather than a zero — because a zero is a claim an
 it, and check the number against the 10-Q yourself — that is the only test that
 means anything:</p>
 
-<pre class="code"><code>curl -H "X-API-Key: YOUR_KEY" https://toscale.pro/api/company/JPM</code></pre>
+<pre class="code"><code>curl -H "X-API-Key: YOUR_KEY" https://balanceproof.dev/api/company/JPM</code></pre>
 
 <p>You can also look up any company on the site with no key and no account at
 all — the drawings are free and always will be. Get a key from the

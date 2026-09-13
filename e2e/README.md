@@ -72,7 +72,7 @@ secrets and not in this directory.
 row with a well-known key, and these tests are about keys that belong to one
 person.
 
-**No production.** The config has no way to point at toscale.pro that does not
+**No production.** The config has no way to point at balanceproof.dev that does not
 involve typing it into `E2E_BASE_URL` yourself. These tests register accounts
 and regenerate keys; running them against the live site would create real rows
 and invalidate a real customer's credential.

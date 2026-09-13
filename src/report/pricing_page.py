@@ -467,7 +467,7 @@ def render_pricing(
             "How do I use the BalanceProof API key?",
             "Send it as an X-API-Key header on an ordinary GET. There is no "
             "SDK, no OAuth and no token exchange: "
-            'curl -H "X-API-Key: YOUR_KEY" https://toscale.pro/api/company/AAPL',
+            'curl -H "X-API-Key: YOUR_KEY" https://balanceproof.dev/api/company/AAPL',
         ),
         (
             "What can I build with a balance sheet API?",

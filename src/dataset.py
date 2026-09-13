@@ -63,7 +63,7 @@ PROVENANCE: dict[str, str] = {
     "X-Dataset-Grain": "one row per company, metric and period; latest filing wins",
     "X-Dataset-Reconciliation": "Reconciled using A = L + E; exceptions flagged, not hidden",
     "X-Dataset-Static": "static snapshot; it does not update",
-    "X-Dataset-About": "https://toscale.pro/dataset",
+    "X-Dataset-About": "https://balanceproof.dev/dataset",
 }
 
 COLUMNS = (

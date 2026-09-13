@@ -337,7 +337,7 @@ class Settings(BaseSettings):
     # Absolute base for the link in the email. Wrong here means every login
     # link points somewhere that is not this service.
     base_url: str = Field(
-        default="https://alphacode-production.up.railway.app", alias="BASE_URL"
+        default="https://balanceproof.dev", alias="BASE_URL"
     )
     session_max_age_s: int = Field(
         default=30 * 24 * 3600, ge=60, alias="SESSION_MAX_AGE_S"

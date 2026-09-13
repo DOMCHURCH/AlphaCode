@@ -251,7 +251,7 @@ def test_every_post_carries_its_schema_and_its_links(client, slug):
     assert r.status_code == 200
     body = r.text
     assert "BlogPosting" in body, f"/blog/{slug} has no BlogPosting schema"
-    assert f'rel="canonical" href="https://toscale.pro/blog/{slug}"' in body
+    assert f'rel="canonical" href="https://balanceproof.dev/blog/{slug}"' in body
     assert 'property="og:title"' in body
     for target in ('href="/pricing"', 'href="/api"'):
         assert target in body, f"/blog/{slug} does not link {target}"

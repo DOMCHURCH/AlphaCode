@@ -334,8 +334,8 @@ def test_recovery_cannot_mail_a_key_it_does_not_have(client, monkeypatch):
 def test_the_recovery_mail_body_carries_a_link_and_never_a_key():
     from src.mailer import _recovery_body
 
-    body = _recovery_body("https://toscale.pro/auth/verify?token=abc", 15, "o@e.com")
-    assert "https://toscale.pro/auth/verify?token=abc" in body
+    body = _recovery_body("https://balanceproof.dev/auth/verify?token=abc", 15, "o@e.com")
+    assert "https://balanceproof.dev/auth/verify?token=abc" in body
     assert "X-API-Key" not in body, "the old body pasted a live credential"
     assert "hashed" in body
     assert "Regenerate" in body

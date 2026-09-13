@@ -186,7 +186,7 @@ def xml(base_url: str) -> str:
     """`build`, memoised for an hour and per host.
 
     Keyed on the base URL as well as on time: the same process answers on
-    toscale.pro and on the Railway hostname, and a cache that ignored which one
+    balanceproof.dev and on the Railway hostname, and a cache that ignored which one
     was asked would serve one domain's URLs to the other.
     """
     global _cache

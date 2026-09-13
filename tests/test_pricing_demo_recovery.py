@@ -294,13 +294,13 @@ def test_the_mail_body_carries_a_link_and_not_a_key(monkeypatch):
 
     monkeypatch.setattr(mailer, "_client", lambda: FakeClient())
     assert mailer.send_recovery_link(
-        "someone@example.com", "https://toscale.pro/auth/verify?token=t0ken", 15
+        "someone@example.com", "https://balanceproof.dev/auth/verify?token=t0ken", 15
     ) is True
 
     assert sent["inbox_id"] == "inbox_fixed"
     assert sent["to"] == "someone@example.com"
     assert sent["subject"] == "Recover your BalanceProof API key"
-    assert "https://toscale.pro/auth/verify?token=t0ken" in sent["text"]
+    assert "https://balanceproof.dev/auth/verify?token=t0ken" in sent["text"]
     # The mail that used to go out had a live credential in it, in plain text,
     # in an inbox, forever. It cannot now: there is no key to put in it.
     assert "X-API-Key" not in sent["text"]

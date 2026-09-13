@@ -34,7 +34,7 @@ so rewriting every `</` to `<\\/` after serialisation makes the sequence
 unrepresentable while leaving the parsed value identical. `_script()` does this
 once, for everything, and no function here builds a tag any other way.
 
-**Why absolute `https://toscale.pro` URLs, even on a preview deploy.** This is
+**Why absolute `https://balanceproof.dev` URLs, even on a preview deploy.** This is
 the deliberate exception to the rule `api_tab.py` states for the API examples,
 where baking the production host into a page would print the wrong host for
 whoever loaded it. Schema `@id` values are not instructions to the reader's
@@ -65,9 +65,9 @@ from collections.abc import Iterable, Sequence
 from typing import Any
 
 # The canonical origin. One constant, because the moment two files disagree
-# about whether the site is `toscale.pro` or `www.toscale.pro`, the knowledge
+# about whether the site is `balanceproof.dev` or `www.balanceproof.dev`, the knowledge
 # graph gets two organisations and each of them gets half the authority.
-SITE = "https://toscale.pro"
+SITE = "https://balanceproof.dev"
 
 # Stable `@id` values so separate blocks on separate pages describe the SAME
 # organisation rather than one anonymous organisation per page. The `#org`
@@ -593,7 +593,7 @@ def breadcrumb_ld(items: Sequence[tuple[str, str]] | Iterable[tuple[str, str]]) 
 
     Two things this earns. In a search result, the breadcrumb replaces the raw
     URL under the title, so `BalanceProof › Companies › JPMorgan Chase` appears
-    instead of `toscale.pro/company/JPM` — more legible, and it names the
+    instead of `balanceproof.dev/company/JPM` — more legible, and it names the
     brand in a place the brand was not before. In an answer engine, it is a
     statement about where a page sits, which is most of what a flat site of
     six thousand near-identical URLs otherwise fails to communicate.

@@ -1,7 +1,7 @@
-# financial-data.txt for https://toscale.pro
+# financial-data.txt for https://balanceproof.dev
 #
 # Machine-readable provenance and licensing disclosure for the financial data
-# this site publishes. Serve at https://toscale.pro/financial-data.txt as
+# this site publishes. Serve at https://balanceproof.dev/financial-data.txt as
 # text/plain, UTF-8, no BOM.
 #
 # There is no ratified standard for this file. The Overgrow knowledge base
@@ -20,9 +20,9 @@
 # -- Identity ---------------------------------------------------------------
 
 Entity: BalanceProof
-Canonical: https://toscale.pro/financial-data.txt
-Site: https://toscale.pro/
-Contact: https://toscale.pro/terms
+Canonical: https://balanceproof.dev/financial-data.txt
+Site: https://balanceproof.dev/
+Contact: https://balanceproof.dev/terms
 # The operator's address is rendered on that page. It is environment-supplied
 # (ADMIN_EMAIL) rather than committed, so a URL is the honest pointer: a
 # hardcoded address here would go stale the first time it changed.
@@ -70,7 +70,7 @@ Update-Filings-Min-Hours: 6.0
 Update-Dataset-Recheck-Hours: 12.0
 Update-Scheduler-Tick-Minutes: 15
 Update-Quarters-Per-Scheduled-Run: 2
-Freshness-Endpoint: https://toscale.pro/status
+Freshness-Endpoint: https://balanceproof.dev/status
 Freshness-Caveat: SEC publishes each quarter's financial statement data set several weeks after the quarter closes, on no announced date. Until it appears, the newest quarter is absent rather than wrong.
 
 # -- Accuracy methodology ---------------------------------------------------
@@ -94,7 +94,7 @@ Missing-Values-Flagged: yes — components a filer did not report separately are
 # domain. What is licensed is the reconciliation, the schema, and the service.
 
 Underlying-Data-Rights: public domain (US federal government work)
-Service-Terms: https://toscale.pro/terms
+Service-Terms: https://balanceproof.dev/terms
 Permitted-Use: use of the data inside your own product or research
 Prohibited-Use: reselling or redistributing the API as a competing service
 Prohibited-Use: evading the API allowance, including by registering multiple accounts
@@ -103,7 +103,7 @@ Attribution-Required: no
 # /terms permits use of the data inside your own product or research without
 # condition. Attribution is welcome and is not a requirement — the underlying
 # filings are public record and we do not claim them.
-Dataset-License: https://toscale.pro/terms
+Dataset-License: https://balanceproof.dev/terms
 # Not an SPDX licence. /terms grants use of the data inside your own product
 # or research, and prohibits reselling or redistributing it as a competing
 # service. The SEC filings underneath are public domain; what is sold is the
@@ -111,15 +111,15 @@ Dataset-License: https://toscale.pro/terms
 
 # -- Access -----------------------------------------------------------------
 
-API-Documentation: https://toscale.pro/api
-API-Specification: https://toscale.pro/api.json
+API-Documentation: https://balanceproof.dev/api
+API-Specification: https://balanceproof.dev/api.json
 API-Authentication: API key, issued on registration
-Pricing: https://toscale.pro/pricing
+Pricing: https://balanceproof.dev/pricing
 Price-Free-Tier: 0.00 USD
 Price-Pro-Monthly: 49.00 USD
 Price-Pro-Annual: 490.00 USD
 Price-Dataset-One-Time: 79.99 USD
-Bulk-Download: https://toscale.pro/dataset
+Bulk-Download: https://balanceproof.dev/dataset
 Bulk-Download-Format: text/csv
 
 # -- Disclaimers ------------------------------------------------------------
@@ -134,6 +134,6 @@ Excludes-Estimates: yes — where a company does not report a component, it is r
 
 # -- Related files ----------------------------------------------------------
 
-LLM-Index: https://toscale.pro/llms.txt
-Sitemap: https://toscale.pro/sitemap.xml
-Robots: https://toscale.pro/robots.txt
+LLM-Index: https://balanceproof.dev/llms.txt
+Sitemap: https://balanceproof.dev/sitemap.xml
+Robots: https://balanceproof.dev/robots.txt

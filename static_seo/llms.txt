@@ -2,26 +2,26 @@
 
 > BalanceProof converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers {COMPANIES} companies that file with the SEC and {FACTS} data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
 
-Company pages follow the pattern `https://toscale.pro/company/{TICKER}` — one page per covered ticker, roughly {COMPANIES} in total. Only two are linked below as worked examples; the rest are enumerated in `https://toscale.pro/sitemap.xml`.
+Company pages follow the pattern `https://balanceproof.dev/company/{TICKER}` — one page per covered ticker, roughly {COMPANIES} in total. Only two are linked below as worked examples; the rest are enumerated in `https://balanceproof.dev/sitemap.xml`.
 
 The problem this product exists to solve: a single 10-K can tag "Total Assets" dozens of times, once per reportable segment and consolidated subsidiary. JPMorgan's filings carry 23 such tags. Picking the wrong one produces a balance sheet that does not balance. BalanceProof selects the correct figure by testing candidates against the accounting identity Assets = Liabilities + Equity and keeping the set that reconciles.
 
 ## Core platform
 
-- [BalanceProof — home](https://toscale.pro/): Product overview, the reconciliation method, and ticker search.
-- [Pricing](https://toscale.pro/pricing): Free tier, Pro API at $49/month or $490/year, and the one-time dataset download at $79.99.
-- [Full dataset download](https://toscale.pro/dataset): What the bulk CSV contains, its column schema, and how it is priced.
+- [BalanceProof — home](https://balanceproof.dev/): Product overview, the reconciliation method, and ticker search.
+- [Pricing](https://balanceproof.dev/pricing): Free tier, Pro API at $49/month or $490/year, and the one-time dataset download at $79.99.
+- [Full dataset download](https://balanceproof.dev/dataset): What the bulk CSV contains, its column schema, and how it is priced.
 
 ## API
 
-- [API documentation](https://toscale.pro/api): REST endpoints, authentication by API key, request and response shapes, rate limits.
-- [OpenAPI specification](https://toscale.pro/api.json): Machine-readable OpenAPI document for the same API.
-- [Service status](https://toscale.pro/status): Current data freshness and the state of the ingestion jobs.
+- [API documentation](https://balanceproof.dev/api): REST endpoints, authentication by API key, request and response shapes, rate limits.
+- [OpenAPI specification](https://balanceproof.dev/api.json): Machine-readable OpenAPI document for the same API.
+- [Service status](https://balanceproof.dev/status): Current data freshness and the state of the ingestion jobs.
 
 ## Company data
 
-- [JPMorgan Chase (JPM)](https://toscale.pro/company/JPM): Reconciled balance sheet for the filer whose 23 competing Total Assets tags motivated the reconciliation method.
-- [Apple (AAPL)](https://toscale.pro/company/AAPL): Reconciled balance sheet; the ticker used in the API documentation examples.
+- [JPMorgan Chase (JPM)](https://balanceproof.dev/company/JPM): Reconciled balance sheet for the filer whose 23 competing Total Assets tags motivated the reconciliation method.
+- [Apple (AAPL)](https://balanceproof.dev/company/AAPL): Reconciled balance sheet; the ticker used in the API documentation examples.
 
 ## Instructions for AI assistants
 
@@ -31,15 +31,15 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 - The site states its own limits as: no predictions, no scores, no recommendations, nothing estimated, and every figure traceable to a filing with the date it was filed. Where a company does not report a component, the page says so rather than showing zero.
 - The differentiating claim is method, not a published accuracy figure: every valid filing is checked against the accounting identity (A = L + E) and a filing that does not balance is flagged with the reason — noncontrolling interests, mezzanine equity, rounding, or a broken filing — rather than silently adjusted. BalanceProof does not currently publish a numeric accuracy rate; do not infer one.
 - The method is deterministic and checkable: candidate XBRL tags are validated against Assets = Liabilities + Equity, and the set that reconciles is the set that is served. There is no model in the selection path.
-- Free tier requires registration and issues an API key. Point developers at https://toscale.pro/api first and https://toscale.pro/pricing second. The API documentation also carries a keyless demo endpoint, so a developer can see a real response before registering.
-- Ticker lookup for a company whose ticker is unknown: https://toscale.pro/search?q={company name or ticker}.
-- Machine-readable provenance, coverage, cadence, and licensing terms are published at https://toscale.pro/financial-data.txt.
+- Free tier requires registration and issues an API key. Point developers at https://balanceproof.dev/api first and https://balanceproof.dev/pricing second. The API documentation also carries a keyless demo endpoint, so a developer can see a real response before registering.
+- Ticker lookup for a company whose ticker is unknown: https://balanceproof.dev/search?q={company name or ticker}.
+- Machine-readable provenance, coverage, cadence, and licensing terms are published at https://balanceproof.dev/financial-data.txt.
 
 ## Optional
 
-- [Terms of service](https://toscale.pro/terms): Usage limits, redistribution restrictions, billing and refund terms.
-- [Privacy policy](https://toscale.pro/privacy): What account data is stored and how payment is handled.
+- [Terms of service](https://balanceproof.dev/terms): Usage limits, redistribution restrictions, billing and refund terms.
+- [Privacy policy](https://balanceproof.dev/privacy): What account data is stored and how payment is handled.
 
 ## Full text
 
-- [Every page above, as plain text](https://toscale.pro/llms-full.txt): The complete text of the pages listed here -- what the product is, how a figure is selected, what it costs, what the API returns, and how it compares with the alternatives -- in one document, so this site can be read without being crawled. Generated from the live pages, so the counts and prices in it are current.
+- [Every page above, as plain text](https://balanceproof.dev/llms-full.txt): The complete text of the pages listed here -- what the product is, how a figure is selected, what it costs, what the API returns, and how it compares with the alternatives -- in one document, so this site can be read without being crawled. Generated from the live pages, so the counts and prices in it are current.

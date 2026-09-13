@@ -347,7 +347,7 @@ def send_payment_failed(
             "subscription.\n\n"
             f"{link}"
             "You can also manage the subscription from your dashboard:\n"
-            "  https://toscale.pro/dashboard#billing\n\n"
+            "  https://balanceproof.dev/dashboard#billing\n\n"
             f"{ending}\n"
             "If you think this is wrong, reply to this message.\n"
         ),
