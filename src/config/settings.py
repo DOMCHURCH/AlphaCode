@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     fred_api_key: str = Field(default="", alias="FRED_API_KEY")
     openrouter_api_key: str = Field(default="", alias="OPENROUTER_API_KEY")
     sec_user_agent: str = Field(
-        default="AlphaFunnel Research contact@example.com", alias="SEC_USER_AGENT"
+        default="BalanceProof contact@balanceproof.dev", alias="SEC_USER_AGENT"
     )
 
     # ---------------- Infrastructure ----------------
