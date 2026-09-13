@@ -1,5 +1,5 @@
 {
-  "name": "toscale-e2e",
+  "name": "balanceproof-e2e",
   "version": "1.0.0",
   "private": true,
   "description": "Browser tests for the flows pytest cannot reach. Deliberately a separate package: nothing Python needs Node, and nothing here belongs in requirements.txt.",

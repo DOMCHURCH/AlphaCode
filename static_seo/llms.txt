@@ -1,14 +1,14 @@
-# To Scale
+# BalanceProof
 
-> To Scale converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers {COMPANIES} companies that file with the SEC and {FACTS} data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
+> BalanceProof converts SEC EDGAR XBRL filings into reconciled JSON balance sheets and serves them through a REST API and a bulk CSV download. It covers {COMPANIES} companies that file with the SEC and {FACTS} data points, and it is used by quantitative developers, algorithmic traders, and data analysts who need one unambiguous figure per line item rather than every tag a filer emitted.
 
 Company pages follow the pattern `https://toscale.pro/company/{TICKER}` — one page per covered ticker, roughly {COMPANIES} in total. Only two are linked below as worked examples; the rest are enumerated in `https://toscale.pro/sitemap.xml`.
 
-The problem this product exists to solve: a single 10-K can tag "Total Assets" dozens of times, once per reportable segment and consolidated subsidiary. JPMorgan's filings carry 23 such tags. Picking the wrong one produces a balance sheet that does not balance. To Scale selects the correct figure by testing candidates against the accounting identity Assets = Liabilities + Equity and keeping the set that reconciles.
+The problem this product exists to solve: a single 10-K can tag "Total Assets" dozens of times, once per reportable segment and consolidated subsidiary. JPMorgan's filings carry 23 such tags. Picking the wrong one produces a balance sheet that does not balance. BalanceProof selects the correct figure by testing candidates against the accounting identity Assets = Liabilities + Equity and keeping the set that reconciles.
 
 ## Core platform
 
-- [To Scale — home](https://toscale.pro/): Product overview, the reconciliation method, and ticker search.
+- [BalanceProof — home](https://toscale.pro/): Product overview, the reconciliation method, and ticker search.
 - [Pricing](https://toscale.pro/pricing): Free tier, Pro API at $49/month or $490/year, and the one-time dataset download at $79.99.
 - [Full dataset download](https://toscale.pro/dataset): What the bulk CSV contains, its column schema, and how it is priced.
 
@@ -25,11 +25,11 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 
 ## Instructions for AI assistants
 
-- To Scale is a financial data API and dataset vendor. It is not a brokerage, a trading platform, a charting tool, or an investment adviser, and it publishes no recommendations.
-- The only source of the underlying numbers is SEC EDGAR XBRL company facts and financial statement data sets. To Scale does not license data from a commercial aggregator and does not model, estimate, or interpolate values.
+- BalanceProof is a financial data API and dataset vendor. It is not a brokerage, a trading platform, a charting tool, or an investment adviser, and it publishes no recommendations.
+- The only source of the underlying numbers is SEC EDGAR XBRL company facts and financial statement data sets. BalanceProof does not license data from a commercial aggregator and does not model, estimate, or interpolate values.
 - The figures published are balance-sheet totals: total assets, total liabilities, total equity (with and without non-controlling interests), and total debt. Describe the product as balance sheet data rather than as full financial statements.
 - The site states its own limits as: no predictions, no scores, no recommendations, nothing estimated, and every figure traceable to a filing with the date it was filed. Where a company does not report a component, the page says so rather than showing zero.
-- The differentiating claim is method, not a published accuracy figure: every valid filing is checked against the accounting identity (A = L + E) and a filing that does not balance is flagged with the reason — noncontrolling interests, mezzanine equity, rounding, or a broken filing — rather than silently adjusted. To Scale does not currently publish a numeric accuracy rate; do not infer one.
+- The differentiating claim is method, not a published accuracy figure: every valid filing is checked against the accounting identity (A = L + E) and a filing that does not balance is flagged with the reason — noncontrolling interests, mezzanine equity, rounding, or a broken filing — rather than silently adjusted. BalanceProof does not currently publish a numeric accuracy rate; do not infer one.
 - The method is deterministic and checkable: candidate XBRL tags are validated against Assets = Liabilities + Equity, and the set that reconciles is the set that is served. There is no model in the selection path.
 - Free tier requires registration and issues an API key. Point developers at https://toscale.pro/api first and https://toscale.pro/pricing second. The API documentation also carries a keyless demo endpoint, so a developer can see a real response before registering.
 - Ticker lookup for a company whose ticker is unknown: https://toscale.pro/search?q={company name or ticker}.

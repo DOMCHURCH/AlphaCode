@@ -19,7 +19,7 @@
 
 # -- Identity ---------------------------------------------------------------
 
-Entity: To Scale
+Entity: BalanceProof
 Canonical: https://toscale.pro/financial-data.txt
 Site: https://toscale.pro/
 Contact: https://toscale.pro/terms
@@ -125,7 +125,7 @@ Bulk-Download-Format: text/csv
 # -- Disclaimers ------------------------------------------------------------
 
 Not-Investment-Advice: yes
-Regulated-Entity: no — To Scale is not a broker-dealer, investment adviser, or rating agency
+Regulated-Entity: no — BalanceProof is not a broker-dealer, investment adviser, or rating agency
 Audience: quantitative developers, algorithmic traders, and data analysts
 Excludes-Predictions: yes
 Excludes-Scores: yes

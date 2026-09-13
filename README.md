@@ -1,4 +1,4 @@
-# To Scale
+# BalanceProof
 
 **The first version reported JPMorgan's total assets as $641 billion. The real
 figure is $4.42 trillion.**
