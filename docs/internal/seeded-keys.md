@@ -21,8 +21,7 @@ key into `api_users` and there is nothing over there to point at.
 From the admin panel: **+ Issue new seeded key** under the Customers card.
 Fill in the label, the display name, the limit and any notes, and the key is
 shown once in a copyable box. That form posts to
-`POST /api/admin/seed-keys/issue`, behind the admin secret and — once one is
-configured — a TOTP code.
+`POST /api/admin/seed-keys/issue`, behind `ADMIN_SECRET` (see the note below).
 
 Or from a terminal, which is the way to do it when the panel is unreachable:
 
@@ -79,10 +78,30 @@ curl -H "X-Admin-Secret: $ADMIN_SECRET" https://toscale.pro/api/admin/stats
   Outreach that did not land is the thing worth revoking: an unused credential
   is all cost and no benefit.
 
+## A note on what guards the panel
+
+**`ADMIN_SECRET` is the only thing in front of the admin panel today.** One
+string in one environment variable, sent as `X-Admin-Secret`, and anyone
+holding it can issue a seeded key from a browser.
+
+That is worth stating plainly because the endpoint was added on the strength of
+something that did not ship. Seeded keys were built CLI-only on the argument
+that an operator at a terminal with the database URL is a high bar for a
+credential that skips payment; the panel form was justified by a second factor
+(TOTP, `ADMIN_TOTP_SECRET`) drafted in the same session and left out of it. The
+route landed, the second factor did not, so the door is thinner than the
+argument for opening it assumed — not thicker.
+
+Nothing here is broken. `ADMIN_SECRET` is a real gate: `compare_digest`, an
+audit row on every failure, and ten calls a minute per source on issue and
+revoke. But a leaked secret is enough to mint outreach keys from anywhere, with
+no device and no shell — where the CLI still needs `DATABASE_URL` and a machine
+to run it on. Revisit this section when the second factor lands.
+
 ## Rules of engagement
 
 - Issue from the panel or the CLI. Both call one function and both are behind
-  the admin secret; the panel is additionally behind TOTP when one is set.
+  `ADMIN_SECRET` — which is all that guards either. See the note below.
 - One key per recipient. The label is their handle, it is unique, and it is
   what revocation takes — so it must not be edited after the fact.
 - `--display-name` should read at a glance: `"Name — Project"`. It is prose and
@@ -101,12 +120,11 @@ curl -H "X-Admin-Secret: $ADMIN_SECRET" https://toscale.pro/api/admin/stats
 
 - **Do not add a route outside `/api/admin/` that touches these.** This rule
   used to read "do not add an HTTP endpoint that issues these", and the panel
-  form is that endpoint — added on purpose, once `require_admin` carried a
-  second factor, which makes reaching it cost a leaked secret *and* a device.
-  `test_only_the_admin_routes_can_issue_a_seeded_key` pins what survived: every
-  route whose path mentions seeded keys sits under the admin gate, and
-  `test_issue_seed_key_requires_admin_secret` proves the gate fires before
-  `issue` is reached rather than after.
+  form is that endpoint — added on purpose, and with a weaker gate in front of
+  it than the rule assumed. `test_only_the_admin_routes_can_issue_a_seeded_key`
+  pins what survived: every route whose path mentions seeded keys sits under
+  the admin gate, and `test_issue_seed_key_requires_admin_secret` proves that
+  gate fires before `issue` is reached rather than after.
 - **Do not change the format of keys issued to real users.** The two share one
   generator on purpose.
 - **Do not expose seeded keys via `/api/auth/me`.** That route is cookie-session

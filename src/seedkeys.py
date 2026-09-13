@@ -15,12 +15,12 @@ second code path that ends up being the one with the bug in it.
 Issuing happens two ways and they are the same function. The two `scripts/`
 wrappers are one; `POST /api/admin/seed-keys/issue` is the other, added later
 and deliberately. That endpoint was refused at first, and the argument for
-refusing it was sound while it held: an operator at a terminal with the
-database URL is a high bar for a credential that skips payment, and an HTTP
-route is a lower one. What changed is the other side of the comparison --
-`require_admin` now carries a second factor, so reaching the route costs a
-leaked secret AND a device, which is a harder bar than shell access to the
-box rather than a softer one. Nothing else may call `issue` or `revoke`.
+refusing it was sound: an operator at a terminal with the database URL is a
+high bar for a credential that skips payment, and an HTTP route is a lower
+one. The route exists anyway, because the panel is where this work actually
+gets done -- but the bar really is lower, and ADMIN_SECRET is all of it. A
+second factor was drafted and not shipped. Nothing else may call `issue` or
+`revoke`.
 
 Metering lives on the row rather than in `usage_logs`, because that table's
 `user_id` is a foreign key into `api_users` and these keys are decoupled from

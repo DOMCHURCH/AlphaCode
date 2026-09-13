@@ -2455,11 +2455,14 @@ def api_admin_issue_seed_key(
     This endpoint is a reversal, and worth naming as one. Seeded keys were
     built CLI-only, and the argument for that was good: an operator at a
     terminal with the database URL is a high bar for a credential that skips
-    payment, and an endpoint is a lower one. What changed is the bar on the
-    other side. `require_admin` now carries a second factor when
-    ADMIN_TOTP_SECRET is set, so reaching this route costs a leaked secret AND
-    a device -- which is a harder bar than shell access to the machine, not a
-    softer one.
+    payment, and an endpoint is a lower one.
+
+    ADMIN_SECRET is the whole of what stands in front of it. A second factor
+    was drafted alongside this and not shipped, so what secures this route is
+    one string in one environment variable -- which is a LOWER bar than the
+    shell access the CLI-only design assumed, not a higher one. That is the
+    trade as it actually stands: the panel is more convenient and the door is
+    thinner. Anyone tightening this later should start here.
 
     The same `seedkeys.issue` the two scripts call. There is no second
     issuing path, and the key is returned exactly once, here, because that is
