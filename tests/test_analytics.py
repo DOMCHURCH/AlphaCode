@@ -296,7 +296,7 @@ def test_a_failing_write_never_breaks_the_page(client, monkeypatch):
     r = client.get("/")
 
     assert r.status_code == 200
-    assert "To Scale" in r.text
+    assert "BalanceProof" in r.text
 
 
 def test_the_count_is_written_after_the_response(client, monkeypatch):

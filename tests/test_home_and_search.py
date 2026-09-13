@@ -1058,4 +1058,4 @@ def test_the_service_is_branded_to_scale(client):
 
     assert "To&nbsp;Scale" in client.get("/").text
     assert "To&nbsp;Scale" in client.get("/company/JPM").text
-    assert client.get("/api.json").json()["service"] == "To Scale"
+    assert client.get("/api.json").json()["service"] == "BalanceProof"

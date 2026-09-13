@@ -97,12 +97,12 @@ def test_a_comparison_table_stays_a_table():
     """These pages are mostly table. Flattened into prose, the two columns
     become one sentence saying the opposite of what the row says."""
     text = to_text(
-        "<table><thead><tr><th></th><th>To Scale</th><th>Intrinio</th></tr>"
+        "<table><thead><tr><th></th><th>BalanceProof</th><th>Intrinio</th></tr>"
         "</thead><tbody><tr><td>Scope</td><td>SEC balance sheets</td>"
         "<td>Broad</td></tr></tbody></table>"
     )
     assert text.splitlines() == [
-        "| | To Scale | Intrinio |",
+        "| | BalanceProof | Intrinio |",
         "| Scope | SEC balance sheets | Broad |",
     ]
 

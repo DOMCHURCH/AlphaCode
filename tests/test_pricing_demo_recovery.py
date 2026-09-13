@@ -299,7 +299,7 @@ def test_the_mail_body_carries_a_link_and_not_a_key(monkeypatch):
 
     assert sent["inbox_id"] == "inbox_fixed"
     assert sent["to"] == "someone@example.com"
-    assert sent["subject"] == "Recover your To Scale API key"
+    assert sent["subject"] == "Recover your BalanceProof API key"
     assert "https://toscale.pro/auth/verify?token=t0ken" in sent["text"]
     # The mail that used to go out had a live credential in it, in plain text,
     # in an inbox, forever. It cannot now: there is no key to put in it.
@@ -375,7 +375,7 @@ def test_the_inbox_is_resolved_once_and_reused(monkeypatch):
 
     class FakeInbox:
         inbox_id = "inbox_made"
-        email = "to-scale@agentmail.to"
+        email = "balanceproof@agentmail.to"
         client_id = mailer._INBOX_CLIENT_ID
 
     class FakeInboxes:
@@ -416,7 +416,7 @@ def test_an_existing_inbox_is_found_when_create_conflicts(monkeypatch):
 
     class Existing:
         inbox_id = "inbox_existing"
-        email = "to-scale@agentmail.to"
+        email = "balanceproof@agentmail.to"
         client_id = mailer._INBOX_CLIENT_ID
 
     class Listing:
@@ -578,7 +578,7 @@ def test_the_create_inbox_request_matches_the_installed_sdk():
     import src.mailer as mailer
 
     req = CreateInboxRequest(
-        client_id=mailer._INBOX_CLIENT_ID, display_name="To Scale"
+        client_id=mailer._INBOX_CLIENT_ID, display_name="BalanceProof"
     )
     assert req.client_id == mailer._INBOX_CLIENT_ID
     # The mailer reads `.inbox_id` and `.client_id` off what comes back.
@@ -601,7 +601,7 @@ def test_the_send_call_matches_the_installed_sdk():
     sig.bind(
         "inbox_id",
         to="someone@example.com",
-        subject="Your To Scale API key",
+        subject="Your BalanceProof API key",
         text="body",
         reply_to=None,
     )

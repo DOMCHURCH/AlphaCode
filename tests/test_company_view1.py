@@ -550,11 +550,11 @@ def test_a_rename_that_predates_the_filing_is_not_mentioned(db):
 # carry their legal form and often a state marker. Only the title is
 # shortened; the heading keeps the name exactly as filed.
 
-TITLE_TAIL = " (XXXX) Balance Sheet \u2014 To Scale"
+TITLE_TAIL = " (XXXX) Balance Sheet \u2014 BalanceProof"
 
 
 def _title_len(short, ticker):
-    return len(f"{short} ({ticker}) Balance Sheet \u2014 To Scale")
+    return len(f"{short} ({ticker}) Balance Sheet \u2014 BalanceProof")
 
 
 def test_the_legal_form_is_dropped_before_anything_is_truncated():
