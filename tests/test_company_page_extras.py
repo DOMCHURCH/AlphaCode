@@ -580,3 +580,114 @@ def test_origin_drift_survives_a_broken_database(client, monkeypatch):
     monkeypatch.setattr(db, "session_scope", boom)
 
     assert page_extras_store.origin_drift("https://balanceproof.dev") == (0, [])
+
+
+# --------------------------------------------------------------------------
+# Sitemap. It listed every ticker holding a positive total_assets row in ANY
+# period, while the page is drawn from the NEWEST one -- so a filer whose
+# latest period carries no total for assets was submitted to Search Console
+# and answered 404. ~31 URLs across the universe.
+# --------------------------------------------------------------------------
+
+
+def _seed_undrawable(ticker: str) -> None:
+    """Assets in an old period, none in the newest one.
+
+    Passes the sitemap's candidate SQL (a positive total_assets row exists)
+    and still 404s, because get_balance_sheet selects max(period_end) and
+    build_view1 returns None without a positive total there.
+    """
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
+
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date.today(), ticker=ticker,
+            name=f"{ticker} Inc", sector="Technology",
+        ))
+        s.add(SectorMap(ticker=ticker, sector="Technology", sector_source="sic"))
+        # Older period: a real, positive total for assets.
+        s.add(Fundamental(
+            ticker=ticker, metric="total_assets", value=5e9,
+            period_end=dt.date(2024, 12, 31), fiscal_period="FY",
+            filing_date=dt.date(2025, 2, 1), source="sec",
+        ))
+        # Newest period: liabilities and equity, but no total_assets.
+        for metric, value in (("total_liabilities", 3e9), ("total_equity", 2e9)):
+            s.add(Fundamental(
+                ticker=ticker, metric=metric, value=value,
+                period_end=dt.date(2025, 3, 31), fiscal_period="Q1",
+                filing_date=dt.date(2025, 5, 1), source="sec",
+            ))
+
+
+def test_the_sitemap_leaves_out_a_ticker_whose_page_404s(client):
+    from src import sitemap
+    from src.company.view1 import build_view1
+
+    _seed_sector([("DRAW", 100e9)], "Technology")
+    _seed_undrawable("NODRAW")
+    sitemap.reset_cache()
+    sitemap.reset_drawable()
+
+    # The candidate SQL still offers it -- that is the gap being closed.
+    assert "NODRAW" in [t for t, _ in sitemap._candidate_rows()]
+    assert build_view1("NODRAW") is None, "fixture is not undrawable"
+
+    sitemap.refresh_drawable()
+    xml = sitemap.build("https://balanceproof.dev")
+
+    assert "/company/NODRAW" not in xml
+    assert client.get("/company/NODRAW").status_code == 404
+
+
+def test_the_sitemap_still_lists_a_ticker_that_renders(client):
+    from src import sitemap
+    from src.company.view1 import build_view1
+
+    _seed_sector([("DRAW", 100e9)], "Technology")
+    _seed_undrawable("NODRAW")
+    sitemap.reset_cache()
+    sitemap.reset_drawable()
+    sitemap.refresh_drawable()
+
+    xml = sitemap.build("https://balanceproof.dev")
+    assert "/company/DRAW" in xml
+    assert build_view1("DRAW") is not None
+    assert client.get("/company/DRAW").status_code == 200
+
+
+def test_the_sitemap_company_count_matches_the_drawable_count(client):
+    """The count is the assertion: not "fewer", but exactly the ones that render."""
+    import re
+
+    from src import sitemap
+    from src.company.view1 import build_view1
+
+    _seed_sector([("AAA", 100e9), ("BBB", 90e9)], "Technology")
+    _seed_undrawable("NODRAW")
+    sitemap.reset_cache()
+    sitemap.reset_drawable()
+    sitemap.refresh_drawable()
+
+    xml = sitemap.build("https://balanceproof.dev")
+    listed = re.findall(r"<loc>[^<]*/company/([A-Z]+)</loc>", xml)
+
+    candidates = [t for t, _ in sitemap._candidate_rows()]
+    drawable = [t for t in candidates if build_view1(t) is not None]
+
+    assert sorted(listed) == sorted(drawable)
+    assert len(listed) == len(drawable)
+    assert "NODRAW" in candidates and "NODRAW" not in listed
+
+
+def test_the_sitemap_is_unfiltered_rather_than_empty_before_the_walk(client):
+    """A cold process lists its old set. Listing nothing would be worse."""
+    from src import sitemap
+
+    _seed_sector([("AAA", 100e9)], "Technology")
+    sitemap.reset_cache()
+    sitemap.reset_drawable()
+
+    xml = sitemap.build("https://balanceproof.dev")
+    assert "/company/AAA" in xml

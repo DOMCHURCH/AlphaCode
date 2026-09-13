@@ -85,6 +85,17 @@ async def _boot(app: FastAPI) -> None:
     # leaves 6,184 rows pointing at the old host is a line in the boot log
     # rather than something a crawler finds first. Advisory only -- it reports,
     # it does not rewrite; `POST /admin/page-extras/backfill` does that.
+    # Which tickers actually render, asked once here rather than inside the
+    # memoised sitemap build. Until it lands the sitemap lists its old
+    # unfiltered set, which is the behaviour this replaces rather than a
+    # regression.
+    try:
+        from src import sitemap as _sitemap
+
+        asyncio.create_task(asyncio.to_thread(_sitemap.refresh_drawable))
+    except Exception as exc:  # noqa: BLE001 - the sitemap builds without it
+        log.warning("sitemap_drawable_warm_skipped", error=str(exc)[:200])
+
     try:
         from src.report.home_page import SITE_ORIGIN
         from src.report.page_extras_store import origin_drift

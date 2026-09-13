@@ -47,8 +47,63 @@ _lock = threading.Lock()
 _cache: tuple[float, str, str] | None = None   # (built_at, base_url, xml)
 
 
-def _company_rows() -> list[tuple[str, dt.date | None]]:
-    """(ticker, newest filing date) for every company with a drawing.
+# The tickers whose page actually renders, or None before it has been computed.
+#
+# `build_view1` is the SAME call `/company/{ticker}` makes to decide between a
+# page and a 404, so this set cannot drift from the route the way a second SQL
+# condition would. It is held here rather than recomputed per build because
+# `get_balance_sheet` reads every fact a ticker has -- roughly 290 rows each,
+# 1.8 million across the universe -- and doing that inside the memoised build
+# would put a minute of work on whichever crawler request found the cache cold,
+# with every other request queued behind the lock. That is the self-inflicted
+# outage this module's docstring warns about, so the walk happens once at boot
+# instead.
+_drawable: frozenset[str] | None = None
+
+
+def refresh_drawable() -> int:
+    """Walk the candidates through `build_view1` and remember which render.
+
+    Returns the number of drawable tickers. Called off the request path (boot,
+    and after a fundamentals reload). Leaves the previous answer in place if it
+    fails: a stale filter lists a handful of 404s, an empty one would drop six
+    thousand real pages out of the sitemap.
+    """
+    global _drawable
+
+    from src.company.view1 import build_view1
+
+    try:
+        candidates = [t for t, _ in _candidate_rows()]
+        drawable = set()
+        for ticker in candidates:
+            try:
+                if build_view1(ticker) is not None:
+                    drawable.add(ticker)
+            except Exception:  # noqa: BLE001 - one ticker is not the run
+                continue
+        _drawable = frozenset(drawable)
+        log.info(
+            "sitemap_drawable_refreshed",
+            candidates=len(candidates),
+            drawable=len(_drawable),
+            excluded=len(candidates) - len(_drawable),
+        )
+    except Exception as exc:  # noqa: BLE001 - the sitemap still builds without it
+        log.warning("sitemap_drawable_refresh_failed", error=str(exc)[:200])
+        return -1
+    reset_cache()
+    return len(_drawable)
+
+
+def _candidate_rows() -> list[tuple[str, dt.date | None]]:
+    """(ticker, newest filing date) for every ticker with a positive assets row.
+
+    A SUPERSET of the drawable set, and the source of `lastmod`. A ticker
+    qualifies here on any period it has ever filed, while the page is drawn from
+    the newest one -- so a filer whose latest period carries liabilities and
+    equity but no total for assets passes this and still 404s. That gap is what
+    `refresh_drawable` closes.
 
     One grouped query rather than one per ticker: six thousand round trips to
     build a file a crawler reads once an hour would be a self-inflicted outage.
@@ -61,6 +116,20 @@ def _company_rows() -> list[tuple[str, dt.date | None]]:
             .order_by(Fundamental.ticker)
         ).all()
     return [(t, d) for t, d in rows if t]
+
+
+def _company_rows() -> list[tuple[str, dt.date | None]]:
+    """The candidates, less the ones whose page would 404.
+
+    Unfiltered until `refresh_drawable` has run. Listing a few URLs that answer
+    404 is the behaviour this replaces; listing none would be worse.
+    """
+    rows = _candidate_rows()
+    known = _drawable
+    if known is None:
+        log.info("sitemap_unfiltered", reason="drawable set not computed yet")
+        return rows
+    return [(t, d) for t, d in rows if t in known]
 
 
 def _newest_filing() -> dt.date | None:
@@ -212,6 +281,12 @@ def reset_cache() -> None:
     """Forget the built file. For tests, and for anything that reloads data."""
     global _cache
     _cache = None
+
+
+def reset_drawable() -> None:
+    """Forget which tickers render. For tests."""
+    global _drawable
+    _drawable = None
 
 
 def _compare_pages() -> list[tuple[str, str]]:
