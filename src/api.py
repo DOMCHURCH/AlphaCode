@@ -207,7 +207,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 _DOCS_OPEN = get_settings().env != "prod"
 
 app = FastAPI(
-    title="To Scale",
+    title="BalanceProof",
     version="2.0.0",
     docs_url="/docs" if _DOCS_OPEN else None,
     redoc_url="/redoc" if _DOCS_OPEN else None,
@@ -3309,7 +3309,7 @@ def _compare_page(prefix: str, slug: str, request: Request) -> HTMLResponse:
 
 @app.get("/compare/{slug}", response_class=HTMLResponse, include_in_schema=False)
 def compare_page(slug: str, request: Request) -> HTMLResponse:
-    """To Scale against one named alternative."""
+    """BalanceProof against one named alternative."""
     return _compare_page("compare", slug, request)
 
 
@@ -3660,7 +3660,7 @@ def _is_public(entry: str) -> bool:
 def api_index() -> JSONResponse:
     return JSONResponse(
         {
-            "service": "To Scale",
+            "service": "BalanceProof",
             "description": (
                 "Filed financial statements, drawn at true proportion."
             ),

@@ -80,7 +80,7 @@ COLUMNS = (
 
 
 def filename(today: dt.date | None = None) -> str:
-    return f"to-scale-facts-{(today or dt.date.today()).isoformat()}.csv"
+    return f"balanceproof-facts-{(today or dt.date.today()).isoformat()}.csv"
 
 
 def _fmt(v: object) -> object:

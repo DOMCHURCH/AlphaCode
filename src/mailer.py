@@ -115,7 +115,7 @@ def _resolve_inbox(client) -> str | None:
         inbox = client.inboxes.create(
             request=CreateInboxRequest(
                 client_id=_INBOX_CLIENT_ID,
-                display_name="To Scale",
+                display_name="BalanceProof",
             )
         )
         _inbox_id = inbox.inbox_id
@@ -153,7 +153,7 @@ def _recovery_body(url: str, ttl_minutes: int, admin_email: str) -> str:
     """
     signature = f"\n{admin_email}" if admin_email else ""
     return (
-        "Someone asked to recover the To Scale API key for this address.\n\n"
+        "Someone asked to recover the BalanceProof API key for this address.\n\n"
         "Keys are stored hashed, so nobody -- including us -- can read yours "
         "back. Sign in with the link below and press Regenerate on your "
         "dashboard to issue a new one:\n\n"
@@ -162,7 +162,7 @@ def _recovery_body(url: str, ttl_minutes: int, admin_email: str) -> str:
         "Regenerating replaces the old key immediately. If this was not you, "
         "ignore this email -- nothing has changed and your current key still "
         "works.\n\n"
-        f"— To Scale{signature}\n"
+        f"— BalanceProof{signature}\n"
     )
 
 
@@ -170,7 +170,7 @@ def _purchase_body(api_key: str, admin_email: str) -> str:
     """The email a BUYER gets, which is not the one a forgetful user gets.
 
     Somebody who has just paid used to receive the key-recovery template --
-    "Someone asked to be reminded of the To Scale API key for this address" --
+    "Someone asked to be reminded of the BalanceProof API key for this address" --
     which mentions no purchase, no plan and no download, and reads like a
     password-reset they did not request. This one is addressed to a customer:
     it says what they bought, hands them the key, and points at the two places
@@ -178,7 +178,7 @@ def _purchase_body(api_key: str, admin_email: str) -> str:
     """
     signature = f"\n{admin_email}" if admin_email else ""
     return (
-        "Thank you — your To Scale purchase went through.\n\n"
+        "Thank you — your BalanceProof purchase went through.\n\n"
         "Your API key:\n\n"
         f"    {api_key}\n\n"
         "Send it as an X-API-Key header:\n\n"
@@ -191,7 +191,7 @@ def _purchase_body(api_key: str, admin_email: str) -> str:
         "receipt signs you in automatically. Keep the key server-side — "
         "anyone holding it can spend your monthly allowance.\n\n"
         "Your receipt comes separately, from Stripe.\n\n"
-        f"— To Scale{signature}\n"
+        f"— BalanceProof{signature}\n"
     )
 
 
@@ -205,7 +205,7 @@ def send_purchase_key(email: str, api_key: str) -> bool:
     """
     return _send(
         email,
-        subject="Your To Scale purchase and API key",
+        subject="Your BalanceProof purchase and API key",
         text=_purchase_body(api_key, get_settings().admin_email),
         event="agentmail_purchase_sent",
     )
@@ -262,7 +262,7 @@ def send_recovery_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
     """
     return _send(
         email,
-        subject="Recover your To Scale API key",
+        subject="Recover your BalanceProof API key",
         text=_recovery_body(url, ttl_minutes, get_settings().admin_email),
         event="agentmail_recovery_sent",
     )
@@ -289,7 +289,7 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
         return False
 
     body = (
-        "Click here to log in to To Scale:\n\n"
+        "Click here to log in to BalanceProof:\n\n"
         f"    {url}\n\n"
         f"This link expires in {ttl_minutes} minutes and can be used once.\n\n"
         "If you didn't request this, you can safely ignore this email -- no "
@@ -299,7 +299,7 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
         client.inboxes.messages.send(
             inbox_id,
             to=email,
-            subject="Log in to To Scale",
+            subject="Log in to BalanceProof",
             text=body,
             reply_to=get_settings().admin_email or None,
         )
@@ -341,9 +341,9 @@ def send_payment_failed(
     link = f"Update your card: {invoice_url}\n" if invoice_url else ""
     return _send(
         email,
-        subject="To Scale: your subscription payment did not go through",
+        subject="BalanceProof: your subscription payment did not go through",
         text=(
-            "Stripe could not take the payment for your To Scale Pro "
+            "Stripe could not take the payment for your BalanceProof Pro "
             "subscription.\n\n"
             f"{link}"
             "You can also manage the subscription from your dashboard:\n"
@@ -380,7 +380,7 @@ def send_expiry_reminder(to: str, due: list[dict]) -> bool:
     )
     word = "subscription" if len(due) == 1 else "subscriptions"
     body = (
-        f"{len(due)} To Scale Pro {word} expiring soon:\n\n"
+        f"{len(due)} BalanceProof Pro {word} expiring soon:\n\n"
         f"{rows}\n\n"
         "To renew one once payment arrives, POST to /admin/grant-access with\n"
         'action "grant_pro" and their email.\n\n'
@@ -394,7 +394,7 @@ def send_expiry_reminder(to: str, due: list[dict]) -> bool:
         client.inboxes.messages.send(
             inbox_id,
             to=to,
-            subject=f"To Scale: {len(due)} Pro {word} expiring soon",
+            subject=f"BalanceProof: {len(due)} Pro {word} expiring soon",
             text=body,
         )
     except Exception as exc:  # noqa: BLE001 - a failed send is a log line
