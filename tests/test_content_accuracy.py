@@ -36,7 +36,7 @@ BANNED_SHAPE = re.compile(r"\d{1,3}(?:\.\d+)?\s*%\s*(?:accurate|accuracy)", re.I
 PAGES = (
     "/",
     "/pricing",
-    "/compare/to-scale-vs-intrinio",
+    "/compare/balanceproof-vs-intrinio",
     "/best/sec-filings-api-for-quants",
     # Every page above, as text, in one response. It is the pages, so it
     # cannot publish a rate they do not -- but it is also the file an answer

@@ -866,7 +866,7 @@ direction the error goes.</p>
 <a href="/">BalanceProof</a> runs the check above over every filing before storing
 anything, across {COMPANIES} companies and {FACTS} data points. You can look
 up any company on the site with no key and no account. The
-<a href="/compare/to-scale-vs-intrinio">comparison with Intrinio</a> covers how
+<a href="/compare/balanceproof-vs-intrinio">comparison with Intrinio</a> covers how
 that differs from a general-purpose financial data feed, and
 <a href="/pricing">pricing</a> has the tiers.</p>
 

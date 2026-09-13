@@ -382,7 +382,7 @@ def test_the_comparison_pages_count_the_table_the_rest_of_the_site_counts(client
     companies, facts = companies_label(), facts_label()
     assert companies and facts, "the seeded table should be readable"
 
-    html = client.get("/compare/to-scale-vs-intrinio").text
+    html = client.get("/compare/balanceproof-vs-intrinio").text
     assert live_counts()["{COVERAGE}"] in html
     assert f"{companies} SEC filers" in html
     assert "6,201" not in html and "1.8 million" not in html
