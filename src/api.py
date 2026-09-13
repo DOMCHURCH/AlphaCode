@@ -38,6 +38,7 @@ from fastapi.responses import (
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from starlette.datastructures import MutableHeaders
 
 from src import scheduler
 from src.config.settings import get_settings
@@ -337,6 +338,47 @@ async def redirect_renamed_paths(request: Request, call_next):
         log.info("renamed_path_redirect", source=request.url.path, target=target)
         return RedirectResponse(url=target, status_code=301)
     return await call_next(request)
+
+
+# Every route is declared `@app.get`, which registers GET and nothing else, so
+# a HEAD arrived as a PARTIAL match and Starlette answered 405 -- on every URL
+# on the site. Bing probes with HEAD, so do link checkers, so do several
+# social scrapers, and `curl -I` is how a person checks a redirect by hand.
+#
+# Deliberately NOT a catch-all `@app.head("/{path:path}")` returning 200: that
+# answers 200 for URLs that do not exist, which tells a crawler every 404 on
+# the site is a real page. Worse than the 405 it replaces.
+#
+# Instead the request is run as the GET it would have been and the body is
+# dropped. The status is therefore the true one -- 200, 301, 401, 404 -- and
+# the headers are the ones GET would have sent. Registered last so it is the
+# OUTERMOST layer: the method is rewritten before anything else looks at it,
+# and the body is discarded after everything else has run.
+@app.middleware("http")
+async def head_as_bodyless_get(request: Request, call_next):
+    """Answer HEAD with GET's status and headers and an empty body."""
+    if request.scope.get("method") != "HEAD":
+        return await call_next(request)
+
+    request.scope["method"] = "GET"
+    try:
+        response = await call_next(request)
+    finally:
+        # Put it back before the response is written: the server decides how
+        # to frame the body from the method it is handed, and a response it
+        # believes is a GET is a response it will wait to fill.
+        request.scope["method"] = "HEAD"
+
+    headers = MutableHeaders(raw=list(response.raw_headers))
+    # Content-Length is dropped rather than kept. RFC 9110 permits either, and
+    # keeping GET's figure beside a zero-byte body is the shape most likely to
+    # make a client sit and wait for bytes that are never coming.
+    del headers["content-length"]
+    return Response(
+        status_code=response.status_code,
+        headers=dict(headers),
+        background=getattr(response, "background", None),
+    )
 
 
 # Every data load takes this, scheduled or manual, so an auto-refresh and a tap

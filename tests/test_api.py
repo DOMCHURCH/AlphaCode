@@ -2118,3 +2118,41 @@ def test_renamed_compare_slugs_301_to_their_new_paths(client):
         r = _no_follow(client, old, "balanceproof.dev")
         assert r.status_code == 301, old
         assert r.headers["location"] == new
+
+
+# --------------------------------------------------------------------------
+# HEAD. Every route is declared @app.get, so HEAD used to be a 405 on every
+# URL -- which Bing, link checkers, social scrapers and `curl -I` all trip on.
+# --------------------------------------------------------------------------
+
+
+def test_head_returns_200_on_homepage(client):
+    r = client.head("/")
+    assert r.status_code == 200
+    assert r.content == b""
+
+
+def test_head_returns_200_on_pricing(client):
+    assert client.head("/pricing").status_code == 200
+
+
+def test_head_returns_200_or_401_on_api_company_endpoint(client):
+    """401 is a correct answer here -- the route wants a key. 405 is not."""
+    r = client.head("/api/company/JPM")
+    assert r.status_code in (200, 401), r.status_code
+
+
+def test_head_does_not_claim_missing_pages_exist(client):
+    """The reason this is a middleware and not a catch-all @app.head route.
+
+    A catch-all answering 200 would tell a crawler that every 404 on the site
+    is a real page, which is worse than the 405 it replaced.
+    """
+    assert client.get("/definitely-not-a-real-page").status_code == 404
+    assert client.head("/definitely-not-a-real-page").status_code == 404
+
+
+def test_head_still_redirects_off_the_dead_domain(client):
+    r = client.head("/", headers={"host": "toscale.pro"}, follow_redirects=False)
+    assert r.status_code == 301
+    assert r.headers["location"] == "https://balanceproof.dev/"
