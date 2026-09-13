@@ -2485,3 +2485,41 @@ def test_ask_rate_limit_key_varies_with_forwarded_address(client, monkeypatch):
     # never bite at all, which is the opposite failure.
     assert _ask("203.0.113.7").status_code == 200
     assert seen[2] == seen[0]
+
+
+def test_per_ip_demo_limit_separates_callers(demo_client):
+    """Two source addresses, two budgets.
+
+    The gate was briefly disabled on the belief that every caller shared one
+    bucket. They do not -- that reading came from spoofing X-Forwarded-For,
+    which Railway strips and rewrites at its edge, so the "second caller" in
+    that test was never a second caller at all. This asserts the property the
+    spoof could not: separate addresses, separate counters.
+    """
+    # Spend the first caller's window completely.
+    for i in range(3):
+        assert _demo(demo_client, ip="203.0.113.7").status_code != 429, i
+    assert _demo(demo_client, ip="203.0.113.7").status_code == 429
+
+    # The second caller is untouched by that, and has its own full window.
+    for i in range(3):
+        assert _demo(demo_client, ip="198.51.100.22").status_code != 429, i
+    assert _demo(demo_client, ip="198.51.100.22").status_code == 429
+
+    # And the first is still refused -- exhausting the second did not reset it.
+    assert _demo(demo_client, ip="203.0.113.7").status_code == 429
+
+
+def test_per_ip_demo_limit_same_caller_shares_bucket(demo_client):
+    """One address, one budget, however many requests it is spread over.
+
+    The mirror of the test above, and the more important half: a gate that
+    handed out a fresh window per request would also "separate callers" while
+    limiting nobody.
+    """
+    ip = "203.0.113.7"
+    codes = [_demo(demo_client, ip=ip).status_code for _ in range(5)]
+    assert codes.count(429) == 2, codes
+    assert codes[:3] == [c for c in codes[:3] if c != 429], codes
+    # The refusals are the LAST two, not scattered -- the window fills in order.
+    assert codes[3] == 429 and codes[4] == 429, codes

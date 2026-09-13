@@ -602,32 +602,37 @@ _seed_admin_gate = _KeyedRateGate(10, window_s=60.0)
 # anybody willing to loop, at a rate the global gate alone put at roughly three
 # times the Pro monthly allowance PER DAY.
 #
-# DISABLED (0) ON THIS DEPLOYMENT, and the reason is the whole comment.
+# A hundred an hour is far above reading the site (the home page spends one
+# per search) and far below enumerating six thousand companies.
 #
-# A hundred an hour would be far above reading the site and far below
-# enumerating six thousand companies, and that is what this was set to. In
-# production it did something else entirely: EVERY caller landed in the same
-# bucket, so it behaved as a single global 100/hour cap and answered 429 to
-# every visitor once any one caller had spent it.
+# This was briefly set to 0 on the belief that it had collapsed into a single
+# global bucket -- that reading was WRONG, and the way it was wrong is worth
+# keeping, because the same mistake is easy to make again:
 #
-# Measured, not guessed. With the window already spent from one machine, a
-# request carrying `X-Forwarded-For: 9.9.9.9`, one carrying `X-Real-IP:
-# 8.8.8.8`, and one from an unrelated network entirely all came back 429 with
-# THIS gate's message and a Retry-After counting down the first caller's
-# window. Distinct addresses were sharing one key.
+#   The test was to spend the window from one machine and then re-request
+#   carrying `X-Forwarded-For: 9.9.9.9`. It came back 429, which looked like
+#   proof that distinct addresses shared one key. It was nothing of the sort.
+#   Railway STRIPS a client-supplied X-Forwarded-For at its edge and rewrites
+#   it with the real source address, so the spoof never reached this process:
+#   the request was still the same caller, and 429 was the correct answer.
 #
-# So `analytics.client_ip` is not returning the caller's address behind this
-# proxy -- it resolves to one constant value, which also means the unique
-# visitor count it feeds is wrong in the same way. Until that is fixed there
-# is nothing to key a per-caller window on, and a "per-IP" limit that cannot
-# identify the IP is just a global limit wearing the wrong name and the wrong
-# number. `_KeyedRateGate.check` is a no-op at 0, so the global `_demo_gate`
-# is once again the only thing in front of the demo.
+# Settled with a probe instead of an inference. A temporary admin route echoed
+# `analytics.client_ip` back, and from a laptop it returned 70.51.62.205 --
+# that machine's real public address, matching ipify exactly -- while
+# `request.client.host` was 100.64.0.16, the proxy. The header arrives, it
+# carries the true address first, and `client_ip` reads it correctly.
 #
-# The tests still exercise the mechanism: they substitute their own gate, and
-# under TestClient there is no proxy in the way, so per-address separation is
-# still proved -- which is exactly why this did not show up before deploy.
-_demo_ip_gate = _KeyedRateGate(0, window_s=3600.0)
+# So this gate does key per caller. The one honest caveat left is the reverse
+# of the original one: because Railway overwrites the header rather than
+# trusting it, a caller CANNOT mint themselves a fresh budget by rotating it,
+# and the limit is stronger than it was first described as. A caller with
+# genuinely many source addresses is still the case the global `_demo_gate`
+# below exists for.
+#
+# How to check this again, if it ever needs checking: hit the site from two
+# genuinely different networks and compare. Do NOT spoof the header -- that
+# tests Railway's edge, not this code.
+_demo_ip_gate = _KeyedRateGate(100, window_s=3600.0)
 
 
 def _enforce_keyed_rate(
