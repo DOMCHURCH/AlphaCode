@@ -129,28 +129,41 @@ def revoke(label: str) -> bool:
     return True
 
 
-def find(api_key_hash: str) -> dict | None:
-    """The live seeded key with this digest, as a plain dict, or None.
+def find(api_key_hash: str) -> tuple[str, dict | None]:
+    """This digest's status and, when it is usable, the key behind it.
 
-    Revoked keys are not found, which is the whole of requirement 7: the
-    caller gets the same None an unknown key gets, and the same 401 with it.
+    Returns one of:
+
+        ("active", {...})   a live seeded key
+        ("revoked", {...})  the row, plus `revoked_at`
+        ("not_found", None) no such digest
+
+    Revoked keys are still refused -- that has not changed and must not. What
+    changed is that the REASON survives as far as the message. A partner whose
+    key was turned off used to get the same sentence an unknown key gets, so
+    the one question they actually had ("is it my key or your server?") was
+    the one thing the response would not say.
+
+    The query no longer filters on `revoked_at`, so every caller must read the
+    status rather than truthiness of the second element.
     """
     with session_scope() as session:
         row = session.execute(
             select(SeededKey)
             .where(SeededKey.api_key == api_key_hash)
             .where(SeededKey.source == SOURCE)
-            .where(SeededKey.revoked_at.is_(None))
         ).scalar_one_or_none()
         if row is None:
-            return None
-        return {
+            return ("not_found", None)
+        found = {
             "id": row.id,
             "label": row.label,
             "prefix": str(row.api_key_prefix or ""),
             "rate_limit": int(row.rate_limit_override),
             "source": row.source,
+            "revoked_at": row.revoked_at,
         }
+        return ("revoked" if row.revoked_at is not None else "active", found)
 
 
 def row(label: str) -> dict | None:

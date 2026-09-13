@@ -2233,3 +2233,55 @@ def test_a_post_404_stays_json_even_off_the_api_prefix(client):
     r = client.post("/company/JPM/nope", json={})
     assert r.status_code == 404
     assert r.headers["content-type"].startswith("application/json")
+
+
+# ---------------------------------------------------------------------------
+# A revoked key says so
+# ---------------------------------------------------------------------------
+
+def test_revoked_key_returns_distinct_message(client):
+    """Still 401 -- but a partner can now tell whose fault it is.
+
+    A revoked key and a typo used to produce the same sentence, so the one
+    question the holder had ("is it my key, or your server?") was the one
+    thing the response would not answer.
+    """
+    from src import seedkeys
+
+    key = seedkeys.issue("audit-revoked-message", rate_limit=50)
+    # It works first, so the test is about revocation and not about issuing.
+    assert client.get("/api/user/status", headers={"X-API-Key": key}).status_code == 200
+
+    assert seedkeys.revoke("audit-revoked-message") is True
+    r = client.get("/api/user/status", headers={"X-API-Key": key})
+    assert r.status_code == 401
+    detail = r.json()["detail"]
+    assert "was revoked on" in detail
+    assert "support@balanceproof.dev" in detail
+    # The date is the day it was turned off, not a timestamp.
+    import datetime as dt
+    assert dt.datetime.now(dt.UTC).date().isoformat() in detail
+
+
+def test_unknown_key_returns_generic_message(client):
+    """An unknown key keeps the sentence that also covers a MISSING one."""
+    r = client.get("/api/user/status", headers={"X-API-Key": "nope-not-a-key"})
+    assert r.status_code == 401
+    detail = r.json()["detail"]
+    assert "Invalid or missing API key" in detail
+    assert "revoked" not in detail
+
+    # And no header at all lands on the same generic sentence.
+    bare = client.get("/api/user/status")
+    assert bare.status_code == 401
+    assert "Invalid or missing API key" in bare.json()["detail"]
+
+
+def test_a_revoked_key_is_still_refused_not_merely_explained(client):
+    """The guardrail on this change: the message differs, the outcome does not."""
+    from src import seedkeys
+
+    key = seedkeys.issue("audit-revoked-still-refused", rate_limit=50)
+    seedkeys.revoke("audit-revoked-still-refused")
+    for path in ("/api/user/status", "/api/company/JPM"):
+        assert client.get(path, headers={"X-API-Key": key}).status_code == 401, path

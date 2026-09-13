@@ -364,9 +364,10 @@ def _seed_snapshot(digest: str) -> Account | None:
     Reached only after the customer table has missed, so the hot path is
     exactly the one indexed equality test it was before this existed.
 
-    A REVOKED key is not found here, which is the whole of revocation: the
-    caller gets the same None an unknown key gets and the same 401 behind it,
-    with no second rejection path to keep in step with the first.
+    A REVOKED key is not an account here, exactly as before: it returns None
+    and gets a 401 like any other rejection. The only difference is that the
+    401 can now say WHY, which `revocation_date` below looks up on the failure
+    path -- so the hot path is still the one indexed equality test.
 
     Logged at INFO on every authentication rather than on every metered call.
     An outreach key that authenticates and then 429s is still a key somebody
@@ -374,8 +375,8 @@ def _seed_snapshot(digest: str) -> Account | None:
     """
     from src import seedkeys
 
-    seed = seedkeys.find(digest)
-    if seed is None:
+    status, seed = seedkeys.find(digest)
+    if status != "active" or seed is None:
         return None
     log.info("seed_key_used", label=seed["label"], source=seed["source"],
              prefix=seed["prefix"])
@@ -496,6 +497,47 @@ def set_pro_plan(email: str, plan: str) -> None:
         row.pro_plan = plan[:16] or None
 
 
+def revocation_date(api_key: str) -> str | None:
+    """`YYYY-MM-DD` if this key was revoked, else None.
+
+    Called ONLY after `lookup` has already returned None, so it adds a query to
+    the rejection path and nothing to the hot one. `.date()` rather than
+    formatting the timestamp: SQLite hands back a naive datetime and the day is
+    the only part anyone needs to match against an email.
+    """
+    key = (api_key or "").strip()
+    if not key:
+        return None
+    from src import seedkeys
+
+    status, seed = seedkeys.find(hash_api_key(key))
+    if status != "revoked" or not seed or not seed.get("revoked_at"):
+        return None
+    return seed["revoked_at"].date().isoformat()
+
+
+def _rejection(api_key: str, generic: str) -> HTTPException:
+    """The 401 for a key that did not resolve, saying why when that is known.
+
+    Same status either way -- this is not a different outcome, it is the same
+    outcome with the one fact the holder needs to act on. An unknown key gets
+    the generic sentence, which still has to cover the MISSING-key case and so
+    still carries the pointer to /dashboard.
+    """
+    revoked = revocation_date(api_key)
+    detail = generic
+    if revoked:
+        detail = (
+            f"This API key was revoked on {revoked}. Contact "
+            "support@balanceproof.dev if this is unexpected."
+        )
+    return HTTPException(
+        status_code=401,
+        detail=detail,
+        headers={"WWW-Authenticate": "X-API-Key"},
+    )
+
+
 def get_current_user(
     x_api_key: str | None = Header(default=None, alias=API_KEY_HEADER),
 ) -> Account:
@@ -522,13 +564,10 @@ def get_current_user(
         log.warning(
             "api_key_rejected", source="header", key=fingerprint(x_api_key)
         )
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                "Invalid or missing API key. Send it as an X-API-Key header. "
-                "Get one free at /dashboard."
-            ),
-            headers={"WWW-Authenticate": "X-API-Key"},
+        raise _rejection(
+            x_api_key or "",
+            "Invalid or missing API key. Send it as an X-API-Key header. "
+            "Get one free at /dashboard.",
         )
     return account
 
@@ -564,13 +603,10 @@ def get_current_user_flexible(
             key=fingerprint(x_api_key or from_query),
             path=request.url.path,
         )
-        raise HTTPException(
-            status_code=401,
-            detail=(
-                "Invalid or missing API key. Send it as an X-API-Key header, "
-                "or as ?api_key= on this endpoint only."
-            ),
-            headers={"WWW-Authenticate": "X-API-Key"},
+        raise _rejection(
+            x_api_key or from_query or "",
+            "Invalid or missing API key. Send it as an X-API-Key header, "
+            "or as ?api_key= on this endpoint only.",
         )
     return account
 
