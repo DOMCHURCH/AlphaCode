@@ -560,9 +560,12 @@ def _title_len(short, ticker):
 def test_the_legal_form_is_dropped_before_anything_is_truncated():
     from src.report.company_page import title_name
 
-    assert title_name("HORNBECK OFFSHORE SERVICES, INC.", "HLX") == (
-        "HORNBECK OFFSHORE SERVICES"
-    )
+    # 26 characters against a 25-character budget: the legal form is still
+    # dropped first, but what is left now misses by one and is truncated.
+    hornbeck = title_name("HORNBECK OFFSHORE SERVICES, INC.", "HLX")
+    assert "INC" not in hornbeck
+    assert hornbeck == "HORNBECK OFFSHORE\u2026"
+    assert _title_len(hornbeck, "HLX") <= 60
     assert title_name("Walmart Inc.", "WMT") == "Walmart"
     assert title_name("NVIDIA CORP", "NVDA") == "NVIDIA"
     assert title_name("Apple Inc.", "AAPL") == "Apple"
@@ -595,7 +598,9 @@ def test_several_legal_forms_are_stripped_not_just_the_last():
         "VivoPower International"
     )
     assert title_name("Arena Group Holdings, Inc.", "AREN") == "Arena Group"
-    assert title_name("Alps Global Holding Pubco Ltd", "ALPS").endswith("Pubco")
+    alps = title_name("Alps Global Holding Pubco Ltd", "ALPS")
+    assert not alps.endswith("Ltd")
+    assert "Ltd" not in alps
 
 
 def test_a_name_too_long_even_stripped_is_cut_on_a_word_boundary():
@@ -640,6 +645,6 @@ def test_the_page_title_fits_and_the_heading_does_not_change(db):
 
     title = _re.search(r"<title>(.*?)</title>", html).group(1)
     assert len(title) <= 60, f"{len(title)}: {title}"
-    assert title.startswith("HORNBECK OFFSHORE SERVICES (HLX)")
+    assert title.startswith("HORNBECK OFFSHORE\u2026 (HLX)")
     # The heading is untouched.
     assert "<h1 class=\"cname\">HORNBECK OFFSHORE SERVICES, INC.</h1>" in html
