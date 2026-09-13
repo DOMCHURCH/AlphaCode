@@ -51,9 +51,9 @@ _POST_XBRL_ACCURACY = Post(
     title="Why SEC XBRL Data Is Wrong 1 Out of 5 Times (And How to Fix It)",
     seo_title="SEC Filings API Accuracy: Why XBRL Data Is Wrong 1 in 5 Times",
     description=(
-        "JPMorgan reports Total Assets 23 different ways in a single filing. "
-        "Most SEC filings APIs pick one at random and are wrong roughly one "
-        "filing in five. Here is why, and how the accounting identity fixes it."
+        "JPMorgan reports Total Assets 23 different ways in one SEC filing. "
+        "Most filings APIs pick one at random. Here is why, and how "
+        "A = L + E fixes it."
     ),
     summary=(
         "JPMorgan tags Total Assets 23 times in one filing and exactly one "
@@ -221,8 +221,8 @@ _POST_BANK_BALANCE_SHEETS = Post(
     seo_title="How to Read a Bank Balance Sheet (Deposits, Loans, Leverage)",
     description=(
         "A bank's balance sheet inverts the shape you expect: deposits are "
-        "liabilities, loans are assets, and equity is a sliver. What that "
-        "means when you read JPM, BAC or WFC at true proportion."
+        "liabilities, loans are assets, equity is a sliver. "
+        "Read JPM and BAC at true proportion."
     ),
     summary=(
         "A bank runs on roughly ten cents of equity per dollar of assets, "
@@ -335,9 +335,9 @@ _POST_ACCOUNTING_IDENTITY = Post(
     title="Understanding the Accounting Identity",
     seo_title="Assets = Liabilities + Equity: What the Identity Actually Proves",
     description=(
-        "Assets = Liabilities + Equity is not a rule filers follow. It is a "
-        "consequence of double-entry bookkeeping, which is what makes it "
-        "usable as a test on data you did not produce."
+        "Assets = Liabilities + Equity is not a rule filers follow but a "
+        "consequence of double-entry bookkeeping, which makes it a test on "
+        "data you did not produce."
     ),
     summary=(
         "Assets = Liabilities + Equity is not a guideline, it is what makes "

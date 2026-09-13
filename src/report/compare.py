@@ -230,9 +230,9 @@ PAGES: tuple[Page, ...] = (
         h1="BalanceProof vs Intrinio: SEC Filings API Comparison",
         seo_title="BalanceProof vs Intrinio — SEC Filings API Comparison (2026)",
         description=(
-            "An honest comparison of BalanceProof and Intrinio for SEC XBRL "
-            "balance sheet data: reconciliation method, coverage, pricing "
-            "model and when each is the right choice for a quant team."
+            "BalanceProof vs Intrinio for SEC XBRL balance sheet data: "
+            "reconciliation method, coverage, pricing, and when each one is "
+            "the right fit for a quant team."
         ),
         rival="Intrinio",
         lede=(
@@ -281,9 +281,9 @@ PAGES: tuple[Page, ...] = (
         h1="BalanceProof vs sec-api.io: Which SEC XBRL API Should You Use?",
         seo_title="BalanceProof vs sec-api.io — SEC XBRL API Comparison",
         description=(
-            "BalanceProof vs sec-api.io for SEC filings data: filing access versus "
-            "reconciled financials, what each returns, and which one fits a "
-            "screener, a backtest or a filings pipeline."
+            "BalanceProof vs sec-api.io for SEC filings data: filing access "
+            "versus reconciled financials, and which one fits a screener, a "
+            "backtest or a pipeline."
         ),
         rival="sec-api.io",
         lede=(
@@ -330,9 +330,9 @@ PAGES: tuple[Page, ...] = (
         h1="BalanceProof vs Xignite: Financial Data API Comparison",
         seo_title="BalanceProof vs Xignite — Financial Data API for Fundamentals",
         description=(
-            "BalanceProof vs Xignite for fundamentals: an independent SEC XBRL "
-            "reconciler against an enterprise market-data platform. Pricing "
-            "model, coverage, accuracy method and who each one is built for."
+            "BalanceProof vs Xignite for SEC fundamentals: an independent "
+            "XBRL reconciler against an enterprise market-data platform. "
+            "Pricing, coverage and accuracy."
         ),
         rival="Xignite",
         lede=(
@@ -382,9 +382,9 @@ PAGES: tuple[Page, ...] = (
         h1="The Best SEC Filings API for Quants: How to Actually Choose One",
         seo_title="Best SEC Filings API for Quants — How to Choose (2026)",
         description=(
-            "How to evaluate an SEC filings API for quantitative work: the "
+            "How to evaluate an SEC filings API for quant work: the "
             "duplicate-tag problem, as-reported versus restated, point-in-time "
-            "correctness, and the four tests to run before you buy."
+            "correctness, and four tests."
         ),
         rival="the alternatives",
         kind="best",
@@ -493,9 +493,9 @@ you already know.</p>
         h1="Intrinio Alternatives for SEC Balance Sheet Data",
         seo_title="Intrinio Alternatives for SEC XBRL Balance Sheet Data",
         description=(
-            "Looking for an Intrinio alternative for SEC fundamentals? What to "
-            "look for in a replacement, when a single-purpose XBRL reconciler "
-            "is the better fit, and when it is not."
+            "Looking for an Intrinio alternative for SEC fundamentals? What "
+            "to look for in a replacement, and when a single-purpose XBRL "
+            "reconciler is the better fit."
         ),
         rival="Intrinio",
         kind="alternatives",
