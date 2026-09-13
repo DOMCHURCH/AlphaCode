@@ -2523,3 +2523,57 @@ def test_per_ip_demo_limit_same_caller_shares_bucket(demo_client):
     assert codes[:3] == [c for c in codes[:3] if c != 429], codes
     # The refusals are the LAST two, not scattered -- the window fills in order.
     assert codes[3] == 429 and codes[4] == 429, codes
+
+
+def test_demo_payload_reports_effective_limit(demo_client, monkeypatch):
+    """The advertised limit is the one that would actually refuse you.
+
+    It used to be the DAILY counter unconditionally. That counter is off by
+    default, so the payload said 0 -- "no limit" -- while the hourly gate did
+    the refusing, and the home page decides whether to mention a limit at all
+    by testing this field. Nobody was ever told one existed.
+    """
+    from src import api
+    from src.config.settings import get_settings
+
+    # A real ticker: the payload only exists on a 200, and `_demo`'s default
+    # ticker is deliberately one that 404s.
+    _seed_company("JPM", {
+        "total_assets": 4_424_900_000_000.0,
+        "total_liabilities": 4_062_462_000_000.0,
+        "total_equity": 362_438_000_000.0,
+    })
+
+    def _payload(ip="203.0.113.7"):
+        r = demo_client.get("/api/demo/JPM", headers={"X-Forwarded-For": ip})
+        assert r.status_code == 200, r.text
+        return r.json()["demo"]
+
+    # Daily counter off, which is the shipped default: the hourly gate is what
+    # is in force, so it is what gets reported.
+    d = _payload()
+    assert d["calls_limit"] == api._demo_ip_gate.limit == 3
+    assert d["limit_window"] == "hour"
+    assert d["limit_per_hour"] == 3
+    assert d["limit_per_day"] == 0
+    # Never 0 while something is enforcing -- that is the whole bug.
+    assert d["calls_limit"] != 0
+
+    # Turn the daily counter on and it becomes the binding one, because it is
+    # the only window with a spent count a caller can be told their place in.
+    monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "5")
+    get_settings.cache_clear()
+    d = _payload(ip="198.51.100.90")
+    assert d["calls_limit"] == 5
+    assert d["limit_window"] == "day"
+    assert d["limit_per_day"] == 5
+    # Both are still published, so a caller never has to guess which they hit.
+    assert d["limit_per_hour"] == 3
+    get_settings.cache_clear()
+
+
+def test_demo_home_js_reads_the_window_not_just_the_limit(client):
+    """The page must not say "used today" about an hourly window."""
+    js = client.get("/static/home.js").text
+    assert 'd.limit_window === "day"' in js
+    assert "demo calls an hour from one address" in js

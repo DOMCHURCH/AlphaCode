@@ -2982,9 +2982,38 @@ def api_demo(ticker: str, request: Request) -> JSONResponse:
     demo.record(ip_hash, symbol)
     payload = jsonable_encoder(asdict(sheet))
     payload["source"] = "SEC Financial Statement Data Sets (as reported)"
+    # `calls_limit` used to report the DAILY counter unconditionally. That
+    # counter defaults to 0, so the payload advertised "no limit" while the
+    # hourly gate was the thing actually refusing people -- and the home page,
+    # which decides whether to mention a limit at all by testing this field,
+    # therefore never mentioned one. The field now reports whatever is in
+    # force.
+    #
+    # Both windows are also published under their own names, because "limit"
+    # alone is not answerable when there are two of different lengths, and a
+    # caller writing against this should not have to infer which it hit.
+    # Nothing here enforces anything; this is the reporting side only.
+    per_hour = _demo_ip_gate.limit
+    if limit:
+        # The daily quota wins when it is on. Comparing a burst window to a
+        # daily ration is not arithmetic they share units for -- what makes it
+        # binding is that it is the one with a spent count behind it, so it is
+        # the one a caller can be told their position in.
+        binding, window = limit, "day"
+    elif per_hour:
+        binding, window = per_hour, "hour"
+    else:
+        binding, window = 0, None
     payload["demo"] = {
+        # Unchanged, including the quirk that it reads 1 when the daily
+        # counter is off: `used` is only looked up when there is a daily
+        # limit to look it up against. The hourly gate keeps no count it can
+        # hand back, so nothing here pretends otherwise.
         "calls_used_today": used + 1,
-        "calls_limit": limit,
+        "calls_limit": binding,
+        "limit_window": window,
+        "limit_per_hour": per_hour,
+        "limit_per_day": limit,
         "note": "Public demo. Get your own key at /dashboard.",
     }
     return JSONResponse(payload)

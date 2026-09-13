@@ -29,6 +29,22 @@
     out.hidden = false;
   }
 
+  /* What the 200 says about the allowance, in the units the allowance is in.
+
+     The daily counter is the only one with a spent count behind it, so it is
+     the only branch that can say "x of y". The hourly window knows its size
+     and not how much of it you have used, and saying "used today" about an
+     hourly limit would be a smaller lie but still a lie. */
+  function limitNote(d) {
+    if (!d.calls_limit) return "200 OK";
+    if (d.limit_window === "day") {
+      return "200 OK — " + d.calls_used_today + " of " + d.calls_limit +
+        " demo calls used today.";
+    }
+    return "200 OK — up to " + d.calls_limit +
+      " demo calls an hour from one address.";
+  }
+
   function run(ev) {
     ev.preventDefault();
     var raw = ($("demo-ticker").value || "").trim();
@@ -45,13 +61,7 @@
           btn.disabled = false;
           if (res.ok) {
             var d = data.demo || {};
-            note(
-              d.calls_limit
-                ? "200 OK — " + d.calls_used_today + " of " + d.calls_limit +
-                  " demo calls used today."
-                : "200 OK",
-              "good"
-            );
+            note(limitNote(d), "good");
             showJson(data);
             return;
           }
