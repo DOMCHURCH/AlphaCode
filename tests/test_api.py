@@ -47,6 +47,11 @@ def client(api_db):
 
     api._backfill_gate.reset()
     api._reconcile_gate.reset()
+    # Per-source and process-global, like the two above: without this the
+    # tenth seeded-key call in a run gets a 429 from a budget the previous
+    # test spent, which fails as a KeyError on a response body nobody looked
+    # at.
+    api._seed_admin_gate.reset()
     # The reload/dump state is deliberately process-global (one service, one
     # job at a time), so it survives between tests unless reset here.
     backfill._RELOAD_STATE.update(
@@ -1936,3 +1941,120 @@ def test_issue_seed_key_respects_rate_limit_param(client):
     bad = client.post("/api/admin/seed-keys/issue", headers=ADMIN,
                       json={"label": "zero", "rate_limit": 0})
     assert bad.status_code == 422, bad.text
+
+
+def test_revoke_requires_admin_secret(client, monkeypatch):
+    from src import seedkeys
+
+    seedkeys.issue("still-mine")
+
+    def _boom(*a, **k):
+        raise AssertionError("revoke() was reached without the admin secret")
+
+    monkeypatch.setattr(seedkeys, "revoke", _boom)
+    body = {"label": "still-mine"}
+    assert client.post("/api/admin/seed-keys/revoke", json=body).status_code == 403
+    assert client.post(
+        "/api/admin/seed-keys/revoke", json=body,
+        headers={"X-Admin-Secret": "wrong"},
+    ).status_code == 403
+    assert seedkeys.row("still-mine")["revoked_at"] is None
+
+
+def test_revoke_marks_as_revoked(client):
+    _a_company()
+    key = client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                      json={"label": "gone-soon"}).json()["api_key"]
+    assert client.get("/api/company/JPM",
+                      headers={"X-API-Key": key}).status_code == 200
+
+    r = client.post("/api/admin/seed-keys/revoke", headers=ADMIN,
+                    json={"label": "gone-soon"})
+    assert r.status_code == 200, r.text
+    assert r.json()["key"]["revoked"] is True
+    assert r.json()["key"]["revoked_at"]
+
+    assert client.get("/api/company/JPM",
+                      headers={"X-API-Key": key}).status_code == 401
+    # Kept, not deleted: the record is the point.
+    seeded = client.get("/api/admin/stats", headers=ADMIN).json()["seeded_keys"]
+    assert seeded["active"] == 0 and seeded["revoked"] == 1
+    assert [k["label"] for k in seeded["keys"]] == ["gone-soon"]
+
+
+def test_revoke_is_idempotent_or_errors_cleanly(client):
+    """Three different answers, because they are three different situations
+    and the operator has to be able to tell a typo from a no-op."""
+    client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                json={"label": "once-only"})
+    assert client.post("/api/admin/seed-keys/revoke", headers=ADMIN,
+                       json={"label": "once-only"}).status_code == 200
+
+    again = client.post("/api/admin/seed-keys/revoke", headers=ADMIN,
+                        json={"label": "once-only"})
+    assert again.status_code == 409
+    assert "already revoked" in again.json()["detail"]
+
+    missing = client.post("/api/admin/seed-keys/revoke", headers=ADMIN,
+                          json={"label": "never-existed"})
+    assert missing.status_code == 404
+    assert "No seeded key" in missing.json()["detail"]
+
+
+def test_admin_list_shows_all_seeded_key_fields(client):
+    """Everything the panel row renders comes from this payload. A field the
+    server does not send is a field the operator drops to a terminal for."""
+    _a_company()
+    key = client.post("/api/admin/seed-keys/issue", headers=ADMIN, json={
+        "label": "fully-described",
+        "display_name": "Fully Described — project",
+        "rate_limit": 250,
+        "notes": "reached out in September",
+    }).json()["api_key"]
+    client.get("/api/company/JPM", headers={"X-API-Key": key})
+    client.get("/api/company/JPM", headers={"X-API-Key": key})
+
+    k = client.get("/api/admin/stats", headers=ADMIN).json(
+    )["seeded_keys"]["keys"][0]
+    assert k["label"] == "fully-described"
+    assert k["display_name"] == "Fully Described — project"
+    assert k["rate_limit"] == 250
+    assert k["calls_this_month"] == 2
+    assert k["issued_at"] and k["last_used_at"]
+    assert k["revoked_at"] is None and k["revoked"] is False
+    assert k["notes"] == "reached out in September"
+    assert k["source"] == "influencer_seed"
+
+
+def test_a_revoked_key_sorts_below_the_live_ones(client):
+    """The panel renders in the order it is given, so the order is the
+    server's to decide -- a second reader should not have to rediscover that
+    a revoked key belongs at the bottom."""
+    for label in ("first", "second", "third"):
+        client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                    json={"label": label})
+    client.post("/api/admin/seed-keys/revoke", headers=ADMIN,
+                json={"label": "second"})
+
+    keys = client.get("/api/admin/stats", headers=ADMIN).json(
+    )["seeded_keys"]["keys"]
+    assert [k["revoked"] for k in keys] == [False, False, True],         [k["label"] for k in keys]
+
+
+def test_a_stale_month_is_not_reported_as_this_month(client):
+    """The counter only means anything for the month it counts. A stale one
+    shown as "calls this month" is a wrong number with a confident label."""
+    _a_company()
+    key = client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                      json={"label": "last-month"}).json()["api_key"]
+    client.get("/api/company/JPM", headers={"X-API-Key": key})
+
+    from src.storage.db import session_scope
+    from src.storage.models import SeededKey
+
+    with session_scope() as session:
+        session.query(SeededKey).one().usage_month = "2001-01"
+
+    k = client.get("/api/admin/stats", headers=ADMIN).json(
+    )["seeded_keys"]["keys"][0]
+    assert k["calls_this_month"] == 0

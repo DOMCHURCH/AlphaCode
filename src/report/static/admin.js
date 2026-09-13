@@ -112,20 +112,19 @@ async function loadCustomers() {
 
   /* Hand-issued outreach keys. Counted separately from everything above --
      none of these is a signup, and adding them to a customer count is how a
-     dashboard tells you the business is bigger than it is. Listed rather than
-     just counted because the useful question is WHICH one has never been
-     used: an outreach key that never made a call is outreach that did not
-     land, and is worth revoking rather than leaving live. */
+     dashboard tells you the business is bigger than it is.
+
+     Each one renders as a full row rather than a name and a date, because the
+     alternative was dropping to a terminal to answer "what is this key
+     allowed to do and has anybody used it". A live key that has never made a
+     call is flagged: outreach that did not land is the thing worth revoking,
+     and an unused credential is all cost and no benefit. */
   const seed = d.seeded_keys || { active: 0, revoked: 0, keys: [] };
-  const when = (v) => (v ? new Date(v).toLocaleDateString() : "never");
   $("customers").innerHTML += [
     row("Seeded keys — active", seed.active),
     row("Seeded keys — revoked", seed.revoked, seed.revoked ? "warn" : ""),
-  ].concat((seed.keys || []).map((k) => row(
-    "  " + (k.display_name || k.label) + (k.revoked_at ? " (revoked)" : ""),
-    "last used " + when(k.last_used_at),
-    !k.revoked_at && !k.last_used_at ? "warn" : ""
-  ))).join("");
+  ].join("");
+  renderSeedKeys(seed.keys || []);
 
   const list = d.recent_signups || [];
   $("signups").innerHTML = list.length
@@ -147,6 +146,97 @@ async function loadCustomers() {
    database has a digest and no query anywhere can produce the key again. So
    the result box is loud, it is selectable, and it does not disappear on the
    next refresh of the list. */
+
+/* One seeded key, in full. The server sorts live keys above revoked ones, so
+   this renders in the order it is given rather than re-deciding it here. */
+function seedWhen(v, fallback) {
+  if (!v) return fallback || "never";
+  const d = new Date(v), days = Math.floor((Date.now() - d) / 86400000);
+  if (days <= 0) return "today";
+  if (days === 1) return "yesterday";
+  if (days < 30) return days + " days ago";
+  return d.toLocaleDateString();
+}
+
+function seedKeyRow(k) {
+  const revoked = !!k.revoked_at;
+  // A live key nobody has used is the one worth acting on.
+  const cls = revoked ? "dim" : (k.last_used_at ? "" : "warn");
+  const bits = [
+    "limit " + Number(k.rate_limit).toLocaleString(),
+    k.calls_this_month + " this month",
+    "issued " + seedWhen(k.issued_at),
+    revoked ? "revoked " + seedWhen(k.revoked_at)
+            : "last used " + seedWhen(k.last_used_at),
+  ];
+  return '<div class="row seedrow ' + cls + '" data-label="' + esc(k.label) + '">' +
+    '<span class="k">' + esc(k.display_name || k.label) +
+      '<small class="seedlabel">' + esc(k.label) + "</small>" +
+      (k.notes ? '<small class="seednote">' + esc(k.notes) + "</small>" : "") +
+    "</span>" +
+    '<span class="v">' + esc(bits.join(" · ")) +
+      '<span class="seedacts">' +
+        '<button type="button" class="mini seedcopy">Copy label</button>' +
+        (revoked ? "" :
+          '<button type="button" class="mini danger seedrevoke">Revoke</button>') +
+      "</span>" +
+    "</span></div>";
+}
+
+function renderSeedKeys(keys) {
+  if (!keys.length) return;
+  const host = $("customers");
+  host.insertAdjacentHTML("beforeend", keys.map(seedKeyRow).join(""));
+  host.querySelectorAll(".seedrow").forEach((el) => {
+    const label = el.dataset.label;
+    const copy = el.querySelector(".seedcopy");
+    /* "Copy key" is the button somebody expects here and it cannot exist: the
+       database holds a digest and the key was shown once, at issue. Copying
+       the LABEL is what is actually useful -- it is what the CLI takes -- and
+       naming the button for what it does beats naming it for what is wanted. */
+    if (copy) {
+      copy.addEventListener("click", () => {
+        copyText(label).then((ok) => {
+          copy.textContent = ok ? "Copied" : "Copy failed";
+          setTimeout(() => { copy.textContent = "Copy label"; }, 1800);
+        });
+      });
+    }
+    const rev = el.querySelector(".seedrevoke");
+    if (rev) rev.addEventListener("click", () => revokeSeedKey(label, rev));
+  });
+}
+
+async function revokeSeedKey(label, btn) {
+  if (!window.confirm(
+    "Revoke " + label + "?\n\nIt stops working on the next request. The row " +
+    "stays in the list as a record."
+  )) return;
+  btn.disabled = true;
+  btn.textContent = "Revoking…";
+  let r, d;
+  try {
+    r = await adminFetch("/api/admin/seed-keys/revoke", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ label: label }),
+    });
+    d = await r.json();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = "Revoke";
+    seedMsg("Could not reach the server.", "bad");
+    return;
+  }
+  if (!r.ok) {
+    btn.disabled = false; btn.textContent = "Revoke";
+    seedMsg(d && d.detail ? d.detail : "Revoke failed.", "bad");
+    // 409 means it is already off, so the list is stale rather than wrong.
+    if (r.status === 409 || r.status === 404) loadCustomers();
+    return;
+  }
+  seedMsg("Revoked " + label + ".", "");
+  loadCustomers();
+}
 
 function seedMsg(text, cls) {
   const box = $("seedResult");

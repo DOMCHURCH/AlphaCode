@@ -273,6 +273,22 @@ pre.tb{font-size:.78em;overflow:auto;max-height:220px;background:var(--well);
 .rawform input:focus{outline:0;box-shadow:var(--in-sm),0 0 0 2px var(--ink)}
 .rawform input[type="number"]{max-width:92px}
 
+/* One seeded key, in full: a name, the handle underneath it, and the facts
+   that decide whether to revoke it. `.dim` is a revoked row -- kept in the
+   list because the record is the point, and faded because it is not a thing
+   to act on. */
+.seedrow{align-items:flex-start;gap:10px}
+.seedrow.dim{opacity:.55}
+.seedlabel,.seednote{display:block;font-size:10px;font-weight:600;
+  color:var(--ink2);margin-top:3px}
+.seedlabel{font-family:var(--mono);letter-spacing:.02em}
+.seednote{font-style:italic;max-width:34ch}
+.seedacts{display:flex;gap:6px;margin-top:6px;justify-content:flex-end}
+.seedacts .mini{padding:6px 10px;font-size:10px}
+/* `.danger` was only ever styled on `.act`; revoke is a `.mini`. */
+.mini.danger{color:var(--red)}
+.mini.danger:hover{background:var(--red);color:#fff}
+
 /* A seven-tag question is unusable typed on a phone. */
 .presets{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 12px}
 .chipbtn{font-family:var(--mono);font-size:11px;font-weight:700;border:0;

@@ -2500,6 +2500,50 @@ def api_admin_issue_seed_key(
     }, status_code=201)
 
 
+class SeedKeyRevokeRequest(BaseModel):
+    label: str
+
+
+@app.post("/api/admin/seed-keys/revoke", dependencies=[Depends(require_admin)])
+def api_admin_revoke_seed_key(
+    body: SeedKeyRevokeRequest, request: Request
+) -> JSONResponse:
+    """Stop one outreach key, by the label it was issued under.
+
+    Three answers, and they are deliberately different. 404 means no key has
+    that label -- a typo, and the operator needs to know it was a typo rather
+    than believe something was turned off. 409 means it was already revoked,
+    which is not a failure and not a fresh revocation either; the row comes
+    back so the panel can show when it actually happened. 200 means it is off
+    as of now.
+
+    The row is stamped, never deleted. "We gave this person a key and took it
+    back" is the fact worth having in six months.
+    """
+    from src import seedkeys
+
+    _enforce_keyed_rate(
+        _seed_admin_gate, _caller_ip_hash(request) or "-", "seeded key changes"
+    )
+    label = (body.label or "").strip()
+    existing = seedkeys.row(label)
+    if existing is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"No seeded key is labelled {label!r}.",
+        )
+    if not seedkeys.revoke(label):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{label!r} was already revoked on "
+                f"{(existing['revoked_at'] or '')[:19]}."
+            ),
+        )
+    log.info("seed_key_revoked_from_panel", label=label)
+    return JSONResponse({"key": seedkeys.row(label)})
+
+
 @app.get("/admin/subscriptions")
 def admin_subscriptions(
     request: Request,

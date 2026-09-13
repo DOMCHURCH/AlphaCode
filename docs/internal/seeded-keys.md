@@ -43,11 +43,19 @@ another — which is also what a paying customer has to do.
 
 ## How to revoke one
 
+From the panel: **Revoke** on the key's row, with a confirmation. Or:
+
 ```
 python scripts/revoke_seed_key.py --label "stefano-sec-edgar-mcp"
 ```
 
-Takes effect on the next request. The row is stamped, never deleted.
+Takes effect on the next request. The row is stamped, never deleted — it stays
+in the list, faded and sorted below the live keys.
+
+`POST /api/admin/seed-keys/revoke` answers 200 when it turned a live key off,
+404 when no key has that label (a typo, and worth knowing it was one rather
+than believing something was switched off), and 409 when it was already
+revoked — with the timestamp of when that actually happened.
 
 ## How to check usage
 
@@ -58,8 +66,12 @@ The `/admin` dashboard lists every seeded key under the customer counts, and
 curl -H "X-Admin-Secret: $ADMIN_SECRET" https://toscale.pro/api/admin/stats
 ```
 
-- Each row shows the display name, the limit, when it was issued, when it was
-  last used and whether it is revoked.
+- Each row shows the display name, the label underneath it in mono (that is
+  the revoke handle, and **Copy label** copies it), the limit, calls this
+  month, when it was issued, when it was last used, and any notes.
+- There is no "copy key" button and there cannot be one: the database holds a
+  digest, and the key was shown once at issue. The button is named for what it
+  does.
 - Active and revoked are counted separately. Neither is added to
   `total_users` or to the revenue estimate — a seeded key is not a signup, and
   a dashboard that says the business is bigger than it is, is worse than none.
