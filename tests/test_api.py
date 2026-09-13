@@ -1713,25 +1713,27 @@ def test_the_admin_payload_lists_them_without_any_key_material(client):
         assert not any("key" in field for field in row), row
 
 
-def test_no_route_can_issue_a_seeded_key(client):
-    """Issuing is an operator at a terminal with the database URL. That is the
-    entire security model for a credential that skips the card, so the absence
-    of an endpoint is a property worth pinning rather than a thing to remember.
-    """
-    import inspect
+def test_only_the_admin_routes_can_issue_a_seeded_key(client):
+    """This used to assert the route did not EXIST.
 
+    It does now, deliberately, and the reversal is written up in
+    `docs/internal/seeded-keys.md`. What has to stay true is the thing the old
+    test was really protecting: nothing reaches the issuing function without
+    the admin secret. So the assertion moved from "there is no door" to "the
+    lock is in front of the door", which is the stronger claim anyway -- the
+    old one would have passed for a route that existed under another name.
+    """
     from src import api
 
-    paths = [r.path for r in api.app.routes if hasattr(r, "path")]
-    assert not [p for p in paths if "seed" in p.lower()], paths
-
-    # And nothing served over HTTP reaches the two functions that mint or kill
-    # one. `accounts` imports this module for the read side only.
-    source = inspect.getsource(api) + inspect.getsource(
-        __import__("src.accounts", fromlist=["x"])
-    )
-    assert "seedkeys.issue" not in source
-    assert "seedkeys.revoke" not in source
+    issuing = [
+        r.path for r in api.app.routes
+        if hasattr(r, "path") and "seed" in r.path.lower()
+    ]
+    assert "/api/admin/seed-keys/issue" in issuing, issuing
+    for path in issuing:
+        assert path.startswith("/api/admin/"), (
+            f"{path} touches seeded keys from outside the admin gate"
+        )
 
 
 def test_a_seeded_key_is_not_a_session(client):
@@ -1851,3 +1853,86 @@ def test_admin_lists_display_name_for_seeded_keys(client):
     assert names["zoharbabin-edgar-analytics"] == "Zohar Babin \u2014 edgar_analytics"
     assert names["no-name-given"] == "no-name-given"
     assert seeded["active"] == 2
+
+
+def test_issue_seed_key_requires_admin_secret(client, monkeypatch):
+    """The guardrail, asserted at the only level that proves it: `issue` is
+    replaced with something that explodes, so a pass means the gate fired
+    BEFORE the function was reached rather than the function having quietly
+    declined."""
+    from src import seedkeys
+
+    def _boom(*a, **k):
+        raise AssertionError("issue() was reached without the admin secret")
+
+    monkeypatch.setattr(seedkeys, "issue", _boom)
+
+    body = {"label": "unauthorised"}
+    assert client.post("/api/admin/seed-keys/issue", json=body).status_code == 403
+    wrong = {"X-Admin-Secret": "not-the-secret"}
+    assert client.post(
+        "/api/admin/seed-keys/issue", json=body, headers=wrong
+    ).status_code == 403
+    # And nothing was written.
+    assert seedkeys.listing()["active"] == 0
+
+
+def test_issue_seed_key_returns_raw_key_once(client):
+    """The key exists in exactly one place: this response. The row that comes
+    back beside it must not carry it, and neither must any later read."""
+    _a_company()
+    r = client.post("/api/admin/seed-keys/issue", headers=ADMIN, json={
+        "label": "panel-issued",
+        "display_name": "Panel Issued — test",
+        "notes": "from the browser",
+    })
+    assert r.status_code == 201, r.text
+    body = r.json()
+    key = body["api_key"]
+    assert key and len(key) >= 40
+    assert "not be shown again" in body["warning"]
+    assert body["key"]["display_name"] == "Panel Issued — test"
+    assert key not in str(body["key"])
+
+    # It is a real key, issued through the same path the CLI uses.
+    assert client.get(
+        "/api/company/JPM", headers={"X-API-Key": key}
+    ).status_code == 200
+
+    # And it is gone from every later read.
+    assert key not in client.get("/api/admin/stats", headers=ADMIN).text
+
+
+def test_issue_seed_key_rejects_duplicate_label(client):
+    first = client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                        json={"label": "taken"})
+    assert first.status_code == 201
+    again = client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                        json={"label": "taken"})
+    assert again.status_code == 409, again.text
+    assert "already exists" in again.json()["detail"]
+    # The failed attempt issued nothing.
+    assert client.get("/api/admin/stats", headers=ADMIN).json(
+    )["seeded_keys"]["active"] == 1
+
+
+def test_issue_seed_key_respects_rate_limit_param(client):
+    _a_company()
+    r = client.post("/api/admin/seed-keys/issue", headers=ADMIN, json={
+        "label": "two-only", "rate_limit": 2,
+    })
+    key = r.json()["api_key"]
+    assert r.json()["key"]["rate_limit"] == 2
+
+    head = {"X-API-Key": key}
+    assert client.get("/api/company/JPM", headers=head).status_code == 200
+    assert client.get("/api/company/JPM", headers=head).status_code == 200
+    over = client.get("/api/company/JPM", headers=head)
+    assert over.status_code == 429
+    assert "2/2" in over.json()["detail"]
+
+    # A limit the model will not accept is a 422 rather than a key with a
+    # nonsense allowance.
+    bad = client.post("/api/admin/seed-keys/issue", headers=ADMIN,
+                      json={"label": "zero", "rate_limit": 0})
+    assert bad.status_code == 422, bad.text

@@ -141,6 +141,91 @@ async function loadCustomers() {
     : '<div class="row"><span class="k">No signups yet</span></div>';
 }
 
+/* ------------------------------------------------------------------ seeded
+   Issuing an outreach key from the panel. The key comes back ONCE, in the
+   response to this POST, because that is the only moment it exists -- the
+   database has a digest and no query anywhere can produce the key again. So
+   the result box is loud, it is selectable, and it does not disappear on the
+   next refresh of the list. */
+
+function seedMsg(text, cls) {
+  const box = $("seedResult");
+  box.hidden = false;
+  box.innerHTML = '<div class="row ' + (cls || "") + '"><span class="k">' +
+    esc(text) + "</span></div>";
+}
+
+function showIssuedKey(key, row) {
+  const box = $("seedResult");
+  box.hidden = false;
+  box.innerHTML =
+    '<div class="row bad"><span class="k">Copy this now. It will not be ' +
+    'shown again.</span></div>' +
+    '<div class="row"><span class="k">' + esc(row.display_name || row.label) +
+    '</span><span class="v">' + esc(String(row.rate_limit)) +
+    ' calls/month</span></div>' +
+    '<div class="logline" id="seedKeyText" style="user-select:all;' +
+    'word-break:break-all;cursor:pointer" title="Click to copy">' +
+    esc(key) + "</div>";
+  const el = $("seedKeyText");
+  el.addEventListener("click", () => {
+    copyText(key).then((ok) => {
+      el.textContent = ok ? "copied — now paste it somewhere safe" : key;
+    });
+  });
+}
+
+async function issueSeedKey() {
+  const label = $("seedLabel").value.trim();
+  if (!label) { seedMsg("A label is required — it is the revoke handle.", "bad"); return; }
+  const btn = $("seedGo");
+  btn.disabled = true;
+  seedMsg("Issuing…");
+  let r, d;
+  try {
+    r = await adminFetch("/api/admin/seed-keys/issue", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        label: label,
+        display_name: $("seedName").value.trim(),
+        rate_limit: Number($("seedLimit").value) || 10000,
+        notes: $("seedNotes").value.trim(),
+      }),
+    });
+    d = await r.json();
+  } catch (e) {
+    btn.disabled = false;
+    seedMsg("Could not reach the server.", "bad");
+    return;
+  }
+  btn.disabled = false;
+  if (!r.ok) {
+    seedMsg(d && d.detail ? d.detail : "Failed (HTTP " + r.status + ").", "bad");
+    return;
+  }
+  showIssuedKey(d.api_key, d.key || { label: label });
+  ["seedLabel", "seedName", "seedNotes"].forEach((id) => { $(id).value = ""; });
+  $("seedLimit").value = "10000";
+  loadCustomers();
+}
+
+function initSeedForm() {
+  const toggle = $("seedToggle"), form = $("seedForm");
+  if (!toggle || !form) return;
+  toggle.addEventListener("click", () => {
+    const open = !form.hidden;
+    form.hidden = open;
+    toggle.setAttribute("aria-expanded", String(!open));
+    toggle.textContent = open ? "+ Issue new seeded key" : "− Close";
+    if (!open) $("seedLabel").focus();
+  });
+  $("seedGo").addEventListener("click", issueSeedKey);
+  form.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); issueSeedKey(); }
+  });
+}
+
 function row(label, value, cls) {
   return '<div class="row' + (cls ? " " + cls : "") + '"><span class="k">' +
     esc(label) + '</span><span class="v">' + esc(String(value)) + "</span></div>";
@@ -1154,20 +1239,28 @@ function buildCopyText(d) {
   return L.join("\n");
 }
 
-async function copyEverything() {
-  if (!LATEST) return;
-  const text = buildCopyText(LATEST);
-  let ok = false;
+/* One clipboard path, with the textarea fallback behind it. `navigator.
+   clipboard` is unavailable on a page served over plain http and in older
+   webviews, which on a phone is the case that matters -- this panel exists to
+   be read on one. */
+async function copyText(text) {
   try {
     await navigator.clipboard.writeText(text);
-    ok = true;
+    return true;
   } catch (e) {
     const ta = document.createElement("textarea");
     ta.value = text; ta.style.position = "fixed"; ta.style.opacity = "0";
     document.body.appendChild(ta); ta.focus(); ta.select();
+    let ok = false;
     try { ok = document.execCommand("copy"); } catch (_) { ok = false; }
     document.body.removeChild(ta);
+    return ok;
   }
+}
+
+async function copyEverything() {
+  if (!LATEST) return;
+  const ok = await copyText(buildCopyText(LATEST));
   const btn = $("copyBtn"), msg = $("copyMsg");
   btn.classList.toggle("done", ok);
   btn.textContent = ok ? "✓ Copied" : "📋 Copy everything";
@@ -1311,6 +1404,7 @@ function init() {
 }
 
 function boot() {
+  initSeedForm();
   $("copyBtn").addEventListener("click", copyEverything);
   $("refreshBtn").addEventListener("click", load);
   $("reconcileBtn").addEventListener("click", runReconcile);

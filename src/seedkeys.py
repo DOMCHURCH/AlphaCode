@@ -12,11 +12,15 @@ A key that looked different would tell its holder they were being treated
 differently, and would need its own verification path -- which is the sort of
 second code path that ends up being the one with the bug in it.
 
-There is no HTTP endpoint here and there must not be one. Issuing is a
-deliberate act by an operator at a terminal, which is the whole security model
-for a credential that bypasses payment: the two `scripts/` wrappers are the
-only callers of `issue` and `revoke`, and nothing under `src/api.py` imports
-them.
+Issuing happens two ways and they are the same function. The two `scripts/`
+wrappers are one; `POST /api/admin/seed-keys/issue` is the other, added later
+and deliberately. That endpoint was refused at first, and the argument for
+refusing it was sound while it held: an operator at a terminal with the
+database URL is a high bar for a credential that skips payment, and an HTTP
+route is a lower one. What changed is the other side of the comparison --
+`require_admin` now carries a second factor, so reaching the route costs a
+leaked secret AND a device, which is a harder bar than shell access to the
+box rather than a softer one. Nothing else may call `issue` or `revoke`.
 
 Metering lives on the row rather than in `usage_logs`, because that table's
 `user_id` is a foreign key into `api_users` and these keys are decoupled from
@@ -149,6 +153,20 @@ def find(api_key_hash: str) -> dict | None:
         }
 
 
+def row(label: str) -> dict | None:
+    """One key as the panel shows it, by label. None if there is no such key.
+
+    Revoked rows ARE returned -- unlike `find`, which is the authentication
+    path and must not see them. This is the reporting path, and "it is
+    revoked" is the answer it exists to give.
+    """
+    with session_scope() as session:
+        found = session.execute(
+            select(SeededKey).where(SeededKey.label == (label or "").strip())
+        ).scalar_one_or_none()
+        return _as_dict(found) if found is not None else None
+
+
 def usage(seed_id: str) -> tuple[int, dt.datetime | None]:
     """(calls counted this month, last used) for one seeded key.
 
@@ -202,6 +220,10 @@ def listing(limit: int = 50) -> dict:
         rows = session.execute(
             select(SeededKey).order_by(SeededKey.issued_at.desc()).limit(limit)
         ).scalars().all()
+        # Live keys first, then revoked, newest first within each. Sorted here
+        # rather than in the panel: a second reader of this payload should not
+        # have to rediscover that a revoked key belongs at the bottom.
+        rows = sorted(rows, key=lambda r: (r.revoked_at is not None,), reverse=False)
         active = int(session.execute(
             select(func.count()).select_from(SeededKey)
             .where(SeededKey.revoked_at.is_(None))
@@ -213,19 +235,34 @@ def listing(limit: int = 50) -> dict:
         return {
             "active": active,
             "revoked": revoked,
-            "keys": [{
-                "label": r.label,
-                # Never blank: the label is the fallback, because a list of
-                # empty cells is worse than a list of handles.
-                "display_name": r.display_name or r.label,
-                "source": r.source,
-                "rate_limit": int(r.rate_limit_override),
-                "issued_at": _iso(r.issued_at),
-                "last_used_at": _iso(r.last_used_at),
-                "revoked_at": _iso(r.revoked_at),
-                "notes": r.notes or "",
-            } for r in rows],
+            "keys": [_as_dict(r) for r in rows],
         }
+
+
+def _as_dict(r: SeededKey) -> dict:
+    """One key, as every reporting caller sees it. One shape, one place."""
+    return {
+        "label": r.label,
+        # Never blank: the label is the fallback, because a list of empty
+        # cells is worse than a list of handles.
+        "display_name": r.display_name or r.label,
+        "source": r.source,
+        "rate_limit": int(r.rate_limit_override),
+        # Recomputed against the current month rather than read straight off
+        # the row. The counter is only meaningful for the month it counts, and
+        # a stale one shown as "calls this month" is a wrong number with a
+        # confident label on it.
+        "calls_this_month": (
+            int(r.calls_this_month or 0)
+            if r.usage_month == current_month() else 0
+        ),
+        "usage_month": current_month(),
+        "issued_at": _iso(r.issued_at),
+        "last_used_at": _iso(r.last_used_at),
+        "revoked_at": _iso(r.revoked_at),
+        "revoked": r.revoked_at is not None,
+        "notes": r.notes or "",
+    }
 
 
 def _iso(when: dt.datetime | None) -> str | None:

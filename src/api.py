@@ -359,6 +359,64 @@ _login_gate = _RateGate(lambda: get_settings().login_rate_per_hour)
 _status_gate = _RateGate(lambda: get_settings().status_rate_per_min, window_s=60.0)
 
 
+class _KeyedRateGate:
+    """A sliding window PER CALLER, rather than one budget for everybody.
+
+    `_RateGate` is global on purpose: for open endpoints the thing worth
+    bounding is total abuse, and a per-IP window is trivially defeated by
+    having more IPs. The admin routes are the opposite case. There is one
+    legitimate caller, every request already carries a secret, and a global
+    window would let a wrong guess from anywhere lock the operator out of
+    their own panel -- so here the budget belongs to the source.
+
+    Entries are dropped as they expire, so the dict cannot grow without bound
+    on a service nobody is attacking; one that is attacked pays a few hundred
+    bytes per address until the window closes.
+    """
+
+    def __init__(self, limit: int, *, window_s: float = 60.0) -> None:
+        self._limit = limit
+        self._window_s = window_s
+        self._hits: dict[str, deque[float]] = {}
+
+    def check(self, key: str) -> float | None:
+        """None if allowed (and records the hit); else seconds until retry."""
+        if self._limit <= 0:
+            return None
+        now = time.monotonic()
+        cutoff = now - self._window_s
+        for held, hits in list(self._hits.items()):
+            while hits and hits[0] < cutoff:
+                hits.popleft()
+            if not hits:
+                del self._hits[held]
+        hits = self._hits.setdefault(key or "-", deque())
+        if len(hits) >= self._limit:
+            return max(1.0, self._window_s - (now - hits[0]))
+        hits.append(now)
+        return None
+
+    def reset(self) -> None:
+        self._hits.clear()
+
+
+# Ten a minute is far above an operator filling in a form and immediately
+# below anything automated. Issuing and revoking share a budget deliberately:
+# they are the same privilege, and a caller alternating between them to get
+# twenty is not a caller to accommodate.
+_seed_admin_gate = _KeyedRateGate(10, window_s=60.0)
+
+
+def _enforce_keyed_rate(gate: _KeyedRateGate, key: str, what: str) -> None:
+    retry = gate.check(key)
+    if retry is not None:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Rate limit reached for {what}. Try again in {int(retry)}s.",
+            headers={"Retry-After": str(int(retry))},
+        )
+
+
 def _enforce_rate(gate: _RateGate, what: str) -> None:
     retry = gate.check()
     if retry is not None:
@@ -2379,6 +2437,67 @@ def api_admin_stats(recent: int = Query(10, ge=1, le=50)) -> JSONResponse:
     from src import accounts
 
     return JSONResponse(accounts.customer_stats(recent=recent))
+
+
+class SeedKeyIssueRequest(BaseModel):
+    label: str
+    display_name: str = ""
+    rate_limit: int = Field(default=10_000, ge=1, le=10_000_000)
+    notes: str = ""
+
+
+@app.post("/api/admin/seed-keys/issue", dependencies=[Depends(require_admin)])
+def api_admin_issue_seed_key(
+    body: SeedKeyIssueRequest, request: Request
+) -> JSONResponse:
+    """Issue one outreach key from the panel instead of from a terminal.
+
+    This endpoint is a reversal, and worth naming as one. Seeded keys were
+    built CLI-only, and the argument for that was good: an operator at a
+    terminal with the database URL is a high bar for a credential that skips
+    payment, and an endpoint is a lower one. What changed is the bar on the
+    other side. `require_admin` now carries a second factor when
+    ADMIN_TOTP_SECRET is set, so reaching this route costs a leaked secret AND
+    a device -- which is a harder bar than shell access to the machine, not a
+    softer one.
+
+    The same `seedkeys.issue` the two scripts call. There is no second
+    issuing path, and the key is returned exactly once, here, because that is
+    the only moment it exists.
+    """
+    from src import seedkeys
+
+    _enforce_keyed_rate(
+        _seed_admin_gate, _caller_ip_hash(request) or "-", "seeded key changes"
+    )
+    try:
+        key = seedkeys.issue(
+            body.label,
+            rate_limit=body.rate_limit,
+            notes=body.notes,
+            display_name=body.display_name,
+        )
+    except seedkeys.LabelTaken:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"A seeded key labelled {body.label!r} already exists. Labels "
+                "are unique because revoking is by label."
+            ),
+        ) from None
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    row = seedkeys.row(body.label) or {}
+    log.info("seed_key_issued_from_panel", label=body.label)
+    return JSONResponse({
+        "api_key": key,
+        "shown_once": True,
+        "warning": (
+            "Copy this now. It is stored as a hash and cannot be shown again."
+        ),
+        "key": row,
+    }, status_code=201)
 
 
 @app.get("/admin/subscriptions")

@@ -99,6 +99,24 @@
       service stores no amount and no charge id, so the figure is live
       subscribers × list price and Stripe remains the system of record.</p>
     <div id="customers" class="rows"><div class="loading">loading…</div></div>
+
+    <!-- Seeded keys: outreach credentials, issued by hand. Folded away by
+         default so the customer counts above stay the thing this card is
+         about; the list itself is rendered into #customers by admin.js. -->
+    <button type="button" id="seedToggle" class="mini" aria-expanded="false"
+      aria-controls="seedForm">+ Issue new seeded key</button>
+    <div id="seedForm" class="rawform" hidden>
+      <input id="seedLabel" type="text" placeholder="label (handle)"
+        aria-label="label" maxlength="120" autocomplete="off">
+      <input id="seedName" type="text" placeholder="Display name — Project"
+        aria-label="display name" maxlength="200" autocomplete="off">
+      <input id="seedLimit" type="number" value="10000" min="1" step="1000"
+        aria-label="calls per month">
+      <input id="seedNotes" type="text" placeholder="notes (optional)"
+        aria-label="notes" maxlength="500" autocomplete="off">
+      <button type="button" id="seedGo" class="act">Issue key</button>
+    </div>
+    <div id="seedResult" class="rows" hidden></div>
     <div class="card-head sub"><h3>Recent signups</h3></div>
     <div id="signups" class="rows"><div class="loading">loading…</div></div>
   </section>

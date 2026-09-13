@@ -34,9 +34,11 @@ REVIEW THESE PERIODICALLY
     credential is all cost and no benefit. So should one whose recipient has
     gone quiet. Revoking is `scripts/revoke_seed_key.py --label <label>`.
 
-    There is deliberately NO HTTP endpoint that issues these. Issuing is an
-    operator at a terminal with the database URL, which is the entire security
-    model for a credential that skips the card.
+    The admin panel issues and revokes these too, through the same functions
+    this script calls -- `POST /api/admin/seed-keys/issue`, behind the admin
+    secret and, when one is configured, a TOTP code. This script remains the
+    way to do it without a browser, and the way to do it when the panel is
+    unreachable.
 
 USAGE
     python3 scripts/issue_seed_key.py --label "stefano-sec-edgar-mcp" \

@@ -18,6 +18,14 @@ key into `api_users` and there is nothing over there to point at.
 
 ## How to issue one
 
+From the admin panel: **+ Issue new seeded key** under the Customers card.
+Fill in the label, the display name, the limit and any notes, and the key is
+shown once in a copyable box. That form posts to
+`POST /api/admin/seed-keys/issue`, behind the admin secret and — once one is
+configured — a TOTP code.
+
+Or from a terminal, which is the way to do it when the panel is unreachable:
+
 ```
 python scripts/issue_seed_key.py \
     --label "stefano-sec-edgar-mcp" \
@@ -61,9 +69,8 @@ curl -H "X-Admin-Secret: $ADMIN_SECRET" https://toscale.pro/api/admin/stats
 
 ## Rules of engagement
 
-- Issue from the CLI only, never from a route. An operator at a terminal with
-  the database URL **is** the security model for a credential that skips
-  payment.
+- Issue from the panel or the CLI. Both call one function and both are behind
+  the admin secret; the panel is additionally behind TOTP when one is set.
 - One key per recipient. The label is their handle, it is unique, and it is
   what revocation takes — so it must not be edited after the fact.
 - `--display-name` should read at a glance: `"Name — Project"`. It is prose and
@@ -80,10 +87,14 @@ curl -H "X-Admin-Secret: $ADMIN_SECRET" https://toscale.pro/api/admin/stats
 
 ## What not to do
 
-- **Do not add an HTTP endpoint that issues these.** The absence of one is a
-  property `tests/test_api.py::test_no_route_can_issue_a_seeded_key` pins: no
-  route path contains "seed", and nothing served over HTTP reaches
-  `seedkeys.issue` or `seedkeys.revoke`.
+- **Do not add a route outside `/api/admin/` that touches these.** This rule
+  used to read "do not add an HTTP endpoint that issues these", and the panel
+  form is that endpoint — added on purpose, once `require_admin` carried a
+  second factor, which makes reaching it cost a leaked secret *and* a device.
+  `test_only_the_admin_routes_can_issue_a_seeded_key` pins what survived: every
+  route whose path mentions seeded keys sits under the admin gate, and
+  `test_issue_seed_key_requires_admin_secret` proves the gate fires before
+  `issue` is reached rather than after.
 - **Do not change the format of keys issued to real users.** The two share one
   generator on purpose.
 - **Do not expose seeded keys via `/api/auth/me`.** That route is cookie-session

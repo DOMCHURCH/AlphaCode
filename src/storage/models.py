@@ -896,6 +896,9 @@ class SeededKey(Base):
     # the handle for revoking: `revoke_seed_key.py --label x` has to name one
     # key, and two keys sharing a label makes that command a coin toss.
     label: Mapped[str] = mapped_column(String(120), nullable=False, unique=True)
+    # Issued from `scripts/issue_seed_key.py` or from the admin panel, which
+    # call the same function. Both are behind the admin secret; the panel is
+    # additionally behind TOTP when one is configured.
     # How the operator wants to READ that label: "Stefano Amorelli —
     # sec-edgar-mcp" against a label of "stefano-sec-edgar-mcp". The label
     # stays the handle -- unique, typed at a terminal, the thing revocation
