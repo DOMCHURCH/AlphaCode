@@ -1056,6 +1056,6 @@ def test_the_company_page_and_search_clean_a_ticker_the_same_way(client):
 def test_the_service_is_branded_to_scale(client):
     _seed("JPM", _drawable(), sector="Financials")
 
-    assert "To&nbsp;Scale" in client.get("/").text
-    assert "To&nbsp;Scale" in client.get("/company/JPM").text
+    assert "BalanceProof" in client.get("/").text
+    assert "BalanceProof" in client.get("/company/JPM").text
     assert client.get("/api.json").json()["service"] == "BalanceProof"

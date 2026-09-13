@@ -1113,7 +1113,7 @@ def render_matches(
 <nav><div class="wrap nav">
   <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
   <span class="spacer"></span>
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
 </div></nav>
 <main class="wrap" id="main">
   <div class="empty">
@@ -1158,7 +1158,7 @@ def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
 <nav><div class="wrap nav">
   <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
   <span class="spacer"></span>
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
 </div></nav>
 <main class="wrap" id="main">
   <div class="empty">
@@ -1184,7 +1184,7 @@ def render_search_empty(suggestions: list[Suggestion]) -> str:
     )
     body = f"""
 <nav><div class="wrap nav">
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
 </div></nav>
 <main class="wrap" id="main">
   <div class="empty">

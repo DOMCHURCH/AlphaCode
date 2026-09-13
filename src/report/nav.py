@@ -104,7 +104,7 @@ def render_nav(
     home_on = " on" if active == "home" else ""
     return f"""
 <nav><div class="wrap nav">
-  <a class="brand{home_on}" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <a class="brand{home_on}" href="/"><span class="dot"></span>BalanceProof</a>
   <span class="spacer"></span>
   <!-- Revealed by nav.js. Rendered hidden so that with no script there is no
        button and the links below stay visible, rather than a collapsed menu

@@ -677,7 +677,7 @@ def render_company_page(
        one you have to guess at. -->
   <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
   <span class="spacer"></span>
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
 </div></nav>
 
 
@@ -813,7 +813,7 @@ def render_not_found(ticker: str, reason: str) -> str:
        one you have to guess at. -->
   <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
   <span class="spacer"></span>
-  <a class="brand" href="/"><span class="dot"></span>To&nbsp;Scale</a>
+  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
 </div></nav>
 
 <main class="wrap" id="main">
