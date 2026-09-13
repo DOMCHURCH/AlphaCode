@@ -345,7 +345,12 @@ def _demo_section() -> str:
     allowance = (
         f"{limit} {plural(limit, 'company', 'companies')} a day from one address."
         if limit
-        else "As many companies as you like — there is no limit on looking."
+        # No DAILY ration, but this endpoint is the paid API and there is an
+        # hourly per-address window in front of it, so "no limit" is not a
+        # sentence this page can honestly print. No number quoted: the gate
+        # lives in `api._demo_ip_gate` and a figure repeated here would be one
+        # more thing to keep in step with it.
+        else "Generous — plenty to evaluate with. A free key gives you more."
     )
     return f"""
   <section class="sec" id="demo">

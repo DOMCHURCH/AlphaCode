@@ -558,6 +558,16 @@ class _KeyedRateGate:
         self._window_s = window_s
         self._hits: dict[str, deque[float]] = {}
 
+    @property
+    def limit(self) -> int:
+        """Readable so a page can quote the real figure rather than repeat it.
+
+        The API reference has to tell a developer the actual number, and a
+        second copy of it in a template is a thing that goes stale the first
+        time this one changes.
+        """
+        return self._limit
+
     def check(self, key: str) -> float | None:
         """None if allowed (and records the hit); else seconds until retry."""
         if self._limit <= 0:
@@ -3859,6 +3869,7 @@ def api_page(request: Request) -> HTMLResponse:
                 free_calls=s.free_tier_monthly_calls,
                 pro_calls=s.pro_tier_monthly_calls,
                 dataset_price=price_label(s.dataset_price_usd),
+                demo_calls_per_hour=_demo_ip_gate.limit,
             )
         )
     )
@@ -3903,7 +3914,7 @@ _KEYED_ENDPOINTS: tuple[str, ...] = (
     "GET  /api/auth/me  (session)",
     "GET  /admin/subscriptions  (admin secret)",
     "GET /api/company/{ticker}",
-    "GET /api/demo/{ticker}  (no key, 5/day per address)",
+    "GET /api/demo/{ticker}  (no key, metered per address)",
     "GET /api/user/status",
     "GET /api/download-dataset",
 )

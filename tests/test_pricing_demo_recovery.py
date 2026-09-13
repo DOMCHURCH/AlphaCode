@@ -128,10 +128,12 @@ def test_the_demo_blurb_quotes_the_real_daily_limit(client):
     assert "Five companies a day" not in html
 
 
-def test_an_uncapped_demo_says_so_rather_than_quoting_a_zero(client, monkeypatch):
-    """0 means NO CAP, which is the shipped default -- looking companies up is
-    the marketing surface and rationing it only stopped prospects halfway
-    through convincing themselves. It must not render as "0 companies a day".
+def test_no_daily_cap_reads_as_generous_not_as_a_zero(client, monkeypatch):
+    """0 means the DAILY counter is off, which is still the shipped default.
+
+    It must not render as "0 companies a day". It must also not render as "no
+    limit" any more: there is an hourly per-address window in front of the
+    demo now, so the page says generous instead of unlimited.
     """
     monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "0")
     from src.config.settings import get_settings
@@ -139,13 +141,17 @@ def test_an_uncapped_demo_says_so_rather_than_quoting_a_zero(client, monkeypatch
     get_settings.cache_clear()
     html = client.get("/").text
 
-    assert "no limit on looking" in html
+    assert "plenty to evaluate with" in html
     assert "0 companies a day" not in html
+    # The claim that is no longer true anywhere on the page.
+    assert "no limit on looking" not in html
+    assert "uncapped" not in html.lower()
 
 
-def test_an_uncapped_demo_actually_serves_more_than_a_handful(client, monkeypatch):
+def test_the_demo_serves_more_than_a_handful(client, monkeypatch):
     """The copy and the endpoint must agree. Ten straight lookups from one
-    address, where the old default refused after five."""
+    address, where the old daily default refused after five -- and comfortably
+    inside the hourly per-address window, which is a hundred."""
     monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "0")
     from src.config.settings import get_settings
 
@@ -158,8 +164,12 @@ def test_an_uncapped_demo_actually_serves_more_than_a_handful(client, monkeypatc
 
 
 def test_the_demo_still_stops_a_loop(client, monkeypatch):
-    """No per-person cap does not mean no cap. The global window is what keeps
-    an uncapped demo from being a free proxy to somebody's script."""
+    """The global window is the backstop behind the per-address one.
+
+    Exercised here on its own -- DEMO_RATE_PER_HOUR of 3 with the per-address
+    gate untouched -- so a regression that removed the global ceiling would
+    still be caught even though the per-address gate would also stop a loop.
+    """
     monkeypatch.setenv("DEMO_CALLS_PER_IP_PER_DAY", "0")
     monkeypatch.setenv("DEMO_RATE_PER_HOUR", "3")
     from src.api import _demo_gate

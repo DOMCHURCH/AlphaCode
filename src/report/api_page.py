@@ -57,6 +57,7 @@ def render_api(
     free_calls: int = 10,
     pro_calls: int = 10000,
     dataset_price: str = "$79.99",
+    demo_calls_per_hour: int = 100,
 ) -> str:
     """The reference. `base_url` is the deployment's own origin so the curl
     examples work from the machine reading them, not from a machine that
@@ -109,9 +110,11 @@ def render_api(
      "The balance sheet as filed: every line item, its period end, and the "
      "filing it came from. The same numbers the drawing on "
      "<code>/company/{ticker}</code> is built from.")}
-{_ep("GET", "/api/demo/{ticker}", "No key · no per-person limit",
-     "The same response, ungated, so you can see the shape before deciding "
-     "whether to register.")}
+{_ep("GET", "/api/demo/{ticker}",
+     f"No key · {demo_calls_per_hour}/hour per address",
+     "The same response, so you can see the shape before deciding whether to "
+     "register. Metered per address rather than per key, because it is the "
+     "keyed endpoint underneath.")}
 {_ep("GET", "/api/user/status", "X-API-Key required · free",
      "Your tier, the calls you have spent this calendar month, and what is "
      "left. Checking never costs a call.")}
@@ -162,7 +165,7 @@ def render_api(
           <tr><td>200</td><td>Here it is.</td></tr>
           <tr><td>401</td><td>No key, or a key that is not ours.</td></tr>
           <tr><td>404</td><td>Nothing filed for that ticker.</td></tr>
-          <tr><td>429</td><td>Month spent, or the demo's daily cap.</td></tr>
+          <tr><td>429</td><td>Month spent, or the demo's hourly cap.</td></tr>
         </tbody>
       </table>
     </div>
