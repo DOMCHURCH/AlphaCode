@@ -2687,52 +2687,6 @@ def api_admin_cache_clear() -> JSONResponse:
     return JSONResponse({"ok": all(cleared.values()), "cleared": cleared})
 
 
-@app.get("/admin/debug-client-ip", dependencies=[Depends(require_admin)])
-def admin_debug_client_ip(request: Request) -> JSONResponse:
-    """Temporary diagnostic. Remove after the client_ip investigation is complete.
-
-    The question it answers: does an address that VARIES per caller reach this
-    app at all? Hit it from two different networks -- a laptop, then a phone on
-    cellular -- and compare `analytics_client_ip`. Two values means the plumbing
-    works and any per-caller limit can be built on it; one value means it does
-    not, and no amount of code changes the answer.
-
-    Admin-gated, because a public header dump documents exactly which headers
-    this deployment trusts, which is the recipe for forging one. The four
-    credential headers are redacted even for the operator: this output is going
-    to be pasted into a terminal or a screenshot.
-    """
-    from src import analytics
-
-    redact = {"cookie", "x-api-key", "authorization", "x-admin-secret"}
-    fallback = request.client.host if request.client else "unknown"
-
-    return JSONResponse({
-        # What uvicorn believes. No --proxy-headers in the start command, so on
-        # Railway this is expected to be the edge proxy and identical for every
-        # visitor. That part is not a bug; it is what a proxy does.
-        "request_client_host": request.client.host if request.client else None,
-        # The header `client_ip` reads first, leftmost entry.
-        "x_forwarded_for": request.headers.get("X-Forwarded-For"),
-        # What it falls back to.
-        "x_real_ip": request.headers.get("X-Real-IP"),
-        # RFC 7239. Some platforms send this instead of the X- headers.
-        "forwarded": request.headers.get("Forwarded"),
-        # Only present with Cloudflare in front. Expected absent here.
-        "cf_connecting_ip": request.headers.get("CF-Connecting-IP"),
-        # Railway's edge is Envoy, so this is the likeliest real answer.
-        "x_envoy_external_address": request.headers.get("X-Envoy-External-Address"),
-        # No evidence this name exists; included because it was asked for.
-        "x_railway_forwarded_for": request.headers.get("X-Railway-Forwarded-For"),
-        # The exact call every rate limit and the visitor counter make.
-        "analytics_client_ip": analytics.client_ip(request.headers, fallback),
-        "all_headers": {
-            k.lower(): ("[REDACTED]" if k.lower() in redact else v)
-            for k, v in request.headers.items()
-        },
-    })
-
-
 @app.get("/api/admin/stats", dependencies=[Depends(require_admin)])
 def api_admin_stats(recent: int = Query(10, ge=1, le=50)) -> JSONResponse:
     """Customers and rough revenue, for the admin panel.
