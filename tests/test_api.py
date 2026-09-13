@@ -52,6 +52,11 @@ def client(api_db):
     # test spent, which fails as a KeyError on a response body nobody looked
     # at.
     api._seed_admin_gate.reset()
+    # Same reason, and the demo one bites harder: its window is an hour, so a
+    # test that spends the budget would 429 every later test's first demo call
+    # rather than only the ones in the same minute.
+    api._demo_ip_gate.reset()
+    api._demo_gate.reset()
     # The reload/dump state is deliberately process-global (one service, one
     # job at a time), so it survives between tests unless reset here.
     backfill._RELOAD_STATE.update(
@@ -2285,3 +2290,86 @@ def test_a_revoked_key_is_still_refused_not_merely_explained(client):
     seedkeys.revoke("audit-revoked-still-refused")
     for path in ("/api/user/status", "/api/company/JPM"):
         assert client.get(path, headers={"X-API-Key": key}).status_code == 401, path
+
+
+# ---------------------------------------------------------------------------
+# The demo is metered per caller, not only globally
+# ---------------------------------------------------------------------------
+
+@pytest.fixture
+def demo_client(client, monkeypatch):
+    """`client`, with the demo configured and a small per-IP window.
+
+    The real window is 100/hour. Swapping in a 3-call gate keeps the test about
+    the BEHAVIOUR at the boundary instead of about issuing a hundred requests,
+    and it is the same class the production gate is -- the limit is the only
+    thing that changes.
+    """
+    from src import api
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("DEMO_API_KEY", "demo-key-for-tests-do-not-use")
+    get_settings.cache_clear()
+    monkeypatch.setattr(api, "_demo_ip_gate", api._KeyedRateGate(3, window_s=3600.0))
+    yield client
+    get_settings.cache_clear()
+
+
+def _demo(c, ip="203.0.113.7"):
+    return c.get("/api/demo/NOSUCHTICKER", headers={"X-Forwarded-For": ip})
+
+
+def test_demo_endpoint_limits_per_ip(demo_client):
+    """One caller's budget is its own: exhausting it leaves others untouched.
+
+    A global-only window meant the opposite -- one loop spent the budget
+    everybody shared, so the home page's demo broke for every visitor at once.
+    """
+    for i in range(3):
+        assert _demo(demo_client).status_code != 429, f"call {i + 1} of 3"
+    assert _demo(demo_client).status_code == 429
+
+    # A different address still has its whole window.
+    assert _demo(demo_client, ip="198.51.100.22").status_code != 429
+
+
+def test_demo_endpoint_429_after_limit(demo_client):
+    """The 429 says what to do instead of how long to wait."""
+    for _ in range(3):
+        _demo(demo_client)
+    r = _demo(demo_client)
+    assert r.status_code == 429
+    assert r.json()["detail"] == (
+        "Demo rate limit reached. Sign up for a free API key at /dashboard "
+        "for 10 calls a month, or Pro at /pricing for 10,000."
+    )
+    # Still machine-actionable as well as readable.
+    assert r.headers["Retry-After"]
+
+
+def test_authenticated_calls_unaffected_by_demo_limit(demo_client):
+    """A key buys its own allowance. The demo's window must not touch it.
+
+    Same source address throughout: the point is that holding a key is what
+    separates the two paths, not coming from somewhere else.
+    """
+    ip = "203.0.113.7"
+    for _ in range(4):
+        _demo(demo_client, ip=ip)
+    assert _demo(demo_client, ip=ip).status_code == 429, "demo is exhausted"
+
+    key = demo_client.post(
+        "/api/auth/register",
+        json={"email": "demolimit@example.com", "accept_terms": True},
+    ).json()["api_key"]
+    r = demo_client.get(
+        "/api/user/status",
+        headers={"X-API-Key": key, "X-Forwarded-For": ip},
+    )
+    assert r.status_code == 200, r.text
+    # And a keyed company lookup is not 429 either -- whatever else it answers,
+    # it is not the demo's counter refusing it.
+    assert demo_client.get(
+        "/api/company/NOSUCHTICKER",
+        headers={"X-API-Key": key, "X-Forwarded-For": ip},
+    ).status_code != 429

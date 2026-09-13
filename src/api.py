@@ -520,10 +520,10 @@ _magic_link_gate = _RateGate(lambda: get_settings().magic_link_rate_per_hour)
 # on -- Stripe retries, but a limit hit during a burst is a queue of unfulfilled
 # payments waiting on a counter.
 _checkout_gate = _RateGate(lambda: get_settings().checkout_rate_per_hour)
-# The demo has no per-address cap any more -- looking companies up is the
-# marketing surface and rationing it only stopped prospects. This is what
-# replaces it: one GLOBAL window, sized so a person never meets it and a loop
-# meets it immediately.
+# The demo's GLOBAL window: total abuse, sized so a room full of people
+# reading the site never touches it. It is no longer the only thing in front of
+# the demo -- `_demo_ip_gate` below is checked first and per caller, so one
+# scraper can no longer spend this budget and 429 every other visitor with it.
 _demo_gate = _RateGate(lambda: get_settings().demo_rate_per_hour)
 # Password login was the ONLY open POST with no global window in front of it,
 # and every call spends a full bcrypt -- ~0.17s of CPU at 12 rounds. The
@@ -585,13 +585,37 @@ class _KeyedRateGate:
 # twenty is not a caller to accommodate.
 _seed_admin_gate = _KeyedRateGate(10, window_s=60.0)
 
+# The demo, per source address. `_demo_gate` above is the GLOBAL ceiling and
+# stays; this is what stops one caller spending it. The products are a monthly
+# allowance and a CSV, and the demo returns the same payload the keyed route
+# does -- so with no per-caller window the paid API was obtainable for free by
+# anybody willing to loop, at a rate the global gate alone put at roughly three
+# times the Pro monthly allowance PER DAY.
+#
+# A hundred an hour is far above reading the site (the home page spends one per
+# search) and far below enumerating six thousand companies. It is not a
+# security boundary: X-Forwarded-For is client-settable, so a caller who
+# rotates it gets a fresh budget each time. It raises the cost of scraping and
+# leaves the global window as the backstop, which is the honest description.
+_demo_ip_gate = _KeyedRateGate(100, window_s=3600.0)
 
-def _enforce_keyed_rate(gate: _KeyedRateGate, key: str, what: str) -> None:
+
+def _enforce_keyed_rate(
+    gate: _KeyedRateGate, key: str, what: str, *, detail: str | None = None
+) -> None:
+    """429 if this caller has spent its window. `detail` overrides the wording.
+
+    The default sentence carries the retry delay, which is the useful thing on
+    an operator endpoint. A public one wants to say what to do instead of
+    waiting, so the demo passes its own -- the `Retry-After` header is sent
+    either way, because that is the part a client can act on automatically.
+    """
     retry = gate.check(key)
     if retry is not None:
         raise HTTPException(
             status_code=429,
-            detail=f"Rate limit reached for {what}. Try again in {int(retry)}s.",
+            detail=detail
+            or f"Rate limit reached for {what}. Try again in {int(retry)}s.",
             headers={"Retry-After": str(int(retry))},
         )
 
@@ -2828,16 +2852,24 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
 
 @app.get("/api/demo/{ticker}")
 def api_demo(ticker: str, request: Request) -> JSONResponse:
-    """The home page's live demo: one company, no key required, five a day.
+    """The home page's live demo: one company, no key required, 100 an hour.
 
     Same data and same code path as `/api/company/{ticker}` -- it would be a
     poor demo of an API that returned something the API does not. What differs
     is only how the caller is identified: the demo account's key is attached
     here, server-side, and is never sent to the browser.
 
-    Counted per salted address digest per UTC day. Demo calls are recorded in
-    `demo_usage` and NOT in `usage_logs`, so anonymous traffic never appears in
-    a paying customer's usage figures -- including the demo account's own.
+    That sameness is why the hourly per-address window exists: the endpoint IS
+    the paid product, so with nothing per-caller in front of it the product was
+    free to anybody willing to loop. Three windows now, cheapest first:
+
+        per address, 100/hour   in memory, stops the loop
+        global, 1200/hour       the backstop, and the total-abuse ceiling
+        per address, per day    DB-backed, defaults to OFF, unchanged
+
+    Demo calls are recorded in `demo_usage` and NOT in `usage_logs`, so
+    anonymous traffic never appears in a paying customer's usage figures --
+    including the demo account's own.
     """
     from dataclasses import asdict
 
@@ -2854,11 +2886,22 @@ def api_demo(ticker: str, request: Request) -> JSONResponse:
             detail="The demo is not configured on this deployment.",
         )
 
-    # Global first, per-address second. The global window is the abuse guard
-    # and is normally the only one in play; the per-address cap defaults to
-    # OFF and exists for a deployment that wants to put one back.
-    _enforce_rate(_demo_gate, "demo lookups")
+    # PER ADDRESS FIRST, then global. The order is the point: both gates
+    # record the hit when they allow it, so whichever runs first is the one a
+    # scraper spends. Per-address first means a caller past its own hundred is
+    # turned away without touching the shared budget -- so one loop can no
+    # longer 429 the home page for everybody, which is what global-first did.
     ip_hash = _caller_ip_hash(request)
+    _enforce_keyed_rate(
+        _demo_ip_gate,
+        ip_hash or "-",
+        "demo lookups",
+        detail=(
+            "Demo rate limit reached. Sign up for a free API key at "
+            "/dashboard for 10 calls a month, or Pro at /pricing for 10,000."
+        ),
+    )
+    _enforce_rate(_demo_gate, "demo lookups")
     limit = get_settings().demo_calls_per_ip_per_day
     used = demo.calls_today(ip_hash) if limit else 0
     if limit and used >= limit:

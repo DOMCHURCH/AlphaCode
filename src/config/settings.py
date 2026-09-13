@@ -357,26 +357,26 @@ class Settings(BaseSettings):
     # and is never sent to the browser (see src/demo.py); unset simply disables
     # the demo rather than breaking the page.
     demo_api_key: str = Field(default="", alias="DEMO_API_KEY")
-    # 0 means NO PER-PERSON CAP, and that is the default on purpose.
+    # 0 means this DAILY counter is off, and that is still the default.
     #
-    # Looking companies up is the marketing surface, not the product. The
-    # people this site sells to -- somebody wiring a dashboard, screening a
-    # sector, backtesting on as-reported figures -- are not the people a
-    # five-a-day counter protects anything from, and the only thing it reliably
-    # did was stop a prospect halfway through convincing themselves. The
-    # products are the API's monthly allowance and the CSV; neither is what a
-    # visitor spends by reading.
+    # Looking companies up is the marketing surface, not the product, and a
+    # five-a-day quota mostly stopped prospects halfway through convincing
+    # themselves -- so the daily version stays off and stays available for a
+    # deployment that wants it back.
     #
-    # Abuse is bounded by `demo_rate_per_hour` below instead, which is a GLOBAL
-    # burst gate rather than a per-person quota: a script is stopped, a person
-    # never notices it exists.
+    # What replaced it is NOT this field: `api._demo_ip_gate` is an hourly
+    # per-address window (100/hour, in memory) checked before the global gate.
+    # The distinction is the whole reason the daily counter is still zero: a
+    # DAILY quota is a ration a reader can exhaust and then be locked out of
+    # for hours, while an HOURLY window of a hundred is invisible to anyone
+    # reading the site and immediate for a loop.
     demo_calls_per_ip_per_day: int = Field(
         default=0, ge=0, alias="DEMO_CALLS_PER_IP_PER_DAY"
     )
     # The demo proxies a real keyed call, so it costs this deployment something
-    # per hit. With no per-address cap in front of it, this window is what
-    # stands between the demo and a loop -- generous enough that a room full of
-    # people reading the site never touches it.
+    # per hit. This is the GLOBAL ceiling -- the total-abuse backstop behind the
+    # per-address window -- generous enough that a room full of people reading
+    # the site never touches it.
     demo_rate_per_hour: int = Field(
         default=1_200, ge=0, alias="DEMO_RATE_PER_HOUR"
     )
