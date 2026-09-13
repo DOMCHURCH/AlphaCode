@@ -1293,6 +1293,12 @@ def test_sitemap_lists_only_companies_with_something_to_draw(client):
         ))
     sitemap.reset_cache()
 
+    # `_drawable` is a SECOND module-level global, built at boot from whatever
+    # database was live then. Reset it too, or the set belongs to an earlier
+    # test's database and these fixture tickers are filtered straight out --
+    # which is what made this test pass alone and fail in a full run.
+    sitemap.reset_drawable()
+
     body = client.get("/sitemap.xml").text
 
     assert "/company/DRAW" in body
@@ -1317,6 +1323,8 @@ def test_sitemap_dates_a_company_page_by_its_newest_filing(client):
                 filing_date=filed, source="sec",
             ))
     sitemap.reset_cache()
+
+    sitemap.reset_drawable()
 
     body = client.get("/sitemap.xml").text
     block = body.split("/company/DATED", 1)[1].split("</url>", 1)[0]
@@ -2373,3 +2381,44 @@ def test_authenticated_calls_unaffected_by_demo_limit(demo_client):
         "/api/company/NOSUCHTICKER",
         headers={"X-API-Key": key, "X-Forwarded-For": ip},
     ).status_code != 429
+
+
+# ---------------------------------------------------------------------------
+# No personal address reaches a reader-facing page
+# ---------------------------------------------------------------------------
+
+def test_no_personal_email_in_report_layer(client, monkeypatch):
+    """ADMIN_EMAIL is the operator's own address and must not be the one a
+    CUSTOMER is told to write to.
+
+    Grepping the source for a gmail passes trivially -- nothing was ever
+    hardcoded. The leak was the plumbing: `admin_email=s.admin_email` went
+    straight into the pages, so whatever the deployment set appeared on
+    /pricing and /dashboard. This sets it to a gmail and asserts the
+    customer-facing pages do not carry it.
+    """
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("ADMIN_EMAIL", "someone.personal@gmail.com")
+    get_settings.cache_clear()
+
+    for path in ("/", "/pricing", "/dashboard", "/methodology", "/api", "/login"):
+        html = client.get(path).text
+        assert "gmail.com" not in html, f"{path} leaks the operator's address"
+        assert "support@balanceproof.dev" in html, f"{path} offers no support address"
+
+    # Terms and privacy are the exception, on purpose: a legal notice names the
+    # responsible party rather than a support inbox.
+    for path in ("/terms", "/privacy"):
+        assert "someone.personal@gmail.com" in client.get(path).text, path
+
+    get_settings.cache_clear()
+
+
+def test_no_personal_email_hardcoded_in_report_sources():
+    """The cheap guard the brief asked for, kept as a regression fence."""
+    import pathlib
+
+    root = pathlib.Path("src/report")
+    for f in root.rglob("*.py"):
+        assert "gmail.com" not in f.read_text(encoding="utf-8"), f

@@ -3264,6 +3264,7 @@ def pricing(request: Request) -> HTMLResponse:
     """
     from src import dataset
     from src.config.settings import price_label
+    from src.report.nav import SUPPORT_EMAIL
     from src.report.pricing_page import compact, render_pricing, snapshot_date
 
     s = get_settings()
@@ -3279,7 +3280,7 @@ def pricing(request: Request) -> HTMLResponse:
             render_pricing(
                 nav=_nav_for(request, "pricing"),
                 base_url=_public_origin(request),
-                admin_email=s.admin_email,
+                admin_email=SUPPORT_EMAIL,
                 free_limit=s.free_tier_monthly_calls,
                 pro_limit=s.pro_tier_monthly_calls,
                 pro_price=price_label(s.pro_price_usd),
@@ -3306,6 +3307,7 @@ def dataset_page(request: Request) -> HTMLResponse:
     from src import dataset
     from src.config.settings import price_label
     from src.report.dataset_page import render_dataset
+    from src.report.nav import SUPPORT_EMAIL
     from src.report.pricing_page import compact, snapshot_date
 
     s = get_settings()
@@ -3318,7 +3320,7 @@ def dataset_page(request: Request) -> HTMLResponse:
         _versioned(
             render_dataset(
                 nav=_nav_for(request, "dataset"),
-                admin_email=s.admin_email,
+                admin_email=SUPPORT_EMAIL,
                 dataset_price=price_label(s.dataset_price_usd),
                 pro_price=price_label(s.pro_price_usd),
                 rows=shape.rows if shape else 0,
@@ -3407,11 +3409,12 @@ def privacy_page(request: Request) -> HTMLResponse:
 def login_page(request: Request) -> HTMLResponse:
     from src import auth
     from src.report.auth_pages import render_login
+    from src.report.nav import SUPPORT_EMAIL
 
     return HTMLResponse(
         _versioned(
             render_login(
-                admin_email=get_settings().admin_email,
+                admin_email=SUPPORT_EMAIL,
                 enabled=auth.is_enabled(),
                 nav=_nav_for(request, "login"),
             )
@@ -3521,6 +3524,7 @@ def dashboard(
 
     from src.config.settings import price_label
     from src.report.dashboard_page import render_dashboard
+    from src.report.nav import SUPPORT_EMAIL
     from src.report.pricing_page import snapshot_date
 
     s = get_settings()
@@ -3535,7 +3539,7 @@ def dashboard(
     return HTMLResponse(
         _versioned(
             render_dashboard(
-                admin_email=s.admin_email,
+                admin_email=SUPPORT_EMAIL,
                 dataset_price=price_label(s.dataset_price_usd),
                 pro_price=price_label(s.pro_price_usd),
                 pro_annual_price=price_label(s.pro_annual_price_usd),
