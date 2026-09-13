@@ -2422,3 +2422,66 @@ def test_no_personal_email_hardcoded_in_report_sources():
     root = pathlib.Path("src/report")
     for f in root.rglob("*.py"):
         assert "gmail.com" not in f.read_text(encoding="utf-8"), f
+
+
+# ---------------------------------------------------------------------------
+# The Ask endpoint meters per CALLER, not per proxy
+# ---------------------------------------------------------------------------
+
+def test_ask_rate_limit_key_varies_with_forwarded_address(client, monkeypatch):
+    """Two callers, two buckets -- the thing `request.client.host` could not do.
+
+    Behind a proxy every request carries the EDGE's address, so keying the
+    ten-an-hour cap on it put everybody in one bucket: the first ten questions
+    asked by anybody spent the hour for everybody. This asserts the key the
+    handler actually passes downstream, which is the only place the difference
+    shows up.
+    """
+    import asyncio
+
+    from src import api
+    from src.llm import ask as ask_mod
+
+    _seed_company("JPM", {
+        "total_assets": 4_424_900_000_000.0,
+        "total_liabilities": 4_062_462_000_000.0,
+        "total_equity": 362_438_000_000.0,
+    })
+
+    seen: list[str] = []
+
+    class _Answer:
+        text, model = "ok", "test"
+        prompt_tokens = completion_tokens = 1
+        cost_usd = 0.0
+
+    async def _fake_answer(model, view, question, ip_hash):
+        seen.append(ip_hash)
+        return _Answer()
+
+    monkeypatch.setattr(ask_mod, "answer_question", _fake_answer)
+    assert asyncio.iscoroutinefunction(_fake_answer)
+
+    def _ask(ip):
+        # Re-asserted before every call on purpose: the boot sequence resolves
+        # the model in the background and sets it back to None when there is no
+        # OPENROUTER_API_KEY, which otherwise lands between two requests and
+        # turns this into a flake that looks like a routing bug.
+        monkeypatch.setattr(api, "_ASK_MODEL", object())
+        return client.post(
+            "/company/JPM/ask",
+            json={"question": "What is this company mostly made of?"},
+            headers={"X-Forwarded-For": ip},
+        )
+
+    for ip in ("203.0.113.7", "198.51.100.22"):
+        r = _ask(ip)
+        assert r.status_code == 200, (ip, r.text)
+
+    assert len(seen) == 2
+    assert seen[0] != seen[1], "both callers landed in the same rate-limit bucket"
+
+    # And the same address twice is the SAME bucket -- otherwise the cap would
+    # never bite at all, which is the opposite failure.
+    assert _ask("203.0.113.7").status_code == 200
+    assert seen[2] == seen[0]

@@ -1883,7 +1883,16 @@ async def company_ask(ticker: str, body: AskRequest, request: Request) -> JSONRe
     if view is None:
         raise HTTPException(404, f"There are no filed figures for {symbol}.")
 
-    client_host = request.client.host if request.client else "unknown"
+    # `client_ip`, not `request.client.host`. Behind a proxy the latter is the
+    # EDGE's address and identical for every visitor, so a "per caller" cap
+    # keyed on it is one shared bucket: the first ten questions asked by
+    # anybody spent the hour for everybody. `request.client.host` survives only
+    # as the last-resort fallback, which is what it is good for.
+    from src import analytics
+
+    client_host = analytics.client_ip(
+        request.headers, request.client.host if request.client else "unknown"
+    )
     ip_hash = hash_ip(client_host)
     try:
         answer = await answer_question(_ASK_MODEL, view, question, ip_hash)
