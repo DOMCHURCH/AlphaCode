@@ -205,12 +205,13 @@ def _live_section() -> str:
 
 
 def render_methodology(*, nav: str = "") -> str:
-    from src.report.nav import render_footer
+    from src.report.nav import SUPPORT_EMAIL, render_footer
     from src.report.schema import breadcrumb_ld, webpage_ld
 
     footer = render_footer(
         "The per-category breakdown of the exceptions is maintained alongside "
-        "the code."
+        "the code. Found a figure you think is wrong? "
+        f'<a href="mailto:{SUPPORT_EMAIL}">{SUPPORT_EMAIL}</a>.'
     )
     body = (
         f'{nav}\n<main class="wrap post" id="main">\n'

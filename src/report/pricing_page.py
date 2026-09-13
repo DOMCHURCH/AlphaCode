@@ -338,7 +338,7 @@ def render_pricing(
     dataset_rows: str = "every",
     dataset_as_of: str = "the last quarterly load",
 ) -> str:
-    from src.report.nav import render_footer
+    from src.report.nav import SUPPORT_EMAIL, render_footer
 
     contact = (
         f'<a class="mail" href="mailto:{escape(admin_email)}">{escape(admin_email)}</a>'
@@ -408,6 +408,8 @@ def render_pricing(
     <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site.</p>
+    <p class="plan-note">A question before you buy, or a problem after?
+      <a href="mailto:{SUPPORT_EMAIL}">{SUPPORT_EMAIL}</a>.</p>
     <p class="plan-note">Still shortlisting?
       <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
       considering for quant work</a> covers the alternatives, this one

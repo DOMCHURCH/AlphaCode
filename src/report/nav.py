@@ -128,6 +128,11 @@ def render_nav(
 # source" is checkable, and this is where it is checked.
 SOURCE_URL = "https://github.com/domchurch/alphacode"
 
+# The address a customer writes to. Spelled once, here, so the footer, the
+# pricing page and the revoked-key 401 cannot drift apart -- an address that
+# appears differently in three places is one nobody trusts.
+SUPPORT_EMAIL = "support@balanceproof.dev"
+
 
 def render_footer(extra: str = "") -> str:
     """The same footer on every page, legal links included.
@@ -149,6 +154,7 @@ def render_footer(extra: str = "") -> str:
       <a href="/terms">Terms</a>
       <a href="/privacy">Privacy</a>
       <a href="{SOURCE_URL}" rel="noopener">Source</a>
+      <a href="mailto:{SUPPORT_EMAIL}">Support</a>
     </span>
     <span class="foot-disc">{SHORT_DISCLAIMER}</span>
   </footer>"""
