@@ -2156,3 +2156,80 @@ def test_head_still_redirects_off_the_dead_domain(client):
     r = client.head("/", headers={"host": "toscale.pro"}, follow_redirects=False)
     assert r.status_code == 301
     assert r.headers["location"] == "https://balanceproof.dev/"
+
+
+# ---------------------------------------------------------------------------
+# The styled 404 reaches every page, not just /company/{ticker}
+# ---------------------------------------------------------------------------
+
+def test_styled_404_for_html_routes(client):
+    """A mistyped URL gets the page, not a 22-byte JSON body.
+
+    `/company/{ticker}` has always had a real empty state -- a search box and
+    live suggestions. Everything else fell through to Starlette's default,
+    so the most likely 404 on the site was the worst-looking one.
+    """
+    r = client.get("/nonexistent-page")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("text/html")
+    body = r.text
+    assert "<!DOCTYPE html>" in body
+    # The parts that make it useful rather than merely styled.
+    assert 'action="/search"' in body
+    assert 'class="sugg"' in body or "No filed statements" in body
+
+
+def test_bare_404_for_api_routes(client):
+    """Machine clients keep JSON -- and keep the sentence they were given.
+
+    Replacing `detail` with a flat "Not Found" would have been a regression:
+    several API routes 404 with something worth reading.
+    """
+    r = client.get("/api/no/such/route")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+    assert r.json() == {"detail": "Not Found"}
+
+    key = client.post(
+        "/api/auth/register",
+        json={"email": "fourohfour@example.com", "accept_terms": True},
+    ).json()["api_key"]
+    r = client.get("/api/company/NOSUCH", headers={"X-API-Key": key})
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")
+    # The informative detail survives the new handler.
+    assert "NOSUCH" in r.json()["detail"]
+
+
+def test_nested_path_404_is_styled(client):
+    """A real prefix with junk after it is still a page a person typed."""
+    r = client.get("/company/JPM/extra/path")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("text/html")
+    assert "<!DOCTYPE html>" in r.text
+
+
+def test_root_404_is_styled(client):
+    r = client.get("/definitely-not-a-page")
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("text/html")
+    assert "<!DOCTYPE html>" in r.text
+
+
+def test_the_company_404_is_unchanged_by_the_generic_one(client):
+    """The guardrail. Extending the styled 404 must not reword the old one."""
+    r = client.get("/company/NOTAREALTICKER")
+    assert r.status_code == 404
+    assert "<h1>Nothing to draw for NOTAREALTICKER</h1>" in r.text
+    assert "<title>NOTAREALTICKER — nothing to draw</title>" in r.text
+
+
+def test_a_post_404_stays_json_even_off_the_api_prefix(client):
+    """`POST /company/{t}/ask` is fetch()-driven and lives under /company/.
+
+    Handing its caller a page of HTML would turn a clean 404 into a JSON
+    parse error in the browser.
+    """
+    r = client.post("/company/JPM/nope", json={})
+    assert r.status_code == 404
+    assert r.headers["content-type"].startswith("application/json")

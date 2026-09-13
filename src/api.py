@@ -339,6 +339,58 @@ _RENAMED_PATHS = {
 }
 
 
+def _wants_json_404(request: Request) -> bool:
+    """Whether this 404 should stay machine-readable.
+
+    Two cases, and both are callers that parse the body rather than read it:
+    anything under `/api/`, and any non-GET -- `POST /company/{ticker}/ask` is
+    under `/company/` but its caller is `fetch()`, and handing it a page of
+    HTML would turn a clean "no such ticker" into a JSON parse error.
+    """
+    return (
+        request.url.path.startswith("/api/")
+        or request.method not in ("GET", "HEAD")
+    )
+
+
+async def not_found(request: Request, exc: HTTPException) -> Response:
+    """One styled 404 for the site, the JSON one for machines.
+
+    Registered on the STATUS CODE rather than on `HTTPException`: Starlette
+    checks status handlers first, so this catches both an explicit
+    `raise HTTPException(404)` and the router's own implicit miss -- which is
+    the case that used to answer a bare 22-byte body on every mistyped URL.
+
+    `exc.detail` is passed through rather than replaced. Several API routes
+    raise 404 with a sentence worth reading ("No filed fundamentals for X..."),
+    and flattening those to "Not Found" would be a regression dressed as a fix.
+    """
+    if _wants_json_404(request):
+        return JSONResponse(
+            status_code=404,
+            content={"detail": exc.detail or "Not Found"},
+            headers=getattr(exc, "headers", None),
+        )
+    from src.report.company_page import render_404_page
+
+    return HTMLResponse(
+        _versioned(
+            render_404_page(
+                title="Nothing here — BalanceProof",
+                heading="Nothing here",
+                reason=(
+                    "That address does not match anything on this site. It may "
+                    "have been mistyped, or it may never have existed."
+                ),
+            )
+        ),
+        status_code=404,
+    )
+
+
+app.add_exception_handler(404, not_found)
+
+
 @app.middleware("http")
 async def redirect_renamed_paths(request: Request, call_next):
     """301 the pre-rebrand comparison URLs to their renamed equivalents."""

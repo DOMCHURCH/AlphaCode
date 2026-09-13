@@ -754,11 +754,27 @@ def render_company_page(
 
 
 def render_not_found(ticker: str, reason: str) -> str:
+    """The ticker-shaped 404: says what is missing, then offers real tickers.
+
+    A thin delegate over `render_404_page`, which owns the markup. The wording
+    here is the only thing specific to a ticker, and it stays byte-for-byte
+    what it was before the generic 404 existed.
+    """
+    return render_404_page(
+        title=f"{ticker} — nothing to draw",
+        heading=f"Nothing to draw for {ticker}",
+        reason=reason,
+    )
+
+
+def render_404_page(*, title: str, heading: str, reason: str) -> str:
     """Says what is missing, then offers tickers that are actually there.
 
     The alternatives are read out of the database, not hardcoded: sending a
     reader from one empty page to another is the one thing an empty state must
-    not do.
+    not do. That is as true of a mistyped URL as of a mistyped ticker, which is
+    why this is shared rather than copied -- the generic 404 and the company
+    one are the same page with a different sentence at the top.
     """
     # The SAME backdrop every other page gets, from the one function that
     # owns it. This page renders its own <head> and <body> rather than
@@ -792,7 +808,7 @@ def render_not_found(ticker: str, reason: str) -> str:
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(ticker)} — nothing to draw</title>
+<title>{escape(title)}</title>
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
@@ -818,7 +834,7 @@ def render_not_found(ticker: str, reason: str) -> str:
 
 <main class="wrap" id="main">
   <div class="empty">
-    <h1>Nothing to draw for {escape(ticker)}</h1>
+    <h1>{escape(heading)}</h1>
     <p>{escape(reason)}</p>
     {search_form()}
     {alternatives}
