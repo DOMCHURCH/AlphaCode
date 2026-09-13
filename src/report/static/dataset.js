@@ -155,6 +155,11 @@
         window.location.href = r.data.url;
         return;
       }
+      if (r.status === 401 && r.data && r.data.login_url) {
+        // Not signed in. The server says where to go; it comes back here.
+        window.location.href = r.data.login_url;
+        return;
+      }
       btn.disabled = false;
       note("");
       if (r.status === 503) {

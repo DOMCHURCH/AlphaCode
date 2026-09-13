@@ -587,10 +587,13 @@
 
   /* Why a checkout could not be opened, in the reader's terms.
 
-     Never a redirect. Bouncing somebody to /login when a purchase fails is the
-     bug this replaced: it loses the click, tells them nothing, and is
-     indistinguishable from being signed out when they are not. Every branch
-     here ends in a sentence in the modal and a button they can press again. */
+     Still never a redirect on FAILURE. Bouncing somebody to /login when a
+     purchase fails is the bug this replaced: it loses the click, tells them
+     nothing, and is indistinguishable from being signed out when they are not.
+     The one redirect that is correct -- a 401 carrying `login_url`, which says
+     "not signed in" and nothing else -- is handled at the call site before
+     this function is reached, so every branch here is still a sentence in the
+     modal and a button they can press again. */
   function checkoutProblem(r, what) {
     var detail = (r.data && r.data.detail) || "";
     if (r.status === 429) {
@@ -634,6 +637,12 @@
         // Straight to Stripe. Not window.open: a popup blocker eats it, and
         // this is a navigation the reader asked for.
         window.location.href = r.data.url;
+        return;
+      }
+      if (r.status === 401 && r.data && r.data.login_url) {
+        // Not an error to explain -- they are simply not signed in, and the
+        // server has said where to go to fix it.
+        window.location.href = r.data.login_url;
         return;
       }
       btn.disabled = false;

@@ -110,8 +110,15 @@
           window.location.href = r.data.url;
           return;
         }
-        /* Never a redirect to /login on failure -- that is the behaviour this
-           replaced. Say what happened and leave the button where it is. */
+        if (r.status === 401 && r.data && r.data.login_url) {
+          /* The one redirect that is not a guess: a 401 with `login_url` means
+             not signed in and nothing else. */
+          window.location.href = r.data.login_url;
+          return;
+        }
+        /* Never a redirect to /login on any OTHER failure -- that is the
+           behaviour this replaced. Say what happened and leave the button
+           where it is. */
         planNote(
           (r.data && r.data.detail) ||
           "Could not open a checkout just now. Please try again.",

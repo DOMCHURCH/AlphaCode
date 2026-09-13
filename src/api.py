@@ -3036,6 +3036,20 @@ class CheckoutRequest(BaseModel):
     email: str | None = None
 
 
+def _checkout_login_url(plan: str) -> str:
+    """Where an unauthenticated buyer is sent, with the plan they wanted kept.
+
+    The endpoint cannot know the page the click came from -- a Referer drops
+    the fragment and is often absent entirely -- so the destination is derived
+    from the plan instead. That lands on the same place the no-script `href`
+    already points at, carrying the plan so the dashboard can open on it.
+    """
+    from urllib.parse import quote
+
+    nxt = "/dataset" if plan == "dataset" else f"/dashboard?plan={plan}#billing"
+    return "/login?next=" + quote(nxt, safe="")
+
+
 @app.post("/api/billing/checkout")
 def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONResponse:
     """Open a Stripe Checkout Session and hand back where to send the buyer.
@@ -3045,22 +3059,38 @@ def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONRespons
     Checkout Session on the Stripe account -- so the caller does the navigating
     and this endpoint stays a thing you have to mean.
 
-    The address is optional and only ever a convenience: it prefills and locks
-    the email on Stripe's page so the account that gets the grant is the account
-    that started the purchase. Fulfilment happens on the webhook, so nothing
-    here grants anything, and a caller who lies about the address buys access
-    for that address rather than for themselves.
+    Signing in FIRST is now a precondition rather than a convenience. An
+    anonymous buyer used to reach Stripe and be signed in on the way back,
+    which meant committing the money before ever seeing the thing being bought.
+    A 401 carrying `login_url` is the whole of the change: same status a caller
+    already handles, plus where to go.
+
+    The posted address no longer authenticates anything -- it is kept only so
+    the signed-in address can still be passed through to prefill Stripe.
     """
     from src import auth, billing
 
-    _enforce_rate(_checkout_gate, "checkout")
-    # A signed-in reader's own address beats whatever was posted: the session
-    # cookie is proof and the body is not.
+    # Before the rate gate on purpose: an anonymous POST must not be able to
+    # spend the checkout budget and 429 the buyers who ARE signed in.
     account = auth.current_account(request)
-    email = account.email if account is not None else (body.email or "")
+    if account is None:
+        # A JSONResponse rather than an HTTPException: `login_url` is a second
+        # top-level key, and `detail` is the only thing an HTTPException can
+        # carry. The caller reads the key; the status is the one it already
+        # branches on.
+        return JSONResponse(
+            status_code=401,
+            content={
+                "detail": "sign in first",
+                "login_url": _checkout_login_url(body.plan),
+            },
+        )
+
+    _enforce_rate(_checkout_gate, "checkout")
+    # The session cookie is proof and the body is not.
     return JSONResponse(
         billing.create_checkout_session(
-            plan=body.plan, origin=_public_origin(request), email=email or None
+            plan=body.plan, origin=_public_origin(request), email=account.email
         )
     )
 

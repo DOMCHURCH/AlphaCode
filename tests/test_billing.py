@@ -206,7 +206,8 @@ def test_checkout_returns_a_url_and_never_grants_anything(client, stripe_calls):
     Fulfilling on the return URL is the classic hole: it is a plain GET that a
     stranger can visit without paying and a buyer can close before it loads.
     """
-    key = register(client)
+    sign_in(client)
+    key = client.post("/api/auth/regenerate-key").json()["api_key"]
     r = client.post("/api/billing/checkout", json={"plan": "pro", "email": BUYER})
     assert r.status_code == 200, r.text
     assert r.json()["url"].startswith("https://checkout.stripe.com/")
@@ -215,6 +216,7 @@ def test_checkout_returns_a_url_and_never_grants_anything(client, stripe_calls):
 
 
 def test_the_session_carries_the_right_mode_price_and_return_urls(client, stripe_calls):
+    sign_in(client)
     client.post("/api/billing/checkout", json={"plan": "pro", "email": BUYER})
     client.post("/api/billing/checkout", json={"plan": "dataset", "email": BUYER})
 
@@ -243,6 +245,7 @@ def test_the_annual_plan_is_a_subscription_on_its_own_price(client, stripe_calls
     It shares Pro's mode and Pro's grant and nothing else: its own Price id,
     its own metadata, and a checkout that must not quietly bill monthly.
     """
+    sign_in(client)
     r = client.post(
         "/api/billing/checkout", json={"plan": "pro_annual", "email": BUYER}
     )
@@ -254,7 +257,8 @@ def test_the_annual_plan_is_a_subscription_on_its_own_price(client, stripe_calls
     assert call["line_items"] == [{"price": PRICE_PRO_ANNUAL, "quantity": 1}]
     assert call["metadata"]["plan"] == "pro_annual"
     # Nothing is granted by opening a checkout. Fulfilment is the webhook's.
-    assert status(client, register(client))["tier"] == "free"
+    key = client.post("/api/auth/regenerate-key").json()["api_key"]
+    assert status(client, key)["tier"] == "free"
 
 
 def test_a_paid_annual_checkout_grants_pro_for_a_YEAR(client, stripe_calls):
@@ -349,6 +353,7 @@ def test_an_unconfigured_annual_price_is_503_not_a_broken_checkout(
     get_settings.cache_clear()
 
     assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing"] is True
+    sign_in(client)
     r = client.post("/api/billing/checkout", json={"plan": "pro_annual"})
     assert r.status_code == 503
     assert stripe_calls == []
@@ -357,6 +362,7 @@ def test_an_unconfigured_annual_price_is_503_not_a_broken_checkout(
 
 
 def test_an_unknown_plan_is_422_and_reaches_stripe_not_at_all(client, stripe_calls):
+    sign_in(client)
     r = client.post("/api/billing/checkout", json={"plan": "enterprise"})
     assert r.status_code == 422
     assert "enterprise" in r.json()["detail"]
@@ -368,6 +374,7 @@ def test_checkout_is_503_when_stripe_is_not_configured(client, stripe_calls, mon
 
     monkeypatch.setenv("STRIPE_SECRET_KEY", "")
     get_settings.cache_clear()
+    sign_in(client)
     r = client.post("/api/billing/checkout", json={"plan": "pro"})
     assert r.status_code == 503
     assert stripe_calls == []
@@ -742,6 +749,7 @@ def test_a_refused_checkout_is_502_and_tells_the_operator_only_the_code(
 
     monkeypatch.setattr(stripe.checkout.Session, "create", staticmethod(_refuse))
 
+    sign_in(client)
     r = client.post("/api/billing/checkout", json={"plan": "dataset"})
     assert r.status_code == 502
     # The caller is told nothing about the configuration.
@@ -763,6 +771,7 @@ def test_a_working_checkout_clears_the_last_error(client, stripe_calls, monkeypa
     monkeypatch.setattr(billing, "_last_error", "resource_missing (price)")
     assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing_error"] is not None
 
+    sign_in(client)
     r = client.post("/api/billing/checkout", json={"plan": "pro"})
     assert r.status_code == 200
     assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["billing_error"] is None
@@ -839,18 +848,28 @@ def test_the_dashboard_opens_the_billing_tab_when_asked(client):
     assert 'TABS.indexOf(hash) !== -1' in js
 
 
-def test_a_checkout_started_from_the_home_page_needs_no_account(client, stripe_calls):
+def test_a_checkout_started_from_the_home_page_asks_for_login_first(
+    client, stripe_calls
+):
     """Most people who click "Go Pro" have never registered.
 
-    Stripe collects the address on its own page and the webhook provisions it,
-    so an anonymous checkout must be allowed to open rather than demanding a
-    signup first.
+    This used to let them straight through: Stripe collected the address on its
+    own page and the webhook provisioned it. That worked, but it took the money
+    before the buyer had seen a single thing they were buying, and it made the
+    account an after-effect of a payment rather than the thing being paid for.
+    Now the click lands on /login carrying the plan, and comes back to it.
     """
     r = client.post("/api/billing/checkout", json={"plan": "pro"})
+    assert r.status_code == 401, r.text
+    assert "plan%3Dpro" in r.json()["login_url"] or "plan=pro" in r.json()["login_url"]
+    assert stripe_calls == []
+
+    # ...and once they have signed in, the same click opens the session, with
+    # their address prefilled rather than asked for a second time.
+    sign_in(client)
+    r = client.post("/api/billing/checkout", json={"plan": "pro"})
     assert r.status_code == 200, r.text
-    # Nothing is prefilled, so Stripe asks -- and must not be sent an empty
-    # customer_email, which it rejects.
-    assert "customer_email" not in stripe_calls[0]
+    assert stripe_calls[0]["customer_email"] == BUYER
     assert stripe_calls[0]["metadata"]["plan"] == "pro"
 
 
@@ -1075,3 +1094,68 @@ def test_the_portal_fails_loudly_when_stripe_refuses(
     r = client.post("/api/billing/portal")
     assert r.status_code == 502, r.text
     assert "Stripe" in r.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Signing in is a precondition of checkout
+# ---------------------------------------------------------------------------
+
+def test_checkout_requires_login(client, stripe_calls):
+    """An anonymous POST is refused, and Stripe is never called.
+
+    The old behaviour opened a session for anybody, so a buyer committed $49
+    before ever seeing the dashboard and was signed in only on the way back.
+    """
+    r = client.post("/api/billing/checkout", json={"plan": "pro"})
+    assert r.status_code == 401, r.text
+    body = r.json()
+    assert body["detail"] == "sign in first"
+    assert body["login_url"].startswith("/login?next=")
+    # The point of refusing early: no Stripe session, so nothing to abandon
+    # and no cost on the account.
+    assert stripe_calls == []
+
+
+def test_checkout_succeeds_when_logged_in(client, stripe_calls):
+    """The signed-in path is untouched: still a URL, still one session."""
+    sign_in(client)
+    r = client.post("/api/billing/checkout", json={"plan": "pro"})
+    assert r.status_code == 200, r.text
+    assert r.json()["url"].startswith("https://checkout.stripe.com/")
+    assert len(stripe_calls) == 1
+    # The address on the session is the signed-in one, not anything posted.
+    assert stripe_calls[0]["customer_email"] == BUYER
+
+
+def test_checkout_login_url_preserves_plan_intent(client, stripe_calls):
+    """The bounce carries the plan, so the buyer does not lose the click.
+
+    `next` is percent-encoded, so assert on the decoded value rather than on
+    one particular spelling of the escaping.
+    """
+    from urllib.parse import parse_qs, unquote, urlparse
+
+    wanted = {
+        "pro": "/dashboard?plan=pro#billing",
+        "pro_annual": "/dashboard?plan=pro_annual#billing",
+        "dataset": "/dataset",
+    }
+    for plan, target in wanted.items():
+        r = client.post("/api/billing/checkout", json={"plan": plan})
+        assert r.status_code == 401, (plan, r.text)
+        url = r.json()["login_url"]
+        assert urlparse(url).path == "/login", (plan, url)
+        nxt = parse_qs(urlparse(url).query)["next"][0]
+        assert unquote(nxt) == target, (plan, nxt)
+    assert stripe_calls == []
+
+
+def test_checkout_login_url_is_a_relative_path_only(client, stripe_calls):
+    """No scheme and no host in `next` -- an open redirect starts exactly here.
+
+    The client-side guard in auth.js refuses anything that is not a lone
+    leading slash; this asserts the server never emits one to begin with.
+    """
+    r = client.post("/api/billing/checkout", json={"plan": "pro"})
+    url = r.json()["login_url"]
+    assert "://" not in url and not url.startswith("//"), url

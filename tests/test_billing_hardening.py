@@ -92,6 +92,25 @@ def register(client, email=BUYER):
     return r.json()["api_key"]
 
 
+def sign_in(client, email=BUYER, password="correct horse battery"):
+    """A cookie session, which checkout now requires before it will open one."""
+    r = client.post(
+        "/api/auth/register-password",
+        json={"email": email, "password": password, "accept_terms": True},
+    )
+    assert r.status_code in (201, 409), r.text
+    if r.status_code == 409:
+        # Registered by `register` already, which sets no password -- so set
+        # one against the address rather than trying to log in without it.
+        r = client.post(
+            "/api/auth/login", json={"email": email, "password": password}
+        )
+        if r.status_code != 200:
+            from src import auth
+
+            client.cookies.set(auth.COOKIE_NAME, auth._serializer().dumps(email))
+
+
 def status(client, key):
     return client.get("/api/user/status", headers={"X-API-Key": key}).json()
 
@@ -244,6 +263,7 @@ def test_buying_the_dataset_twice_is_refused_by_the_server(client):
     already true -- and the download streams the LIVE table, so the second
     purchase confers nothing at all."""
     register(client)
+    sign_in(client)
     post_event(client, checkout_event(plan="dataset"))
 
     r = client.post("/api/billing/checkout", json={"plan": "dataset", "email": BUYER})
@@ -255,6 +275,7 @@ def test_buying_pro_again_is_still_allowed(client):
     """Pro is a subscription. Buying it again is a renewal, which is a
     legitimate thing to want to do."""
     register(client)
+    sign_in(client)
     post_event(client, checkout_event(plan="pro"))
 
     r = client.post("/api/billing/checkout", json={"plan": "pro", "email": BUYER})
@@ -392,6 +413,7 @@ def test_a_buyer_provisioned_by_webhook_has_accepted_the_terms(client):
 # ---------------------------------------------------------------------------
 
 def test_the_success_url_carries_the_session_id_for_stripe_to_fill_in(client):
+    sign_in(client)
     r = client.post("/api/billing/checkout", json={"plan": "pro", "email": BUYER})
     assert r.status_code == 200
 

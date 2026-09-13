@@ -16,6 +16,29 @@
 
   function $(id) { return document.getElementById(id); }
 
+  /* Where to land after a successful sign-in.
+
+     `?next=` arrives on /login when something bounced the reader here rather
+     than them typing it -- a checkout that answered 401 is the only sender
+     today. Without this the parameter would be decoration and the buyer would
+     land on a bare dashboard having lost the plan they clicked.
+
+     Same-origin ABSOLUTE PATHS ONLY. A value starting "//" or "/\" is read by
+     browsers as a protocol-relative URL to another host, so the guard is a
+     single leading slash and nothing that looks like a second one; anything
+     else falls back to /dashboard. That keeps an open redirect out of a
+     parameter that an attacker can put in a link. */
+  function nextTarget() {
+    var fallback = "/dashboard";
+    try {
+      var raw = new URLSearchParams(window.location.search).get("next");
+      if (!raw) return fallback;
+      return /^\/(?![/\\])/.test(raw) ? raw : fallback;
+    } catch (e) {
+      return fallback;
+    }
+  }
+
   function note(el, text, kind) {
     if (!el) return;
     el.textContent = text || "";
@@ -101,7 +124,7 @@
           if (!res.ok || done) return;
           stop();
           note($("login-note"), "Signed in. Taking you to the dashboard…", "good");
-          window.location.replace("/dashboard");
+          window.location.replace(nextTarget());
         })
         .catch(function () { checking = false; });
     }
@@ -247,7 +270,7 @@
         email: email, password: pass, accept_terms: accepted()
       })
         .then(function (r) {
-          if (r.ok) { window.location.replace("/dashboard"); return; }
+          if (r.ok) { window.location.replace(nextTarget()); return; }
           btn.disabled = false;
           note($("pw-note"), detailOf(r.data, "That did not work."), "bad");
         })
