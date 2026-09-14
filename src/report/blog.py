@@ -878,7 +878,160 @@ the bug report I actually want.</p>
 
 # Newest first. The index renders in this order and so does the sitemap, so
 # the order here is the editorial decision rather than a detail of the loop.
+_POST_WHAT_I_GOT_WRONG = Post(
+    slug="what-i-got-wrong-about-sec-filings",
+    title="What I Got Wrong About SEC Filings",
+    seo_title="What I Got Wrong About SEC Filings and XBRL Data",
+    description=(
+        "I deleted 1,231,927 rows because a reload script deleted before it "
+        "downloaded. What that taught me about checking SEC XBRL data."
+    ),
+    summary=(
+        "A reload script that deleted before downloading, an SEC rate limit, "
+        "and an empty database with a zero exit code. Why financial data "
+        "failures do not announce themselves, and the fetch-then-replace "
+        "pattern that fixed it."
+    ),
+    published="2026-09-14",
+    updated="2026-09-14",
+    minutes=6,
+    body="""
+<p class="lede">I deleted 1,231,927 rows of production data at 2 AM. Here is how.</p>
+
+<p>The reload script had one job. Replace the fundamentals table with a fresh
+copy of the last seven quarters of SEC Financial Statement Data Sets. It had
+run cleanly a dozen times. That night it ran in this order: delete every row,
+then download the quarters, then parse them in.</p>
+
+<p>SEC started returning 429 on the second quarter it asked for. Rate limited.
+The download loop caught the error, logged it, and moved on to the next
+quarter, which also came back 429. So did the rest. The script finished
+without raising anything. The table was empty and the process exit code was
+zero.</p>
+
+<h2>Nothing announced itself</h2>
+
+<p>Here is the part worth sitting with. Every individual step behaved
+correctly. The delete worked. The HTTP client correctly identified a 429 and
+correctly declined to hammer a government server that had just asked it to
+stop. The logging wrote a line for each failure. The script exited cleanly
+because, as far as it knew, it had done what it was told.</p>
+
+<p>What was missing was any statement about what the database was supposed to
+look like at the end. There was no step that said: this table should have
+roughly a million rows in it, and if it has zero, something went wrong. So a
+total data loss and a successful run produced the same output.</p>
+
+<p>That is the shape of almost every financial data failure I have run into
+since. It is not a crash. A crash is a gift. A crash tells you where to look
+and stops the bad value from reaching anyone. The failures that cost you are
+the ones where a wrong number and a right number are the same data type, the
+same order of magnitude, and arrive through the same code path.</p>
+
+<h2>The fix that stuck</h2>
+
+<p>The rule I came out with is narrow and has not needed revising. Never
+delete anything until the replacement is already on disk.</p>
+
+<p>The reload now runs in three phases. Download every quarter to a local
+cache first. A 404 is fine, because the newest quarter is often a few weeks
+from being published and asking for it early is normal. Any other failure
+aborts immediately, before a single row has been touched. Only once every
+quarter is sitting on disk does the delete happen, and it happens inside the
+same transaction as the write.</p>
+
+<pre class="code"><code>async def reload_fundamentals(quarters: int = 7):
+    # 1. Everything obtainable, before anything is destroyed.
+    #    A failure here raises with the table still intact.
+    staged = await prefetch_quarters(recent_quarters(date.today(), quarters))
+
+    # 2. Delete and reload inside ONE transaction, parsing from disk only.
+    with session_scope() as session:
+        before = session.execute(select(func.count()).select_from(Fundamental)).scalar_one()
+        session.execute(delete(Fundamental))
+
+        written = 0
+        for year, q in staged:
+            rows = extract(sec_cache.cached_bytes(year, q))
+            written += save_fundamentals(session, rows)
+
+        if written == 0:
+            # Committing here would swap a million rows for nothing at all.
+            raise RuntimeError("extracted 0 rows; the table was left untouched")
+    # 3. Verify against known companies before calling it done.
+    return before, written</code></pre>
+
+<p>The <code>if written == 0</code> check is the line that would have saved
+me. It is four lines of code and it encodes the thing the original script
+never said out loud: I know what the end state should look like, and I will
+refuse to commit one that is obviously wrong.</p>
+
+<p>The transaction boundary is doing the other half of the work. If parsing
+quarter five throws, the delete of the first four rolls back with it. There is
+no window where the table is half a dataset. It is either the old copy or the
+new one.</p>
+
+<h2>The same pattern, one level up</h2>
+
+<p>Once the pipeline stopped losing data, the same question applied to the
+data itself. A filing that parses without error is not a filing that parsed
+correctly. SEC XBRL gives you plenty of ways to read a plausible wrong number.
+One filing can report the same concept under a dozen tags, and picking the
+first one you find gets you a subsidiary's figure instead of the consolidated
+one. It is a real number from a real filing. It is just not the number on the
+face of the balance sheet.</p>
+
+<p>So the reload does not get to declare success on its own either. Every
+filing gets checked against the accounting identity. Assets equals liabilities
+plus equity. That identity is not a heuristic or a tolerance I picked. It is
+the definition of a balance sheet, and it holds on data I did not produce,
+which is exactly what makes it useful as a test. If the figures I extracted do
+not satisfy it, then at least one of them is wrong, and I do not need to know
+which one to know that.</p>
+
+<p>When a filing does not balance, it gets published with the reason it does
+not, rather than quietly dropped or nudged into agreement. <a
+href="/methodology">The full method is written up here</a>, including what
+counts as a reconciling difference and what does not.</p>
+
+<h3>The counts, as they stand</h3>
+
+<p>6,222 companies in the database. 4,911 of them reconcile directly against
+the identity. 215 are flagged with the reason they do not. 0 are hidden. The
+remainder are filings that do not report enough of a balance sheet to check,
+and those say so on the page rather than being counted as passes.</p>
+
+<p>I publish counts and not a percentage, deliberately. A percentage invites
+you to read one number and stop. The counts make you ask what is in each
+bucket, which is the question that actually tells you whether the data is fit
+for what you are doing with it. You can see the whole thing on any company
+page. <a href="/company/JPM">JPMorgan Chase is a good one to start with</a>,
+because a bank's balance sheet looks nothing like the industrial shape most
+people picture.</p>
+
+<h2>What to ask whoever sells you filings data</h2>
+
+<p>If you are buying SEC data from anyone, including me, there is one question
+worth more than the rest. Ask which filings fail their checks, and ask to see
+the list.</p>
+
+<p>A provider who has never looked will tell you their coverage is complete.
+A provider who has looked will be able to tell you how many filings do not
+balance and why, because they had to make a decision about each one. The
+second answer is less comfortable and considerably more useful. Silence on
+this is not evidence that everything reconciles. It is usually evidence that
+nobody checked.</p>
+
+<p>Every figure on this site is as filed. Nothing is estimated, smoothed, or
+restated, and where a filing and the identity disagree, the disagreement is
+what gets shown. <a href="/pricing">The API and the bulk dataset are priced
+here</a>, and looking things up on the site stays free.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_WHAT_I_GOT_WRONG,
     _POST_EDGAR_PIPELINE,
     _POST_DUPLICATE_TAGS,
     _POST_XBRL_ACCURACY,

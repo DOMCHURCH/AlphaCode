@@ -159,6 +159,7 @@ def test_the_machine_readable_files_publish_no_rate():
 FORBIDDEN_WORDS: tuple[str, ...] = (
     "delve", "unlock", "seamless", "robust", "leverage",
     "in today's", "in today\u2019s", "game-changer", "game changer",
+    "in conclusion", "it's important to note", "it\u2019s important to note",
 )
 
 # Matched with spaces around them so "however" does not fire on "how ever" and
@@ -175,6 +176,15 @@ FORBIDDEN_PRONOUNS: tuple[str, ...] = (" we ", " our ", " ours ", " us ")
 STYLED_SLUGS: tuple[str, ...] = (
     "build-scalable-sec-edgar-pipeline",
     "sec-xbrl-duplicate-tags",
+    "what-i-got-wrong-about-sec-filings",
+)
+
+# Posts written under the no-em-dash rule. Scoped rather than site-wide on
+# purpose: the back catalogue uses em dashes throughout and correctly, and a
+# test that forced those posts to be rewritten would be the test making the
+# writing worse. Same reasoning as STYLED_SLUGS itself.
+NO_EM_DASH_SLUGS: tuple[str, ...] = (
+    "what-i-got-wrong-about-sec-filings",
 )
 
 
@@ -500,3 +510,36 @@ def test_every_offer_says_whether_it_is_available(client, path):
             assert offer.get("price") is not None
             assert offer.get("priceCurrency")
     assert found, f"{path} carries no Offer to check"
+
+
+def _post_prose(html: str) -> str:
+    """Just the post's own body.
+
+    Scoped to `div.prose` rather than the whole page on purpose. The rendered
+    page also carries the nav, the footer, and a list of every other post's
+    summary, and the back catalogue uses em dashes correctly and throughout.
+    A page-wide assertion would be testing those posts, which are not written
+    under this rule and are not being rewritten to satisfy it.
+    """
+    m = re.search(r'<div class="prose">(.*?)</div>\s*</article>', html, re.S)
+    if m is None:
+        m = re.search(r'<div class="prose">(.*)', html, re.S)
+    assert m, "could not find the post body"
+    return _visible_text(m.group(1))
+
+
+@pytest.mark.parametrize("slug", NO_EM_DASH_SLUGS)
+def test_no_post_uses_an_em_dash(client, slug):
+    """Periods and commas do the same work without the typographic tell."""
+    r = client.get(f"/blog/{slug}")
+    assert r.status_code == 200, f"/blog/{slug} did not render"
+    prose = _post_prose(r.text)
+    assert "—" not in prose, f"/blog/{slug} uses an em dash"
+    assert "–" not in prose, f"/blog/{slug} uses an en dash"
+
+
+@pytest.mark.parametrize("slug", NO_EM_DASH_SLUGS)
+def test_no_post_publishes_a_percentage(client, slug):
+    """Counts, not rates. The whole reason test_content_accuracy.py exists."""
+    r = client.get(f"/blog/{slug}")
+    assert "%" not in _post_prose(r.text), f"/blog/{slug} publishes a percentage"
