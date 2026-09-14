@@ -1008,7 +1008,11 @@ def render_home(
   <section class="sec">
     <div class="sec-head"><h2>Same scale rules, other companies</h2></div>
     <p class="sec-sub">Each drawing is that company's own balance sheet at its
-      own proportions. They look nothing alike because they are nothing alike.</p>
+      own proportions. They look nothing alike because they are nothing alike.
+      A bank is the clearest case:
+      <a href="/blog/why-bank-balance-sheets-are-different">its shape inverts
+      the one most people picture</a>, with deposits as liabilities and loans
+      as assets.</p>
     <div class="cards">{cards}</div>
   </section>"""
     else:
