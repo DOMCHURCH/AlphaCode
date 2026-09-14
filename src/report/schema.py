@@ -520,6 +520,10 @@ def software_ld() -> str:
                 "JSON responses, API key authentication",
                 "OpenAPI specification",
             ],
+            # `availability` on both, matching the four Offers `pricing_ld`
+            # emits. Without it an engine knows the price and not whether the
+            # thing is still sold, and the two blocks describing the same two
+            # tiers disagreeing about that is worse than either answer.
             "offers": [
                 {
                     "@type": "Offer",
@@ -527,6 +531,7 @@ def software_ld() -> str:
                     "price": "0",
                     "priceCurrency": "USD",
                     "url": f"{SITE}/pricing",
+                    "availability": "https://schema.org/InStock",
                 },
                 {
                     "@type": "Offer",
@@ -534,6 +539,7 @@ def software_ld() -> str:
                     "price": "49.00",
                     "priceCurrency": "USD",
                     "url": f"{SITE}/pricing",
+                    "availability": "https://schema.org/InStock",
                 },
             ],
         }

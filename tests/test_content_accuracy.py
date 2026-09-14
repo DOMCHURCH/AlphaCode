@@ -437,3 +437,66 @@ def test_breadcrumbs_are_absolute_and_well_formed(client, path):
         assert items[-1]["item"].rstrip("/").endswith(path.rstrip("/")), (
             f"{path}: last crumb is {items[-1]['item']!r}"
         )
+
+
+AUDITED_PAGES = (
+    "/", "/pricing", "/api", "/dataset", "/methodology", "/blog", "/terms",
+    "/privacy", "/compare/balanceproof-vs-intrinio",
+    "/best/sec-filings-api-for-quants",
+)
+
+
+@pytest.mark.parametrize("path", AUDITED_PAGES)
+def test_every_jsonld_url_is_absolute_and_ours(client, path):
+    """Walks every node, including @graph children and nested offers.
+
+    The two exceptions are named rather than pattern-matched: `isBasedOn`
+    points at SEC because that is what the data is based on, and schema.org
+    URLs are vocabulary rather than links to this site.
+    """
+    import json
+
+    r = client.get(path)
+    assert r.status_code == 200, path
+
+    def walk(node):
+        if isinstance(node, dict):
+            for key, value in node.items():
+                if key in ("url", "item", "@id", "image", "contentUrl"):
+                    if isinstance(value, str):
+                        assert not value.startswith("/"), f"{path}: relative {key}={value!r}"
+                        assert "toscale" not in value.lower(), f"{path}: old brand in {key}"
+                if key == "isBasedOn":
+                    continue  # upstream source, correctly off-site
+                walk(value)
+        elif isinstance(node, list):
+            for item in node:
+                walk(item)
+
+    for block in _ld_blocks(r.text):
+        walk(block)
+        assert "toscale" not in json.dumps(block).lower(), path
+
+
+@pytest.mark.parametrize("path", ("/", "/api", "/pricing"))
+def test_every_offer_says_whether_it_is_available(client, path):
+    """An Offer with a price and no `availability` prices a thing without
+    saying it is sold. Both blocks that carry offers now agree."""
+    def offers(node):
+        if isinstance(node, dict):
+            if node.get("@type") == "Offer":
+                yield node
+            for value in node.values():
+                yield from offers(value)
+        elif isinstance(node, list):
+            for item in node:
+                yield from offers(item)
+
+    found = 0
+    for block in _ld_blocks(client.get(path).text):
+        for offer in offers(block):
+            found += 1
+            assert offer.get("availability"), f"{path}: {offer.get('name')} has no availability"
+            assert offer.get("price") is not None
+            assert offer.get("priceCurrency")
+    assert found, f"{path} carries no Offer to check"
