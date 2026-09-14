@@ -331,3 +331,71 @@ def test_no_curl_example_is_folded_onto_one_line_with_its_url(client):
                     assert len(line) < 80, (
                         f"/blog/{post.slug}: folded curl: {line!r}"
                     )
+
+
+# ---------------------------------------------------------------------------
+# Structured data: the rebrand, and the fields Google requires
+# ---------------------------------------------------------------------------
+
+def _ld_blocks(html: str) -> list[dict]:
+    """Every JSON-LD payload on a page, parsed."""
+    import json
+
+    out = []
+    for m in re.finditer(
+        r'<script type="application/ld\+json">(.*?)</script>', html, re.S
+    ):
+        out.append(json.loads(m.group(1)))
+    return out
+
+
+# Pages that carry a Product block, or would if one drifted onto them.
+PRODUCT_PAGES = ("/pricing", "/", "/dataset", "/api")
+
+
+@pytest.mark.parametrize("path", PRODUCT_PAGES)
+def test_product_schema_has_no_old_domain(client, path):
+    """No JSON-LD may still name the pre-rebrand host.
+
+    Asserted over the SERIALISED block rather than a URL field by field: the
+    thing that breaks is a hostname anywhere in the payload, including inside
+    an `@id` or a nested brand reference, and naming the fields to check is how
+    the next one gets missed.
+    """
+    import json
+
+    r = client.get(path)
+    assert r.status_code == 200, path
+    for block in _ld_blocks(r.text):
+        raw = json.dumps(block)
+        assert "toscale.pro" not in raw, f"{path}: {block.get('@type')} names the old host"
+        assert "toscale" not in raw.lower(), f"{path}: {block.get('@type')} names the old brand"
+
+
+def test_product_schema_has_every_required_field(client):
+    """`image` is required, and its absence is what Search Console reported.
+
+    Merchant listings and Product snippets both read this block. Every other
+    required property was already present, which is why the page looked fine
+    and the report did not.
+    """
+    blocks = [b for b in _ld_blocks(client.get("/pricing").text)
+              if b.get("@type") == "Product"]
+    assert len(blocks) == 1, "expected exactly one Product block on /pricing"
+    product = blocks[0]
+
+    for field in ("name", "description", "url", "image", "offers", "brand"):
+        assert product.get(field), f"Product is missing {field}"
+    assert product["image"].startswith("https://balanceproof.dev/")
+
+    offers = product["offers"]
+    assert isinstance(offers, list) and offers, "offers must be a non-empty list"
+    for offer in offers:
+        assert offer["@type"] == "Offer"
+        for field in ("name", "price", "priceCurrency", "availability", "url"):
+            assert offer.get(field) not in (None, ""), f"Offer {offer.get('name')} missing {field}"
+        assert offer["priceCurrency"] == "USD"
+        # A digital good has no shipping and no returns. Asserting either would
+        # be marking up something untrue to satisfy a checklist.
+        assert "shippingDetails" not in offer
+        assert "hasMerchantReturnPolicy" not in offer

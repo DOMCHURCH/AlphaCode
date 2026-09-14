@@ -96,6 +96,19 @@ ORG_DESCRIPTION = (
 # prefix, this is the line to edit.
 BLOG_BASE = f"{SITE}/blog"
 
+# The one image this site has, absolute and unversioned.
+#
+# `image` is a REQUIRED property for the Product rich result, and Search
+# Console reports its absence as an error against both Merchant listings and
+# Product snippets rather than as a warning. The pricing page had every other
+# required field and none of this one, which is what those reports were.
+#
+# Unversioned on purpose, unlike the `?v=` the pages use for cache busting: a
+# structured-data URL is an identity that crawlers re-fetch over weeks, and one
+# that changes every time a static file's mtime moves is a new image each
+# deploy. The bytes at this path are stable; the query string is what is not.
+IMAGE = f"{SITE}/static/media/backdrop-1200.webp"
+
 # The publisher, inlined wherever another block names it.
 #
 # A bare `{"@id": ORG_ID}` is a *reference* to a node, and a reference is only
@@ -259,6 +272,16 @@ def pricing_ld() -> str:
             "description": ORG_DESCRIPTION,
             "brand": _ORG_REF,
             "url": f"{SITE}/pricing",
+            # Required, not optional. Search Console reports a Product without
+            # `image` as an error under both Merchant listings and Product
+            # snippets, which is what it was doing.
+            #
+            # Nothing else on the merchant-listing list is added: shipping and
+            # return-policy properties describe getting a physical object to a
+            # buyer and back, and asserting them for an API key would be
+            # marking up a fact that is not true. Google treats them as
+            # inapplicable for a digital good rather than missing.
+            "image": IMAGE,
             "offers": [
                 {
                     "@type": "Offer",
