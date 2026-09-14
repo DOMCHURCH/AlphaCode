@@ -399,3 +399,41 @@ def test_product_schema_has_every_required_field(client):
         # be marking up something untrue to satisfy a checklist.
         assert "shippingDetails" not in offer
         assert "hasMerchantReturnPolicy" not in offer
+
+
+BREADCRUMB_PAGES = ("/pricing", "/api", "/methodology", "/dataset", "/blog", "/terms")
+
+
+@pytest.mark.parametrize("path", BREADCRUMB_PAGES)
+def test_breadcrumbs_are_absolute_and_well_formed(client, path):
+    """Every ListItem: position from 1 in order, a name, an absolute item.
+
+    The `item` values were site-relative paths. A relative one does not
+    resolve to anything a crawler can index, which is what Search Console
+    reported, and it is invisible on the page because the breadcrumb UI is
+    built from the same paths and renders correctly either way.
+    """
+    import json
+
+    r = client.get(path)
+    assert r.status_code == 200, path
+    crumbs = [b for b in _ld_blocks(r.text) if b.get("@type") == "BreadcrumbList"]
+    assert crumbs, f"{path} renders a breadcrumb trail but no BreadcrumbList"
+
+    for block in crumbs:
+        raw = json.dumps(block)
+        assert "toscale" not in raw.lower(), f"{path}: breadcrumb names the old brand"
+
+        items = block["itemListElement"]
+        assert items, f"{path}: empty breadcrumb"
+        for expected, item in enumerate(items, start=1):
+            assert item["@type"] == "ListItem"
+            assert item["position"] == expected, f"{path}: positions out of order"
+            assert item["name"], f"{path}: ListItem {expected} has no name"
+            assert item["item"].startswith("https://balanceproof.dev"), (
+                f"{path}: ListItem {expected} item is not absolute: {item['item']!r}"
+            )
+        # The trail ends on the page serving it.
+        assert items[-1]["item"].rstrip("/").endswith(path.rstrip("/")), (
+            f"{path}: last crumb is {items[-1]['item']!r}"
+        )

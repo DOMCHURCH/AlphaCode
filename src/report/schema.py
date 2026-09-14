@@ -128,6 +128,30 @@ _ORG_REF = {
 }
 
 
+def _absolute(url: str) -> str:
+    """A site-relative path made absolute against `SITE`. Absolute URLs pass.
+
+    `breadcrumb_ld` has always documented that its `item` values must be
+    absolute, and every one of its nine callers passed a path -- `"/"`,
+    `"/api"`, `"/pricing"`. A relative `item` is not a URL a crawler can
+    resolve to anything stable, which is what Search Console was reporting as
+    its Breadcrumbs issue.
+
+    Fixed here rather than at the nine call sites, because a rule that lives
+    only in a docstring is one every future caller gets to break again. The
+    call sites read better with paths anyway.
+
+    Anything already carrying a scheme is returned untouched, so a caller that
+    passes a full URL -- or an off-site one, some day -- is not rewritten.
+    """
+    text = (url or "").strip()
+    if not text:
+        return SITE + "/"
+    if "://" in text:
+        return text
+    return SITE + ("" if text.startswith("/") else "/") + text
+
+
 def _script(payload: Any) -> str:
     """Serialise a payload and wrap it in a script tag that cannot be escaped.
 
@@ -646,7 +670,7 @@ def breadcrumb_ld(items: Sequence[tuple[str, str]] | Iterable[tuple[str, str]]) 
             "@type": "ListItem",
             "position": position,
             "name": name,
-            "item": url,
+            "item": _absolute(url),
         }
         for position, (name, url) in enumerate(items, start=1)
     ]
