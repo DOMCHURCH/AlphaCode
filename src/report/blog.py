@@ -49,7 +49,11 @@ class Post:
 _POST_XBRL_ACCURACY = Post(
     slug="sec-xbrl-data-wrong-one-in-five",
     title="Why SEC XBRL Data Is Wrong 1 Out of 5 Times (And How to Fix It)",
-    seo_title="SEC Filings API Accuracy: Why XBRL Data Is Wrong 1 in 5 Times",
+    # 61 characters, which truncated in a result list. The "SEC Filings API
+    # Accuracy:" prefix was the part carrying least weight -- "accuracy" is a
+    # word this site deliberately does not quantify anywhere else -- so it is
+    # the part that goes. The keyword and the hook both survive.
+    seo_title="Why SEC XBRL Data Is Wrong 1 in 5 Times (And How to Fix It)",
     description=(
         "JPMorgan reports Total Assets 23 different ways in one SEC filing. "
         "Most filings APIs pick one at random. Here is why, and how "
@@ -333,7 +337,10 @@ hold in your head — it is the shape of the picture.</p>
 _POST_ACCOUNTING_IDENTITY = Post(
     slug="understanding-the-accounting-identity",
     title="Understanding the Accounting Identity",
-    seo_title="Assets = Liabilities + Equity: What the Identity Actually Proves",
+    # 64 characters. "Actually" was doing rhetorical work rather than search
+    # work; dropping the one word fixes the length without touching the
+    # identity, which is the whole keyword.
+    seo_title="Assets = Liabilities + Equity: What the Identity Proves",
     description=(
         "Assets = Liabilities + Equity is not a rule filers follow but a "
         "consequence of double-entry bookkeeping, which makes it a test on "

@@ -543,3 +543,34 @@ def test_no_post_publishes_a_percentage(client, slug):
     """Counts, not rates. The whole reason test_content_accuracy.py exists."""
     r = client.get(f"/blog/{slug}")
     assert "%" not in _post_prose(r.text), f"/blog/{slug} publishes a percentage"
+
+
+# ---------------------------------------------------------------------------
+# Title tags have a budget
+# ---------------------------------------------------------------------------
+
+TITLE_MAX = 60
+
+
+def test_no_post_title_tag_truncates_in_a_result_list():
+    """`seo_title` is what a search result shows, and it has a width.
+
+    Past 60 characters the tail is replaced with an ellipsis, so whatever was
+    put at the end is the part nobody reads. Checked against `seo_title` and
+    not `title`: the H1 is read on the page, where there is room for it, and
+    the two are separate fields precisely so they can be different lengths.
+    """
+    from src.report.blog import POSTS
+
+    over = [(p.slug, len(p.seo_title), p.seo_title)
+            for p in POSTS if len(p.seo_title) > TITLE_MAX]
+    assert not over, f"title tags over {TITLE_MAX} chars: {over!r}"
+
+
+def test_every_post_has_a_distinct_title_tag():
+    """Two posts sharing a title tag compete with each other for the same
+    result slot, which is a worse outcome than either ranking alone."""
+    from src.report.blog import POSTS
+
+    titles = [p.seo_title for p in POSTS]
+    assert len(titles) == len(set(titles)), "duplicate title tags"
