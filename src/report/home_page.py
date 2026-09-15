@@ -285,9 +285,11 @@ def product_definition() -> str:
         b = None
     if not b:
         return _DEFINITION_METHOD
+    companies = int(b["companies"] or 0)
     return (
         f"{_DEFINITION_METHOD} "
-        f"{fmt_int(b['companies'])} companies covered. "
+        f"{fmt_int(companies)} "
+        f"{plural(companies, 'company', 'companies')} covered. "
         f"{fmt_int(b['reconciled'])} reconcile directly. "
         f"{fmt_int(b['flagged'])} flagged with a reason. "
         f"{fmt_int(b['counts']['broken'])} hidden."
