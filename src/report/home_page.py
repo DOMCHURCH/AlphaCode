@@ -1112,13 +1112,12 @@ def render_home(
        sentence claiming the drawings are accurate is weaker than a drawing. -->
   {_status_strip(stats or {}, freshness)}
   <header class="hero">
-    <h1 class="htitle">Every SEC filing, traced to its source.</h1>
+    <h1 class="htitle">SEC balance sheets that prove they balance.</h1>
     {_definition_para()}
-    <p class="hlede">We pull balance sheets straight from EDGAR, verify each one
-      against the accounting identity (A&nbsp;=&nbsp;L&nbsp;+&nbsp;E), and tell
-      you exactly what we found. When a filing reconciles, you get the figure.
-      When it doesn&rsquo;t, you get the reason &mdash; never a silent wrong
-      number.</p>
+    <p class="hlede">BalanceProof is the verification layer over SEC EDGAR
+      balance sheets. Built for developers and analysts who cannot tolerate a
+      silently wrong number: when a filing reconciles you get the figure, and
+      when it does not you get the reason.</p>
     {search_form(autofocus=True)}
     <p class="summary"><a href="/methodology">How we verify</a>
       &middot; <a href="#how">How this works</a></p>

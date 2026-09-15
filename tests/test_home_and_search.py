@@ -498,7 +498,7 @@ def test_the_home_page_carries_a_quotable_definition(client):
     assert "BalanceProof is a financial data API that reconciles" in body
     assert body.index('class="htitle"') < body.index('class="hlede hdef"')
     assert body.index('class="hlede hdef"') < body.index(
-        "We pull balance sheets straight from EDGAR"
+        "BalanceProof is the verification layer over SEC EDGAR"
     ), "the definition comes before the lede"
     assert 'href="/about"' in body, "one visible route to the About page"
 

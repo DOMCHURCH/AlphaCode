@@ -227,7 +227,7 @@ def test_each_section_carries_the_words_that_page_actually_says(full):
     failure this file exists for: an empty section still looks like a file."""
     for sentence in (
         # /
-        "traced to its source",
+        "prove they balance",
         # /methodology
         "Assets = Liabilities + Equity",
         # /pricing

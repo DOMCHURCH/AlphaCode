@@ -373,7 +373,7 @@ def test_the_home_page_leads_on_provenance_and_not_a_percentage(client):
     r = client.get("/")
     assert r.status_code == 200
     assert "78.6%" not in r.text and "99.9%" not in r.text
-    assert "traced to its source" in r.text
+    assert "prove they balance" in r.text
     assert 'href="/dashboard"' in r.text
 
 
