@@ -99,6 +99,13 @@ def plan_cards(
     with the script blocked the link still reaches a place the purchase can be
     finished, and that place is the billing panel, not /login.
 
+    The free card lands on /dashboard for the same reason. It used to go to
+    /login, which is headed "Sign in" and is written for somebody who already
+    has an account -- the one thing a reader pressing "Get a key" on the free
+    tier does not have. /dashboard opens with a section headed "Get a key" and
+    an address field, which is the sentence the button promised, and it is
+    already where the same button on /api points.
+
     The bullets are the differentiator and are not decoration. Each card says
     what the data DOES -- fixed or live, download or call, analysis or
     automation -- because "10,000 API calls a month" tells somebody who has
@@ -116,7 +123,7 @@ def plan_cards(
         plan: str = "",
         badge: str = "",
     ) -> str:
-        href = "/dashboard#billing" if plan else "/login"
+        href = "/dashboard#billing" if plan else "/dashboard"
         attr = f' data-plan="{escape(plan)}"' if plan else ""
         tag = f'<span class="badge">{escape(badge)}</span>' if badge else ""
         items = "".join(f"<li>{escape(b)}</li>" for b in bullets)
