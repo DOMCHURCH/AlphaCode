@@ -54,7 +54,7 @@ def render_api(
     *,
     nav: str = "",
     base_url: str = "https://alphacode-production.up.railway.app",
-    free_calls: int = 10,
+    free_calls: int = 100,
     pro_calls: int = 10000,
     dataset_price: str = "$79.99",
     demo_calls_per_hour: int = 100,

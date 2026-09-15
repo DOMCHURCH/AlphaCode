@@ -77,7 +77,7 @@ def render_dashboard(
     pro_price: str = "$49",
     pro_annual_price: str = "$490",
     annual_saving: str = "$98",
-    free_limit: int = 10,
+    free_limit: int = 100,
     pro_limit: int = 10_000,
     fact_count: int | None = None,
     dataset_as_of: str = "",

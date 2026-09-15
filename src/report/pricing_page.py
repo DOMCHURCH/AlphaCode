@@ -337,7 +337,7 @@ def render_pricing(
     nav: str = "",
     base_url: str = "",
     admin_email: str = "",
-    free_limit: int = 10,
+    free_limit: int = 100,
     pro_limit: int = 10_000,
     pro_price: str = "$49",
     pro_annual_price: str = "$490",

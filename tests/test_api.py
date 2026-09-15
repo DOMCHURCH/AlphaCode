@@ -2354,9 +2354,15 @@ def test_demo_endpoint_429_after_limit(demo_client):
         _demo(demo_client)
     r = _demo(demo_client)
     assert r.status_code == 429
+    # Both figures come from settings rather than the sentence, so raising a
+    # tier cannot leave the 429 quoting a number the product no longer offers.
+    from src.config.settings import get_settings
+
+    s = get_settings()
     assert r.json()["detail"] == (
-        "Demo rate limit reached. Sign up for a free API key at /dashboard "
-        "for 10 calls a month, or Pro at /pricing for 10,000."
+        f"Demo rate limit reached. Sign up for a free API key at /dashboard "
+        f"for {s.free_tier_monthly_calls} calls a month, or Pro at /pricing "
+        f"for {s.pro_tier_monthly_calls:,}."
     )
     # Still machine-actionable as well as readable.
     assert r.headers["Retry-After"]

@@ -2943,7 +2943,9 @@ def api_demo(ticker: str, request: Request) -> JSONResponse:
         "demo lookups",
         detail=(
             "Demo rate limit reached. Sign up for a free API key at "
-            "/dashboard for 10 calls a month, or Pro at /pricing for 10,000."
+            f"/dashboard for {get_settings().free_tier_monthly_calls} calls a "
+            f"month, or Pro at /pricing for "
+            f"{get_settings().pro_tier_monthly_calls:,}."
         ),
     )
     _enforce_rate(_demo_gate, "demo lookups")

@@ -249,7 +249,7 @@ class Settings(BaseSettings):
     # literally unlimited: an unbounded key is an unbounded database bill if one
     # gets loose, and 10k/month is far past any honest use of this API.
     free_tier_monthly_calls: int = Field(
-        default=10, ge=0, alias="FREE_TIER_MONTHLY_CALLS"
+        default=100, ge=0, alias="FREE_TIER_MONTHLY_CALLS"
     )
     pro_tier_monthly_calls: int = Field(
         default=10_000, ge=0, alias="PRO_TIER_MONTHLY_CALLS"
