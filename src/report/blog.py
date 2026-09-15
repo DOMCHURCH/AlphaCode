@@ -102,6 +102,12 @@ figure roughly <strong>four times in five</strong>. The fifth is
 wrong. Not slightly wrong — wrong by whatever the largest segment happens to
 be, which for a big bank can be most of the balance sheet.</p>
 
+<p><strong>Note:</strong> the 1-in-5 figure measures how often a naive
+first-tag pick returns a non-consolidated value. It is not the same as the
+share of filings still flagged after reconciliation, which is the much smaller
+number on the <a href="/">home page</a>. The first is what you get without
+BalanceProof. The second is what is left after.</p>
+
 <p>That number is not a swipe at anyone. It is what you get from the obvious
 implementation, and the obvious implementation is what almost everybody ships,
 because nothing about it looks broken. Your parser runs clean. Your JSON has a
