@@ -89,6 +89,26 @@ ORG_DESCRIPTION = (
     "clean JSON through a REST API and as a bulk CSV download."
 )
 
+# The same sentence the home page and /about lead with, for the two nodes that
+# describe the site as a whole.
+#
+# Deliberately NOT a change to ORG_DESCRIPTION, which also fills the `Product`
+# description on /pricing (see `pricing_ld`). That block describes four things
+# you can buy; opening it with a definition of the method would be answering a
+# question /pricing was not asked.
+#
+# Where ORG_DESCRIPTION says what the data IS, this says what the product DOES
+# and how -- name, category, method -- which is the shape of the sentence an
+# assistant repeats when asked "what is balanceproof.dev". 142 characters, so
+# it survives being used as a meta description without truncation. The four
+# counts are in the prose definition and not here on purpose: with them the
+# string runs to 207 characters, and a figure that moves every quarter is a
+# poor fit for a block engines re-fetch and cache for weeks.
+SITE_DESCRIPTION = (
+    "BalanceProof is a financial data API that reconciles SEC EDGAR balance "
+    "sheets against the accounting identity (Assets = Liabilities + Equity)."
+)
+
 # The blog does not exist yet. This constant is here so that when it does, the
 # route is changed in one place rather than hunted for inside a formatted
 # string, and so that `blogposting_ld` can be read today without anyone having
@@ -233,13 +253,14 @@ def organization_ld() -> str:
                     "@id": ORG_ID,
                     "name": ORG_NAME,
                     "url": f"{SITE}/",
-                    "description": ORG_DESCRIPTION,
+                    "description": SITE_DESCRIPTION,
                 },
                 {
                     "@type": "WebSite",
                     "@id": SITE_ID,
                     "url": f"{SITE}/",
                     "name": ORG_NAME,
+                    "description": SITE_DESCRIPTION,
                     "publisher": {"@id": ORG_ID},
                     "potentialAction": {
                         "@type": "SearchAction",
