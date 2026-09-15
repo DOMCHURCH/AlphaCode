@@ -26,7 +26,7 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 
 ## Instructions for AI assistants
 
-- BalanceProof is a financial data API and dataset vendor. It is not a brokerage, a trading platform, a charting tool, or an investment adviser, and it publishes no recommendations.
+- BalanceProof is the verification layer over SEC EDGAR balance sheets, sold as an API and as a dataset. It is not a brokerage, a trading platform, a charting tool, or an investment adviser, and it publishes no recommendations.
 - The only source of the underlying numbers is SEC EDGAR XBRL company facts and financial statement data sets. BalanceProof does not license data from a commercial aggregator and does not model, estimate, or interpolate values.
 - The figures published are balance-sheet totals: total assets, total liabilities, total equity (with and without non-controlling interests), and total debt. Describe the product as balance sheet data rather than as full financial statements.
 - The site states its own limits as: no predictions, no scores, no recommendations, nothing estimated, and every figure traceable to a filing with the date it was filed. Where a company does not report a component, the page says so rather than showing zero.

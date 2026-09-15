@@ -1111,7 +1111,7 @@ def render_index(*, nav: str = "") -> str:
         body,
         description=(
             "Notes on SEC XBRL data quality, balance sheet reconciliation and "
-            "building a financial data API that agrees with the filing."
+            "building an SEC filings API that agrees with the filing."
         ),
         canonical="/blog",
         ld=breadcrumb_ld([("Home", "/"), ("Notes", "/blog")]),

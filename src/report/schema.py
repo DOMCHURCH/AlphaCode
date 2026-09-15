@@ -89,6 +89,20 @@ ORG_DESCRIPTION = (
     "clean JSON through a REST API and as a bulk CSV download."
 )
 
+# The category, in the words the rest of the site now uses. It was "a
+# financial data API", which is the shelf Financial Modeling Prep, Finnworlds
+# and fin2dev already occupy with more statements, more history and a larger
+# free tier -- so the sentence an assistant repeats was volunteering the one
+# comparison the product loses. The category is the verification.
+#
+# Named and shared rather than written twice: this clause opens both the
+# machine-readable description below and /about's meta description, and the
+# whole point of the repositioning is that no two places describe the product
+# differently. A copy is how the last one drifted.
+PRODUCT_CLAUSE = (
+    "BalanceProof is the verification layer over SEC EDGAR balance sheets"
+)
+
 # The same sentence the home page and /about lead with, for the two nodes that
 # describe the site as a whole.
 #
@@ -99,14 +113,14 @@ ORG_DESCRIPTION = (
 #
 # Where ORG_DESCRIPTION says what the data IS, this says what the product DOES
 # and how -- name, category, method -- which is the shape of the sentence an
-# assistant repeats when asked "what is balanceproof.dev". 142 characters, so
+# assistant repeats when asked "what is balanceproof.dev". 145 characters, so
 # it survives being used as a meta description without truncation. The four
 # counts are in the prose definition and not here on purpose: with them the
-# string runs to 207 characters, and a figure that moves every quarter is a
+# string runs past 200 characters, and a figure that moves every quarter is a
 # poor fit for a block engines re-fetch and cache for weeks.
 SITE_DESCRIPTION = (
-    "BalanceProof is a financial data API that reconciles SEC EDGAR balance "
-    "sheets against the accounting identity (Assets = Liabilities + Equity)."
+    f"{PRODUCT_CLAUSE}, reconciled against the accounting identity "
+    "(Assets = Liabilities + Equity)."
 )
 
 # The blog does not exist yet. This constant is here so that when it does, the
@@ -563,7 +577,11 @@ def software_ld() -> str:
             "documentation": f"{SITE}/api.json",
             "provider": _ORG_REF,
             "applicationCategory": "DeveloperApplication",
-            "applicationSubCategory": "Financial data API",
+            # The category the product claims, and it has to be the same one
+            # the prose claims: a node saying "Financial data API" while the
+            # page says "verification layer" is the drift this repositioning
+            # exists to remove, in the one field a machine reads as taxonomy.
+            "applicationSubCategory": "SEC filing verification API",
             # A hosted API runs nowhere in particular from the caller's point
             # of view, and Google's validator wants the field present.
             "operatingSystem": "Any",

@@ -58,7 +58,7 @@ def render_about(*, nav: str = "") -> str:
     a quarterly-moving figure is the bug this codebase already documents twice.
     """
     from src.report.nav import SUPPORT_EMAIL, render_footer
-    from src.report.schema import aboutpage_ld, breadcrumb_ld
+    from src.report.schema import PRODUCT_CLAUSE, aboutpage_ld, breadcrumb_ld
 
     footer = render_footer(
         "Something here wrong, or a figure you think does not match the "
@@ -78,10 +78,19 @@ def render_about(*, nav: str = "") -> str:
     return shell(
         "About BalanceProof — Reconciled SEC Balance Sheet API",
         body,
+        # Composed from the shared clause, not retyped around it. This page
+        # keeps its OWN description rather than reusing SITE_DESCRIPTION
+        # wholesale -- eight shell pages sharing one sentence is what the
+        # per-page descriptions were introduced to stop, and the author line
+        # is the half that makes this one /about's. What it must never do is
+        # describe the product differently from the page it sits on, which is
+        # exactly what it was doing: the body said "verification layer" while
+        # the meta tag still said "financial data API". 155 characters, so it
+        # is not truncated. The identity parenthetical is dropped to make room
+        # for the attribution, as it was before.
         description=(
-            "BalanceProof is a financial data API that reconciles SEC EDGAR "
-            "balance sheets against the accounting identity. Built solo by "
-            "Dominique Church in Ottawa."
+            f"{PRODUCT_CLAUSE}, reconciled against the accounting identity. "
+            "Built solo by Dominique Church in Ottawa."
         ),
         canonical="/about",
         ld=breadcrumb_ld([("Home", "/"), ("About", "/about")]) + aboutpage_ld(),
