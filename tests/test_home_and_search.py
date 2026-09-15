@@ -481,7 +481,7 @@ def test_about_is_a_real_page_that_defines_the_product(client):
     body = r.text
 
     assert "<h1>About BalanceProof</h1>" in body
-    assert "financial data API that reconciles SEC EDGAR balance sheets" in body
+    assert "BalanceProof is the verification layer over SEC EDGAR" in body
     assert '"@type":"AboutPage"' in body, "the node an engine should prefer"
     assert "Dominique Church" in body, "who built it, on the page about it"
     for href in ('href="/methodology"', 'href="/pricing"'):
@@ -495,10 +495,10 @@ def test_the_home_page_carries_a_quotable_definition(client):
 
     body = client.get("/").text
 
-    assert "BalanceProof is a financial data API that reconciles" in body
+    assert "BalanceProof is the verification layer over SEC EDGAR" in body
     assert body.index('class="htitle"') < body.index('class="hlede hdef"')
     assert body.index('class="hlede hdef"') < body.index(
-        "BalanceProof is the verification layer over SEC EDGAR"
+        "Built for developers and analysts"
     ), "the definition comes before the lede"
     assert 'href="/about"' in body, "one visible route to the About page"
 

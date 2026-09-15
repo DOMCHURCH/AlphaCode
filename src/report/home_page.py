@@ -250,15 +250,21 @@ def _compact(n: int) -> str:
 # It is deliberately flat prose. Nothing here is a claim about quality, so
 # there is nothing in it that goes stale the way "99.9% accurate" did.
 #
+# The category was "a financial data API", which is the shelf FMP, Finnworlds
+# and fin2dev already own with more statements, more history and a larger free
+# tier. Naming it was conceding the comparison. The category is the
+# verification, so that is what the first sentence now says, and it agrees
+# with the H1 and the lede rather than arguing with them.
+#
 # Shared with /about, which needs to say the same thing in the same words --
 # two pages that define the product differently give an engine a reason to
 # trust neither.
 _DEFINITION_METHOD = (
-    "BalanceProof is a financial data API that reconciles SEC EDGAR balance "
-    "sheets against the accounting identity (Assets = Liabilities + Equity). "
-    "Every figure is pulled as-filed and checked before it is stored. When a "
-    "filing does not balance, the page says so with the reason instead of "
-    "adjusting the numbers."
+    "BalanceProof is the verification layer over SEC EDGAR balance sheets. "
+    "Every filing is reconciled against the accounting identity "
+    "(Assets = Liabilities + Equity). Every figure is pulled as-filed and "
+    "checked before it is stored. When a filing does not balance, the page "
+    "says so with the reason instead of adjusting the numbers."
 )
 
 
