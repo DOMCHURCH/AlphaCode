@@ -220,6 +220,39 @@ def webpage_ld(name: str, description: str, path: str) -> str:
     )
 
 
+def aboutpage_ld() -> str:
+    """/about, as the node an engine should prefer for "what is BalanceProof".
+
+    `AboutPage` is the one schema.org type that says "this page is about the
+    thing that publishes it", which is exactly the question being answered
+    badly today: Google's AI Overview was sourcing its description of the
+    product from three company pages, because nothing on the site declared
+    itself as the page about the product.
+
+    `mainEntity` carries the full `_ORG_REF` rather than a bare `{"@id": ...}`.
+    `organization_ld()` ships on the home page and only there, so a reference
+    on /about would dangle -- a validator reads `mainEntity` as
+    present-but-empty and reports it missing. Restating name and url alongside
+    the stable `@id` is not a second organisation; JSON-LD merges nodes sharing
+    an `@id`, so it is the same one described twice.
+
+    The description is `SITE_DESCRIPTION`, the same sentence the home page
+    leads with and carries in its Organization and WebSite nodes. Two pages
+    defining the product differently give an engine a reason to trust neither.
+    """
+    return _script(
+        {
+            "@context": "https://schema.org",
+            "@type": "AboutPage",
+            "name": "About BalanceProof",
+            "description": SITE_DESCRIPTION,
+            "url": f"{SITE}/about",
+            "mainEntity": _ORG_REF,
+            "isPartOf": {"@id": SITE_ID},
+        }
+    )
+
+
 def organization_ld() -> str:
     """Who publishes this site, and how to search it.
 

@@ -2059,16 +2059,6 @@ def home(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/about")
-def about() -> RedirectResponse:
-    """The explanation lives on the home page now, below the search.
-
-    Kept as a redirect rather than deleted: it was a real URL for a while, and
-    a link that used to work should keep working.
-    """
-    return RedirectResponse(url="/#how", status_code=307)
-
-
 @app.get("/search")
 def search(q: str = Query("", max_length=64)) -> Response:
     """A ticker or a company name in, a company out.
@@ -3675,6 +3665,19 @@ def alternatives_page(slug: str, request: Request) -> HTMLResponse:
     return _compare_page("alternatives", slug, request)
 
 
+@app.get("/about", response_class=HTMLResponse)
+def about_page(request: Request) -> HTMLResponse:
+    """What this is and who built it, on a page that says so on purpose.
+
+    Answer engines were describing the product out of three company pages,
+    because company pages are the most numerous thing here and each mentions
+    the product in passing. This is the page that states it directly.
+    """
+    from src.report.about_page import render_about
+
+    return HTMLResponse(_versioned(render_about(nav=_nav_for(request, "about"))))
+
+
 @app.get("/methodology", response_class=HTMLResponse)
 def methodology_page(request: Request) -> HTMLResponse:
     """What the accuracy figure on the home page actually measures.
@@ -3785,6 +3788,7 @@ def _llms_full_sections(request: Request) -> list[tuple[str, str]]:
 
     sections = [
         ("/", body(home(request))),
+        ("/about", body(about_page(request))),
         ("/methodology", body(methodology_page(request))),
         ("/pricing", body(pricing(request))),
         ("/api", body(api_page(request))),

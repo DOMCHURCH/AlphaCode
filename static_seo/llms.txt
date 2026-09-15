@@ -9,6 +9,7 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 ## Core platform
 
 - [BalanceProof — home](https://balanceproof.dev/): Product overview, the reconciliation method, and ticker search.
+- [About BalanceProof](https://balanceproof.dev/about): What the product is, who builds it, the reconciliation method, and what it deliberately does not do.
 - [Pricing](https://balanceproof.dev/pricing): Free tier, Pro API at $49/month or $490/year, and the one-time dataset download at $79.99.
 - [Full dataset download](https://balanceproof.dev/dataset): What the bulk CSV contains, its column schema, and how it is priced.
 

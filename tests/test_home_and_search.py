@@ -143,7 +143,14 @@ def test_home_is_the_product_not_a_redirect(client):
     # The old fallback description was the SAME sentence on all eight
     # shell pages, which is one page to a search engine and eight
     # near-duplicates to a crawler. Each page carries its own now.
-    assert "econciled balance sheet data from SEC EDGAR" in body
+    #
+    # The Organization and WebSite nodes carry the defining sentence rather
+    # than the data-formats blurb they used to share with the /pricing
+    # Product block: "what is balanceproof.dev" is answered by naming the
+    # category and the method, not by listing delivery formats.
+    assert (
+        "financial data API that reconciles SEC EDGAR balance sheets" in body
+    )
     assert 'action="/search"' in body
     assert 'href="/company/JPM"' in body
 
@@ -459,12 +466,41 @@ def test_the_nav_does_not_advertise_the_same_page_as_a_destination(client):
     assert 'href="#how"' in body.split("</nav>", 1)[1], "the stat-line jump stays"
 
 
-def test_about_redirects_onto_the_home_page(client):
-    """It was a real URL for a while; a link that used to work keeps working."""
+def test_about_is_a_real_page_that_defines_the_product(client):
+    """/about used to 307 onto /#how, because the explanation lived on the home
+    page and a URL that once worked should keep working.
+
+    It is a page again. Answer engines were describing this product out of
+    three company pages -- the most numerous thing here, each mentioning the
+    product only in passing -- because nothing on the site declared itself as
+    the page about the product. A redirect cannot be cited; a page can.
+    """
     r = client.get("/about", follow_redirects=False)
 
-    assert r.status_code == 307
-    assert r.headers["location"] == "/#how"
+    assert r.status_code == 200
+    body = r.text
+
+    assert "<h1>About BalanceProof</h1>" in body
+    assert "financial data API that reconciles SEC EDGAR balance sheets" in body
+    assert '"@type":"AboutPage"' in body, "the node an engine should prefer"
+    assert "Dominique Church" in body, "who built it, on the page about it"
+    for href in ('href="/methodology"', 'href="/pricing"'):
+        assert href in body, f"/about must link {href}"
+
+
+def test_the_home_page_carries_a_quotable_definition(client):
+    """The sentence an assistant should lift, directly under the H1 -- and
+    before the lede, which is written to persuade rather than to define."""
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+
+    assert "BalanceProof is a financial data API that reconciles" in body
+    assert body.index('class="htitle"') < body.index('class="hlede hdef"')
+    assert body.index('class="hlede hdef"') < body.index(
+        "We pull balance sheets straight from EDGAR"
+    ), "the definition comes before the lede"
+    assert 'href="/about"' in body, "one visible route to the About page"
 
 
 def test_admin_is_reachable_from_the_front_door_and_nowhere_else(client):
