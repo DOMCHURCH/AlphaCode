@@ -34,11 +34,22 @@ _TONE_VARS = {
     "asset": ("--a0", "--a1", "--a2", "--a3", "--a4", "--a5", "--a6"),
     "liability": ("--l0", "--l1", "--l2", "--l3"),
 }
-# Tints this pale need ink labels, not white ones.
 # Bands pale enough that a white label fails on them and an ink label is needed.
-# --a3 and --l2 join the set for the dark palette, where every tint is lifted:
-# white on #8299EF is 2.7:1, which is not a label, it is a rumour.
-_PALE = {"--a3", "--a4", "--a5", "--a6", "--l2", "--l3"}
+#
+# This is the LIGHT palette's answer, measured rather than judged by eye --
+# `scripts/check_contrast.py` prints the ratio for both label colours on every
+# tint, and a tint belongs here when ink beats white AND clears 4.5:1.
+#
+# --a3 used to be in this set and was the worst label on the page: ink on
+# #6274D4 is 3.58:1, while white on it is 4.23:1. Neither passed, which is why
+# the tint itself was nudged a shade darker; white on it now measures 4.53:1
+# and the ink rule it had was removing contrast, not adding it.
+#
+# The dark palette lifts every tint and therefore disagrees about --a2, --a3
+# and --l1. That disagreement cannot be expressed here, because this runs on
+# the server and the theme is chosen in the browser: dark.css re-points those
+# three by matching the inline fill, the same way it already handles .exband.
+_PALE = {"--a4", "--a5", "--a6", "--l2", "--l3"}
 
 
 def _colour(block: dict[str, Any]) -> str:

@@ -87,6 +87,15 @@ body { background: var(--bg); color: var(--ink); }
 .exband[style*="--a5"],
 .exband[style*="--a6"],
 .exband[style*="--yellow"] { color: var(--band-ink-pale); }
+/* Three tints the light palette leaves white and this one cannot. Every tint
+   here is lifted, so --a2, --a3 and --l1 cross the point where white stops
+   working: white on #6680E8 is 3.61:1 and on #EA5148 is 3.64:1, against 5.45
+   and 5.41 for ink. The server cannot mark these -- it emits one class for
+   both themes and the theme is chosen here -- so they are matched on the
+   inline fill, the same way .exband already is. */
+.band[style*="--a2"] .bl,
+.band[style*="--a3"] .bl,
+.band[style*="--l1"] .bl { color: var(--band-ink-pale); }
 /* A negative-equity band is now a well with a yellow rule, so its label is
    yellow on near-black rather than yellow on ink. */
 .band.neg .bl, .band.keep.loss .bl { color: var(--yellow); }

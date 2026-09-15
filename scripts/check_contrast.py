@@ -129,12 +129,72 @@ def on_the_veil() -> list[tuple[str, float, bool]]:
     return out
 
 
+# --------------------------------------------------------------- band labels
+# The drawing itself, which is the thing the product exists to produce and was
+# the one surface this file did not measure. Both palettes, because the tints
+# are re-declared in dark.css and a label that passes in one theme can fail in
+# the other -- which is exactly what was happening.
+LIGHT_TINTS = {
+    "--a0": "#1B3299", "--a1": "#2340BE", "--a2": "#4058C9", "--a3": "#5E6FCC",
+    "--a4": "#8B99E2", "--a5": "#B2BCEE", "--a6": "#D3D8F6",
+    "--l0": "#B02218", "--l1": "#DC352B", "--l2": "#EC6157", "--l3": "#F49A93",
+    "--yellow": "#F3C218",
+}
+DARK_TINTS = {
+    "--a0": "#3B56D6", "--a1": "#4D68E0", "--a2": "#6680E8", "--a3": "#8299EF",
+    "--a4": "#9FB2F4", "--a5": "#BCC9F8", "--a6": "#DAE1FC",
+    "--l0": "#D33A31", "--l1": "#EA5148", "--l2": "#F27B72", "--l3": "#F7AAA4",
+    "--yellow": "#F7D848",
+}
+# Which tints get an ink label rather than a white one. Light is the set in
+# `company_page._PALE` plus the equity band; dark adds the three that its
+# lifted tints push over the line, via the [style*=] rules in dark.css.
+LIGHT_INK = {"--a4", "--a5", "--a6", "--l2", "--l3", "--yellow"}
+DARK_INK = LIGHT_INK | {"--a2", "--a3", "--l1"}
+LIGHT_BAND_INK = hexc("22262F")
+DARK_BAND_INK = hexc("0B0B0B")
+BAND_WHITE = hexc("FFFFFF")
+
+
+def band_labels() -> list[tuple[str, float, bool]]:
+    """Every band label on its own fill, in both themes.
+
+    Deterministic: a band is an opaque colour, not a veil over a film, so
+    these are enforced.
+
+    The remainder hatch is not composited in, because it cannot reach a label
+    that needs help: a remainder is always the palest tint in its family
+    (`view1` gives it tone 6 for assets and tone 3 for liabilities), so it is
+    always an ink label, and lightening an already-pale fill only raises the
+    ratio. Measured: ink over the hatched --a6 is 12.23:1 light and 16.07:1
+    dark, against --l3 9.45:1 and 12.15:1. axe reports those bands
+    "incomplete" because it cannot compute contrast through a gradient, which
+    is not the same as reporting them as failures.
+    """
+    out = []
+    for theme, tints, inks, ink in (
+        ("light", LIGHT_TINTS, LIGHT_INK, LIGHT_BAND_INK),
+        ("dark", DARK_TINTS, DARK_INK, DARK_BAND_INK),
+    ):
+        for name, value in tints.items():
+            chosen = ink if name in inks else BAND_WHITE
+            which = "ink" if name in inks else "white"
+            out.append((
+                f"{theme:<5} {name:<8} {value} {which:<5}",
+                ratio(chosen, hexc(value)),
+                True,
+            ))
+    return out
+
+
 def main() -> int:
     failures = 0
     for heading, rows in (
         ("Tab strip (opaque ground -- fixed number)", tab_surfaces()),
         ("Footer and form labels (opaque ground)", veil_borne_text()),
         ("Text on solid surfaces", solid_text()),
+        ("Balance-sheet band labels (opaque fills -- both themes)",
+         band_labels()),
         ("With NO opaque ground -- what the veil alone gives", on_the_veil()),
     ):
         print(f"\n{heading}")

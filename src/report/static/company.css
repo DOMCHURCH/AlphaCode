@@ -50,9 +50,9 @@
 
   /* DATA ONLY, from here down. */
   --red:#E1362C; --blue:#2340BE; --yellow:#F3C218;
-  --a0:#1B3299; --a1:#2340BE; --a2:#4058C9; --a3:#6274D4;
+  --a0:#1B3299; --a1:#2340BE; --a2:#4058C9; --a3:#5E6FCC;
   --a4:#8B99E2; --a5:#B2BCEE; --a6:#D3D8F6;
-  --l0:#B02218; --l1:#E1362C; --l2:#EC6157; --l3:#F49A93;
+  --l0:#B02218; --l1:#DC352B; --l2:#EC6157; --l3:#F49A93;
 }
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--ink);
