@@ -952,8 +952,15 @@ def test_only_the_drawing_carries_colour(client):
 
 
 def test_the_company_page_has_a_way_back(client):
-    """The wordmark always linked home, but nobody reads a wordmark as a
-    control -- the browser back button was the only obvious exit."""
+    """A way back, and now a way onward.
+
+    This used to be a lone "← Search" link, which answered "how do I leave"
+    and nothing else. These are the pages search engines actually send people
+    to, and a reader who arrived from a search result could not reach Pricing,
+    About or a sign-in from here without editing the URL. The global bar
+    replaces the back link: the wordmark still goes home, and the rest of the
+    site is reachable for the first time.
+    """
     _seed_company("JPM", {
         "total_assets": 4_424_900_000_000.0,
         "total_liabilities": 4_062_462_000_000.0,
@@ -963,18 +970,18 @@ def test_the_company_page_has_a_way_back(client):
     text = client.get("/company/JPM").text
     nav = text.split("<nav>", 1)[1].split("</nav>", 1)[0]
 
-    assert 'class="back" href="/"' in nav
-    assert "Search" in nav
-    # And it comes before the wordmark, so the exit is the first thing in the
-    # nav rather than something to find.
-    assert nav.index('class="back"') < nav.index('class="brand"')
+    assert 'class="brand" href="/"' in nav
+    for href in ("/about", "/methodology", "/pricing", "/blog", "/api"):
+        assert f'href="{href}"' in nav, f"{href} missing from the company nav"
+    assert "Dashboard" in nav
 
 
 def test_the_not_found_page_has_a_way_back_too(client):
     nav = client.get("/company/NOSUCH").text.split(
         "<nav>", 1)[1].split("</nav>", 1)[0]
 
-    assert 'class="back" href="/"' in nav
+    assert 'class="brand" href="/"' in nav
+    assert 'href="/pricing"' in nav
 
 
 def test_company_page_escapes_the_ticker(client):

@@ -471,8 +471,17 @@ def render_company_page(
     ask_available: bool = False,
     extras: dict[str, str] | None = None,
     requested_ticker: str | None = None,
+    nav: str = "",
 ) -> str:
     """`extras` is the one row from `company_page_extras`, already rendered.
+
+    `nav` is the global bar, rendered by the route because only the route can
+    see the session. These are the pages search engines actually send people
+    to, and for a long time they were the only ones with no way out except the
+    wordmark: a reader who arrived here from a search result could not reach
+    Pricing, About or a sign-in without editing the URL. Empty renders the page
+    with no bar rather than failing, which is what a direct caller in a test
+    gets.
 
     Passed in rather than fetched here so this function stays a pure render and
     the page's query count remains something you can read off the route. None
@@ -671,15 +680,7 @@ def render_company_page(
 <body data-film="hero">
 {backdrop}
 <a class="skip" href="#main">Skip to content</a>
-<nav><div class="wrap nav">
-  <!-- The wordmark has always linked home, but nobody reads a wordmark as a
-       control. The explicit back link is the difference between a way out and
-       one you have to guess at. -->
-  <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
-  <span class="spacer"></span>
-  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
-</div></nav>
-
+{nav}
 
 <main class="wrap" id="main">
   <header class="chead">
@@ -746,6 +747,7 @@ def render_company_page(
     f'makes no prediction.'
 )}
 </main>
+<script src="/static/nav.js?v={asset_version()}" defer></script>
 {'<script src="/static/company.js?v=' + asset_version() + '" defer></script>'
  if ask_available else ''}
 </body>
@@ -753,7 +755,7 @@ def render_company_page(
 
 
 
-def render_not_found(ticker: str, reason: str) -> str:
+def render_not_found(ticker: str, reason: str, nav: str = "") -> str:
     """The ticker-shaped 404: says what is missing, then offers real tickers.
 
     A thin delegate over `render_404_page`, which owns the markup. The wording
@@ -764,10 +766,13 @@ def render_not_found(ticker: str, reason: str) -> str:
         title=f"{ticker} — nothing to draw",
         heading=f"Nothing to draw for {ticker}",
         reason=reason,
+        nav=nav,
     )
 
 
-def render_404_page(*, title: str, heading: str, reason: str) -> str:
+def render_404_page(
+    *, title: str, heading: str, reason: str, nav: str = ""
+) -> str:
     """Says what is missing, then offers tickers that are actually there.
 
     The alternatives are read out of the database, not hardcoded: sending a
@@ -823,14 +828,7 @@ def render_404_page(*, title: str, heading: str, reason: str) -> str:
 <body data-film="hero">
 {backdrop}
 <a class="skip" href="#main">Skip to content</a>
-<nav><div class="wrap nav">
-  <!-- The wordmark has always linked home, but nobody reads a wordmark as a
-       control. The explicit back link is the difference between a way out and
-       one you have to guess at. -->
-  <a class="back" href="/"><span aria-hidden="true">←</span> Search</a>
-  <span class="spacer"></span>
-  <a class="brand" href="/"><span class="dot"></span>BalanceProof</a>
-</div></nav>
+{nav}
 
 <main class="wrap" id="main">
   <div class="empty">
@@ -840,5 +838,6 @@ def render_404_page(*, title: str, heading: str, reason: str) -> str:
     {alternatives}
   </div>
 </main>
+<script src="/static/nav.js?v={asset_version()}" defer></script>
 </body>
 </html>"""

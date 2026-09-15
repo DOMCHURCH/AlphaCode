@@ -382,6 +382,7 @@ async def not_found(request: Request, exc: HTTPException) -> Response:
                     "That address does not match anything on this site. It may "
                     "have been mistyped, or it may never have existed."
                 ),
+                nav=_nav_for(request, ""),
             )
         ),
         status_code=404,
@@ -1773,8 +1774,13 @@ def _refresh_page_extras() -> int:
 
 
 @app.get("/company/{ticker}", response_class=HTMLResponse)
-def company_page(ticker: str) -> HTMLResponse:
-    """One ticker in, one page out. Two database reads, nothing that can hang."""
+def company_page(ticker: str, request: Request) -> HTMLResponse:
+    """One ticker in, one page out. Two database reads, nothing that can hang.
+
+    `request` is here for the nav bar and nothing else: the bar renders the
+    session server-side, and these are the pages search sends people to, so
+    they are the ones that most need a way through to the rest of the site.
+    """
     from src.company.view1 import build_view1
     from src.company.view2 import build_view2
     from src.company.view3 import build_view3
@@ -1783,7 +1789,8 @@ def company_page(ticker: str) -> HTMLResponse:
     symbol = _clean_ticker(ticker)
     if not _is_ticker_shaped(symbol):
         return HTMLResponse(
-            render_not_found(symbol, "That does not look like a ticker symbol."),
+            render_not_found(symbol, "That does not look like a ticker symbol.",
+                             nav=_nav_for(request, "")),
             status_code=404,
         )
     try:
@@ -1791,7 +1798,8 @@ def company_page(ticker: str) -> HTMLResponse:
     except Exception as exc:  # noqa: BLE001 - a broken page must still say why
         log.exception("company_page_failed", ticker=symbol, error=str(exc))
         return HTMLResponse(
-            render_not_found(symbol, f"Something went wrong reading it: {exc}"),
+            render_not_found(symbol, f"Something went wrong reading it: {exc}",
+                             nav=_nav_for(request, "")),
             status_code=500,
         )
     if view is None:
@@ -1800,6 +1808,7 @@ def company_page(ticker: str) -> HTMLResponse:
                 symbol,
                 "There are no filed fundamentals for it in the database, or it "
                 "reports no total for assets — so there is nothing to draw to scale.",
+                nav=_nav_for(request, ""),
             ),
             status_code=404,
         )
@@ -1840,6 +1849,7 @@ def company_page(ticker: str) -> HTMLResponse:
             ask_available=_ASK_MODEL is not None,
             extras=extras,
             requested_ticker=symbol,
+            nav=_nav_for(request, ""),
         )
     )
 
@@ -2060,7 +2070,7 @@ def home(request: Request) -> HTMLResponse:
 
 
 @app.get("/search")
-def search(q: str = Query("", max_length=64)) -> Response:
+def search(request: Request, q: str = Query("", max_length=64)) -> Response:
     """A ticker or a company name in, a company out.
 
     A redirect rather than a rendered result wherever the answer is
@@ -2121,7 +2131,8 @@ def search(q: str = Query("", max_length=64)) -> Response:
 
     return HTMLResponse(
         render_not_found(
-            raw[:40], f"No companies found matching “{raw[:40]}”."
+            raw[:40], f"No companies found matching “{raw[:40]}”.",
+            nav=_nav_for(request, ""),
         ),
         status_code=404,
     )
