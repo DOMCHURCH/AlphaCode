@@ -240,6 +240,73 @@ def _compact(n: int) -> str:
     return f"{n:,}"
 
 
+# The sentences an answer engine should be able to lift whole.
+#
+# Google's AI Overview was answering "what is balanceproof.dev" by assembling a
+# description out of three company pages -- /company/IDT, /company/LLPS,
+# /company/OBIO -- because the home page led with a headline and a lede written
+# to persuade a reader, and neither one is a definition. This is the
+# definition: name, category, method, then what happens when the method fails.
+# It is deliberately flat prose. Nothing here is a claim about quality, so
+# there is nothing in it that goes stale the way "99.9% accurate" did.
+#
+# Shared with /about, which needs to say the same thing in the same words --
+# two pages that define the product differently give an engine a reason to
+# trust neither.
+_DEFINITION_METHOD = (
+    "BalanceProof is a financial data API that reconciles SEC EDGAR balance "
+    "sheets against the accounting identity (Assets = Liabilities + Equity). "
+    "Every figure is pulled as-filed and checked before it is stored. When a "
+    "filing does not balance, the page says so with the reason instead of "
+    "adjusting the numbers."
+)
+
+
+def product_definition() -> str:
+    """The definition, with the four counts read live rather than typed in.
+
+    The counts are the same four `identity_breakdown()` gives /methodology,
+    formatted into the same four sentences. Written down instead, they would be
+    the third generation of the bug this module already documents twice: a
+    literal `6201` sat in `dataset_ld` as an argument, and `companies_label`
+    exists because "6,201 companies" had been typed into six files by hand.
+    A definition an engine is invited to quote is the worst place yet for a
+    figure that moves every quarter.
+
+    When the breakdown cannot be read -- fresh database, first boot -- the
+    method sentences are returned alone. Four sentences reading "0 companies
+    covered" would be a false definition, and no definition beats a wrong one.
+    """
+    try:
+        from src.company.stats import identity_breakdown
+
+        b = identity_breakdown()
+    except Exception:  # noqa: BLE001 - copy must not take a page down
+        b = None
+    if not b:
+        return _DEFINITION_METHOD
+    return (
+        f"{_DEFINITION_METHOD} "
+        f"{fmt_int(b['companies'])} companies covered. "
+        f"{fmt_int(b['reconciled'])} reconcile directly. "
+        f"{fmt_int(b['flagged'])} flagged with a reason. "
+        f"{fmt_int(b['counts']['broken'])} hidden."
+    )
+
+
+def _definition_para() -> str:
+    """The definition as the home page renders it: one paragraph, plus the one
+    visible route to /about.
+
+    Carries `hlede` as well as `hdef` so it inherits the lede's type in all
+    four stylesheets rather than needing a new rule in each of them.
+    """
+    return (
+        f'<p class="hlede hdef">{product_definition()} '
+        '<a href="/about">Learn more about how BalanceProof works</a>.</p>'
+    )
+
+
 def _accuracy_banner() -> str:
     """The differentiator, stated as a method rather than a percentage.
 
@@ -1044,6 +1111,7 @@ def render_home(
   {_status_strip(stats or {}, freshness)}
   <header class="hero">
     <h1 class="htitle">Every SEC filing, traced to its source.</h1>
+    {_definition_para()}
     <p class="hlede">We pull balance sheets straight from EDGAR, verify each one
       against the accounting identity (A&nbsp;=&nbsp;L&nbsp;+&nbsp;E), and tell
       you exactly what we found. When a filing reconciles, you get the figure.
