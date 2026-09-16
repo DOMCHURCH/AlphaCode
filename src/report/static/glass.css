@@ -605,6 +605,36 @@ body[data-film="hero"] main::after {
 }
 @media (max-width: 620px) { .leadin > .strip { align-self: stretch; } }
 
+/* ---------------------------------------------------------------------------
+   Phone scale
+   ---------------------------------------------------------------------------
+   Everything above is sized for a screen with a metre of room. On a 390px
+   phone the strip alone ran past a full screenful -- eight cells at desktop
+   padding, wrapping one or two to a row -- so the first thing anybody met was
+   a column of unlabelled figures they had to scroll past to reach the name of
+   the product. Moving it below the drawing fixes the ORDER; this fixes the
+   SIZE, which was the other half of the same complaint.
+
+   Type only, and no content: every cell, label and figure the strip carries on
+   a desktop it still carries here. */
+@media (max-width: 620px) {
+  .htitle {
+    font-size: clamp(26px, 7.4vw, 34px);
+    max-width: 18ch;
+    line-height: 1.08;
+  }
+  .hlede { font-size: 15px; line-height: 1.55; }
+  .hero { padding: 18px 0 20px; }
+
+  /* Roughly a third of its old height. The label was set at desktop tracking,
+     which is what made "FLAGGED WITH A REASON" wide enough to own a row by
+     itself; at 9.5px and tighter tracking the cells pack three to a row. */
+  .leadin > .strip { margin: 4px 0 22px; }
+  .scell { padding: 8px 12px; gap: 2px; }
+  .sk { font-size: 9.5px; letter-spacing: .055em; }
+  .sv { font-size: 13px; }
+}
+
 
 /* This rule used to suppress the blur on every page but the home page, on the
    grounds that a still image does not need re-blurring per frame. Every page
