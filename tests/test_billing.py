@@ -817,8 +817,12 @@ def test_the_paid_pricing_cards_start_a_checkout_not_a_login(client):
     # The fallback for a blocked script is the billing panel, NOT /login: the
     # login page is the dead end being fixed, so it must not be the fallback.
     assert '<a class="plan-cta" href="/dashboard#billing" data-plan=' in home
-    # The free card is a signup and correctly still goes to sign-in.
-    assert '<a class="plan-cta" href="/login">Get a key</a>' in home
+    # The free card is a signup, and it goes to /dashboard rather than /login.
+    # Updated in bd1abde, when the button moved: /login is headed "Sign in"
+    # and is written for somebody who already has an account, which is the one
+    # thing a reader pressing "Get a key" does not have. /dashboard opens with
+    # a section headed "Get a key" and an address field.
+    assert '<a class="plan-cta" href="/dashboard">Get a key</a>' in home
 
 
 def test_the_home_script_posts_a_checkout_and_never_redirects_to_login(client):
