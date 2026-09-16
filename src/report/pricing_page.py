@@ -189,6 +189,38 @@ def plan_cards(
 # Dataset vs API, as a table
 # ---------------------------------------------------------------------------
 
+def coverage_line() -> str:
+    """What the plans are plans FOR, in one line.
+
+    Every other page carries the coverage; /pricing described what a tier
+    buys without ever saying what it buys access TO, which leaves the reader
+    weighing 1,000 calls a month against a universe they have to go and find.
+
+    Counts read live. `identity_breakdown()` for the companies -- the same
+    source the home page definition and /methodology use, so the three cannot
+    disagree -- and `facts_label` for the row count, which is the one place
+    that figure is computed. "" when either is unreadable: a coverage claim
+    reading "0 companies" would be worse than no coverage claim.
+    """
+    from src.company.stats import identity_breakdown
+    from src.dataset import facts_label
+    from src.report.home_page import plural
+
+    try:
+        b = identity_breakdown() or {}
+    except Exception:  # noqa: BLE001 - copy must not take a page down
+        b = {}
+    companies = int(b.get("companies") or 0)
+    facts = facts_label()
+    if not companies or not facts:
+        return ""
+    return (
+        f'<p class="sec-sub">Coverage: {companies:,} US-listed '
+        f"{plural(companies, 'company', 'companies')}, {facts} as-reported "
+        "facts, every balance sheet reconciled against A = L + E.</p>"
+    )
+
+
 def comparison_table(
     *, dataset_price: str, pro_price: str, pro_limit: int
 ) -> str:
@@ -200,6 +232,16 @@ def comparison_table(
     """
     yes = '<span class="yes" aria-label="yes">&#10003;</span>'
     no = '<span class="no" aria-label="no">&#10007;</span>'
+    # Same universe whichever way you buy it, which is the point of saying so
+    # in a table that otherwise only lists differences. Em dash when the count
+    # cannot be read, rather than a zero that reads as a claim.
+    from src.company.stats import identity_breakdown
+
+    try:
+        n = int((identity_breakdown() or {}).get("companies") or 0)
+    except Exception:  # noqa: BLE001 - one row must not take the page
+        n = 0
+    covered = f"{n:,}" if n else "&#8212;"
     return f"""
     <div class="tablewrap">
       <table class="compare compare-3">
@@ -227,6 +269,9 @@ def comparison_table(
           <tr><th scope="row">Automation</th>
               <td>{no} Manual</td>
               <td>{yes} Programmatic</td></tr>
+          <tr><th scope="row">Companies covered</th>
+              <td>{covered}</td>
+              <td>{covered}</td></tr>
           <tr><th scope="row">Drawings &amp; search on this site</th>
               <td>{yes} Free, unlimited</td>
               <td>{yes} Free, unlimited</td></tr>
@@ -371,6 +416,7 @@ def render_pricing(
     <p class="hlede">The drawings are free and always will be. The
       machine-readable version is what costs money — and it comes two ways,
       which are not the same product.</p>
+    {coverage_line()}
   </header>
 
   <!-- Said once, plainly, above everything priced. A reader who takes only
