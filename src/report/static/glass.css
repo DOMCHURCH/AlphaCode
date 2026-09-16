@@ -579,6 +579,33 @@ body[data-film="hero"] main::after {
 .strip { display: inline-flex; max-width: 100%; }
 @media (max-width: 620px) { .strip { display: flex; } }
 
+/* ---------------------------------------------------------------------------
+   The lead-in: one DOM order, two readings
+   ---------------------------------------------------------------------------
+   The strip is written LAST in the source, because source order is the order a
+   phone reads and a phone should meet the claim before the evidence for it.
+   A wide screen has room to show both at once, and there the strip reads as a
+   masthead, so it is lifted back above the hero with `order` rather than
+   rendered a second time. Flex only -- no grid areas, no duplicate markup, and
+   no JavaScript: the whole difference is one integer at one breakpoint.
+
+   `align-self` is the one thing that has to be restated. `.strip` is
+   inline-flex so it hugs its cells, and a flex item is blockified -- without
+   this it would stretch the full width of the fold and become the unfinished
+   table the rule above exists to prevent. */
+.leadin { display: flex; flex-direction: column; }
+.leadin > .strip { align-self: flex-start; }
+@media (min-width: 901px) {
+  .leadin > .strip { order: -1; }
+}
+@media (max-width: 900px) {
+  /* Below the drawing it is a footnote to the page, not a header for it, so
+     it loses the margin it carried as the first element and gains one above. */
+  .leadin > .strip { margin: 4px 0 30px; }
+}
+@media (max-width: 620px) { .leadin > .strip { align-self: stretch; } }
+
+
 /* This rule used to suppress the blur on every page but the home page, on the
    grounds that a still image does not need re-blurring per frame. Every page
    carries the film now, so the selector matched nothing -- and dead CSS keyed

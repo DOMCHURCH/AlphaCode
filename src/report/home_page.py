@@ -1129,11 +1129,15 @@ def render_home(
 {nav}
 
 <main class="wrap" id="main">
-  <!-- Above the fold, in this order: what is loaded, what you can ask it, and
-       one real company's real balance sheet. No marketing headline standing
-       between the reader and the output -- the output IS the argument, and a
-       sentence claiming the drawings are accurate is weaker than a drawing. -->
-  {_status_strip(stats or {}, freshness)}
+  <!-- Source order is the PHONE's order, and the phone reads top to bottom
+       with no column beside it: name, who it is for, how it works, the search
+       box, one real balance sheet, and only then the counts. Eight unlabelled
+       figures are the wrong first thing to meet -- they are evidence for a
+       claim, and the claim has to arrive first for them to be evidence of
+       anything. On a wide screen the strip goes back above the hero with
+       `order`, where it reads as the masthead it was drawn to be. One strip
+       in the DOM either way; see `.leadin` in glass.css. -->
+  <div class="leadin">
   <header class="hero">
     <h1 class="htitle">SEC balance sheets that prove they balance.</h1>
     <p class="hlede">BalanceProof is the verification layer over SEC EDGAR
@@ -1146,6 +1150,8 @@ def render_home(
       &middot; <a href="#how">How this works</a></p>
   </header>
   {hero_bs}
+  {_status_strip(stats or {}, freshness)}
+  </div>
 {disclaimer}
   {_trust(stats or {})}
   {_accuracy_banner()}
