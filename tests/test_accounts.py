@@ -356,7 +356,16 @@ def test_every_grant_and_every_refusal_is_recorded(client):
 def test_the_dashboard_renders_with_the_configured_prices(client):
     r = client.get("/dashboard")
     assert r.status_code == 200
-    assert "owner@example.com" in r.text
+    # This asserted "owner@example.com", the ADMIN_EMAIL this fixture sets.
+    # The page stopped reading that setting: every route now passes
+    # `nav.SUPPORT_EMAIL`, one spelling of the support address shared by the
+    # footer, the pricing page and the revoked-key 401, because an address
+    # that appears differently in three places is one nobody trusts.
+    # Asserted against the constant rather than a copy of its value, so
+    # changing the address cannot leave this pinning the old one again.
+    from src.report.nav import SUPPORT_EMAIL
+
+    assert SUPPORT_EMAIL in r.text
     # $79.99, with its cents. The dataset price is a float now, and an int
     # would render "$79" beside a Stripe page that charges 79.99 -- so the
     # exact string is the point of this assertion, not the rough figure.
