@@ -59,6 +59,22 @@ def render_api_tab() -> str:
     <p class="formnote" id="copy-note" role="status" aria-live="polite"></p>
     <p class="formnote" id="key-note" role="status" aria-live="polite"></p>
 
+    <!-- What to do with the key, directly under it. The worked examples
+         further down this panel are the reference; this is the one line to
+         paste before reading any of it, and the two pages worth opening
+         next. Filled by `fillExamples` with the real key, like the rest.
+         `#next-nokey` stands in its place for a visitor who has no key yet,
+         so the section is never a set of instructions for something they
+         cannot do. -->
+    <div class="nextup keyed" id="next-steps" hidden>
+      <p class="sec-sub">Try it in one line:</p>
+      <pre class="code"><code id="next-curl">curl -H "X-API-Key: YOUR_KEY"   https://balanceproof.dev/api/company/JPM</code></pre>
+      <p class="sec-sub">Then:
+        <a href="/api">read the API reference</a>, or
+        <a href="/methodology">see how the numbers are verified</a>.</p>
+    </div>
+    <p class="sec-sub" id="next-nokey" hidden>Generate a key to get started.</p>
+
     <div class="tiles">
       <div class="tile">
         <span class="tlabel">Plan</span>

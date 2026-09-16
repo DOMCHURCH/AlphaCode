@@ -141,6 +141,11 @@
     if (curl) {
       curl.textContent = 'curl -H "X-API-Key: ' + k + '" \\\n  ' + url;
     }
+    var next = $("next-curl");
+    if (next) {
+      next.textContent = 'curl -H "X-API-Key: ' + k + '" \
+  ' + url;
+    }
     var py = $("py-example");
     if (py) {
       py.textContent =
@@ -158,6 +163,8 @@
     fillExamples(key);
     show($("get-key"), false);
     show($("tabs"), true);
+    show($("next-steps"), true);
+    show($("next-nokey"), false);
     selectTab(storedTab());
     // Rotating a key requires proving you own the address, not holding the key.
     show($("regen-box"), !!session);
@@ -179,6 +186,8 @@
     fillExamples("");
     show($("get-key"), false);
     show($("tabs"), true);
+    show($("next-steps"), true);
+    show($("next-nokey"), false);
     selectTab(storedTab());
     show($("regen-box"), true);
     show($("regen-hint"), false);
@@ -219,6 +228,8 @@
   function renderSignedOut() {
     show($("get-key"), true);
     show($("tabs"), false);
+    show($("next-steps"), false);
+    show($("next-nokey"), true);
     TABS.forEach(function (t) { show($("panel-" + t), false); });
     show($("whoami"), false);
     show($("signed-out"), true);
