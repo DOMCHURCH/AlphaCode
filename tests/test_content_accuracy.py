@@ -691,3 +691,125 @@ def test_the_post_still_admits_it_has_no_broken_filing_to_show(client):
     assert "no real example" in prose, (
         "the post no longer says it has no genuinely-broken example"
     )
+
+
+# ------------------------------------------------- /methodology prose vs table
+# The page carries two statements of the same fact: prose that names the
+# failure categories one at a time, and a table that counts them from the
+# database. The prose said "The four reasons" and listed noncontrolling
+# interests and mezzanine equity among them, months after both became ways a
+# filing PASSES rather than reasons it fails -- and it still claimed the
+# mezzanine tags were not read at all, on a page whose own table counted the
+# filings they reconcile. A page that contradicts itself on the sentence it
+# exists to make is worse than a page that says less.
+#
+# These bind the two together so the next category added or removed fails a
+# test rather than quietly making the prose wrong again.
+
+_NUMBER_WORDS = {
+    2: "two", 3: "three", 4: "four", 5: "five", 6: "six", 7: "seven",
+    8: "eight", 9: "nine", 10: "ten",
+}
+
+# The reconciliation bases and the flagged reasons, as `_compute_breakdown`
+# sums them. Named here rather than imported so that renaming a key in
+# `stats.py` trips this rather than silently redefining what the page promises.
+_RECONCILED_KEYS = ("balanced", "nci", "mezzanine", "nci+mezzanine")
+_FLAGGED_KEYS = ("rounding", "missing_tag", "broken", "unexplained")
+
+
+def _methodology_table_rows(html: str) -> list[str]:
+    """The Category cell of every row in "Every flag, named"."""
+    body = html.split("<tbody>", 1)[1].split("</tbody>", 1)[0]
+    return re.findall(r'<th scope="row">([^<]+)</th>', body)
+
+
+def _methodology_prose(html: str) -> str:
+    """The hand-written prose ONLY, with the live table excluded.
+
+    Scoped deliberately. Searching the whole page for a category name finds
+    the table's own <th> and passes whatever the prose says, which is the
+    exact failure these tests exist to catch: a first version of this file
+    asserted against the full page and stayed green while the table said
+    "Indeterminate" and the prose still said "Unexplained".
+
+    `render_methodology` emits the live section BEFORE the body, so the prose
+    runs from its own div to the close of the article and the table is already
+    behind us.
+    """
+    prose = html.split('<div class="prose">', 1)[1]
+    prose = prose.split("</article>", 1)[0]
+    assert "<th scope=" not in prose, "the table leaked into the prose slice"
+    return _visible_text(prose).lower()
+
+
+def _methodology(client) -> str:
+    """/methodology with one company loaded, so the live table renders.
+
+    The table is omitted entirely on an empty database -- `_live_section`
+    returns "" when `identity_breakdown()` is None -- and a test that asserted
+    prose against a table that was not there would pass for the wrong reason.
+    """
+    from src.company.stats import reset_breakdown_cache
+
+    _seed_balanced()
+    reset_breakdown_cache()
+    r = client.get("/methodology")
+    assert r.status_code == 200
+    return r.text
+
+
+def test_methodology_prose_counts_match_the_live_table(client):
+    """The headings count what the page actually reports, in words."""
+    html = _methodology(client)
+    text = _methodology_prose(html)
+
+    rows = _methodology_table_rows(html)
+    assert rows, "the live counts table rendered no rows"
+    assert len(rows) == len(_FLAGGED_KEYS), (
+        f"the table lists {len(rows)} categories but the breakdown sums "
+        f"{len(_FLAGGED_KEYS)}: {rows}"
+    )
+
+    flagged_word = _NUMBER_WORDS[len(_FLAGGED_KEYS)]
+    assert f"the {flagged_word} reasons a filing is flagged" in text, (
+        f"the prose heading no longer says {flagged_word!r}, but the table "
+        f"still lists {len(rows)} flagged categories"
+    )
+
+    reconciled_word = _NUMBER_WORDS[len(_RECONCILED_KEYS)]
+    assert f"the {reconciled_word} ways a filing reconciles" in text, (
+        f"the prose heading no longer says {reconciled_word!r}, but "
+        f"identity_breakdown sums {len(_RECONCILED_KEYS)} reconciliation bases"
+    )
+
+
+def test_methodology_prose_names_every_category_in_the_table(client):
+    """Every row of the table has a paragraph above it, and vice versa.
+
+    The count matching is not enough on its own: swapping one category for
+    another keeps the number and still leaves the prose describing something
+    the page no longer measures.
+    """
+    html = _methodology(client)
+    text = _methodology_prose(html)
+
+    for label in _methodology_table_rows(html):
+        # "Genuinely broken filing" is written out in the prose as the
+        # sentence it is, so match on the part that carries the meaning.
+        needle = {
+            "genuinely broken filing": "genuinely does not balance",
+        }.get(label.lower(), label.lower())
+        assert needle in text, (
+            f"the table counts {label!r} and the prose never mentions it"
+        )
+
+
+def test_methodology_does_not_claim_mezzanine_is_unread(client):
+    """It has been ingested since 11 September, and the table counts it."""
+    text = _methodology_prose(_methodology(client))
+
+    assert "mezzanine equity" in text, "mezzanine is a handled category now"
+    for stale in ("do not currently read", "not currently read",
+                  "do not read these tags"):
+        assert stale not in text, f"/methodology still claims {stale!r}"

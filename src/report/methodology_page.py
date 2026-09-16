@@ -55,7 +55,15 @@ _BODY = """
       the filer's own arithmetic being wrong, is possible and should be
       vanishingly rare for an audited public company.</p>
 
-      <h2>The four reasons</h2>
+      <h2>The four ways a filing reconciles</h2>
+
+      <p>Not every filing is written on <code>A = L + E</code>, and the ones
+      that are not are sound filings, not failures. Each of these is a pass,
+      counted in "reconciled" above, and the drawing names the basis it used
+      rather than quietly adding lines together.</p>
+
+      <p><strong>Plain.</strong> Assets equal liabilities plus equity as
+      filed, with nothing to reconcile.</p>
 
       <p><strong>Noncontrolling interests.</strong> A consolidated company can
       report the parent's equity and the noncontrolling interest as two separate
@@ -69,14 +77,34 @@ _BODY = """
       <p><strong>Mezzanine equity.</strong> Redeemable preferred stock and
       similar instruments sit between liabilities and equity — neither one, by
       design. Airlines, biotechs and companies that came public through a SPAC
-      carry it often. <em>We do not currently read these tags.</em> When one of
-      these filings does not reconcile, that is our gap and not the filer's, and
-      it is the next thing on the list to fix.</p>
+      carry it often. Four tags are read for it: temporary equity, redeemable
+      preferred stock, redeemable noncontrolling interest, and minority
+      interest in an operating partnership. A filing that balances once the
+      mezzanine line is included is reported as balancing on those terms.</p>
+
+      <p><strong>Both together.</strong> A filing carrying a noncontrolling
+      interest and a mezzanine line is tested against both, and reconciles on
+      <code>A = L + E + NCI + mezzanine</code>.</p>
+
+      <h2>The four reasons a filing is flagged</h2>
+
+      <p>Everything that does not reconcile lands in exactly one of these, and
+      the counts for each are in the table below.</p>
 
       <p><strong>Rounding.</strong> Figures are reported in millions. A
       one-unit difference on a balance sheet of a few hundred billion is eight
       decimal places of nothing, and a gap under a percent of total assets is
       treated as the noise it is.</p>
+
+      <p><strong>Missing XBRL tag.</strong> The filing balances against its own
+      stated total but our sum falls short, which means there is a component in
+      the document we did not read. That is our gap, not the filer's, and it is
+      the category we work to empty.</p>
+
+      <p><strong>Unexplained.</strong> The filer published no stated total to
+      referee against, so there is no way to tell whose arithmetic is at fault.
+      Recorded as unknown rather than assigned to whichever side flatters
+      us.</p>
 
       <p><strong>A filing that genuinely does not balance.</strong> It happens.
       When a filer's own stated total does not match their own assets, no
