@@ -148,9 +148,13 @@ def test_home_is_the_product_not_a_redirect(client):
     # than the data-formats blurb they used to share with the /pricing
     # Product block: "what is balanceproof.dev" is answered by naming the
     # category and the method, not by listing delivery formats.
-    assert (
-        "financial data API that reconciles SEC EDGAR balance sheets" in body
-    )
+    #
+    # That category is the verification, not "a financial data API" -- the
+    # shelf three larger vendors already occupy. This asserts SITE_DESCRIPTION
+    # reaches the page, which is the string an engine quotes.
+    from src.report.schema import SITE_DESCRIPTION
+
+    assert SITE_DESCRIPTION in body
     assert 'action="/search"' in body
     assert 'href="/company/JPM"' in body
 
@@ -489,17 +493,26 @@ def test_about_is_a_real_page_that_defines_the_product(client):
 
 
 def test_the_home_page_carries_a_quotable_definition(client):
-    """The sentence an assistant should lift, directly under the H1 -- and
-    before the lede, which is written to persuade rather than to define."""
+    """The sentence an assistant should lift, high under the H1.
+
+    The lede now comes first and the definition follows it. Both used to open
+    on the same clause, which on a phone rendered as one paragraph printed
+    twice: the naming sentence belongs to the lede, and the definition below
+    carries the method and the counts.
+    """
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
+    hero = body.split('<header class="hero">', 1)[1].split("</header>", 1)[0]
 
     assert "BalanceProof is the verification layer over SEC EDGAR" in body
-    assert body.index('class="htitle"') < body.index('class="hlede hdef"')
-    assert body.index('class="hlede hdef"') < body.index(
-        "Built for developers and analysts"
-    ), "the definition comes before the lede"
+    assert body.index('class="htitle"') < body.index('class="hlede"')
+    assert body.index('class="hlede"') < body.index('class="hlede hdef"'), (
+        "the lede comes before the definition"
+    )
+    # The clause names the product once. Twice is the bug this guards.
+    assert hero.count("BalanceProof is the verification layer") == 1
+    assert "Every filing is reconciled against the accounting identity" in body
     assert 'href="/about"' in body, "one visible route to the About page"
 
 

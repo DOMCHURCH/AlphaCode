@@ -259,8 +259,13 @@ def _compact(n: int) -> str:
 # Shared with /about, which needs to say the same thing in the same words --
 # two pages that define the product differently give an engine a reason to
 # trust neither.
+# The METHOD only. The naming clause that used to open this string is
+# `schema.PRODUCT_CLAUSE`, prepended by `product_definition()` for the pages
+# that need the paragraph to stand alone, and left off by the home page, where
+# the lede directly above it says the same words. Rendered on a phone the two
+# paragraphs read as the same paragraph printed twice, because the first
+# screenful of both was identical.
 _DEFINITION_METHOD = (
-    "BalanceProof is the verification layer over SEC EDGAR balance sheets. "
     "Every filing is reconciled against the accounting identity "
     "(Assets = Liabilities + Equity). Every figure is pulled as-filed and "
     "checked before it is stored. When a filing does not balance, the page "
@@ -268,8 +273,15 @@ _DEFINITION_METHOD = (
 )
 
 
-def product_definition() -> str:
+def product_definition(with_name: bool = True) -> str:
     """The definition, with the four counts read live rather than typed in.
+
+    `with_name` prepends `schema.PRODUCT_CLAUSE`, so the paragraph names the
+    product it is defining. /about needs that: the definition is the whole of
+    its lede and a paragraph opening "Every filing is reconciled" defines
+    nothing. The home page passes False, because the lede immediately above
+    opens on the very same clause and printing it twice is what made the two
+    paragraphs read as one paragraph rendered twice on a phone.
 
     The counts are the same four `identity_breakdown()` gives /methodology,
     formatted into the same four sentences. Written down instead, they would be
@@ -289,11 +301,16 @@ def product_definition() -> str:
         b = identity_breakdown()
     except Exception:  # noqa: BLE001 - copy must not take a page down
         b = None
+    from src.report.schema import PRODUCT_CLAUSE
+
+    method = f"{PRODUCT_CLAUSE}. {_DEFINITION_METHOD}" if with_name else (
+        _DEFINITION_METHOD
+    )
     if not b:
-        return _DEFINITION_METHOD
+        return method
     companies = int(b["companies"] or 0)
     return (
-        f"{_DEFINITION_METHOD} "
+        f"{method} "
         f"{fmt_int(companies)} "
         f"{plural(companies, 'company', 'companies')} covered. "
         f"{fmt_int(b['reconciled'])} reconcile directly. "
@@ -310,7 +327,7 @@ def _definition_para() -> str:
     four stylesheets rather than needing a new rule in each of them.
     """
     return (
-        f'<p class="hlede hdef">{product_definition()} '
+        f'<p class="hlede hdef">{product_definition(with_name=False)} '
         '<a href="/about">Learn more about how BalanceProof works</a>.</p>'
     )
 
@@ -1119,11 +1136,11 @@ def render_home(
   {_status_strip(stats or {}, freshness)}
   <header class="hero">
     <h1 class="htitle">SEC balance sheets that prove they balance.</h1>
-    {_definition_para()}
     <p class="hlede">BalanceProof is the verification layer over SEC EDGAR
       balance sheets. Built for developers and analysts who cannot tolerate a
       silently wrong number: when a filing reconciles you get the figure, and
       when it does not you get the reason.</p>
+    {_definition_para()}
     {search_form(autofocus=True)}
     <p class="summary"><a href="/methodology">How we verify</a>
       &middot; <a href="#how">How this works</a></p>
