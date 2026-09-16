@@ -177,6 +177,7 @@ STYLED_SLUGS: tuple[str, ...] = (
     "build-scalable-sec-edgar-pipeline",
     "sec-xbrl-duplicate-tags",
     "what-i-got-wrong-about-sec-filings",
+    "five-ways-a-balance-sheet-fails",
 )
 
 # Posts written under the no-em-dash rule. Scoped rather than site-wide on
@@ -185,6 +186,7 @@ STYLED_SLUGS: tuple[str, ...] = (
 # writing worse. Same reasoning as STYLED_SLUGS itself.
 NO_EM_DASH_SLUGS: tuple[str, ...] = (
     "what-i-got-wrong-about-sec-filings",
+    "five-ways-a-balance-sheet-fails",
 )
 
 
@@ -574,3 +576,118 @@ def test_every_post_has_a_distinct_title_tag():
 
     titles = [p.seo_title for p in POSTS]
     assert len(titles) == len(set(titles)), "duplicate title tags"
+
+
+# ---------------------------------------------------------------------------
+# The classifier in "five-ways-a-balance-sheet-fails" is executable
+# ---------------------------------------------------------------------------
+# The other code samples on this site are checked for having survived the
+# render intact. This one is checked for being RIGHT, because it is the whole
+# argument of the post rather than an illustration of it: a reader is invited
+# to run it against their own filings, and a post that hands out a classifier
+# that misfiles a SPAC is worse than one that hands out nothing.
+#
+# Read off `Post.body` and unescaped, which is what a reader's clipboard would
+# hold: the sample is written with `&lt;=` and `&gt;` so it survives the page,
+# and a test that skipped the unescape would be checking source that nobody
+# can run.
+
+FIVE_WAYS = "five-ways-a-balance-sheet-fails"
+
+
+def _post_python(slug: str) -> str:
+    """The post's Python sample, unescaped back into runnable source."""
+    import html as _html
+
+    from src.report.blog import BY_SLUG
+
+    m = re.search(
+        r'<code class="language-python">(.*?)</code>',
+        BY_SLUG[slug].body,
+        re.S,
+    )
+    assert m, f"/blog/{slug} has no python sample"
+    return _html.unescape(m.group(1))
+
+
+def _classify():
+    ns: dict = {}
+    exec(_post_python(FIVE_WAYS), ns)          # noqa: S102 - that is the test
+    assert "classify" in ns, "the sample defines no classify()"
+    return ns["classify"]
+
+
+# (assets, liabilities, equity, nci, mezzanine, stated_rhs) -> (verdict, basis)
+#
+# One case per branch, because a classifier with an unreachable branch is a
+# taxonomy with a category nobody can land in, which is the failure the post
+# is arguing against.
+CLASSIFIER_CASES = (
+    ("plain", (100.0, 60.0, 40.0, None, None, None), ("balances", None)),
+    ("nci", (100.0, 60.0, 35.0, 5.0, None, None),
+     ("balances", "noncontrolling interests")),
+    ("mezzanine", (100.0, 60.0, 35.0, None, 5.0, None),
+     ("balances", "mezzanine equity")),
+    ("both", (100.0, 60.0, 30.0, 5.0, 5.0, None), ("balances", "both")),
+    # Half a percent through one percent: noise, and nothing else explains it.
+    ("rounding", (100.0, 60.0, 39.2, None, None, None), ("rounding", None)),
+    # Open, and no stated right-hand side to referee with. Named, not guessed.
+    ("unexplained", (100.0, 60.0, 30.0, None, None, None), ("unexplained", None)),
+    # The filing balances against its own stated total and the reconstructed
+    # sum falls short: a line that was never read.
+    ("missing tag", (100.0, 60.0, 30.0, None, None, 100.0), ("missing tag", None)),
+    # The filer's own stated total disagrees with their own assets.
+    ("broken", (100.0, 60.0, 30.0, None, None, 90.0),
+     ("genuinely broken filing", None)),
+    ("not testable", (0.0, 0.0, 0.0, None, None, None), ("not testable", None)),
+)
+
+
+@pytest.mark.parametrize("name,args,expected", CLASSIFIER_CASES,
+                         ids=[c[0] for c in CLASSIFIER_CASES])
+def test_the_published_classifier_reaches_every_category(name, args, expected):
+    assert _classify()(*args) == expected, f"{name!r} case misclassified"
+
+
+def test_the_published_classifier_never_returns_an_adjusted_figure():
+    """The post's claim about itself: every branch returns a NAME, never a
+    number it has closed the gap with. That is the property the whole piece is
+    arguing for, so it is the one worth pinning."""
+    classify = _classify()
+    for name, args, _ in CLASSIFIER_CASES:
+        verdict, basis = classify(*args)
+        assert isinstance(verdict, str), f"{name!r} returned a non-name verdict"
+        assert basis is None or isinstance(basis, str), (
+            f"{name!r} returned a figure as its basis"
+        )
+
+
+def test_the_post_names_all_five_categories(client):
+    """A post called "the five ways" that has drifted to four headings is
+    wrong in its own title, which is the one error nobody re-reads for."""
+    r = client.get(f"/blog/{FIVE_WAYS}")
+    assert r.status_code == 200
+    text = _visible_text(r.text).lower()
+    for phrase in (
+        "missing tag",
+        "noncontrolling interest",
+        "mezzanine equity",
+        "rounding",
+        "genuinely does not balance",
+        # The sixth label, which is not a mechanism but the honest answer
+        # where the discriminator field is absent.
+        "unexplained",
+    ):
+        assert phrase in text, f"/blog/{FIVE_WAYS} no longer covers {phrase!r}"
+
+
+def test_the_post_still_admits_it_has_no_broken_filing_to_show(client):
+    """The count of genuinely broken filings has been zero at every
+    measurement, and the post says so rather than illustrating the category
+    with an invented company. If somebody later supplies an example it should
+    be a real ticker and this test should be updated deliberately, not
+    tripped over."""
+    prose = _post_prose(client.get(f"/blog/{FIVE_WAYS}").text).lower()
+    assert "no real example" in prose, (
+        "the post no longer says it has no genuinely-broken example"
+    )

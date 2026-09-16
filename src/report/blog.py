@@ -1043,7 +1043,313 @@ here</a>, and looking things up on the site stays free.</p>
 )
 
 
+# Newest first, and this one is the other half of the duplicate-tag
+# posts: those are about picking the right figure, this is about what a
+# gap MEANS once the right figures are in hand.
+_POST_FIVE_FAILURES = Post(
+    slug="five-ways-a-balance-sheet-fails",
+    title="The Five Ways a Balance Sheet Fails the Identity Check",
+    # 48 characters. The headline names the number because the number is the
+    # point of the piece; the title tag names the SEARCH, which is somebody
+    # typing the symptom rather than the taxonomy.
+    seo_title="SEC Filing Does Not Balance: The Five Reasons Why",
+    description=(
+        "A filing that fails A = L + E fails in one of five ways. "
+        "Noncontrolling interests, mezzanine equity, rounding, a missing "
+        "XBRL tag, or a genuine error."
+    ),
+    summary=(
+        "Once a reconciler runs over every filing the failures stop looking "
+        "random. Five mechanisms account for nearly all of them, two are "
+        "passes wearing a failure's clothes, and one of the five has never "
+        "once turned up in this dataset."
+    ),
+    published="2026-09-16",
+    updated="2026-09-16",
+    minutes=8,
+    body="""
+<p class="lede">Run A = L + E over every filing you hold and the failures stop
+looking random inside a day.</p>
+
+<p>They cluster. Five mechanisms account for nearly all of them, and they are
+not variations on one problem. Two are filings that balance perfectly well once
+read on the terms they were written on. One is noise, one is a gap in your own
+extraction, one is a company that filed something wrong. Four different
+responses.</p>
+
+<p>The response that ruins the exercise is to take whichever candidate figure
+comes closest to closing the gap and return it. That turns a wrong number into
+a wrong number nobody can audit: the discrepancy that would have told you it
+was wrong is the thing you just closed.</p>
+
+<h2>1. A tag the extractor did not read</h2>
+
+<p>The components do not add up because one is missing from your data rather
+than from the filing: a company-specific extension tag, a concept from a
+taxonomy version your mapping predates, or an ordinary us-gaap element nobody
+thought to map. The filing is complete. Your copy of it is not.</p>
+
+<p><strong>Detection.</strong> The gap is far larger than rounding, and the
+filing's raw facts contain a line that never reached your reconstructed
+right-hand side. The decisive version of that test needs one more field, and it
+gets its own section below: the same field separates this category from the
+last one.</p>
+
+<p><strong>Flag it as a missing tag, name the ticker, and do not pick a
+substitute.</strong> A near-enough figure in place of an unread one is wrong,
+plausible, and erases the evidence that anything was unread.</p>
+
+<p>BlackRock is the ordinary example in my data: a redeemable noncontrolling
+interest in a form my mapping still does not reach, so liabilities plus equity
+falls short and the filing is flagged rather than filled in. Note that the line
+I am failing to read is itself a mezzanine line. The category is about whose
+fault a gap is, not about which row it sits on.</p>
+
+<h2>2. Noncontrolling interests</h2>
+
+<p>A parent that owns most of a subsidiary consolidates all of it. Every asset
+and liability lands in the parent's totals at full value, because the parent
+controls them. The slice it does not own is not netted out of assets; it sits
+on the claims side as a noncontrolling interest.</p>
+
+<p>So a consolidated filing is written on <code>A = L + E + NCI</code>, and
+testing <code>A = L + E</code> against parent-only equity misses by exactly the
+minority stake.</p>
+
+<p><strong>Detection.</strong> The gap matches the reported
+<code>MinorityInterest</code> or
+<code>StockholdersEquityAttributableToNoncontrollingInterest</code> to within
+the tolerance. Not approximately. Exactly, which is what makes this one safe to
+act on.</p>
+
+<p><strong>Reconcile on A = L + E + NCI and record that basis.</strong> This is
+a pass. The filing was never wrong.</p>
+
+<p>Most filers hand you the answer already summed:
+<code>StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest</code>
+carries the minority interest inside it, and a filing that publishes it
+balances plainly. So the category only fires where a filer reports parent
+equity and the NCI as two lines with no combined total, which in the universe I
+cover is rare enough to count on one hand. It is nearly empty because the
+common case is settled a step earlier.</p>
+
+<h2>3. Mezzanine equity</h2>
+
+<p>Redeemable preferred stock, redeemable noncontrolling interests and shares
+subject to possible redemption sit between the liabilities and equity sections,
+in a band of their own. The instrument can be required to be redeemed, which is
+debt-like, while carrying none of the fixed obligation that makes debt debt.
+Genuinely neither, so it is shown as neither.</p>
+
+<p>The identity that filing was written on is
+<code>A = L + E + Mezzanine</code>.</p>
+
+<p><strong>Detection.</strong> The gap matches the filer's temporary equity or
+redeemable preferred line:
+<code>TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests</code>
+and its parent-only and plain variants,
+<code>RedeemablePreferredStockCarryingAmount</code>, or
+<code>RedeemableNoncontrollingInterestEquityCarryingAmount</code>.</p>
+
+<p><strong>Reconcile with the mezzanine included, and say so.</strong> Also a
+pass.</p>
+
+<p>One trap sits inside that detection. Temporary equity is the section total
+and redeemable preferred is a component of it, so adding both overshoots and
+breaks a filing that balanced. Prefer the total. Never add a section to its own
+parts.</p>
+
+<p>KKR is the live example: a filing that does not close on A = L + E and does
+close once the redeemable block is added, with the drawing naming the basis. It
+matters most, though, on the blank-cheque company. A pre-merger SPAC holds a
+trust account as its only real asset and carries most of the
+shareholder money as Class A stock subject to possible redemption, which is
+temporary equity. Drop the mezzanine line there and the arithmetic does not
+miss by a little: liabilities plus permanent equity comes out a rounding error
+beside total assets, reading like an extractor that has failed outright rather
+than one absent term.</p>
+
+<h2>The classifier, in full</h2>
+
+<p>Three of the five are in view, so here is the whole decision: the three
+totals, the two extra terms where the filer published them, and one field the
+last two categories turn on.</p>
+
+<pre class="code"><code class="language-python">TOLERANCE = 0.005      # half a percent of assets
+ROUNDING_BAND = 0.01   # and one percent is the outer edge of noise
+
+def classify(assets, liabilities, equity,
+             nci=None, mezzanine=None, stated_rhs=None):
+    # Returns (verdict, basis). A term is admitted only where the filer
+    # published it, and only after the plain sum has already failed:
+    # adding a term to a filing that balances breaks one that was right.
+    if assets &lt;= 0:
+        return "not testable", None
+
+    def gap(extra=0.0):
+        return abs(assets - (liabilities + equity + extra)) / assets
+
+    if gap() &lt;= TOLERANCE:
+        return "balances", None
+
+    # The two terms the plain identity does not carry. Try each and both,
+    # and let the TIGHTEST fit win rather than the first to clear: where
+    # two bases close, the tighter one is the shape the filer used.
+    bases = []
+    if nci:
+        bases.append(("noncontrolling interests", nci))
+    if mezzanine:
+        bases.append(("mezzanine equity", mezzanine))
+    if nci and mezzanine:
+        bases.append(("both", nci + mezzanine))
+
+    closed = sorted((gap(x), name) for name, x in bases if gap(x) &lt;= TOLERANCE)
+    if closed:
+        return "balances", closed[0][1]
+
+    if gap() &lt;= ROUNDING_BAND:
+        return "rounding", None
+
+    # Still open, and whose fault it is turns on one field: the total the
+    # filer printed at the foot of the claims column.
+    if stated_rhs is None:
+        return "unexplained", None
+    if abs(assets - stated_rhs) / assets &gt; TOLERANCE:
+        return "genuinely broken filing", None
+    return "missing tag", None</code></pre>
+
+<p>Every branch returns a name. None returns an adjusted figure, and that is
+the property worth keeping if you write your own.</p>
+
+<h2>4. Rounding</h2>
+
+<p>Filers report in thousands or millions, and the rounding happens before the
+totals are struck rather than after. A balance sheet a few hundred billion
+dollars deep can show a one-unit difference between its two sides and be
+entirely correct.</p>
+
+<p><strong>Detection.</strong> The gap is small against total assets and
+nothing else accounts for it: no noncontrolling interest line, no mezzanine
+line, no shortfall against the filer's own stated total.</p>
+
+<p><strong>Pass it, and record the tolerance that let it pass.</strong> The
+second half is the part worth arguing about. A tolerance has to be a fraction
+of assets rather than a number of dollars: one calibrated on a mid-cap rejects
+every large bank, and one calibrated on a large bank waves through a genuine
+error at a small company. Half a percent of assets absorbs presentation
+rounding at any size.</p>
+
+<p>I am not naming a current member. The category holds a handful of filings
+and turns over with every ingest, so a ticker printed here would be stale
+before you checked it.</p>
+
+<h2>5. A filing that genuinely does not balance</h2>
+
+<p>The company made an error. It should be rare for an audited public filing,
+and the interesting part is proving it rather than assuming.</p>
+
+<p><strong>Detection is one field.</strong>
+<code>LiabilitiesAndStockholdersEquity</code> is the filer's own stated
+right-hand side, the total printed at the foot of the claims column. Where they
+publish it, two questions are available instead of one.</p>
+
+<p><em>Does the filing balance against its own stated total?</em> Assets
+against the stated right-hand side. If those two disagree, the filer's
+arithmetic disagrees with itself, and no extractor repairs that.</p>
+
+<p><em>Did you recover everything the filing put there?</em> The stated total
+against your reconstructed liabilities plus equity. If the filing balances
+against itself and your sum falls short, the shortfall is a line you did not
+read: category one, and yours.</p>
+
+<p>That single field separates a missing tag from a broken filing, and without
+it neither claim is available. Where a filer publishes no stated total the
+honest label is <strong>unexplained</strong>, because assigning it to whichever
+bucket reads better is how a classification stops being a measurement.
+Business development companies and commodity trusts land here most often.</p>
+
+<p><strong>Flag the filing. Say what is wrong. Do not adjust.</strong></p>
+
+<p>Then the honest part. Across three separate measurements of every testable
+filing I hold, the count of genuinely broken filings has been zero each time.
+Zero is the right answer for audited public companies, and worth stating
+precisely because it is the outcome most worth measuring: every gap that looked
+like a filer's error turned out to be a term I was not reading. So I have no
+real example to show you, and inventing one would undo the point of the
+category.</p>
+
+<h2>What the classification is worth</h2>
+
+<p>It turns a percentage into a list.</p>
+
+<p>"Ninety-nine percent of filings reconcile" tells you nothing you can act on.
+You do not know whether the remainder is a kind of company you hold, or
+whether those failures are the provider's extraction or the filers' arithmetic.
+The number asks to be believed rather than read.</p>
+
+<p>"Three hundred filings failed, here are the tickers, and here is the reason
+for each" tells you which of your positions are affected and which of the
+failures deserve any attention at all. A rounding flag on a company you hold is
+nothing. A missing-tag flag on the same company means a component of that
+balance sheet is absent from your data, and you know to go and read the filing
+yourself.</p>
+
+<p>Two questions to put to a data provider follow directly. Which filings
+failed? And why did each one fail?</p>
+
+<p>Without the first, the output cannot be audited at all. Every figure arrives
+carrying the same implied confidence, and the wrong ones look exactly like the
+right ones. Bad financial data shows up not as a crash but as a plausible
+number from a real filing, which is the argument in
+<a href="/blog/sec-xbrl-duplicate-tags">the companion note on duplicate
+tags</a>.</p>
+
+<p>Without the second, the extraction cannot be fixed either. A failure with no
+category is a filing somebody inspects by hand once and never again. A failure
+labelled "mezzanine" is a mapping to write, and writing it closes several
+hundred filings instead of one. A bucket that fills up is a specification.</p>
+
+<h2>How this runs on BalanceProof</h2>
+
+<p>Every filing is reconciled before it is stored. The plain identity first;
+where that does not close, the noncontrolling interest and the mezzanine block
+are tried singly and together, and whichever basis closes with the smallest
+remaining gap is the one recorded. The company page names that basis in words,
+because <em>this balances once the minority interest is included</em> is a
+different statement from <em>this balances</em>.</p>
+
+<p>Anything that does not close keeps a category: missing tag, rounding,
+genuinely broken, or unexplained where there is no stated total to referee
+with. The <a href="/methodology">methodology page</a> carries the count for
+each, read off the database when the page renders rather than written down
+once. There is no accuracy rate on it and there is not going to be: the
+denominator moves every time coverage improves, so a number that falls as the
+data gets better is not measuring the data.</p>
+
+<p>Figures are served as reported. A filing that does not balance is drawn with
+the gap shown and the reason named rather than adjusted until the columns
+agree. <a href="/company/JPM">JPM</a> is the worked example worth opening
+first: twenty-three Assets tags, one consolidated set among them, an identity
+that closes. Looking a company up needs no account, and
+<a href="/pricing">pricing</a> covers the API and the bulk dataset.</p>
+
+<h2>If you find a sixth</h2>
+
+<p>Run the classification over your own data. It needs three totals per filing,
+the filer's stated right-hand side where published, and the two extra terms.
+The function above is the whole of it.</p>
+
+<p>Then look at what does not fit. A filing whose failure is none of these five
+is the interesting result, and worth more to me than another confirmation of
+the categories I have. These five are the residue of what has broken so far,
+which is exactly the kind of list that stays incomplete without anybody
+noticing. Send me the ticker and the period and I will look.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_FIVE_FAILURES,
     _POST_WHAT_I_GOT_WRONG,
     _POST_EDGAR_PIPELINE,
     _POST_DUPLICATE_TAGS,
@@ -1162,6 +1468,11 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
     "build-scalable-sec-edgar-pipeline": (
         ("JPM", "the filing whose 23 Assets tags broke the pipeline"),
         ("AAPL", "a clean single-segment filer, for contrast"),
+    ),
+    "five-ways-a-balance-sheet-fails": (
+        ("JPM", "an identity that closes, drawn, with 23 Assets tags behind it"),
+        ("BLK", "the missing-tag category, on a filing this post names"),
+        ("KKR", "reconciles once the mezzanine block is added, and says so"),
     ),
     "sec-xbrl-duplicate-tags": (
         ("AAL", "the negative equity the parser got wrong first"),
