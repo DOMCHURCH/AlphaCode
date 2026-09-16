@@ -179,7 +179,19 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
   <section class="sec">
     <div class="sec-head"><h2>Try it without a key</h2></div>
     <p class="sec-sub">Five a day from any one address, no registration.</p>
-    <pre class="code api-code"><code>curl -sS {host}/api/demo/JPM | head -40</code></pre>
+    <pre class="code api-code"><code>curl -sS {host}/api/demo/JPM</code></pre>
+    <!-- This carried `| head -40`, which was two bugs in one pipe. It broke
+         the command outright on Windows -- `head` is not a thing there, and
+         PowerShell's `curl` is an alias for Invoke-WebRequest, which rejects
+         -sS -- so the one command on this site advertised as needing no
+         setup failed for every reader on Windows. And it was not earning
+         that: the response is one line of compact JSON, so `head -40` had
+         nothing to cut on Unix either. -->
+    <p class="plan-note">On Windows, <code>curl</code> is an alias for
+      <code>Invoke-WebRequest</code> and will not take those flags. Call
+      <code>curl.exe</code> directly, or use PowerShell's own client, which
+      parses the response instead of printing it:</p>
+    <pre class="code api-code"><code>Invoke-RestMethod {host}/api/demo/JPM</code></pre>
   </section>
 
   <p class="disclaim">{escape(SHORT_DISCLAIMER)}</p>
