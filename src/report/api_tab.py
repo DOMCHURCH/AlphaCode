@@ -49,6 +49,13 @@ def render_api_tab() -> str:
       <code class="keybox" id="key-value">—</code>
       <button type="button" class="btn" id="copy-key">Copy</button>
     </div>
+    <!-- Revealed by dashboard.js only on the render that follows a signup,
+         where the server has just handed over the plaintext once. Every other
+         visit sees the prefix, because a digest is all that is stored. -->
+    <p class="formnote keyed" id="newkey-note" hidden role="status">
+      This is the only time you will see it in full. Copy it now — after this
+      the dashboard can show you the first eight characters and nothing more.
+    </p>
     <p class="formnote" id="copy-note" role="status" aria-live="polite"></p>
     <p class="formnote" id="key-note" role="status" aria-live="polite"></p>
 

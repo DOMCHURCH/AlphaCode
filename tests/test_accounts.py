@@ -385,3 +385,117 @@ def test_the_dashboard_does_not_break_out_of_its_script_tag(client, monkeypatch)
 
     html = render_dashboard(admin_email='</script><script>alert(1)</script>')
     assert "</script><script>alert(1)" not in html
+
+
+# --------------------------------------------------------- signup issues a key
+# `accounts.register` has always minted a key. `auth.account_for_login` threw
+# the plaintext away, on the grounds that a magic-link signup had no response
+# body to put a show-once secret in -- so the only route to a readable key was
+# the dashboard's "Regenerate", a button that destroys a working key in order
+# to show you a key. The plaintext is now carried to the next render in a
+# signed, HttpOnly, read-once cookie.
+
+SIGNUP_SECRET = "test-session-secret-do-not-use-anywhere-else"
+
+
+@pytest.fixture()
+def signup_client(tmp_path, monkeypatch):
+    """Like `client`, with sessions switched on so magic links work."""
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{tmp_path / 'signup.db'}")
+    monkeypatch.setenv("SESSION_SECRET", SIGNUP_SECRET)
+    monkeypatch.setenv("BASE_URL", "https://example.test")
+    monkeypatch.setenv("ADMIN_EMAIL", "owner@example.com")
+    monkeypatch.setenv("AGENTMAIL_API_KEY", "am-test-key")
+    monkeypatch.setenv("DEMO_API_KEY", "")
+
+    from src.config.settings import get_settings
+    from src.storage.db import init_db, reset_engine_cache
+
+    get_settings.cache_clear()
+    reset_engine_cache()
+    init_db()
+
+    from src import auth
+    from src.api import _magic_link_gate, _register_gate, app
+
+    _register_gate.reset()
+    _magic_link_gate.reset()
+    auth.reset_cooldowns()
+    monkeypatch.setattr("src.mailer.send_magic_link", lambda *a, **k: True)
+
+    # https, because both the session cookie and the signup flash are Secure
+    # and a client on http is never sent either.
+    with TestClient(app, base_url="https://testserver") as c:
+        yield c
+
+    get_settings.cache_clear()
+    reset_engine_cache()
+
+
+def _verify(client, email):
+    """Walk one magic link and return the verify response."""
+    from src import auth
+
+    # Per-address cooldown, which a test asking for two links in a row hits.
+    auth.reset_cooldowns()
+    token = auth.create_link(email, accept_terms=True)
+    assert token, "no link was issued"
+    return client.post("/api/auth/verify", json={"token": token})
+
+
+def test_key_generated_on_signup(signup_client):
+    """First verified link mints the account AND hands back the plaintext."""
+    r = _verify(signup_client, "new@example.com")
+
+    assert r.status_code == 200, r.text
+    key = r.json().get("api_key")
+    assert key, "signup returned no key"
+
+    # It is a real, working key, not a decorative string.
+    probe = signup_client.get("/api/company/JPM", headers={"X-API-Key": key})
+    assert probe.status_code != 401, "the key issued at signup does not work"
+
+    # And the dashboard prints it exactly once.
+    first = signup_client.get("/dashboard")
+    assert key in first.text, "the dashboard did not show the new key"
+    again = signup_client.get("/dashboard")
+    assert key not in again.text, "the key was shown twice; the flash is not spent"
+
+
+def test_key_not_regenerated_on_login(signup_client):
+    """A returning address gets a session and no key.
+
+    Returning one would make a verified link a key-recovery oracle, and would
+    silently break whatever the customer already has deployed.
+    """
+    first = _verify(signup_client, "returning@example.com")
+    original = first.json()["api_key"]
+
+    signup_client.post("/api/auth/logout")
+    second = _verify(signup_client, "returning@example.com")
+
+    assert second.status_code == 200, second.text
+    assert "api_key" not in second.json(), "a login handed back a key"
+
+    # The original still works, which is the part a regeneration would break.
+    probe = signup_client.get("/api/company/JPM", headers={"X-API-Key": original})
+    assert probe.status_code != 401, "the original key stopped working"
+
+
+def test_dashboard_shows_existing_key_for_returning_user(signup_client):
+    """A returning visitor sees the prefix, never the key.
+
+    Only a digest is stored, so there is nothing else the server could show,
+    and the page must not offer "Get a key" to somebody who has one.
+    """
+    r = _verify(signup_client, "returning2@example.com")
+    key = r.json()["api_key"]
+    signup_client.get("/dashboard")  # spends the flash
+
+    me = signup_client.get("/api/auth/me")
+    assert me.status_code == 200, me.text
+    prefix = me.json()["api_key_prefix"]
+
+    assert prefix and key.startswith(prefix), "the prefix is not this key's"
+    body = signup_client.get("/dashboard").text
+    assert key not in body, "the full key is served to a returning visitor"

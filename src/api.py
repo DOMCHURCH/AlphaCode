@@ -2424,10 +2424,16 @@ def api_verify(body: VerifyRequest) -> JSONResponse:
         raise HTTPException(
             status_code=401, detail="Invalid or expired magic link"
         )
-    account = auth.account_for_login(email, accepted_terms=accepted)
-    response = JSONResponse({"ok": True, "email": account.email})
+    account, new_key = auth.account_for_login(email, accepted_terms=accepted)
+    # The key is in the body for the script that asked, and flashed as well so
+    # the dashboard shows it whichever way the reader arrives there.
+    payload: dict[str, object] = {"ok": True, "email": account.email}
+    if new_key:
+        payload["api_key"] = new_key
+    response = JSONResponse(payload)
     auth.issue_session(response, account.email)
-    log.info("session_started", email=account.email)
+    auth.flash_new_key(response, new_key or "")
+    log.info("session_started", email=account.email, signup=bool(new_key))
     return response
 
 
@@ -3537,10 +3543,12 @@ async def verify_submit(request: Request) -> Response:
         return HTMLResponse(
             _versioned(render_verify(token="", state="dead")), status_code=410
         )
-    account = auth.account_for_login(email, accepted_terms=accepted)
+    account, new_key = auth.account_for_login(email, accepted_terms=accepted)
     response = RedirectResponse("/dashboard", status_code=303)
     auth.issue_session(response, account.email)
-    log.info("session_started", email=account.email, path="form")
+    auth.flash_new_key(response, new_key or "")
+    log.info("session_started", email=account.email, path="form",
+             signup=bool(new_key))
     return response
 
 
@@ -3577,9 +3585,13 @@ def dashboard(
         # page after a charge is not.
         if email and auth.is_enabled():
             try:
-                account = auth.account_for_login(email, accepted_terms=True)
+                account, new_key = auth.account_for_login(
+                    email, accepted_terms=True
+                )
                 auth.issue_session(response, account.email)
-                log.info("session_started", email=account.email, path="checkout")
+                auth.flash_new_key(response, new_key or "")
+                log.info("session_started", email=account.email, path="checkout",
+                         signup=bool(new_key))
             except Exception as exc:  # noqa: BLE001 - the payment still happened
                 log.warning(
                     "checkout_signin_failed", email=email, error=str(exc)[:200]
@@ -3602,7 +3614,12 @@ def dashboard(
         as_of = snapshot_date(shape.generated) if shape.generated else ""
     except Exception as exc:  # noqa: BLE001 - a missing count must not lose the page
         log.warning("dashboard_count_failed", error=str(exc)[:200])
-    return HTMLResponse(
+    # Built before the body so the Set-Cookie that SPENDS the flashed key is
+    # on the same response that prints it. Read once: a reload shows the
+    # ordinary dashboard, not the secret again.
+    page = HTMLResponse("")
+    new_key = auth.take_new_key(request, page)
+    page.body = page.render(
         _versioned(
             render_dashboard(
                 admin_email=SUPPORT_EMAIL,
@@ -3618,9 +3635,12 @@ def dashboard(
                 dataset_as_of=as_of,
                 login_enabled=auth.is_enabled(),
                 nav=_nav_for(request, "dashboard"),
+                new_key=new_key,
             )
         )
     )
+    page.headers["content-length"] = str(len(page.body))
+    return page
 
 
 def _public_origin(request: Request) -> str:

@@ -280,13 +280,20 @@ def account_for_login(email: str, accepted_terms: bool = False):
     A verified link is proof of the address, which is exactly the bar
     registration asks for -- so arriving here without an account is a signup,
     not an error.
+
+    Returns `(account, new_key)`. `new_key` is the plaintext API key and is
+    set ONLY when this call created the account -- a returning login gets
+    None, because the database holds a digest and there is nothing to return.
+    That asymmetry is the point: it is impossible for this function to hand
+    back an existing customer's key, which is what would turn a verified link
+    into a key-recovery oracle.
     """
     from src import accounts
 
     address = accounts.normalise_email(email)
     existing = accounts.by_email(address)
     if existing is not None:
-        return existing
+        return existing, None
     # First sign-in for this address is a signup, so it needs the same
     # acceptance a signup form would have asked for.
     if not accepted_terms:
@@ -297,13 +304,57 @@ def account_for_login(email: str, accepted_terms: bool = False):
                 "request a new link."
             ),
         )
-    # The plaintext key is discarded here on purpose. A magic-link signup has
-    # no response body to put a show-once secret in, and the dashboard's
-    # "Regenerate" is how this account gets a key it can read.
-    account, _key = accounts.register(address)
+    # The plaintext is CARRIED now rather than discarded. `register` has always
+    # minted a key here; it was simply thrown away, so the only route to a
+    # readable one was the dashboard's "Regenerate" -- a button that revokes a
+    # key in order to show you a key, pressed by people who had never used the
+    # one it was destroying. The caller flashes it to the next page and it is
+    # never stored in plaintext anywhere.
+    account, key = accounts.register(address)
     stamp_terms(address)
     log.info("account_created_via_magic_link", email=address)
-    return account
+    return account, key
+
+
+# The show-once key, handed from the signup response to the next dashboard
+# render. A cookie rather than a query parameter: a credential in a URL lands
+# in history, in the Referer header and in any link the reader pastes, which is
+# the same reasoning that took `session_id` out of the address bar after a
+# Stripe return. Signed with the session secret, HttpOnly and Secure like the
+# session itself, short-lived, and deleted the first time it is read.
+NEW_KEY_COOKIE = "bp_newkey"
+NEW_KEY_MAX_AGE_S = 300
+
+
+def flash_new_key(response: Response, key: str) -> None:
+    """Carry a just-minted key to the next page, once."""
+    if not key:
+        return
+    response.set_cookie(
+        NEW_KEY_COOKIE,
+        _serializer().dumps(key),
+        max_age=NEW_KEY_MAX_AGE_S,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        path="/",
+    )
+
+
+def take_new_key(request: Request, response: Response) -> str:
+    """Read the flashed key and spend it. "" when there is none.
+
+    Cleared on the same response that renders it, so a reload shows the
+    dashboard's ordinary state rather than the secret a second time.
+    """
+    raw = request.cookies.get(NEW_KEY_COOKIE)
+    if not raw:
+        return ""
+    response.delete_cookie(NEW_KEY_COOKIE, path="/")
+    try:
+        return _serializer().loads(raw, max_age=NEW_KEY_MAX_AGE_S)
+    except Exception:  # noqa: BLE001 - a bad cookie is simply no key
+        return ""
 
 
 def regenerate_key(email: str) -> str:

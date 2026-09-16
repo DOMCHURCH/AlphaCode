@@ -902,6 +902,18 @@
         });
       });
 
-    load();
+    /* A key minted by this visit's signup. The server hands it over once, on
+       the response that deletes the flash cookie, and it is rendered through
+       renderKey like any other: the copy button, the curl examples and the
+       tabs then behave exactly as they do for a returning visitor. Without
+       this the signed-in path shows only the prefix, which is why the one
+       route to a readable key used to be "Regenerate" -- a button that
+       destroys a working key in order to show you a key. */
+    load().then(function () {
+      if (!CFG.newKey) return;
+      setKey(CFG.newKey);
+      renderKey(CFG.newKey);
+      show($("newkey-note"), true);
+    });
   });
 })();

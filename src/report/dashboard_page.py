@@ -83,6 +83,7 @@ def render_dashboard(
     dataset_as_of: str = "",
     login_enabled: bool = True,
     nav: str = "",
+    new_key: str = "",
 ) -> str:
     """Prices arrive as RENDERED STRINGS ("$79.99"), not as numbers.
 
@@ -388,7 +389,10 @@ def render_dashboard(
   window.TO_SCALE = {{
     adminEmail: {_js(admin_email)},
     datasetPrice: {_js(dataset_price)},
-    loginEnabled: {"true" if login_enabled else "false"}
+    loginEnabled: {"true" if login_enabled else "false"},
+    /* Present for exactly one render, on the response that spent the signup
+       flash cookie. "" every other visit. */
+    newKey: {_js(new_key)}
   }};
 </script>
 <script src="/static/nav.js?v={asset_version()}" defer></script>
