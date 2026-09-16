@@ -179,18 +179,29 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
   <section class="sec">
     <div class="sec-head"><h2>Try it without a key</h2></div>
     <p class="sec-sub">Five a day from any one address, no registration.</p>
+    <!-- LABELLED, and the Windows one is not a footnote.
+         This block first carried `| head -40`: two bugs in one pipe, since
+         `head` does not exist on Windows and the response is one line of
+         compact JSON so it cut nothing on Unix either. Dropping the pipe was
+         not enough. PowerShell aliases `curl` to Invoke-WebRequest, which
+         rejects -sS, so the bare curl line still failed there -- and the
+         explanation sat UNDER the command, which is not where anybody looks
+         before pasting the first code block they see. A reader hit exactly
+         that twice. Each platform now gets its own labelled line, so the
+         choice is made before the paste rather than after the error.
+
+         `curl.exe` rather than `curl`: the .exe is what reaches the real
+         curl Windows has shipped since 1803, past the alias. Bare `curl`
+         with no flags is not a fix either -- Invoke-WebRequest uses the IE
+         engine in PowerShell 5.1 and fails where it has never been run. -->
+    <p class="plan-note">macOS and Linux:</p>
     <pre class="code api-code"><code>curl -sS {host}/api/demo/JPM</code></pre>
-    <!-- This carried `| head -40`, which was two bugs in one pipe. It broke
-         the command outright on Windows -- `head` is not a thing there, and
-         PowerShell's `curl` is an alias for Invoke-WebRequest, which rejects
-         -sS -- so the one command on this site advertised as needing no
-         setup failed for every reader on Windows. And it was not earning
-         that: the response is one line of compact JSON, so `head -40` had
-         nothing to cut on Unix either. -->
-    <p class="plan-note">On Windows, <code>curl</code> is an alias for
-      <code>Invoke-WebRequest</code> and will not take those flags. Call
-      <code>curl.exe</code> directly, or use PowerShell's own client, which
-      parses the response instead of printing it:</p>
+    <p class="plan-note">Windows PowerShell, where <code>curl</code> is an
+      alias for <code>Invoke-WebRequest</code> and will not take those
+      flags:</p>
+    <pre class="code api-code"><code>curl.exe -sS {host}/api/demo/JPM</code></pre>
+    <p class="plan-note">Or PowerShell's own client, which parses the
+      response instead of printing it:</p>
     <pre class="code api-code"><code>Invoke-RestMethod {host}/api/demo/JPM</code></pre>
   </section>
 
