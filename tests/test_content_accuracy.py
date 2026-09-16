@@ -813,3 +813,37 @@ def test_methodology_does_not_claim_mezzanine_is_unread(client):
     for stale in ("do not currently read", "not currently read",
                   "do not read these tags"):
         assert stale not in text, f"/methodology still claims {stale!r}"
+
+
+# ------------------------------------------------------------- the free tier
+def test_the_free_tier_is_a_thousand_calls_a_month():
+    """The number itself, asserted once.
+
+    Raised from 100 for DevHunt: a developer cannot build a prototype against
+    100 calls, and every comparable free tier is counted per DAY. Pro stays at
+    10,000, so the upgrade is a clear 10x rather than a cliff.
+    """
+    from src.config.settings import get_settings
+
+    s = get_settings()
+    assert s.free_tier_monthly_calls == 1000
+    assert s.pro_tier_monthly_calls == 10_000, "Pro must not move with it"
+
+
+@pytest.mark.parametrize("path", ("/pricing", "/api", "/"))
+def test_the_free_tier_figure_is_never_a_literal(client, path):
+    """Every page prints the SETTING, not a number somebody typed.
+
+    The demo 429 carried "10 calls a month" as text through two raises of this
+    limit before anyone noticed, so the rule is enforced rather than trusted:
+    raise the setting and every page has to follow in the same commit.
+    """
+    from src.config.settings import get_settings
+
+    body = client.get(path).text
+    limit = get_settings().free_tier_monthly_calls
+    assert f"{limit:,}" in body, f"{path} does not show the configured limit"
+    # The previous two values, which would mean a literal got left behind.
+    for stale in ("100 keyed API calls", "10 keyed API calls",
+                  "100 calls a calendar month"):
+        assert stale not in body, f"{path} still hardcodes {stale!r}"

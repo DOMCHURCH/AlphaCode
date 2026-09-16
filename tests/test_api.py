@@ -2361,7 +2361,7 @@ def test_demo_endpoint_429_after_limit(demo_client):
     s = get_settings()
     assert r.json()["detail"] == (
         f"Demo rate limit reached. Sign up for a free API key at /dashboard "
-        f"for {s.free_tier_monthly_calls} calls a month, or Pro at /pricing "
+        f"for {s.free_tier_monthly_calls:,} calls a month, or Pro at /pricing "
         f"for {s.pro_tier_monthly_calls:,}."
     )
     # Still machine-actionable as well as readable.

@@ -77,7 +77,7 @@ def render_dashboard(
     pro_price: str = "$49",
     pro_annual_price: str = "$490",
     annual_saving: str = "$98",
-    free_limit: int = 100,
+    free_limit: int = 1000,
     pro_limit: int = 10_000,
     fact_count: int | None = None,
     dataset_as_of: str = "",
@@ -128,7 +128,7 @@ def render_dashboard(
   <section class="sec" id="get-key">
     <div class="sec-head"><h2>Get a key</h2></div>
     <p class="sec-sub">One address, one key, no confirmation email. The free
-      tier is {free_limit} calls a calendar month.</p>
+      tier is {free_limit:,} calls a calendar month.</p>
     <form class="search" id="reg-form" autocomplete="on">
       <label class="slabel" for="email">Email address</label>
       <div class="sfield">
@@ -320,7 +320,7 @@ def render_dashboard(
       </table>
     </div>
     <p class="plan-note">Drawings and search are free and unlimited on every
-      tier, with or without a key. Free is {free_limit} API calls a month on
+      tier, with or without a key. Free is {free_limit:,} API calls a month on
       live data, which is the tier this account starts on.
       <a href="/pricing">The full comparison and the FAQ</a> are on the pricing
       page.</p>

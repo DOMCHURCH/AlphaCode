@@ -2943,7 +2943,7 @@ def api_demo(ticker: str, request: Request) -> JSONResponse:
         "demo lookups",
         detail=(
             "Demo rate limit reached. Sign up for a free API key at "
-            f"/dashboard for {get_settings().free_tier_monthly_calls} calls a "
+            f"/dashboard for {get_settings().free_tier_monthly_calls:,} calls a "
             f"month, or Pro at /pricing for "
             f"{get_settings().pro_tier_monthly_calls:,}."
         ),
@@ -4064,7 +4064,7 @@ def api_index() -> JSONResponse:
                 "endpoints": [e for e in _KEYED_ENDPOINTS if _is_public(e)],
                 "auth": "Send your key as an X-API-Key header.",
                 "free_tier": (
-                    f"{get_settings().free_tier_monthly_calls} calls per "
+                    f"{get_settings().free_tier_monthly_calls:,} calls per "
                     "calendar month"
                 ),
             },

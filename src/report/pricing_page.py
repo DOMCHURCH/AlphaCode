@@ -144,7 +144,7 @@ def plan_cards(
             "Every company, every balance sheet, no key and no account",
             "The live demo runs the real endpoint — generous, and plenty to "
             "evaluate with",
-            f"{free_limit} keyed API calls a month if you want JSON in bulk",
+            f"{free_limit:,} keyed API calls a month if you want JSON in bulk",
             "Best for: reading the site, and evaluating the API",
         ),
         "Get a key",
@@ -337,7 +337,7 @@ def render_pricing(
     nav: str = "",
     base_url: str = "",
     admin_email: str = "",
-    free_limit: int = 100,
+    free_limit: int = 1000,
     pro_limit: int = 10_000,
     pro_price: str = "$49",
     pro_annual_price: str = "$490",
