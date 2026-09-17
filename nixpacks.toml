@@ -1,2 +1,34 @@
+# The PDF/report toolchain (weasyprint, and the cairo/pango/gdk-pixbuf stack it
+# needed at runtime) went with the report builder. What is left is a JSON API
+# over Postgres, so only the build toolchain remains, plus zlib -- psycopg2's
+# C extension links against it, and 4a4cf7a found that out the hard way: it
+# added zlib but replaced this whole file to do it, deleting python311, gcc,
+# pkg-config, libffi, the install phase and the start command with it. The
+# build error was not "psycopg2 can't import" after that -- it was
+# `python: command not found`, because there was no longer a Python in the
+# image to run pip with.
+
 [phases.setup]
-nixPkgs = ["zlib"]
+nixPkgs = [
+  "python311",
+  "gcc",
+  "pkg-config",
+  "libffi",
+  "zlib",
+]
+
+[phases.install]
+cmds = [
+  "python -m venv --copies /opt/venv",
+  ". /opt/venv/bin/activate && pip install --upgrade pip",
+  ". /opt/venv/bin/activate && pip install -r requirements.txt",
+]
+
+# No DB step at build time: DATABASE_URL is a runtime/plugin variable that may
+# not be resolved during the build, so migrating here could hit a throwaway
+# SQLite instead of Postgres. The API runs init_db() (tables + indexes) at
+# startup against the real database, so the schema migrates itself on deploy.
+# For an explicit one-off migration, run `python -m src.migrate` from a shell.
+
+[start]
+cmd = "uvicorn src.api:app --host 0.0.0.0 --port $PORT"
