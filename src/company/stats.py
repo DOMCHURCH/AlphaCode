@@ -434,9 +434,26 @@ def _compute_breakdown() -> dict[str, Any] | None:
             not_testable += 1
             continue
         checked += 1
-        nci = None if "total_equity_incl_nci" in m else m.get("minority_interest")
+        # Both equity figures and the NCI go to `resolve_identity`, which picks
+        # by the identity rather than by tag name. The old rule preferred
+        # `total_equity_incl_nci` and switched the NCI off whenever it existed,
+        # which silently mis-read every filer who has the two tags swapped or
+        # who carries something else on that tag.
+        equity_alt = (
+            m.get("total_equity") if "total_equity_incl_nci" in m else None
+        )
+        nci = m.get("minority_interest")
         mezz = next((m[k] for k in MEZZ if m.get(k)), None)
-        balances, drift, basis = resolve_identity(assets, liab, equity, nci, mezz)
+        # Components, for the filer who published two and no section total.
+        parts = (
+            ()
+            if m.get("temporary_equity")
+            else tuple(m.get(k) for k in MEZZ if k != "temporary_equity")
+        )
+        balances, drift, basis = resolve_identity(
+            assets, liab, equity, nci, mezz,
+            equity_alt=equity_alt, mezzanine_parts=parts,
+        )
         if balances:
             counts[basis or "balanced"] += 1
             continue

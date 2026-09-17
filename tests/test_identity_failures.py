@@ -183,3 +183,97 @@ def test_without_a_stated_total_the_honest_answer_is_unexplained():
 def test_a_filing_with_no_testable_identity_is_neither_pass_nor_fail():
     assert classify({"total_assets": 1000.0})[0] == ""
     assert classify({"total_liabilities": 1.0, "total_equity": 1.0})[0] == ""
+
+
+# --- selection by identity, not by tag name ---------------------------------
+# Three shapes hand-traced in docs/internal/mezzanine-trace.md. Every figure
+# below is the real filed number, at one period, from the named accession.
+# In all three the filing balances to the dollar against values already in
+# `fundamentals`, and the old tag-name preference reported a failure.
+
+def test_iqst_shape_picks_the_equity_that_closes():
+    """iQSTEL 10-Q 0001663577-26-000254, 2026-06-30.
+
+    The filer has the two equity tags SWAPPED: `StockholdersEquity` carries
+    the total (17,179,556) and the including-NCI tag carries the parent
+    portion (12,753,059 + NCI 4,426,497 = 17,179,556). Preferring the tag
+    name gave 43,765,399 against 48,191,896 of assets -- a 9.19% failure on a
+    filing that balances exactly.
+    """
+    balances, drift, basis = resolve_identity(
+        48_191_896.0, 31_012_340.0, 12_753_059.0,
+        nci=4_426_497.0, equity_alt=17_179_556.0,
+    )
+
+    assert balances, "the filing balances on figures already stored"
+    assert drift < IDENTITY_TOLERANCE * 100.0
+    # Fewest terms wins: the parent-total equity closes it with no extra term.
+    assert basis is None
+
+
+def test_agilent_shape_ignores_an_nci_tag_that_is_not_company_equity():
+    """Agilent 10-Q 0001090872-26-000064, 2026-07-31.
+
+    `StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest`
+    carries -233,000,000, which is not Agilent's equity -- that is
+    7,363,000,000, and 6,604,000,000 + 7,363,000,000 is total assets to the
+    dollar. The old rule preferred the negative figure and reported 54.39%.
+    """
+    balances, drift, basis = resolve_identity(
+        13_967_000_000.0, 6_604_000_000.0, -233_000_000.0,
+        equity_alt=7_363_000_000.0,
+    )
+
+    assert balances, "parent equity closes this filing exactly"
+    assert drift == 0.0
+    assert basis is None
+
+
+def test_bam_shape_sums_two_mezzanine_components():
+    """Brookfield 10-Q 0001628280-26-054933, 2026-06-30.
+
+    Redeemable NCI is filed as TWO components and no section total: preferred
+    1,238,000,000 and other 1,442,000,000. Only their sum closes. Taking one
+    left 17,400,000,000 against 20,080,000,000 -- a 13.35% failure.
+    """
+    balances, drift, basis = resolve_identity(
+        20_080_000_000.0, 8_212_000_000.0, 9_188_000_000.0,
+        mezzanine=1_238_000_000.0,
+        mezzanine_parts=(1_238_000_000.0, 1_442_000_000.0),
+    )
+
+    assert balances, "the two components sum to close the identity"
+    assert drift < IDENTITY_TOLERANCE * 100.0
+    assert basis == "mezzanine"
+
+
+def test_a_section_total_is_never_added_to_its_own_components():
+    """The guard that keeps the sum from inventing a balance.
+
+    A filer who tags the section total AND a component must not have both
+    counted. `_mezzanine_parts` returns nothing when a total exists, so the
+    only mezzanine candidate is the total itself.
+    """
+    from src.company.view1 import _mezzanine_parts
+
+    class Cell:
+        def __init__(self, value):
+            self.value, self.missing = value, False
+
+    class BS:
+        equity = {"temporary_equity": Cell(500.0),
+                  "redeemable_preferred_stock": Cell(300.0)}
+
+    assert _mezzanine_parts(BS()) == ()
+
+
+def test_a_filing_that_balances_plainly_gains_no_explanation():
+    """Offering more candidates must not let a term claim a filing that was
+    already right."""
+    balances, drift, basis = resolve_identity(
+        1_000.0, 600.0, 400.0, nci=50.0, equity_alt=350.0,
+        mezzanine_parts=(25.0, 25.0),
+    )
+
+    assert balances
+    assert basis is None, "a plain sum must not be explained by a term"

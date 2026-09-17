@@ -244,13 +244,22 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     # other shape -- parent equity and the minority interest as two lines --
     # and it is the single largest category of filings that fail A = L + E
     # while being entirely correct.
-    nci = None if equity_incl is not None else _val(bs.equity, "minority_interest")
+    # Offered ALWAYS now, not only when the combined total is absent. The old
+    # rule switched the correction off whenever `total_equity_incl_nci` existed,
+    # on the assumption that such a figure already absorbs the NCI -- which is
+    # exactly wrong for a filer who has the two tags swapped, where it is the
+    # parent-only figure. `resolve_identity` decides by arithmetic instead.
+    nci = _val(bs.equity, "minority_interest")
     # Read UNCONDITIONALLY, unlike the NCI. `total_equity_incl_nci` is a total
     # of PERMANENT equity: it absorbs the noncontrolling interest and it does
     # not absorb the mezzanine block, which is presented outside permanent
     # equity entirely. So a filer publishing the combined equity total can
     # still be missing this term.
     mezzanine = _mezzanine(bs)
+    mezzanine_parts = _mezzanine_parts(bs)
+    # The equity figure NOT chosen above, offered to `resolve_identity` so the
+    # identity can pick between them rather than the tag name deciding.
+    equity_alt = equity_parent if equity_incl is not None else None
 
     # Deriving liabilities from the identity is arithmetic, not imputation. The
     # filer stated two of the three terms; the third is exactly determined, not
@@ -385,7 +394,8 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     view.minority_interest = nci
     view.mezzanine = mezzanine
     _check_identity(
-        view, total_assets, total_liabilities, total_equity, nci, mezzanine
+        view, total_assets, total_liabilities, total_equity, nci, mezzanine,
+        equity_alt=equity_alt, mezzanine_parts=mezzanine_parts,
     )
     return view
 
@@ -423,6 +433,29 @@ def _mezzanine(bs: Any) -> float | None:
     return None
 
 
+def _mezzanine_parts(bs: Any) -> tuple[float | None, ...]:
+    """Every mezzanine COMPONENT the filer published, excluding the section
+    total.
+
+    `_mezzanine` prefers the total and stops. That is right when a total
+    exists, and under-counts a filer who published two components and no
+    total -- Brookfield reports redeemable NCI as a preferred carrying amount
+    AND an other carrying amount, and only their sum closes the identity.
+    These are handed over separately so `resolve_identity` can try the sum
+    WITHOUT ever adding it to the total and double-counting.
+    """
+    if _val(bs.equity, "temporary_equity"):
+        return ()
+    return tuple(
+        _val(bs.equity, key)
+        for key in (
+            "redeemable_preferred_stock",
+            "redeemable_noncontrolling_interest",
+            "minority_interest_operating_partnership",
+        )
+    )
+
+
 # The terms that may be ADDED to L + E to close a filing, in the order they are
 # tried, and the sentence each one puts on the drawing.
 #
@@ -458,8 +491,26 @@ def resolve_identity(
     total_equity: float,
     nci: float | None = None,
     mezzanine: float | None = None,
+    *,
+    equity_alt: float | None = None,
+    mezzanine_parts: tuple[float | None, ...] | None = None,
 ) -> tuple[bool, float, str | None]:
     """Does this filing balance, and on what basis? THE definition, for everyone.
+
+    SELECTS BY THE IDENTITY, NOT BY TAG NAME. The caller used to pick one
+    equity figure by preferring `total_equity_incl_nci` whenever it existed,
+    and to switch the NCI correction OFF on the same condition. Both assume the
+    tag is named truthfully, and hand-tracing found two filings where it is
+    not: Agilent carries -$233M on the including-NCI tag when its equity is
+    $7.363B, and iQSTEL's filer has the two tags swapped, so the "including
+    NCI" figure is the parent-only one. In both, the filing balances to the
+    dollar against a figure already in our table and we reported a failure --
+    54% and 9% respectively. See docs/internal/mezzanine-trace.md.
+
+    So both equity figures are offered here and the one that satisfies the
+    identity wins. A filer's naming mistake stops being our reconciliation
+    failure, and nothing is invented: every candidate is a line the filer
+    published.
 
     Returns `(balances, imbalance_pct, basis)`. `basis` is None when the plain
     A = L + E closed it, and otherwise a key of `_IDENTITY_TERMS` naming the
@@ -486,29 +537,66 @@ def resolve_identity(
     if total_assets <= 0:
         return False, 0.0, None
 
-    plain = abs(total_assets - (total_liabilities + total_equity)) / total_assets * 100.0
     tolerance = IDENTITY_TOLERANCE * 100.0
-    if plain <= tolerance:
-        return True, plain, None
 
-    bases: list[tuple[str, float]] = []
-    if nci:
-        bases.append(("nci", nci))
+    def drift(equity: float, extra: float) -> float:
+        gap = abs(total_assets - (total_liabilities + equity + extra))
+        return gap / total_assets * 100.0
+
+    # Every equity figure the filer published, not one chosen by tag name.
+    # `equity_alt` is the other of the pair (parent / including-NCI). Order is
+    # preserved so that an exact tie keeps the caller's preference.
+    equities: list[float] = [total_equity]
+    if equity_alt is not None and equity_alt != total_equity:
+        equities.append(equity_alt)
+
+    # Mezzanine: the section total where the filer gave one, otherwise the sum
+    # of the components. Never both -- a filer who tags a component AND the
+    # total would be counted twice, which invents a balance rather than
+    # finding one.
+    mezz_candidates: list[float] = []
     if mezzanine:
-        bases.append(("mezzanine", mezzanine))
-    if nci and mezzanine:
-        bases.append(("nci+mezzanine", nci + mezzanine))
+        mezz_candidates.append(mezzanine)
+    if mezzanine_parts:
+        parts = [p for p in mezzanine_parts if p]
+        summed = sum(parts)
+        if len(parts) > 1 and summed not in mezz_candidates:
+            mezz_candidates.append(summed)
 
-    best: tuple[float, str] | None = None
-    for name, extra in bases:
-        pct = abs(total_assets - (total_liabilities + total_equity + extra))
-        pct = pct / total_assets * 100.0
-        if pct <= tolerance and (best is None or pct < best[0]):
-            best = (pct, name)
+    candidates: list[tuple[int, str | None, float, float]] = []
+    for equity in equities:
+        candidates.append((0, None, equity, 0.0))
+        if nci:
+            candidates.append((1, "nci", equity, nci))
+        for mezz in mezz_candidates:
+            candidates.append((1, "mezzanine", equity, mezz))
+            if nci:
+                candidates.append((2, "nci+mezzanine", equity, nci + mezz))
 
-    if best is not None:
-        return True, best[0], best[1]
-    return False, plain, None
+    # NO TERM BEATS ANY TERM; among terms, the tightest wins.
+    #
+    # The first half is Occam: a filing that closes on a plain sum balances,
+    # and reaching for an explanation it does not need would put a sentence on
+    # the drawing about a term that was never the reason.
+    #
+    # The second half is deliberately NOT "fewest terms". Where NCI alone
+    # clears the tolerance and NCI + mezzanine lands exactly, the exact one is
+    # the identity the filing was written on, and ranking by count would let an
+    # accidental near-miss claim the drawing's explanation. That is a decision
+    # this module already made and `test_the_tightest_basis_wins_not_the_first_one_tried`
+    # already guards; the fix here is about WHICH FIGURES are offered, not
+    # about changing how a winner is chosen among them.
+    closing = [c for c in candidates if drift(c[2], c[3]) <= tolerance]
+    if closing:
+        best = min(
+            closing,
+            key=lambda c: (0 if c[1] is None else 1, drift(c[2], c[3])),
+        )
+        return True, drift(best[2], best[3]), best[1]
+
+    # Nothing closes. Report the smallest gap on the caller's own equity, so a
+    # failure is described in the terms the rest of the view is drawn in.
+    return False, drift(total_equity, 0.0), None
 
 
 def _check_identity(
@@ -518,6 +606,8 @@ def _check_identity(
     total_equity: float | None,
     nci: float | None = None,
     mezzanine: float | None = None,
+    equity_alt: float | None = None,
+    mezzanine_parts: tuple[float | None, ...] | None = None,
 ) -> None:
     """Does this filing balance? Record it, and say so on the drawing.
 
@@ -565,7 +655,8 @@ def _check_identity(
     # tighter one is the one the filing was actually written on; picking by
     # order would let an accidental near-miss claim the drawing's explanation.
     balances, imbalance_pct, basis = resolve_identity(
-        total_assets, total_liabilities, total_equity, nci, mezzanine
+        total_assets, total_liabilities, total_equity, nci, mezzanine,
+        equity_alt=equity_alt, mezzanine_parts=mezzanine_parts,
     )
 
     if balances and basis is not None:
