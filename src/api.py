@@ -1662,7 +1662,9 @@ async def admin_reload_fundamentals(
     response_model=RunResponse,
     dependencies=[Depends(require_admin)],
 )
-async def admin_backfill_page_extras(background: BackgroundTasks) -> RunResponse:
+async def admin_backfill_page_extras(
+    background: BackgroundTasks, force: bool = False
+) -> RunResponse:
     """Rebuild the pre-rendered company-page sections, in the cluster.
 
     This exists because of WHERE it runs, not what it does. The same work is
@@ -1686,20 +1688,28 @@ async def admin_backfill_page_extras(background: BackgroundTasks) -> RunResponse
         return RunResponse(
             accepted=False, detail="A backfill or reload is already running."
         )
-    background.add_task(_page_extras_bg)
+    background.add_task(_page_extras_bg, force)
     return RunResponse(
         accepted=True,
-        detail="Page-extras backfill queued. Poll GET /admin.json for the "
-               "row count, or re-request this endpoint to see whether it is "
-               "still running.",
+        detail=(
+            "Page-extras backfill queued for EVERY ticker (force=true). Poll "
+            "GET /admin.json, or re-request this endpoint to see whether it is "
+            "still running."
+            if force else
+            "Page-extras backfill queued. Only tickers whose filing has moved "
+            "will rebuild -- pass ?force=true after a code change to the "
+            "rendered text, which does not move any filing. Poll GET "
+            "/admin.json, or re-request this endpoint to see whether it is "
+            "still running."
+        ),
     )
 
 
-async def _page_extras_bg() -> None:
+async def _page_extras_bg(force: bool = False) -> None:
     async with _backfill_lock:
         try:
-            rebuilt = await asyncio.to_thread(_refresh_page_extras)
-            log.info("page_extras_backfill_done", rebuilt=rebuilt)
+            rebuilt = await asyncio.to_thread(_refresh_page_extras, force)
+            log.info("page_extras_backfill_done", rebuilt=rebuilt, force=force)
         except Exception as exc:  # noqa: BLE001 - state carries it to the log
             log.exception("page_extras_backfill_failed", error=str(exc))
 
@@ -1723,7 +1733,7 @@ async def _reload_bg(quarters: int) -> None:
     await asyncio.to_thread(_refresh_page_extras)
 
 
-def _refresh_page_extras() -> int:
+def _refresh_page_extras(force: bool = False) -> int:
     """Rebuild the pre-rendered page sections whose filing has moved on.
 
     Failure here is logged and swallowed. A stale or missing row costs a
@@ -1757,7 +1767,18 @@ def _refresh_page_extras() -> int:
                     CompanyPageExtras.ticker, CompanyPageExtras.source_period_end
                 )
             ).all())
-        stale = [t for t, period in newest if built.get(t) != period]
+        # PERIOD-ONLY staleness, which is right for a data reload and WRONG
+        # after a code change: editing the sentence these rows hold does not
+        # move anybody's filing, so nothing looks stale and a green deploy
+        # changes nothing on the live site. That has now cost this project two
+        # deploys -- the dead-domain one recorded below, and the identity
+        # rewrite of 2026-09-18 -- and the fix each time was a hand-written
+        # UPDATE against production, which is a bad thing to need at the end of
+        # a deploy. `force` is that UPDATE, spelled as a flag.
+        stale = (
+            [t for t, _ in newest] if force
+            else [t for t, period in newest if built.get(t) != period]
+        )
         # A row can also be stale WITHOUT its filing having moved: the stored
         # JSON-LD carries the origin it was built with, so after a domain
         # change every row is correct about its balance sheet and wrong about
