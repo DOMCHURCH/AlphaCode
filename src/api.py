@@ -945,6 +945,16 @@ def billing_fulfilment_error() -> str:
         return ""
 
 
+def billing_open_fulfilment_errors() -> list[dict[str, Any]]:
+    """Every lost payment nobody has cleared yet, newest first."""
+    from src import billing
+
+    try:
+        return billing.open_fulfilment_errors()
+    except Exception:  # noqa: BLE001 - a status read must never throw
+        return []
+
+
 @app.get("/status", dependencies=[Depends(require_admin)])
 def status() -> dict[str, Any]:
     """Row counts so you can watch the backfill fill up and confirm readiness.
@@ -1018,6 +1028,11 @@ def status() -> dict[str, Any]:
         # container log that rotates away. Sticky until an operator clears it:
         # the next event succeeding says nothing about the one that did not.
         "fulfilment_error": billing_fulfilment_error() or None,
+        # Every OPEN incident, not just the newest. One sticky string hides the
+        # rest, and an outage produces more than one -- which is exactly when
+        # they matter and exactly when the old in-memory version had already
+        # been wiped by the redeploy that fixed the outage.
+        "fulfilment_errors_open": billing_open_fulfilment_errors() or None,
     }
     # What is keeping the data current, and what it is waiting on. Cheap (DB
     # reads only), and the first thing to look at when a number looks old.

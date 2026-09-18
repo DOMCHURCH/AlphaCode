@@ -41,6 +41,7 @@ off rather than failing to boot.
 
 from __future__ import annotations
 
+import contextvars
 import datetime as dt
 from typing import Any
 
@@ -51,7 +52,7 @@ from sqlalchemy.exc import IntegrityError
 
 from src.config.settings import get_settings
 from src.storage.db import session_scope
-from src.storage.models import ApiUser, StripeEvent
+from src.storage.models import ApiUser, FulfilmentError, StripeEvent
 
 log = structlog.get_logger(__name__)
 
@@ -134,15 +135,91 @@ def reset_last_error() -> None:
 _last_fulfilment_error: str = ""
 
 
+# The event being dispatched, for `_note_lost` to attribute an incident to.
+# A ContextVar rather than a global because webhooks are handled in a worker
+# thread each, and `asyncio.to_thread` gives every call its own copy of the
+# context -- so two deliveries arriving together cannot overwrite each other's
+# id and file one incident against the other's event.
+_current_event: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "stripe_current_event", default=""
+)
+
+
 def last_fulfilment_error() -> str:
-    """The last payment this service could not turn into access, or ""."""
-    return _last_fulfilment_error
+    """The last payment this service could not turn into access, or "".
+
+    Reads the TABLE first and the in-memory copy only as a fallback. The global
+    is still set on the way through because it costs nothing and answers
+    without a query, but it cannot be the source of truth: it is empty after
+    every deploy, and a deploy is exactly what happens between a payment going
+    wrong and an operator looking at /status.
+    """
+    try:
+        with session_scope() as session:
+            row = session.execute(
+                select(FulfilmentError)
+                .where(FulfilmentError.cleared_at.is_(None))
+                .order_by(FulfilmentError.noted_at.desc())
+                .limit(1)
+            ).scalar_one_or_none()
+            if row is not None:
+                detail = f" ({row.detail})" if row.detail else ""
+                return f"{row.reason}{detail}"
+            # An empty table is an authoritative "nothing outstanding", so the
+            # stale global must not outlive an operator who has just cleared it.
+            return ""
+    except Exception as exc:  # noqa: BLE001 - /status must render regardless
+        log.warning("fulfilment_error_read_failed", error=str(exc)[:200])
+        return _last_fulfilment_error
+
+
+def open_fulfilment_errors(limit: int = 20) -> list[dict[str, Any]]:
+    """Every unresolved lost payment, newest first. For the operator view.
+
+    `last_fulfilment_error` answers "is anything wrong"; this answers "what,
+    and how many". One incident hides the rest in a single sticky string, and
+    an outage produces more than one.
+    """
+    try:
+        with session_scope() as session:
+            rows = session.execute(
+                select(FulfilmentError)
+                .where(FulfilmentError.cleared_at.is_(None))
+                .order_by(FulfilmentError.noted_at.desc())
+                .limit(limit)
+            ).scalars().all()
+            return [
+                {
+                    "event_id": r.event_id,
+                    "reason": r.reason,
+                    "detail": r.detail,
+                    "noted_at": r.noted_at.isoformat() if r.noted_at else None,
+                }
+                for r in rows
+            ]
+    except Exception as exc:  # noqa: BLE001
+        log.warning("fulfilment_errors_list_failed", error=str(exc)[:200])
+        return []
 
 
 def reset_fulfilment_error() -> None:
-    """Clear it. For the operator who has dealt with it, and for tests."""
+    """Clear it. For the operator who has dealt with it, and for tests.
+
+    Marks the open rows cleared rather than deleting them: the second question
+    after "is anything wrong" is "has this happened before", and a table that
+    forgets resolved incidents cannot answer it.
+    """
     global _last_fulfilment_error
     _last_fulfilment_error = ""
+    try:
+        with session_scope() as session:
+            now = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+            for row in session.execute(
+                select(FulfilmentError).where(FulfilmentError.cleared_at.is_(None))
+            ).scalars().all():
+                row.cleared_at = now
+    except Exception as exc:  # noqa: BLE001 - clearing must not 500
+        log.warning("fulfilment_error_clear_failed", error=str(exc)[:200])
 
 
 def _note_lost(reason: str, **fields: Any) -> None:
@@ -155,14 +232,33 @@ def _note_lost(reason: str, **fields: Any) -> None:
     operator: it used to mean a paid event vanished into a container log that
     rotates away, with no durable trace anywhere and nothing on /status.
 
-    So the log line stays and a sticky field is set beside it, surfaced as
-    `features.fulfilment_error`. It is deliberately not cleared by the next
-    success: an operator has to look at it and clear it.
+    So the log line stays, a sticky field is set beside it, and -- because a
+    module-global is wiped by the next deploy, and a deploy is exactly what
+    happens between a payment going wrong and anyone looking at /status -- a
+    ROW is written too. That row is the durable trace; the global is a fast
+    path that answers without a query until the process next restarts.
+
+    Neither is cleared by the next success: an operator has to look at it.
     """
     global _last_fulfilment_error
     detail = " ".join(f"{k}={v}" for k, v in fields.items() if v)
     _last_fulfilment_error = f"{reason} ({detail})" if detail else reason
     log.error("stripe_fulfilment_LOST", reason=reason, **fields)
+
+    # Never raises. A failure to RECORD that money was lost must not also
+    # become a 500 that makes Stripe redeliver an event we have already
+    # decided cannot be fulfilled -- that would turn one lost payment into
+    # three days of retries against the same dead end. The log line above has
+    # already happened either way.
+    try:
+        with session_scope() as session:
+            session.add(FulfilmentError(
+                event_id=(_current_event.get() or "unknown")[:64],
+                reason=reason[:64],
+                detail=detail[:512],
+            ))
+    except Exception as exc:  # noqa: BLE001
+        log.error("stripe_fulfilment_record_failed", error=str(exc)[:200])
 
 
 def _note_failure(exc: Exception) -> None:
@@ -1374,11 +1470,16 @@ def _dispatch(event: Any) -> dict[str, Any]:
         return {"status": "duplicate", "event": event_id, "type": kind}
 
     obj = _field(_field(event, "data") or {}, "object") or {}
+    # So `_note_lost`, five call sites deep inside a handler that is only ever
+    # handed the Stripe object, can file its incident against this event.
+    token = _current_event.set(event_id)
     try:
         result = handler(obj)
     except Exception:
         _release(event_id)
         raise
+    finally:
+        _current_event.reset(token)
     result["event"] = event_id
     result["type"] = kind
     return result

@@ -340,6 +340,94 @@ def test_the_fulfilment_alarm_is_sticky_until_it_is_cleared(client):
     assert client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["fulfilment_error"] is None
 
 
+def test_the_alarm_survives_the_process_that_raised_it(client):
+    """The whole point: a redeploy must not wipe the record of a lost payment.
+
+    The alarm used to be a module-level string and nothing else. Railway
+    restarts the container on every deploy, and a deploy is exactly what
+    happens between a payment going wrong and anyone looking at /status -- so
+    the one signal that money had been taken and nothing given was reliably
+    destroyed by the fix for whatever caused it.
+
+    Clearing the in-memory copy here is what a restart does to it.
+    """
+    from src import billing
+
+    post_event(
+        client,
+        {
+            "id": "evt_no_email_3",
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_z", "mode": "payment", "payment_status": "paid",
+                    "customer": "cus_9", "customer_details": {},
+                }
+            },
+        },
+    )
+
+    # Simulate the restart: the global is gone, the row is not.
+    billing._last_fulfilment_error = ""
+
+    err = client.get("/status", headers={"X-Admin-Secret": ADMIN_SECRET}).json()["features"]["fulfilment_error"]
+    assert err and "no_email" in err, "a restart wiped the lost-payment alarm"
+
+
+def test_every_open_incident_is_listed_not_just_the_newest(client):
+    """One sticky string hides the rest, and an outage produces more than one."""
+    for n in (4, 5):
+        post_event(
+            client,
+            {
+                "id": f"evt_no_email_{n}",
+                "type": "checkout.session.completed",
+                "data": {
+                    "object": {
+                        "id": f"cs_{n}", "mode": "payment", "payment_status": "paid",
+                        "customer": "cus_9", "customer_details": {},
+                    }
+                },
+            },
+        )
+
+    rows = client.get(
+        "/status", headers={"X-Admin-Secret": ADMIN_SECRET}
+    ).json()["features"]["fulfilment_errors_open"]
+    assert rows and len(rows) >= 2
+    # Each incident is attributable to the event it was lost on, so it can be
+    # tied back to Stripe's own dashboard.
+    assert {r["event_id"] for r in rows} >= {"evt_no_email_4", "evt_no_email_5"}
+    assert all(r["reason"] == "no_email" for r in rows)
+
+
+def test_clearing_resolves_the_rows_rather_than_forgetting_them(client):
+    """"Has this happened before" is the second question an operator asks."""
+    from src import billing
+    from src.storage.db import session_scope
+    from src.storage.models import FulfilmentError
+
+    post_event(
+        client,
+        {
+            "id": "evt_no_email_6",
+            "type": "checkout.session.completed",
+            "data": {
+                "object": {
+                    "id": "cs_6", "mode": "payment", "payment_status": "paid",
+                    "customer": "cus_9", "customer_details": {},
+                }
+            },
+        },
+    )
+    billing.reset_fulfilment_error()
+
+    assert billing.open_fulfilment_errors() == []
+    with session_scope() as session:
+        kept = session.query(FulfilmentError).count()
+    assert kept >= 1, "clearing deleted the history instead of resolving it"
+
+
 # ---------------------------------------------------------------------------
 # 12 -- the idempotency gap
 # ---------------------------------------------------------------------------

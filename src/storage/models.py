@@ -704,6 +704,54 @@ class StripeEvent(Base):
     )
 
 
+class FulfilmentError(Base):
+    """One row per payment that moved money and granted nothing.
+
+    These outcomes -- an unknown plan, a session carrying no address, a renewal
+    for an account whose Stripe ids were never stored -- are answered 200 and
+    recorded as handled, because Stripe retrying them for three days fixes none
+    of the causes. That is right for the protocol and leaves the operator with
+    nothing, so `billing._note_lost` also set a sticky module-global surfaced on
+    /status.
+
+    A module-global is not a durable trace. It is exactly the failure `LlmUsage`
+    above already describes for a different counter: on a platform that restarts
+    freely, in-process state resets on every deploy -- and this service was
+    redeployed repeatedly during an outage, which is precisely when a payment is
+    most likely to have been lost and least likely to still be in memory. A
+    buyer who paid and got nothing would have had their only alarm wiped by the
+    fix for the thing that broke them.
+
+    So it is a row. `cleared_at` rather than a delete, because the question an
+    operator asks second is "has this happened before", and a table that
+    forgets resolved incidents cannot answer it.
+    """
+
+    __tablename__ = "fulfilment_errors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    # The Stripe event this was lost on, so the incident can be tied back to
+    # `stripe_events` and to Stripe's own dashboard. Not a foreign key: the
+    # event row is claimed before the handler runs, and a constraint that can
+    # fail here would turn a lost payment into a lost payment AND a 500.
+    event_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    reason: Mapped[str] = mapped_column(String(64), nullable=False)
+    # The enumerated fields `_note_lost` was given, already flattened. Bounded
+    # because an unbounded detail string on an endpoint Stripe can call is a
+    # write amplification anyone can trigger.
+    detail: Mapped[str] = mapped_column(String(512), nullable=False, default="")
+    noted_at: Mapped[dt.datetime] = mapped_column(
+        DateTime, nullable=False, default=_utcnow, index=True
+    )
+    # Set when an operator says they have dealt with it. Never set by a later
+    # success: "the last event worked" says nothing about the one before it.
+    cleared_at: Mapped[dt.datetime | None] = mapped_column(DateTime)
+
+    __table_args__ = (
+        Index("ix_fulfilment_open", "cleared_at", "noted_at"),
+    )
+
+
 class UsageLog(Base):
     """One row per metered API call. The meter itself, not a summary of it.
 
