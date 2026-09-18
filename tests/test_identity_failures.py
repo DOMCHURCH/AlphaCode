@@ -13,6 +13,8 @@ Two things are pinned here:
 
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 
 from scripts.identity_failures import FAIL_CATEGORIES, PASS_CATEGORIES, classify
@@ -25,7 +27,7 @@ FAIL_KEYS = {k for k, _, _ in FAIL_CATEGORIES}
 # --- resolve_identity -------------------------------------------------------
 
 def test_a_plain_sum_that_closes_needs_no_added_term():
-    balances, drift, basis = resolve_identity(1000.0, 600.0, 400.0)
+    balances, drift, basis, _eq = resolve_identity(1000.0, 600.0, 400.0)
     assert balances is True
     assert basis is None
     assert drift == pytest.approx(0.0)
@@ -33,20 +35,20 @@ def test_a_plain_sum_that_closes_needs_no_added_term():
 
 def test_the_nci_closes_a_filing_that_reports_it_separately():
     # Parent equity 300, NCI 100, so the plain sum is 100 short of assets.
-    balances, _, basis = resolve_identity(1000.0, 600.0, 300.0, nci=100.0)
+    balances, _, basis, _eq = resolve_identity(1000.0, 600.0, 300.0, nci=100.0)
     assert balances is True
     assert basis == "nci"
 
 
 def test_the_mezzanine_closes_a_filing_that_presents_one():
-    balances, _, basis = resolve_identity(1000.0, 600.0, 300.0, mezzanine=100.0)
+    balances, _, basis, _eq = resolve_identity(1000.0, 600.0, 300.0, mezzanine=100.0)
     assert balances is True
     assert basis == "mezzanine"
 
 
 def test_both_terms_together_close_what_neither_closes_alone():
     """The case the script used to miss entirely: it tried each separately."""
-    balances, _, basis = resolve_identity(
+    balances, _, basis, _eq = resolve_identity(
         1000.0, 600.0, 300.0, nci=60.0, mezzanine=40.0
     )
     assert balances is True
@@ -64,7 +66,7 @@ def test_the_tightest_basis_wins_not_the_first_one_tried():
     tol = IDENTITY_TOLERANCE * 100.0
     assert tol == pytest.approx(0.5)
     # NCI alone leaves 0.4% -- inside tolerance. Both leaves 0.0%.
-    balances, drift, basis = resolve_identity(
+    balances, drift, basis, _eq = resolve_identity(
         1000.0, 600.0, 300.0, nci=96.0, mezzanine=4.0
     )
     assert balances is True
@@ -74,7 +76,7 @@ def test_the_tightest_basis_wins_not_the_first_one_tried():
 
 def test_a_term_is_never_added_to_a_filing_that_already_balances():
     """Adding a published term to a sound filing would break a correct one."""
-    balances, _, basis = resolve_identity(
+    balances, _, basis, _eq = resolve_identity(
         1000.0, 600.0, 400.0, nci=100.0, mezzanine=50.0
     )
     assert balances is True
@@ -82,7 +84,7 @@ def test_a_term_is_never_added_to_a_filing_that_already_balances():
 
 
 def test_a_gap_no_published_term_reaches_does_not_balance():
-    balances, drift, basis = resolve_identity(1000.0, 600.0, 200.0)
+    balances, drift, basis, _eq = resolve_identity(1000.0, 600.0, 200.0)
     assert balances is False
     assert basis is None
     assert drift == pytest.approx(20.0)
@@ -200,7 +202,7 @@ def test_iqst_shape_picks_the_equity_that_closes():
     name gave 43,765,399 against 48,191,896 of assets -- a 9.19% failure on a
     filing that balances exactly.
     """
-    balances, drift, basis = resolve_identity(
+    balances, drift, basis, _eq = resolve_identity(
         48_191_896.0, 31_012_340.0, 12_753_059.0,
         nci=4_426_497.0, equity_alt=17_179_556.0,
     )
@@ -219,7 +221,7 @@ def test_agilent_shape_ignores_an_nci_tag_that_is_not_company_equity():
     7,363,000,000, and 6,604,000,000 + 7,363,000,000 is total assets to the
     dollar. The old rule preferred the negative figure and reported 54.39%.
     """
-    balances, drift, basis = resolve_identity(
+    balances, drift, basis, _eq = resolve_identity(
         13_967_000_000.0, 6_604_000_000.0, -233_000_000.0,
         equity_alt=7_363_000_000.0,
     )
@@ -236,7 +238,7 @@ def test_bam_shape_sums_two_mezzanine_components():
     1,238,000,000 and other 1,442,000,000. Only their sum closes. Taking one
     left 17,400,000,000 against 20,080,000,000 -- a 13.35% failure.
     """
-    balances, drift, basis = resolve_identity(
+    balances, drift, basis, _eq = resolve_identity(
         20_080_000_000.0, 8_212_000_000.0, 9_188_000_000.0,
         mezzanine=1_238_000_000.0,
         mezzanine_parts=(1_238_000_000.0, 1_442_000_000.0),
@@ -270,10 +272,164 @@ def test_a_section_total_is_never_added_to_its_own_components():
 def test_a_filing_that_balances_plainly_gains_no_explanation():
     """Offering more candidates must not let a term claim a filing that was
     already right."""
-    balances, drift, basis = resolve_identity(
+    balances, drift, basis, _eq = resolve_identity(
         1_000.0, 600.0, 400.0, nci=50.0, equity_alt=350.0,
         mezzanine_parts=(25.0, 25.0),
     )
 
     assert balances
     assert basis is None, "a plain sum must not be explained by a term"
+
+
+# --- the caller, which is where the fix was being thrown away ---------------
+
+def test_agilent_closes_on_the_other_equity_and_the_view_says_so():
+    """The bug `resolve_identity` was rewritten for, and did not actually fix.
+
+    Agilent's real numbers. `total_equity_incl_nci` carries -$233M while
+    shareholders' equity is $7.363B, and 6,604 + 7,363 = 13,967 exactly.
+    `resolve_identity` found that. `_check_identity` then discarded it, because
+    its guard read `balances and basis is not None` -- and a close on the other
+    equity adds no term, so `basis` is None.
+
+    Asserted through `_check_identity`, not through `resolve_identity`: the
+    function was already right, which is exactly why every existing test passed
+    while the live site reported a 54.4% failure for eight days.
+    """
+    from src.company.view1 import Block, View1, _check_identity
+
+    ASSETS, LIAB = 13_967_000_000.0, 6_604_000_000.0
+    INCL_NCI, PARENT = -233_000_000.0, 7_363_000_000.0
+
+    view = View1(
+        ticker="A", company_name="Agilent Technologies, Inc.", sector=None,
+        period_end=dt.date(2026, 7, 31), filing_date=dt.date(2026, 9, 1),
+        mode="detailed", total_assets=ASSETS, total_liabilities=LIAB,
+        total_equity=INCL_NCI,
+    )
+    # The drawing is built from the tag-named figure BEFORE the check runs,
+    # which is what makes a half-fix dangerous.
+    view.claims.append(Block(
+        key="equity", label="Shareholders' equity", value=INCL_NCI,
+        pct=abs(INCL_NCI) / ASSETS * 100.0, kind="equity",
+    ))
+    view.negative_equity = True
+    view.notes.append(
+        "Liabilities exceed total assets, so equity is negative. It is "
+        "drawn below the baseline."
+    )
+
+    _check_identity(view, ASSETS, LIAB, INCL_NCI, equity_alt=PARENT)
+
+    assert view.balances, "the filing closes to the dollar and was called a failure"
+    assert view.imbalance_pct < 0.01
+
+    # The picture has to move too, or the page says "balances" over a drawing
+    # made from a number that does not.
+    assert view.total_equity == PARENT
+    assert [b.value for b in view.claims if b.kind == "equity"] == [PARENT]
+
+    # Agilent's equity is positive. The live page said otherwise, in prose, as
+    # a claim of fact about a real company.
+    assert not view.negative_equity
+    assert not any("drawn below the baseline" in n for n in view.notes)
+    assert any("two equity totals" in n for n in view.notes)
+
+
+def test_a_filer_whose_own_equity_is_negative_keeps_that_note():
+    """Adopting the other figure recomputes the shape, it does not assume it."""
+    from src.company.view1 import Block, View1, _check_identity
+
+    ASSETS, LIAB = 1000.0, 1200.0
+    WRONG, RIGHT = 500.0, -200.0   # 1200 + (-200) = 1000
+
+    view = View1(
+        ticker="X", company_name="X", sector=None,
+        period_end=dt.date(2026, 1, 1), filing_date=dt.date(2026, 2, 1),
+        mode="detailed", total_assets=ASSETS, total_liabilities=LIAB,
+        total_equity=WRONG,
+    )
+    view.claims.append(Block(key="equity", label="Shareholders' equity",
+                             value=WRONG, pct=50.0, kind="equity"))
+
+    _check_identity(view, ASSETS, LIAB, WRONG, equity_alt=RIGHT)
+
+    assert view.balances
+    assert view.total_equity == RIGHT
+    assert view.negative_equity, "a genuinely negative equity must still say so"
+    assert any("drawn below the baseline" in n for n in view.notes)
+
+
+def test_a_filing_that_closes_plainly_is_untouched():
+    """The guard must not start adopting figures for filings that were fine."""
+    from src.company.view1 import View1, _check_identity
+
+    view = View1(
+        ticker="Y", company_name="Y", sector=None,
+        period_end=dt.date(2026, 1, 1), filing_date=dt.date(2026, 2, 1),
+        mode="detailed", total_assets=1000.0, total_liabilities=600.0,
+        total_equity=400.0,
+    )
+    _check_identity(view, 1000.0, 600.0, 400.0, equity_alt=-999.0)
+
+    assert view.balances
+    assert view.total_equity == 400.0
+    assert view.identity_basis == ""
+    assert not any("two equity totals" in n for n in view.notes)
+
+
+def test_a_gap_that_is_ours_is_drawn_not_left_as_a_short_column():
+    """BLK's shape: the filer's own totals agree, ours fall short.
+
+    The paragraph says the gap is ours. Before this, the picture still showed
+    the filer short -- $111.3B + $57.8B drawn against $175.9B of assets -- so
+    the image went on making the accusation after the text had stopped.
+    """
+    from src.company.view1 import Block, View1, _check_identity
+
+    ASSETS = 175_900_000_000.0
+    LIAB, EQUITY = 111_300_000_000.0, 57_800_000_000.0
+
+    view = View1(
+        ticker="BLK", company_name="BlackRock, Inc.", sector=None,
+        period_end=dt.date(2026, 6, 30), filing_date=dt.date(2026, 8, 6),
+        mode="detailed", total_assets=ASSETS, total_liabilities=LIAB,
+        total_equity=EQUITY, stated_rhs=ASSETS,
+    )
+    view.claims.append(Block(key="total_liabilities", label="Liabilities",
+                             value=LIAB, pct=63.3, kind="liability"))
+    view.claims.append(Block(key="equity", label="Shareholders' equity",
+                             value=EQUITY, pct=32.9, kind="equity"))
+
+    _check_identity(view, ASSETS, LIAB, EQUITY)
+
+    assert not view.balances, "this filing genuinely does not close as we read it"
+
+    unread = [b for b in view.claims if b.key == "unread_components"]
+    assert len(unread) == 1, "the shortfall must be drawn, not left as empty space"
+    band = unread[0]
+    assert band.value == pytest.approx(ASSETS - (LIAB + EQUITY))
+    assert band.is_remainder
+    assert "Ours, not theirs" in (band.note or "")
+
+    # The column now sums to the filer's own stated total.
+    drawn = sum(b.value for b in view.claims if b.kind != "equity") + EQUITY
+    assert drawn == pytest.approx(ASSETS)
+
+
+def test_a_filer_whose_own_totals_disagree_gets_no_band():
+    """If their arithmetic is the problem, drawing a band would hide it."""
+    from src.company.view1 import View1, _check_identity
+
+    ASSETS, LIAB, EQUITY = 1000.0, 600.0, 200.0
+    view = View1(
+        ticker="Z", company_name="Z", sector=None,
+        period_end=dt.date(2026, 1, 1), filing_date=dt.date(2026, 2, 1),
+        mode="detailed", total_assets=ASSETS, total_liabilities=LIAB,
+        total_equity=EQUITY,
+        stated_rhs=800.0,   # their own total disagrees with their own assets
+    )
+    _check_identity(view, ASSETS, LIAB, EQUITY)
+
+    assert not view.balances
+    assert not [b for b in view.claims if b.key == "unread_components"]

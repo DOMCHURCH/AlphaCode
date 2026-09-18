@@ -2837,6 +2837,25 @@ def api_admin_revoke_seed_key(
     return JSONResponse({"key": seedkeys.row(label)})
 
 
+@app.get("/admin/billing/reconcile", dependencies=[Depends(require_admin)])
+def admin_billing_reconcile(days: int = 30) -> JSONResponse:
+    """Did anybody pay and get nothing? Read-only.
+
+    The durable lost-payment table only starts from the day it shipped.
+    Anything lost before that left a rotated-away log line and an in-memory
+    string wiped by the next deploy -- and the outage that makes a lost payment
+    most likely is also a run of repeated redeploys. Stripe still has the
+    record, so this walks Stripe's paid sessions and checks each one against
+    the account it should have provisioned.
+
+    Grants nothing. A hit here is handed to `POST /admin/grant-access`, which
+    is where a human decides.
+    """
+    from src import billing
+
+    return JSONResponse(billing.reconcile_paid_sessions(days=max(1, min(days, 365))))
+
+
 @app.get("/admin/subscriptions")
 def admin_subscriptions(
     request: Request,

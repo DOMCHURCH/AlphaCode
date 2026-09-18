@@ -508,7 +508,7 @@ def resolve_identity(
     *,
     equity_alt: float | None = None,
     mezzanine_parts: tuple[float | None, ...] | None = None,
-) -> tuple[bool, float, str | None]:
+) -> tuple[bool, float, str | None, float]:
     """Does this filing balance, and on what basis? THE definition, for everyone.
 
     SELECTS BY THE IDENTITY, NOT BY TAG NAME. The caller used to pick one
@@ -526,9 +526,17 @@ def resolve_identity(
     failure, and nothing is invented: every candidate is a line the filer
     published.
 
-    Returns `(balances, imbalance_pct, basis)`. `basis` is None when the plain
-    A = L + E closed it, and otherwise a key of `_IDENTITY_TERMS` naming the
-    term that had to be added.
+    Returns `(balances, imbalance_pct, basis, equity_used)`. `basis` is None
+    when the plain A = L + E closed it, and otherwise a key of
+    `_IDENTITY_TERMS` naming the term that had to be added.
+
+    `equity_used` is the equity figure the winning candidate was built on, and
+    it is RETURNED rather than inferred because the alternative is a hidden
+    coupling. A caller can reason that "balances with basis None, after the
+    plain sum already failed" must mean the other equity figure won -- and
+    that reasoning silently stops being true the moment either side's
+    tolerance or pre-check changes. The winner already knows which figure it
+    used; saying so costs one tuple element and removes the trap.
 
     This is a module-level function rather than four lines inside
     `_check_identity` because it had already been reimplemented elsewhere and
@@ -606,11 +614,67 @@ def resolve_identity(
             closing,
             key=lambda c: (0 if c[1] is None else 1, drift(c[2], c[3])),
         )
-        return True, drift(best[2], best[3]), best[1]
+        return True, drift(best[2], best[3]), best[1], best[2]
 
     # Nothing closes. Report the smallest gap on the caller's own equity, so a
     # failure is described in the terms the rest of the view is drawn in.
-    return False, drift(total_equity, 0.0), None
+    return False, drift(total_equity, 0.0), None, total_equity
+
+
+def _adopt_equity(
+    view: View1,
+    equity: float,
+    total_assets: float,
+    total_liabilities: float,
+) -> None:
+    """Redraw the claims column on the equity figure that actually closed.
+
+    Setting `view.total_equity` alone would not be enough and would be the
+    more dangerous half-fix: the equity Block, `negative_equity`,
+    `claims_span_pct` and the "drawn below the baseline" note are all built in
+    `build_view1` BEFORE the identity is checked, from whichever figure the tag
+    names happened to favour. Accepting the alternate figure without redrawing
+    would leave a page that says the filing balances above a picture drawn from
+    a number that does not balance -- moving the lie rather than removing it.
+
+    Agilent is the case that makes this concrete. Its `total_equity_incl_nci`
+    is -$233M, so the live page asserted "Equity is negative, so the claims
+    against this company exceed what it owns... That is a real shape, not an
+    error" about a company with $7.363B of positive equity. That sentence is a
+    false statement about a real public company, and it was the drawing's
+    doing, not the paragraph's.
+    """
+    view.total_equity = equity
+
+    for block in view.claims:
+        if block.kind == "equity":
+            block.value = equity
+            block.pct = (
+                abs(equity) / total_assets * 100.0 if total_assets else 0.0
+            )
+
+    # Both of these were decided by the discarded figure and have to be
+    # recomputed, not merely cleared: the replacement equity can legitimately
+    # be negative too, and a filer whose real equity is below zero must keep
+    # the note that says so.
+    view.negative_equity = equity < 0
+    view.notes = [n for n in view.notes if "drawn below the baseline" not in n]
+    if equity < 0:
+        view.claims_span_pct = (
+            total_liabilities / total_assets * 100.0 if total_assets else 100.0
+        )
+        view.notes.append(
+            "Liabilities exceed total assets, so equity is negative. It is "
+            "drawn below the baseline."
+        )
+    else:
+        view.claims_span_pct = 100.0
+
+    view.notes.append(
+        "This filer publishes two equity totals and the tags disagree with the "
+        "figures. The one that satisfies A = L + E is drawn — both are as "
+        "filed, and nothing is adjusted."
+    )
 
 
 def _check_identity(
@@ -668,12 +732,38 @@ def _check_identity(
     # than the first that clears the tolerance. Where two bases both close, the
     # tighter one is the one the filing was actually written on; picking by
     # order would let an accidental near-miss claim the drawing's explanation.
-    balances, imbalance_pct, basis = resolve_identity(
+    balances, imbalance_pct, basis, equity_used = resolve_identity(
         total_assets, total_liabilities, total_equity, nci, mezzanine,
         equity_alt=equity_alt, mezzanine_parts=mezzanine_parts,
     )
 
+    # THE ALTERNATE EQUITY FIGURE, which used to be thrown away here.
+    #
+    # `resolve_identity` was rewritten to offer both equity figures the filer
+    # published and let the identity choose, precisely because Agilent carries
+    # -$233M on `total_equity_incl_nci` when its equity is $7.363B, and
+    # iQSTEL's filer has the two tags swapped. It found the right one. Then
+    # this function threw the answer away, because the guard below read
+    # `balances and basis is not None` -- and a close on the OTHER equity with
+    # no extra term returns basis None, since no term was added.
+    #
+    # So the whole fix was invisible: Agilent went on reporting a 54.4% failure
+    # against a filing that closes to the dollar, and -- worse -- went on
+    # telling readers its equity was negative, because the drawing had already
+    # been built from -$233M before this function ran.
+    #
+    # `stats.py` never had this guard (`if balances:` is all it asks), so
+    # /methodology has been counting these as reconciled while the company page
+    # called them failures. Same data, same function, two answers.
+    if balances and basis is None and equity_used != total_equity:
+        _adopt_equity(view, equity_used, total_assets, total_liabilities)
+        view.balances = True
+        view.imbalance_pct = imbalance_pct
+        return
+
     if balances and basis is not None:
+        if equity_used != total_equity:
+            _adopt_equity(view, equity_used, total_assets, total_liabilities)
         view.balances = True
         view.imbalance_pct = imbalance_pct
         view.identity_basis = basis
@@ -688,6 +778,43 @@ def _check_identity(
     # it is held at the assets column's height rather than drawn past it. The
     # figures underneath are untouched -- what is shown is still as reported.
     view.claims_span_pct = min(view.claims_span_pct, 100.0)
+
+    # DRAW THE SHORTFALL WHERE THE FILER'S OWN TOTAL SAYS IT BELONGS.
+    #
+    # When the filer's stated liabilities-and-equity equals their total assets,
+    # the filing balances against its own arithmetic and the gap is a component
+    # we could not read. The paragraph now says so. The PICTURE did not: the
+    # claims column was simply drawn short, so BLK rendered $111.3B + $57.8B
+    # against $175.9B of assets and the image went on blaming the filer after
+    # the text had stopped.
+    #
+    # This is the remainder the page already uses on both sides -- the same
+    # device as "Other liabilities ... includes N line items this filer does
+    # not report separately" -- pointed at our own coverage gap and labelled as
+    # ours. Nothing is invented: the height comes from the filer's own stated
+    # total, and the band says we could not read what fills it.
+    stated = view.stated_rhs
+    if stated and total_assets > 0:
+        own_gap = abs(total_assets - stated) / total_assets * 100.0
+        drawn = (total_liabilities or 0.0) + (total_equity or 0.0)
+        unread = stated - drawn
+        if own_gap <= IDENTITY_TOLERANCE * 100.0 and unread > 0:
+            view.claims.append(Block(
+                key="unread_components",
+                label="Not read from this filing",
+                value=unread,
+                pct=unread / total_assets * 100.0,
+                kind="liability",
+                tone=3,
+                is_remainder=True,
+                note=(
+                    "This filer's own stated total for liabilities plus equity "
+                    "equals their total assets, so the filing balances. This "
+                    "band is the part we could not read — a line reported "
+                    "under a tag this site does not yet map. Ours, not theirs."
+                ),
+            ))
+
     view.notes.append(
         "This filing does not balance — data shown as reported. "
         f"Liabilities plus equity differ from total assets by "

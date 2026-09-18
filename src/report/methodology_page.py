@@ -184,19 +184,29 @@ def _live_section() -> str:
     # made this tile announce that the site had silently fudged one -- the
     # exact inverse of what it means. The number that belongs here can only
     # ever be 0, because a non-zero value would mean the promise was broken.
+    # Examples come from the same walk that produced the counts. They used to
+    # be the literals "BLK, BAM, CYH" and "MSC", which was fine until the
+    # extraction improved: a page naming a company as an example of OUR parsing
+    # failure, after we had started parsing it correctly, is a false statement
+    # published about a real filer. An em dash where a category is empty.
+    eg = b.get("examples") or {}
+
+    def _eg(category: str) -> str:
+        return ", ".join(eg.get(category) or []) or "—"
+
     rows = [
         ("Missing XBRL tag", c["missing_tag"],
          "We could not read a component the filing contains. Ours, not theirs.",
-         "BLK, BAM, CYH"),
+         _eg("missing_tag")),
         ("Rounding", c["rounding"],
          "The two sides differ by under 1% of total assets — presentation "
-         "slack, not error.", "—"),
+         "slack, not error.", _eg("rounding")),
         ("Unexplained", c["unexplained"],
          "The filer published no stated total to referee against. Under "
-         "investigation.", "MSC"),
+         "investigation.", _eg("unexplained")),
         ("Genuinely broken filing", c["broken"],
          "The filer's own stated total does not match their own assets. "
-         "Their arithmetic, not ours.", "—"),
+         "Their arithmetic, not ours.", _eg("broken")),
     ]
     table = "".join(
         f"<tr><th scope=\"row\">{label}</th><td class=\"num\">{_fmt(n)}</td>"

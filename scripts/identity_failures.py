@@ -138,7 +138,7 @@ def classify(m: dict[str, float]) -> tuple[str, float]:
     nci = None if "total_equity_incl_nci" in m else m.get("minority_interest")
     mezzanine = _mezzanine(m)
 
-    balances, drift, basis = resolve_identity(
+    balances, drift, basis, _equity_used = resolve_identity(
         assets, liabilities, equity, nci, mezzanine
     )
     if balances:

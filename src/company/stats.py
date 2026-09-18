@@ -423,6 +423,7 @@ def _compute_breakdown() -> dict[str, Any] | None:
         ("balanced", "nci", "mezzanine", "nci+mezzanine",
          "rounding", "missing_tag", "broken", "unexplained"), 0
     )
+    examples: dict[str, list[str]] = {}
     checked = 0
     not_testable = 0
     for ticker in latest:
@@ -450,7 +451,7 @@ def _compute_breakdown() -> dict[str, Any] | None:
             if m.get("temporary_equity")
             else tuple(m.get(k) for k in MEZZ if k != "temporary_equity")
         )
-        balances, drift, basis = resolve_identity(
+        balances, drift, basis, _equity_used = resolve_identity(
             assets, liab, equity, nci, mezz,
             equity_alt=equity_alt, mezzanine_parts=parts,
         )
@@ -459,13 +460,17 @@ def _compute_breakdown() -> dict[str, Any] | None:
             continue
         if drift < 1.0:
             counts["rounding"] += 1
+            _note_example(examples, "rounding", ticker)
             continue
         stated = m.get("liabilities_and_equity")
         if stated:
             own = abs(assets - stated) / assets * 100.0
-            counts["broken" if own > 0.5 else "missing_tag"] += 1
+            cat = "broken" if own > 0.5 else "missing_tag"
+            counts[cat] += 1
+            _note_example(examples, cat, ticker)
         else:
             counts["unexplained"] += 1
+            _note_example(examples, "unexplained", ticker)
 
     reconciled = sum(
         counts[k] for k in ("balanced", "nci", "mezzanine", "nci+mezzanine")
@@ -480,7 +485,32 @@ def _compute_breakdown() -> dict[str, Any] | None:
         "reconciled": reconciled,
         "flagged": flagged,
         "counts": counts,
+        # Three real tickers per category, so /methodology can name examples
+        # instead of carrying a hardcoded "BLK, BAM, CYH" that goes stale --
+        # and, once the extraction improves, becomes actively WRONG: a page
+        # naming a company as an example of our parsing failure after we have
+        # started parsing it correctly is a false statement we published about
+        # a real filer.
+        "examples": {k: sorted(v) for k, v in examples.items()},
     }
+
+
+# How many tickers to name per category on /methodology. Three is enough for a
+# reader to go and check one, and few enough that the column stays a column.
+_MAX_EXAMPLES = 3
+
+
+def _note_example(examples: dict[str, list[str]], category: str, ticker: str) -> None:
+    """Keep the first few tickers seen in each flag category.
+
+    First-seen rather than worst-by-gap: the walk is ordered by ticker, so this
+    is stable between runs, and a reader following an example wants a typical
+    one rather than the most extreme. The cap is what keeps a category with two
+    hundred members from carrying two hundred strings through the cache.
+    """
+    bucket = examples.setdefault(category, [])
+    if len(bucket) < _MAX_EXAMPLES and ticker not in bucket:
+        bucket.append(ticker)
 
 
 def identity_breakdown(max_age_s: float = IDENTITY_TTL_S) -> dict[str, Any] | None:

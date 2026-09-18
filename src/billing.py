@@ -1593,3 +1593,92 @@ def handle_event(payload: bytes, signature: str | None) -> dict[str, Any]:
         log.warning("stripe_webhook_bad_signature", error=str(exc)[:200])
         raise HTTPException(status_code=400, detail="Bad Stripe signature.") from None
     return _dispatch(event)
+
+
+def reconcile_paid_sessions(days: int = 30, limit: int = 100) -> dict[str, Any]:
+    """Every paid Checkout Session in the window, against what it granted.
+
+    READ-ONLY. Grants nothing, writes nothing, mails nobody. It answers one
+    question -- "did anybody pay and get nothing?" -- and leaves the fixing to
+    `POST /admin/grant-access`, which is where a human decision belongs.
+
+    This exists because the durable lost-payment record (`fulfilment_errors`)
+    only starts from the day it shipped. Anything lost BEFORE that left a log
+    line in a container that has since rotated away and an in-memory string
+    that the next deploy wiped -- and the outage that makes a lost payment most
+    likely is also a period of repeated redeploys. Stripe still has the record;
+    this is how to read it back.
+
+    Stripe is the authority on what was paid, so the walk starts there rather
+    than from `stripe_events`. An event row only proves a webhook ARRIVED; a
+    payment that never produced a delivery at all -- the failure mode with the
+    most money attached -- leaves no row to find.
+    """
+    from src import accounts
+
+    stripe = _sdk()
+    if stripe is None:
+        return {"ok": False, "error": "The Stripe SDK is not installed."}
+
+    since = int(
+        (dt.datetime.now(dt.UTC) - dt.timedelta(days=days)).timestamp()
+    )
+    unfulfilled: list[dict[str, Any]] = []
+    checked = 0
+
+    try:
+        sessions = stripe.checkout.Session.list(
+            created={"gte": since}, limit=min(limit, 100)
+        )
+        for obj in getattr(sessions, "data", []) or []:
+            if str(_field(obj, "payment_status", "")) != "paid":
+                continue
+            checked += 1
+            email = _email_of(obj)
+            plan = _plan_of(obj)
+            if not email:
+                unfulfilled.append({
+                    "session": _id_of(obj), "plan": plan,
+                    "email": None, "why": "session carries no email address",
+                })
+                continue
+
+            account = accounts.by_email(email)
+            if account is None:
+                unfulfilled.append({
+                    "session": _id_of(obj), "plan": plan, "email": email,
+                    "why": "paid, but no account exists for this address",
+                })
+                continue
+
+            # What this plan should have produced. Checked against the account
+            # as it stands now, not against the event log -- a grant that was
+            # applied and later revoked by a refund is not a lost payment.
+            if plan == "dataset" and not account.has_paid_download:
+                unfulfilled.append({
+                    "session": _id_of(obj), "plan": plan, "email": email,
+                    "why": "paid for the dataset, has_paid_download is false",
+                })
+            elif plan in ("pro", "pro_annual") and account.subscription_tier != "pro":
+                unfulfilled.append({
+                    "session": _id_of(obj), "plan": plan, "email": email,
+                    "why": f"paid for Pro, tier is {account.subscription_tier!r}",
+                })
+    except Exception as exc:  # noqa: BLE001 - an operator tool must report, not 500
+        log.warning("reconcile_failed", error=str(exc)[:200])
+        return {"ok": False, "error": _why(exc), "checked": checked}
+
+    return {
+        "ok": True,
+        "window_days": days,
+        "paid_sessions_checked": checked,
+        "unfulfilled": unfulfilled,
+        # Said explicitly because an empty list is the answer people skim past,
+        # and "we looked at nothing" and "we looked and it was clean" are very
+        # different results.
+        "verdict": (
+            "clean" if checked and not unfulfilled
+            else "nothing paid in this window" if not checked
+            else f"{len(unfulfilled)} paid session(s) granted nothing"
+        ),
+    }
