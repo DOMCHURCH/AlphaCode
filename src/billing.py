@@ -1625,11 +1625,17 @@ def reconcile_paid_sessions(days: int = 30, limit: int = 100) -> dict[str, Any]:
     )
     unfulfilled: list[dict[str, Any]] = []
     checked = 0
+    complete = True
 
     try:
         sessions = stripe.checkout.Session.list(
             created={"gte": since}, limit=min(limit, 100)
         )
+        # Stripe pages at 100. Past that this walk has NOT seen everything, and
+        # the verdict below must not say "clean" about a window it only partly
+        # read -- a lost-payment tool that produces false reassurance is worse
+        # than no tool, because it ends the search.
+        complete = not bool(_field(sessions, "has_more", False))
         for obj in getattr(sessions, "data", []) or []:
             if str(_field(obj, "payment_status", "")) != "paid":
                 continue
@@ -1659,11 +1665,18 @@ def reconcile_paid_sessions(days: int = 30, limit: int = 100) -> dict[str, Any]:
                     "session": _id_of(obj), "plan": plan, "email": email,
                     "why": "paid for the dataset, has_paid_download is false",
                 })
-            elif plan in ("pro", "pro_annual") and account.subscription_tier != "pro":
-                unfulfilled.append({
-                    "session": _id_of(obj), "plan": plan, "email": email,
-                    "why": f"paid for Pro, tier is {account.subscription_tier!r}",
-                })
+            elif plan in ("pro", "pro_annual") and account.tier != "pro":
+                # `Account.tier` is the tier IN FORCE, so a subscription that
+                # was granted and has since legitimately run out reads "free"
+                # here. That is not a lost payment, and reporting it as one
+                # would bury the real ones in noise the further back the window
+                # goes. `pro_expires_at` is the discriminator: set at all means
+                # a grant was applied once, which is the question being asked.
+                if account.pro_expires_at is None:
+                    unfulfilled.append({
+                        "session": _id_of(obj), "plan": plan, "email": email,
+                        "why": "paid for Pro, no Pro grant was ever applied",
+                    })
     except Exception as exc:  # noqa: BLE001 - an operator tool must report, not 500
         log.warning("reconcile_failed", error=str(exc)[:200])
         return {"ok": False, "error": _why(exc), "checked": checked}
@@ -1672,13 +1685,20 @@ def reconcile_paid_sessions(days: int = 30, limit: int = 100) -> dict[str, Any]:
         "ok": True,
         "window_days": days,
         "paid_sessions_checked": checked,
+        "complete": complete,
         "unfulfilled": unfulfilled,
         # Said explicitly because an empty list is the answer people skim past,
-        # and "we looked at nothing" and "we looked and it was clean" are very
-        # different results.
+        # and "we looked at nothing", "we looked at some of it", and "we looked
+        # at all of it and it was clean" are three different results that an
+        # empty list renders identically.
         "verdict": (
-            "clean" if checked and not unfulfilled
+            f"{len(unfulfilled)} paid session(s) granted nothing"
+            if unfulfilled
             else "nothing paid in this window" if not checked
-            else f"{len(unfulfilled)} paid session(s) granted nothing"
+            else "clean" if complete
+            else (
+                f"no problem in the first {checked} sessions, but there are "
+                "more than this walk read — narrow the window and re-run"
+            )
         ),
     }

@@ -1163,3 +1163,111 @@ def test_checkout_login_url_is_a_relative_path_only(client, stripe_calls):
     r = client.post("/api/billing/checkout", json={"plan": "pro"})
     url = r.json()["login_url"]
     assert "://" not in url and not url.startswith("//"), url
+
+
+# ---------------------------------------------------------------------------
+# Reconciling Stripe against what was actually granted
+# ---------------------------------------------------------------------------
+# `fulfilment_errors` only records from the day it shipped. Anything lost
+# before that left a rotated-away log line and an in-memory string the next
+# deploy wiped, so the historical answer has to come from Stripe. These check
+# the two ways that walk can mislead: missing a real gap, and declaring a
+# window clean that it never finished reading.
+
+
+class _FakeSessions:
+    """What `stripe.checkout.Session.list` returns: `.data` and `.has_more`."""
+
+    def __init__(self, data, has_more=False):
+        self.data = data
+        self.has_more = has_more
+
+
+def _paid_session(email, plan="pro", sid="cs_recon"):
+    return {
+        "id": sid,
+        "mode": "subscription" if plan.startswith("pro") else "payment",
+        "payment_status": "paid",
+        "customer_details": {"email": email},
+        "metadata": {"plan": plan},
+    }
+
+
+def _fake_list(monkeypatch, sessions):
+    """Patch the ONE Stripe call the reconciler makes, and nothing else."""
+    from src import billing
+
+    real_sdk = billing._sdk
+
+    class _Checkout:
+        class Session:
+            @staticmethod
+            def list(**_kwargs):
+                return sessions
+
+    def fake_sdk():
+        sdk = real_sdk()
+        if sdk is None:
+            class _Stub:
+                pass
+            sdk = _Stub()
+        monkeypatch.setattr(sdk, "checkout", _Checkout, raising=False)
+        return sdk
+
+    monkeypatch.setattr(billing, "_sdk", fake_sdk)
+
+
+def test_a_payment_that_granted_nothing_is_found_by_the_reconciler(
+    client, monkeypatch
+):
+    """Somebody paid, no account exists. This is the one with a customer on
+    the other end of it, and it is exactly what rotated out of the logs."""
+    from src import billing
+
+    _fake_list(monkeypatch, _FakeSessions([_paid_session("ghost@example.com")]))
+
+    out = billing.reconcile_paid_sessions(days=30)
+
+    assert out["ok"] is True
+    assert out["paid_sessions_checked"] == 1
+    assert len(out["unfulfilled"]) == 1
+    assert out["unfulfilled"][0]["email"] == "ghost@example.com"
+    assert "no account" in out["unfulfilled"][0]["why"]
+    assert out["verdict"] != "clean"
+
+
+def test_an_unfinished_walk_never_reports_clean(client, monkeypatch):
+    """Stripe pages at 100. A "clean" verdict on a window this walk did not
+    finish reading is false reassurance, and false reassurance ends the
+    search -- which is worse than having no tool at all."""
+    from src import accounts, billing
+
+    # Nothing wrong in what WAS read: this buyer paid and holds the grant.
+    # The only defect is that the walk stopped before the end of the window.
+    email = "satisfied@example.com"
+    accounts.register(email)
+    billing._grant(email, "pro")
+
+    _fake_list(
+        monkeypatch,
+        _FakeSessions([_paid_session(email, sid="cs_x")], has_more=True),
+    )
+
+    out = billing.reconcile_paid_sessions(days=30)
+
+    assert out["complete"] is False
+    assert out["verdict"] != "clean"
+    assert "more than this walk read" in out["verdict"]
+
+
+def test_the_reconciler_grants_nothing(client, monkeypatch):
+    """Read-only. Finding a lost payment must not also fix it silently --
+    that decision belongs to a human at /admin/grant-access."""
+    from src import accounts, billing
+
+    email = "ghost2@example.com"
+    _fake_list(monkeypatch, _FakeSessions([_paid_session(email)]))
+
+    billing.reconcile_paid_sessions(days=30)
+
+    assert accounts.by_email(email) is None, "the reconciler created an account"
