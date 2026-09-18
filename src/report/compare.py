@@ -565,6 +565,310 @@ and compare the response against the filing on EDGAR, not against another
 vendor. That comparison is the only one with an authority behind it.</p>
 """ + _HONESTY.format(rival="Intrinio"),
     ),
+    # ------------------------------------------------------------------
+    # Rivals added 2026-09-18. Every figure in the `theirs` column below was
+    # read off that vendor's own page ON THAT DATE, or it says "check their
+    # site". Nothing here is recalled, inferred from a press mention, or
+    # rounded from memory -- a wrong claim about a competitor's price is the
+    # same failure as a wrong claim about a filer's balance sheet, and this
+    # site has already made one of those.
+    # ------------------------------------------------------------------
+    Page(
+        slug="compare/balanceproof-vs-financial-modeling-prep",
+        updated="2026-09-18",
+        h1="BalanceProof vs Financial Modeling Prep: SEC Balance Sheet Data",
+        seo_title="BalanceProof vs FMP \u2014 SEC Balance Sheet Data (2026)",
+        description=(
+            "BalanceProof vs Financial Modeling Prep for SEC balance sheets: "
+            "how each one resolves a filing, what happens when a filing is "
+            "ambiguous, and which is the right fit."
+        ),
+        rival="Financial Modeling Prep",
+        lede=(
+            "FMP is the feed underneath a great deal of retail tooling \u2014 "
+            "spreadsheet add-ins, screeners, dashboards. If you are reading "
+            "this you are probably not choosing between the two so much as "
+            "asking whether something should sit in front of the one you "
+            "already have."
+        ),
+        rows=(
+            Row("Scope", "SEC balance sheets, reconciled", "Broad: statements, prices, ratios, estimates", False),
+            Row("Selection method", "A = L + E, published and testable", "Check their site \u2014 not found published"),
+            Row("Tells you when it is unsure", "Yes \u2014 every exception flagged with its reason, counts public at /methodology", "Check their site"),
+            Row("Coverage", "{COVERAGE}", "Wider \u2014 many markets and data types", False),
+            Row("Latency", LATENCY + "; EDGAR swept every 6h", "Check their site"),
+            Row("Price", "Free tier \u00b7 $49/mo \u00b7 $490/yr \u00b7 $79.99 one-off", "Check their site \u2014 their pricing page blocks automated reads"),
+            Row("Free tier", "Yes, 1,000 calls/month, no card", "Check their site"),
+            Row("Bulk download", "$79.99, one CSV, no contract", "Check their site"),
+        ),
+        choose_us=(
+            "<b>You are already on FMP and want a referee.</b> The free tier "
+            "is 1,000 calls a month with no card, which is enough to run "
+            "against what you already serve and see whether anything "
+            "disagrees. That is the actual use case here, not replacement.",
+            "<b>You need to defend a number.</b> Every figure reconciles "
+            "against A = L + E or is flagged with the reason it does not, so "
+            "a row ties back to the filing in front of somebody who asks.",
+            "<b>Redeemable equity matters to you.</b> Some filings only close "
+            "once mezzanine equity is counted as its own block \u2014 "
+            "<a href=\"/company/LCID\">Lucid</a> is the clean example. Read "
+            "permanent equity alone on a filer shaped like that and the sheet "
+            "is short the whole line, with no error raised.",
+        ),
+        choose_them=(
+            "<b>You need more than balance sheets.</b> Income statements, cash "
+            "flow, prices, ratios, estimates. One endpoint that does one thing "
+            "is the wrong shape for that.",
+            "<b>You need non-US or non-SEC coverage.</b>",
+            "<b>You want one vendor and one invoice.</b> Adding a second "
+            "service to check the first is a real cost, and for plenty of "
+            "products it is not worth paying.",
+        ),
+        body=_TRANSPARENCY + _METHOD + """
+<h2>A note on what is not in the table</h2>
+
+<p>Most of the right-hand column above says <em>check their site</em>. That is
+deliberate and it is not evasion: Financial Modeling Prep&rsquo;s pricing pages
+return a 403 to automated readers, so nothing about their current tiers could be
+verified on the day this page was written. Writing a number in anyway &mdash;
+from memory, from a blog post, from what was true last year &mdash; is how
+comparison pages end up quietly wrong about somebody else&rsquo;s business.</p>
+
+<p>The rest of this site is built on refusing to publish a figure that cannot be
+checked. It would be strange to abandon that on the page where the figure is
+about someone else.</p>
+""" + _HONESTY.format(rival="Financial Modeling Prep"),
+    ),
+    Page(
+        slug="compare/balanceproof-vs-polygon",
+        updated="2026-09-18",
+        h1="BalanceProof vs Polygon.io: Fundamentals, and Where Polygon Went",
+        seo_title="BalanceProof vs Polygon.io \u2014 Fundamentals (2026)",
+        description=(
+            "BalanceProof vs Polygon.io for SEC balance sheet data, including "
+            "what polygon.io now redirects to and what that means for "
+            "fundamentals coverage."
+        ),
+        rival="Polygon.io",
+        lede=(
+            "Start with something you should check for yourself: as of "
+            "18 September 2026, polygon.io and polygon.io/pricing both return "
+            "a 301 to massive.com. The figures below are read off that site, "
+            "because that is where the product now answers from."
+        ),
+        rows=(
+            Row("Scope", "SEC balance sheets, reconciled", "Market data: stocks, options, indices, currencies, futures", False),
+            Row("Fundamentals", "The whole product", "An add-on \u2014 \u201cFinancials &amp; Ratios\u201d, sold separately or bundled on their top tier"),
+            Row("Selection method", "A = L + E, published and testable", "Check their site \u2014 not found published"),
+            Row("Tells you when it is unsure", "Yes \u2014 every exception flagged with its reason", "Check their site"),
+            Row("Free tier", "1,000 calls/month, no card", "A free Basic tier, metered per minute, end-of-day \u2014 check their site"),
+            Row("Entry paid tier", "$49/mo", "Check their site"),
+            Row("Latency", LATENCY, "Check their site \u2014 real-time market data is their pitch, not ours", False),
+            Row("Bulk download", "$79.99, one CSV, no contract", "Check their site"),
+        ),
+        choose_us=(
+            "<b>Balance sheets are the thing you need, not a side dish.</b> On "
+            "their side fundamentals are an add-on to a market-data "
+            "platform; here they are the product, and the verification is the "
+            "reason to buy.",
+            "<b>You want the method written down.</b> A = L + E is testable, "
+            "and the exceptions are counted in public on "
+            "<a href=\"/methodology\">how we verify</a>.",
+            "<b>A call-per-minute cap is the wrong shape for a backfill.</b> "
+            "Five a minute is a sensible free tier for streaming quotes and an "
+            "awkward one for walking a universe of filings.",
+        ),
+        choose_them=(
+            "<b>You need prices, options, or anything real-time.</b> That is "
+            "their actual product and it is not remotely this one. Their "
+            "homepage pitch is institutional market data; fundamentals are not "
+            "mentioned on it.",
+            "<b>You need one vendor across asset classes.</b>",
+            "<b>You want unmetered API calls on a cheap tier.</b> Their paid "
+            "tiers advertise unlimited calls, which is a different and "
+            "perfectly good bargain.",
+        ),
+        body=_TRANSPARENCY + _METHOD + """
+<h2>About the redirect</h2>
+
+<p>On 18 September 2026, <code>https://polygon.io</code> and
+<code>https://polygon.io/pricing</code> both returned <code>301 Moved
+Permanently</code> to <code>massive.com</code>. The destination site does not
+mention Polygon anywhere, and describes itself as &ldquo;modernizing Wall St.
+one market at a time&rdquo;.</p>
+
+<p>That is the whole of what can be said with certainty, so it is the whole of
+what is said here. This page does not assert a rebrand, an acquisition, or a
+shutdown, because none of those were verified &mdash; a redirect is a fact and
+the story behind it is not. Check it yourself before making a procurement
+decision on it; it is one <code>curl -I</code>.</p>
+""" + _HONESTY.format(rival="Polygon.io"),
+    ),
+    Page(
+        slug="compare/balanceproof-vs-alpha-vantage",
+        updated="2026-09-18",
+        h1="BalanceProof vs Alpha Vantage: SEC Fundamentals Compared",
+        seo_title="BalanceProof vs Alpha Vantage \u2014 Fundamentals (2026)",
+        description=(
+            "BalanceProof vs Alpha Vantage for SEC balance sheet data: free "
+            "tier limits, what each publishes about its method, and which "
+            "suits a backfill."
+        ),
+        rival="Alpha Vantage",
+        lede=(
+            "Alpha Vantage is the default free answer in this category, and "
+            "for a lot of projects that is the correct answer. The question "
+            "worth asking is what happens at the point where free stops being "
+            "the constraint and correctness starts."
+        ),
+        rows=(
+            Row("Scope", "SEC balance sheets, reconciled", "Broad: prices, FX, crypto, technicals, fundamentals", False),
+            Row("Selection method", "A = L + E, published and testable", "Check their site \u2014 not documented on their premium page"),
+            Row("Tells you when it is unsure", "Yes \u2014 every exception flagged with its reason", "Check their site"),
+            Row("Free tier", "1,000 calls/month, no card", "Free tier metered per DAY \u2014 check their site"),
+            Row("Entry paid tier", "$49/mo", "Check their site"),
+            Row("Paid tiers sold in", "Calls per month", "Requests per minute", False),
+            Row("Coverage", "{COVERAGE}", "Wider \u2014 many asset classes", False),
+            Row("Bulk download", "$79.99, one CSV, no contract", "Check their site"),
+        ),
+        choose_us=(
+            "<b>You are doing a backfill, not a poll.</b> A per-day free cap is "
+            "a sampling budget; 1,000 calls a month is a walk-the-universe "
+            "budget. Check their current limit against that shape \u2014 it "
+            "is the difference that matters, not the number.",
+            "<b>You want the exceptions named.</b> Their premium page documents "
+            "rate limits thoroughly and says nothing about how a figure is "
+            "chosen out of a filing that offers several. Ours is on "
+            "<a href=\"/methodology\">one page</a>, with counts.",
+            "<b>Redeemable and noncontrolling equity are handled explicitly</b> "
+            "rather than absorbed silently.",
+        ),
+        choose_them=(
+            "<b>You need prices, FX, crypto or technical indicators.</b> "
+            "Genuinely broad coverage, and this is not that.",
+            "<b>Rate per minute matters more than calls per month.</b> Their "
+            "paid tiers are sold in requests/minute, which is the right shape "
+            "for a live dashboard.",
+            "<b>You are already integrated.</b> A working integration has real "
+            "value and &ldquo;it reconciles&rdquo; is not on its own a reason "
+            "to rip one out.",
+        ),
+        body=_TRANSPARENCY + _METHOD + _HONESTY.format(rival="Alpha Vantage"),
+    ),
+    Page(
+        slug="alternatives/financial-modeling-prep",
+        updated="2026-09-18",
+        h1="Financial Modeling Prep Alternatives for SEC Balance Sheets",
+        seo_title="FMP Alternatives for SEC Balance Sheets (2026)",
+        description=(
+            "Looking for an FMP alternative for SEC balance sheet data? The "
+            "honest answer depends on whether you need breadth or need the "
+            "numbers to reconcile."
+        ),
+        rival="Financial Modeling Prep",
+        kind="alternatives",
+        lede=(
+            "If you are searching this, something has gone wrong with a "
+            "number. The useful question is not &ldquo;what else is "
+            "there&rdquo; but &ldquo;what exactly broke&rdquo;, because those "
+            "have different answers and only one of them is this site."
+        ),
+        rows=(
+            Row("If you need broader data", "Not the answer \u2014 this is SEC balance sheets only", "Stay. Breadth is what it is for", False),
+            Row("If a balance sheet did not reconcile", "This is the whole product", "Check their site for a published method"),
+            Row("If you need to defend a figure", "Every row ties to a filing; exceptions named", "Check their site"),
+            Row("If you need point-in-time", "As-reported, with filing dates", "Check their site"),
+            Row("Migration cost", "Low \u2014 add it alongside, do not replace", "n/a"),
+            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Price", "Free \u00b7 $49/mo \u00b7 $490/yr \u00b7 $79.99 one-off", "Check their site"),
+        ),
+        choose_us=(
+            "<b>Do not migrate. Add.</b> The common shape here is a product "
+            "that needs FMP&rsquo;s breadth and needs its balance sheets "
+            "checked. Those are two jobs, and the second one costs nothing to "
+            "trial.",
+            "<b>The failure you hit probably has a name.</b> A noncontrolling "
+            "interest reported as its own line, mezzanine equity outside "
+            "permanent equity, or a duplicate tag resolved to a segment. All "
+            "of them are counted in public on "
+            "<a href=\"/methodology\">how we verify</a>.",
+        ),
+        choose_them=(
+            "<b>Your problem was breadth, not correctness.</b> Then no part of "
+            "this site helps and you want a wider vendor, not a stricter one.",
+            "<b>Your problem was a single bad row.</b> Ask them to fix it "
+            "first. A vendor who corrects a filing when you report it is worth "
+            "more than one who never had that row wrong.",
+        ),
+        body=_TRANSPARENCY + _METHOD + _HONESTY.format(rival="Financial Modeling Prep"),
+    ),
+    Page(
+        slug="best/sec-xbrl-api",
+        updated="2026-09-18",
+        h1="The Best SEC XBRL API: What Actually Separates Them",
+        seo_title="Best SEC XBRL API \u2014 What Separates Them (2026)",
+        description=(
+            "Choosing an SEC XBRL API: the duplicate-tag problem, what "
+            "as-reported really means, and the four checks that tell you "
+            "whether a provider resolves a filing or guesses at it."
+        ),
+        rival="the alternatives",
+        kind="best",
+        lede=(
+            "Every provider in this category reads the same free filings from "
+            "the same free source. What you are paying for is what happens "
+            "when one of those filings is ambiguous \u2014 and that is the one "
+            "thing the marketing pages do not talk about."
+        ),
+        rows=(
+            Row("Resolves duplicate XBRL tags", "Yes \u2014 by A = L + E, not by tag name", "Ask. Most do not document it"),
+            Row("Publishes its exception count", "Yes, on /methodology, updated each load", "Rare"),
+            Row("Names which filings failed", "Yes \u2014 by ticker, with the reason", "Rare"),
+            Row("Says when the fault is its own", "Yes \u2014 \u201cours, not theirs\u201d is a published category", "Very rare"),
+            Row("Handles mezzanine equity", "Yes, as its own block", "Ask \u2014 this is where SPACs and biotechs break"),
+            Row("Handles noncontrolling interest", "Yes, added explicitly and said out loud", "Ask"),
+            Row("As-reported, not restated", "Yes, with filing dates", "Ask"),
+            Row("Free tier without a call", "1,000/month, no card", "Varies"),
+        ),
+        choose_us=(
+            "<b>Check 1: the twenty-three-tags test.</b> JPMorgan&rsquo;s 10-Q "
+            "carries more than twenty facts tagged <code>Assets</code>. Ask a "
+            "provider for total assets and check it against the filing. A "
+            "segment looks exactly like a company until you look.",
+            "<b>Check 2: the identity test.</b> Pull assets, liabilities and "
+            "equity for fifty filers and test A = L + E on each. Whatever "
+            "fails tells you the shape of that provider&rsquo;s error \u2014 "
+            "and whether they knew about it.",
+            "<b>Check 3: the SPAC test.</b> Find a filer with redeemable "
+            "equity \u2014 <a href=\"/company/LCID\">Lucid</a> will do. If "
+            "the sheet does not close, the provider read permanent equity and "
+            "stopped.",
+            "<b>Check 4: the admission test.</b> Ask a provider how many "
+            "filings their own pipeline currently cannot read. A provider who "
+            "cannot answer has not measured it; one who answers zero has not "
+            "looked.",
+        ),
+        choose_them=(
+            "<b>You need income statements and cash flow too.</b> This is "
+            "balance sheets. That is a real limit, not modesty.",
+            "<b>You need filings themselves, not figures.</b> Full-text "
+            "search, exhibits, 8-K monitoring \u2014 different product entirely.",
+            "<b>You need an SLA and a vendor questionnaire.</b>",
+        ),
+        body=_TRANSPARENCY + _METHOD + """
+<h2>Why &ldquo;accuracy&rdquo; is not the question</h2>
+
+<p>Every vendor in this category will tell you their data is accurate, and
+almost none will tell you how they know. An accuracy percentage with no method
+behind it is a marketing number: it cannot be reproduced, it cannot be audited,
+and it is never wrong in a way anybody can point at.</p>
+
+<p>The useful question is the opposite one. <em>What happens on the filings you
+cannot read?</em> A provider who answers that honestly has measured it. This
+site answers it with a count that moves every time the data reloads, including
+the category where the fault is ours rather than the filer&rsquo;s.</p>
+""" + _HONESTY.format(rival="the alternatives"),
+    ),
 )
 
 BY_SLUG: dict[str, Page] = {p.slug: p for p in PAGES}
@@ -613,6 +917,20 @@ _WHY_THAT_ONE: dict[str, str] = {
     "alternatives/intrinio":
         "If Intrinio is the incumbent you are replacing, this is the "
         "migration-shaped version of the question.",
+    "compare/balanceproof-vs-financial-modeling-prep":
+        "The feed under a lot of retail tooling. Breadth against a referee.",
+    "compare/balanceproof-vs-polygon":
+        "Market data first, fundamentals as an add-on \u2014 and polygon.io "
+        "now redirects elsewhere.",
+    "compare/balanceproof-vs-alpha-vantage":
+        "The default free answer. Worth reading for where free stops being "
+        "the constraint.",
+    "alternatives/financial-modeling-prep":
+        "If FMP is what you already have, this is the add-it-alongside "
+        "version rather than a migration.",
+    "best/sec-xbrl-api":
+        "Four checks to run against any provider in this category, this one "
+        "included.",
 }
 
 

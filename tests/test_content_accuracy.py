@@ -847,3 +847,68 @@ def test_the_free_tier_figure_is_never_a_literal(client, path):
     for stale in ("100 keyed API calls", "10 keyed API calls",
                   "100 calls a calendar month"):
         assert stale not in body, f"{path} still hardcodes {stale!r}"
+
+
+def test_no_comparison_page_title_tag_truncates():
+    """The same 60-char budget, on the family with the most commercial intent.
+
+    This test did not exist while the budget was enforced on blog posts only,
+    and the gap was not theoretical: a post retitle in this same session went
+    to 67 characters and was caught, while the comparison pages -- the ones a
+    buyer actually searches for -- were guarded by nothing but care.
+    """
+    from src.report.compare import PAGES
+
+    over = [(p.slug, len(p.seo_title), p.seo_title)
+            for p in PAGES if len(p.seo_title) > TITLE_MAX]
+    assert not over, f"title tags over {TITLE_MAX} chars: {over!r}"
+
+
+def test_every_comparison_page_has_a_distinct_title_and_slug():
+    """Two pages sharing a title tag compete for the same result slot."""
+    from src.report.compare import PAGES
+
+    titles = [p.seo_title for p in PAGES]
+    slugs = [p.slug for p in PAGES]
+    assert len(titles) == len(set(titles)), "duplicate title tags"
+    assert len(slugs) == len(set(slugs)), "duplicate slugs"
+
+
+def test_no_comparison_page_leaves_a_placeholder_unsubstituted():
+    """`{COVERAGE}` rendered literally is a stale-number guard that misfired."""
+    from src.report.compare import PAGES, render
+
+    for page in PAGES:
+        html = render(page)
+        assert "{COVERAGE}" not in html, f"{page.slug} leaked a placeholder"
+
+
+def test_no_page_prints_a_competitor_price():
+    """The site promises exactly this, in `_HONESTY`, on every one of these pages.
+
+    "I am not going to put {rival}'s prices in a table on my own website. They
+    change, this page would not, and you would be reading a number I had no way
+    to verify at the moment you read it."
+
+    Five pages added on 2026-09-18 carried a rival's tier prices in the table
+    directly above that paragraph. A page that contradicts itself is the exact
+    failure this codebase spent a session removing from the company pages, and
+    a price is the claim most likely to be silently wrong later: checked once,
+    on the day the page was written, and decaying from then on.
+
+    Structural facts are still allowed, and are the point of the comparison:
+    what a tier is called, whether fundamentals are core or an add-on, whether
+    a free tier is metered per minute or per month. Shape does not rot the way
+    a number does.
+    """
+    import re
+
+    from src.report.compare import PAGES
+
+    money = re.compile(r"\$[0-9]")
+    offenders = [
+        (page.slug, row.label, row.theirs)
+        for page in PAGES for row in page.rows
+        if money.search(row.theirs)
+    ]
+    assert not offenders, f"competitor prices printed: {offenders!r}"

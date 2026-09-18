@@ -62,7 +62,12 @@ _POST_XBRL_ACCURACY = Post(
     # Accuracy:" prefix was the part carrying least weight -- "accuracy" is a
     # word this site deliberately does not quantify anywhere else -- so it is
     # the part that goes. The keyword and the hook both survive.
-    seo_title="Why Naive XBRL Extraction Is Wrong 1 in 5 Times (And How to Fix It)",
+    # 47 chars. Moving the subject from "SEC XBRL Data" to "Naive XBRL
+    # Extraction" cost eight characters, which pushed the old parenthetical
+    # past the 60-char result-list budget and truncated it to nothing. The
+    # "(And How to Fix It)" hook is the part that goes: the H1 above keeps it,
+    # where there is room, and a hook nobody sees is not a hook.
+    seo_title="Why Naive XBRL Extraction Is Wrong 1 in 5 Times",
     description=(
         "JPMorgan reports Total Assets 23 different ways in one SEC filing. "
         "Most filings APIs pick one at random. Here is why, and how "
