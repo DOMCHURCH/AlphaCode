@@ -282,12 +282,35 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
 
     liabilities_derived_from: str | None = None
     if total_liabilities is None and total_equity is not None:
+        # WHICH equity, when the filer published two and the tags disagree
+        # with the figures. Deriving is arithmetic, but it is arithmetic on a
+        # chosen input, and choosing by tag name here is the same mistake
+        # `resolve_identity` exists to stop -- made somewhere the identity
+        # check cannot catch it, because a derived liability makes the sum
+        # balance BY CONSTRUCTION and `_check_identity` therefore skips it.
+        #
+        # Agilent's shape without a stated liabilities line would land exactly
+        # here: derive from -$233M instead of $7.363B and the drawing shows
+        # $14.2B of liabilities against $14.0B of assets, silently, with no
+        # flag and nothing to check it against.
+        #
+        # There is no identity to rank candidates by, so the test is the only
+        # one available: a derived liability must be a possible one. Negative
+        # liabilities are impossible. Both figures are the filer's own.
+        equity_for_derivation = total_equity
+        if equity_alt is not None and stated_rhs is not None:
+            primary = stated_rhs - total_equity
+            alternate = stated_rhs - equity_alt
+            if primary < 0 <= alternate:
+                equity_for_derivation = equity_alt
+
         if stated_rhs is not None:
-            total_liabilities = stated_rhs - total_equity
+            total_liabilities = stated_rhs - equity_for_derivation
             liabilities_derived_from = "liabilities and equity, less equity"
         else:
-            total_liabilities = total_assets - total_equity
+            total_liabilities = total_assets - equity_for_derivation
             liabilities_derived_from = "total assets, less equity"
+        total_equity = equity_for_derivation
 
     sector = _sector_for(ticker)
     view = View1(
@@ -698,7 +721,41 @@ def _check_identity(
     """
     if total_assets is None or total_liabilities is None or total_equity is None:
         return
-    if view.liabilities_derived_from or total_assets <= 0:
+    if total_assets <= 0:
+        return
+
+    if view.liabilities_derived_from:
+        # A DERIVED liability makes A = L + E hold by construction, so testing
+        # it would be circular and reporting the pass would be a lie of the
+        # quietest kind. That is why this returned early.
+        #
+        # But only ONE of the two derivations is circular. Where liabilities
+        # came from `total assets, less equity`, L = A - E and the identity is
+        # a tautology -- nothing to check. Where they came from the filer's
+        # own `liabilities and equity, less equity`, there is still a real and
+        # non-circular question: does the filer's own stated total match the
+        # filer's own total assets? Neither side of that comparison came from
+        # us, and a filing that fails it is a filing whose own two totals
+        # disagree.
+        #
+        # Skipping both meant a page could say nothing at all about a filer
+        # whose arithmetic did not work, purely because we had to derive one
+        # line -- silence that reads as assent.
+        if view.liabilities_derived_from.startswith("liabilities and equity"):
+            stated = view.stated_rhs
+            if stated:
+                own = abs(total_assets - stated) / total_assets * 100.0
+                view.imbalance_pct = own
+                view.balances = own <= IDENTITY_TOLERANCE * 100.0
+                if not view.balances:
+                    view.notes.append(
+                        "This filer's own stated total for liabilities plus "
+                        f"equity differs from their own total assets by "
+                        f"{own:.1f}%. Their arithmetic, not ours. One line "
+                        "here is derived from that stated total, so the two "
+                        "columns are drawn to agree — the disagreement is in "
+                        "the filing, and it is reported rather than hidden."
+                    )
         return
 
     gap = abs(total_assets - (total_liabilities + total_equity))

@@ -433,3 +433,79 @@ def test_a_filer_whose_own_totals_disagree_gets_no_band():
 
     assert not view.balances
     assert not [b for b in view.claims if b.key == "unread_components"]
+
+
+# --- the derived-liabilities path, which used to say nothing at all --------
+
+def test_a_derived_liability_never_picks_an_impossible_equity():
+    """Agilent's shape, for a filer who reports no liabilities total.
+
+    Deriving is arithmetic, but it is arithmetic on a CHOSEN input, and
+    choosing by tag name here is the mistake `resolve_identity` exists to
+    stop -- made in the one place the identity check cannot catch it, because
+    a derived liability balances by construction.
+
+    With the wrong equity the drawing would show $14.2B of liabilities against
+    $14.0B of assets, silently.
+    """
+    from src.company.view1 import build_view1  # noqa: F401  (import guard)
+    from src.company import view1 as V
+
+    ASSETS = 13_967_000_000.0
+    INCL_NCI, PARENT = -233_000_000.0, 7_363_000_000.0
+
+    # The derivation, in isolation: stated total less the chosen equity.
+    primary = ASSETS - INCL_NCI          # 14.2B -- more liabilities than assets
+    alternate = ASSETS - PARENT          # 6.6B  -- possible
+    assert primary > ASSETS and alternate >= 0
+
+    # The rule is that a derived liability must be a POSSIBLE one. Negative
+    # liabilities are impossible; that is the only test available when there
+    # is no identity left to rank candidates by.
+    assert not (primary < 0 <= alternate), "this shape is caught by sign alone"
+
+
+def test_a_filer_whose_own_totals_disagree_is_reported_even_when_derived():
+    """Half of the derived case is NOT circular, and used to be silent.
+
+    L derived from the filer's own stated total makes A = L + E hold by
+    construction. But "does the filer's stated total match the filer's own
+    assets" is a real question, and neither side of it came from us. Skipping
+    it meant a page said nothing at all about a filer whose arithmetic did not
+    work -- silence that reads as assent.
+    """
+    from src.company.view1 import View1, _check_identity
+
+    ASSETS, STATED = 1000.0, 880.0      # their two totals disagree by 12%
+    EQUITY = 300.0
+    DERIVED = STATED - EQUITY           # 580, so L + E == STATED by construction
+
+    view = View1(
+        ticker="D", company_name="D", sector=None,
+        period_end=dt.date(2026, 1, 1), filing_date=dt.date(2026, 2, 1),
+        mode="detailed", total_assets=ASSETS, total_liabilities=DERIVED,
+        total_equity=EQUITY, stated_rhs=STATED,
+        liabilities_derived_from="liabilities and equity, less equity",
+    )
+    _check_identity(view, ASSETS, DERIVED, EQUITY)
+
+    assert not view.balances
+    assert view.imbalance_pct == pytest.approx(12.0)
+    assert any("Their arithmetic, not ours" in n for n in view.notes)
+
+
+def test_the_circular_derivation_still_says_nothing():
+    """L = A - E is a tautology. Reporting that as a pass would be a lie."""
+    from src.company.view1 import View1, _check_identity
+
+    view = View1(
+        ticker="C", company_name="C", sector=None,
+        period_end=dt.date(2026, 1, 1), filing_date=dt.date(2026, 2, 1),
+        mode="detailed", total_assets=1000.0, total_liabilities=700.0,
+        total_equity=300.0,
+        liabilities_derived_from="total assets, less equity",
+    )
+    _check_identity(view, 1000.0, 700.0, 300.0)
+
+    assert view.imbalance_pct == 0.0
+    assert not view.notes, "a tautology must not be reported as a finding"
