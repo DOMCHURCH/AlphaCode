@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import re
 from html import escape
+
+from src.report.sector_page import sector_slug
 from pathlib import Path
 from typing import Any
 
@@ -635,8 +637,18 @@ def render_company_page(
             f"{escape(asked)} is the same registrant &mdash; one filer, one "
             f"set of filings, reported under both symbols.</p>"
         )
+    # THE 6,189 INTERNAL LINKS. This chip used to be inert text; as a link it
+    # gives every company page a parent and, through that parent, a path to
+    # every other company in its sector.
+    #
+    # Rendered HERE and not in `intro_html`, deliberately: page-extras fragments
+    # are stored in the database and only rebuilt when a filing moves, so a link
+    # added there would not appear until the next forced backfill. This is on
+    # the live render path and appears the moment the deploy lands.
     sector = (
-        f'<span class="chip">{escape(d["sector"])}</span>' if d["sector"] else ""
+        f'<a class="chip chiplink" href="/sector/{escape(sector_slug(d["sector"]))}">'
+        f'{escape(d["sector"])}</a>'
+        if d["sector"] else ""
     )
 
     # `company_name` is SEC's CURRENT name for this CIK, and the filings below

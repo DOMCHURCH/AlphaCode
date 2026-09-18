@@ -406,6 +406,18 @@ def _compute_breakdown() -> dict[str, Any] | None:
                     Fundamental.filing_date,
                 ).where(Fundamental.metric.in_(WANTED))
             ).all()
+            # One more read on a walk that already touches every ticker, so the
+            # sector hubs can state their own reconciled/flagged split instead
+            # of repeating the site-wide one. A second walk would be a second
+            # definition of "reconciles", which is the drift this module exists
+            # to prevent.
+            from src.storage.models import SectorMap
+
+            sector_of = dict(
+                session.execute(
+                    select(SectorMap.ticker, SectorMap.sector)
+                ).all()
+            )
     except Exception as exc:  # noqa: BLE001 - a page must not die for a count
         log.warning("identity_breakdown_failed", error=str(exc)[:200])
         return None
@@ -424,6 +436,16 @@ def _compute_breakdown() -> dict[str, Any] | None:
          "rounding", "missing_tag", "broken", "unexplained"), 0
     )
     examples: dict[str, list[str]] = {}
+    # sector -> the same eight keys. Built with the global counts rather than
+    # from them, because a filing counts once and the two views must agree.
+    by_sector: dict[str, dict[str, int]] = {}
+
+    def _bump(ticker: str, key: str) -> None:
+        counts[key] += 1
+        sector = sector_of.get(ticker) or ""
+        bucket = by_sector.setdefault(sector, dict.fromkeys(counts, 0))
+        bucket[key] += 1
+
     checked = 0
     not_testable = 0
     for ticker in latest:
@@ -456,20 +478,20 @@ def _compute_breakdown() -> dict[str, Any] | None:
             equity_alt=equity_alt, mezzanine_parts=parts,
         )
         if balances:
-            counts[basis or "balanced"] += 1
+            _bump(ticker, basis or "balanced")
             continue
         if drift < 1.0:
-            counts["rounding"] += 1
+            _bump(ticker, "rounding")
             _note_example(examples, "rounding", ticker)
             continue
         stated = m.get("liabilities_and_equity")
         if stated:
             own = abs(assets - stated) / assets * 100.0
             cat = "broken" if own > 0.5 else "missing_tag"
-            counts[cat] += 1
+            _bump(ticker, cat)
             _note_example(examples, cat, ticker)
         else:
-            counts["unexplained"] += 1
+            _bump(ticker, "unexplained")
             _note_example(examples, "unexplained", ticker)
 
     reconciled = sum(
@@ -492,6 +514,7 @@ def _compute_breakdown() -> dict[str, Any] | None:
         # started parsing it correctly is a false statement we published about
         # a real filer.
         "examples": {k: sorted(v) for k, v in examples.items()},
+        "by_sector": by_sector,
     }
 
 

@@ -1200,14 +1200,22 @@ def test_status_says_which_optional_switches_the_process_can_see(client):
         # checkout that would not OPEN costs a click, a payment that settled
         # and granted nothing costs a customer.
         "billing", "billing_error", "fulfilment_error",
+        # Every OPEN lost payment, not only the newest. One sticky string hides
+        # the rest, and an outage produces more than one.
+        "fulfilment_errors_open",
     }
     # State, never a secret. A string among the flags would mean a value had
     # been rendered where a boolean belongs.
     flags = {
         k: v for k, v in body["features"].items()
-        if not k.endswith("_error")
+        if not k.endswith("_error") and k != "fulfilment_errors_open"
     }
     assert all(isinstance(v, bool) for v in flags.values())
+    # The open-incident list is rows or nothing -- never a flag, and never a
+    # secret: reason, event id and timestamp, which is what an operator needs
+    # to find the payment in Stripe's own dashboard.
+    open_rows = body["features"]["fulfilment_errors_open"]
+    assert open_rows is None or isinstance(open_rows, list)
     # demo_error carries a database message or nothing -- never a key.
     err = body["features"]["demo_error"]
     assert err is None or isinstance(err, str)

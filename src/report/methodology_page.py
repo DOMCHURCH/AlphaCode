@@ -228,6 +228,12 @@ def _live_section() -> str:
     <p class="sec-sub">{_fmt(b["not_testable"])} more report no complete set of
       totals, so there is no identity to test. They are excluded rather than
       counted as passes.</p>
+    <p class="sec-sub">This split is also published <b>per sector</b>, alongside
+      every company in it ranked by total assets &mdash; see
+      <a href="/sector/financials">financials</a>,
+      <a href="/sector/health-care">health care</a>,
+      <a href="/sector/information-technology">information technology</a>, or
+      any of the others linked from those pages.</p>
 
     <h3>Every flag, named</h3>
     <table class="mtable">

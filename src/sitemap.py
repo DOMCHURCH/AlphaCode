@@ -203,6 +203,14 @@ def build(base_url: str) -> str:
     # changes when somebody rewrites it, not when a filing lands.
     for slug, updated in _compare_pages():
         parts.append(_url(f"{base}/{slug}", updated, "monthly", "0.6"))
+    # The sector hubs. Higher priority than a single company page and lower
+    # than the product pages: each one is the parent of several hundred
+    # companies, which is exactly the relationship this sitemap could not
+    # express while the hubs did not exist. `lastmod` is the newest filing
+    # date IN THAT SECTOR -- a real date, like the company pages, rather than
+    # today.
+    for slug, updated in _sector_pages():
+        parts.append(_url(f"{base}/sector/{slug}", updated, "weekly", "0.7"))
     # NOT /dashboard and NOT /login. Both are `noindex` now, and a sitemap
     # that lists a noindexed URL is two instructions that contradict each
     # other -- Search Console reports it as an error, and the crawl budget
@@ -288,6 +296,24 @@ def reset_drawable() -> None:
     """Forget which tickers render. For tests."""
     global _drawable
     _drawable = None
+
+
+def _sector_pages() -> list[tuple[str, str]]:
+    """(slug, lastmod) per sector hub. Empty on failure, never raises.
+
+    A sitemap that cannot be built is worse than one missing a section, so a
+    broken sector read costs the hubs their entries and nothing else.
+    """
+    try:
+        from src.report.sector_page import load_sectors
+
+        return [
+            (s["slug"], s["newest"].isoformat())
+            for s in load_sectors() if s.get("newest")
+        ]
+    except Exception:  # noqa: BLE001
+        log.warning("sitemap_sector_pages_unavailable")
+        return []
 
 
 def _compare_pages() -> list[tuple[str, str]]:

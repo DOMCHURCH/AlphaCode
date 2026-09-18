@@ -3753,6 +3753,35 @@ def alternatives_page(slug: str, request: Request) -> HTMLResponse:
     return _compare_page("alternatives", slug, request)
 
 
+@app.get("/sector/{slug}", response_class=HTMLResponse, include_in_schema=False)
+def sector_page(slug: str, request: Request) -> HTMLResponse:
+    """Every company in one sector, ranked, with that sector's identity split.
+
+    These exist to give the company pages a parent. The sitemap lists 6,189 of
+    them and, before this, almost nothing on the site linked to any: five from
+    the home page, none from /methodology, four peers from each other. A page
+    reachable only through a sitemap is a page the crawler has been told not to
+    care about.
+    """
+    from src.report.sector_page import build_sector, load_sectors, render_sector
+
+    data = build_sector(slug)
+    if data is None:
+        from src.report.company_page import render_not_found
+
+        return HTMLResponse(
+            render_not_found(
+                slug.upper(),
+                "No sector goes by that name.",
+                nav=_nav_for(request, ""),
+            ),
+            status_code=404,
+        )
+    return HTMLResponse(_versioned(render_sector(
+        data, nav=_nav_for(request, ""), others=load_sectors()
+    )))
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about_page(request: Request) -> HTMLResponse:
     """What this is and who built it, on a page that says so on purpose.

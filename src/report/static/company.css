@@ -522,3 +522,33 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
   color:var(--ink);
   font-weight:500;
 }
+
+/* ---- sector hubs ---- */
+/* The sector chip became a link, which is the whole mechanism giving 6,189
+   company pages a parent. It must LOOK clickable without becoming a button:
+   the chip's shape is doing provenance work already, so the only additions
+   are the affordances a link owes a reader. */
+.chip.chiplink{text-decoration:none;color:var(--ink);cursor:pointer;
+  transition:box-shadow .12s ease, color .12s ease}
+.chip.chiplink:hover{box-shadow:var(--up-md);color:var(--accent,var(--ink))}
+.chip.chiplink:focus-visible{outline:2px solid var(--ink);outline-offset:3px}
+
+/* A hub lists every company in its sector -- 1,080 rows for health care -- so
+   the table scrolls inside its own box rather than pushing the page sideways,
+   and the header stays put while you read down it. */
+.sectortable{width:100%;border-collapse:collapse;font-size:14px}
+.sectortable thead th{position:sticky;top:0;z-index:1;background:var(--bg);
+  text-align:left;font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--ink2);padding:10px 12px;border-bottom:1px solid var(--rule,#e6e6e6)}
+.sectortable td{padding:9px 12px;border-bottom:1px solid var(--rule,#f0f0f0)}
+.sectortable td.num,.sectortable th.num{text-align:right;
+  font-variant-numeric:tabular-nums}
+.sectortable tbody tr:hover{background:var(--well)}
+.sectortable a{font-weight:600;text-decoration:none}
+.sectortable a:hover{text-decoration:underline}
+
+/* The all-sectors list at the foot of every hub: the link mesh between hubs,
+   so a reader (and a crawler) can reach any sector from any other. */
+.sectorlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
+  gap:6px 18px;list-style:none;padding:0}
+.sectorlist .muted{color:var(--ink2);font-variant-numeric:tabular-nums}
