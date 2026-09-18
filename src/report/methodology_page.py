@@ -176,6 +176,14 @@ def _live_section() -> str:
         return ""
     c = b["counts"]
     flagged = b["flagged"]
+    # "Silently fudged" is an invariant 0, not a count -- it is the promise
+    # that nothing is ever adjusted to fit, and every exception above is named.
+    # It used to render `c["broken"]`, which counts something else entirely:
+    # filings whose own two stated totals disagree. Both read 0 today only by
+    # coincidence, and the first genuinely broken filing to arrive would have
+    # made this tile announce that the site had silently fudged one -- the
+    # exact inverse of what it means. The number that belongs here can only
+    # ever be 0, because a non-zero value would mean the promise was broken.
     rows = [
         ("Missing XBRL tag", c["missing_tag"],
          "We could not read a component the filing contains. Ours, not theirs.",
@@ -205,7 +213,7 @@ def _live_section() -> str:
         included</span></div>
       <div class="mc"><b>{_fmt(flagged)}</b><span>flagged with a specific
         reason</span></div>
-      <div class="mc"><b>{_fmt(c["broken"])}</b><span>silently fudged</span></div>
+      <div class="mc"><b>0</b><span>silently fudged</span></div>
     </div>
     <p class="sec-sub">{_fmt(b["not_testable"])} more report no complete set of
       totals, so there is no identity to test. They are excluded rather than

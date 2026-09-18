@@ -123,6 +123,7 @@ def build_intro(
     missing_components: bool = False,
     sector_rank: int | None = None,
     sector_total: int | None = None,
+    stated_rhs: float | None = None,
 ) -> str:
     """The opening paragraph, assembled from this filing and the one before it.
 
@@ -242,7 +243,11 @@ def build_intro(
             "remainder rather than distributed across the lines that are named."
         )
 
-    sentences.append(_identity_sentence(balances, identity_basis, imbalance_pct))
+    sentences.append(
+        _identity_sentence(
+            balances, identity_basis, imbalance_pct, name, assets, stated_rhs
+        )
+    )
     sentences.append(
         "Every figure above is as filed. Nothing is estimated, smoothed or "
         "restated, and where the filing and the identity disagree the "
@@ -254,9 +259,28 @@ def build_intro(
 
 
 def _identity_sentence(
-    balances: bool, basis: str, imbalance_pct: float | None
+    balances: bool,
+    basis: str,
+    imbalance_pct: float | None,
+    name: str = "This filer",
+    assets: float | None = None,
+    stated_rhs: float | None = None,
 ) -> str:
-    """What the identity check found, in one sentence, naming the term used."""
+    """What the identity check found, in one sentence, naming the term used.
+
+    A FAILED check has to say whose fault it is, and there is exactly one
+    figure that decides: the filer's own stated total for the credit side.
+    If that total equals their total assets, the filing balances against its
+    own arithmetic and the gap is in a component we could not read -- ours,
+    not theirs. Saying "this filing does not reconcile" in that case is a
+    false statement about a public company, published on an indexable page.
+
+    The branch below is the SAME one `stats.py` runs to produce the
+    `/methodology` category counts -- missing tag, unexplained, genuinely
+    broken -- so a company page and the table that totals it can no longer
+    disagree about the same filing. They did, for every flagged company:
+    `/methodology` said "Ours, not theirs" while the page blamed the filer.
+    """
     if balances and not basis:
         return (
             "Assets equal liabilities plus equity on the filed figures, so this "
@@ -281,9 +305,43 @@ def _identity_sentence(
             "are included — every figure as filed."
         )
     drift = f" by {imbalance_pct:.1f}%" if imbalance_pct is not None else ""
+    pct = f"{imbalance_pct:.1f}%" if imbalance_pct is not None else "the difference"
+
+    # Under the 1% band this site treats as presentation slack, not error --
+    # the same threshold `stats.py` counts as "rounding".
+    if imbalance_pct is not None and imbalance_pct < 1.0:
+        return (
+            f"Liabilities plus equity differ from total assets by {pct}, under "
+            "the 1% band this site treats as presentation rounding. Shown as "
+            "filed."
+        )
+
+    # No stated total to referee against, so neither side can be blamed.
+    if not stated_rhs or not assets:
+        return (
+            "This filer publishes no stated total for liabilities plus equity, "
+            f"so there is no figure to referee the {pct} gap against. It is "
+            "recorded as unexplained rather than assigned to either side."
+        )
+
+    own = abs(assets - stated_rhs) / assets * 100.0
+    if own > 0.5:
+        # The filer's own two totals disagree. Their arithmetic, not ours --
+        # and this is the only case where the old sentence was ever true.
+        return (
+            f"{escape(name)}'s own stated total for liabilities plus equity "
+            f"differs from its own total assets by {own:.1f}%. That is the "
+            "filing's arithmetic, not ours, and it is flagged rather than "
+            "adjusted."
+        )
+
+    # The filing balances against its own stated total. The gap is ours.
     return (
-        f"This filing does not reconcile{drift}: liabilities plus equity differ "
-        "from total assets, and it is flagged rather than adjusted."
+        f"As filed, {escape(name)}'s stated liabilities plus equity equals its "
+        f"total assets — the balance sheet balances. The components this page "
+        f"reads fall {pct} short of that stated total: a line the filer reports "
+        "under a tag we do not yet read. The gap is ours, not theirs, and it is "
+        "shown as read rather than filled in."
     )
 
 

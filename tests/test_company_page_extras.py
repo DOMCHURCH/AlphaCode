@@ -142,14 +142,50 @@ def test_the_identity_sentence_names_the_term_that_closed_it():
         assert phrase in body, basis
 
 
-def test_a_filing_that_does_not_reconcile_says_so_with_its_drift():
-    body = _text(build_intro(
+def _failed(**kw):
+    base = dict(
         ticker="T", company_name="T Inc", sector=None,
         assets=100.0, liabilities=60.0, equity=20.0,
         balances=False, imbalance_pct=20.0,
-    ))
-    assert "does not reconcile by 20.0%" in body
+    )
+    return _text(build_intro(**{**base, **kw}))
+
+
+def test_a_gap_we_cannot_read_is_never_blamed_on_the_filer():
+    """The filer's own totals agree, so the fault is ours and must say so.
+
+    This is the shape of 191 of the 202 flagged companies. The page used to
+    say "this filing does not reconcile" for every one of them, while
+    /methodology said "Ours, not theirs" about the same filings. A page that
+    accuses a public company of a broken filing on our own parsing gap is a
+    false statement, and it was indexable.
+    """
+    body = _failed(stated_rhs=100.0)
+    assert "the balance sheet balances" in body
+    assert "The gap is ours, not theirs" in body
+    assert "a tag we do not yet read" in body
+    # The accusation must be gone, not merely softened.
+    assert "does not reconcile" not in body
+
+
+def test_a_filer_whose_own_totals_disagree_is_named_as_such():
+    """The one case where blaming the filing is correct."""
+    body = _failed(assets=100.0, stated_rhs=112.0)
+    assert "own stated total" in body
+    assert "the filing's arithmetic, not ours" in body
     assert "flagged rather than adjusted" in body
+
+
+def test_no_stated_total_means_neither_side_is_blamed():
+    body = _failed(stated_rhs=None)
+    assert "publishes no stated total" in body
+    assert "unexplained rather than assigned to either side" in body
+
+
+def test_a_sub_one_percent_gap_is_called_rounding_not_failure():
+    body = _failed(imbalance_pct=0.6, stated_rhs=100.0)
+    assert "presentation rounding" in body
+    assert "does not reconcile" not in body
 
 
 def test_the_remainder_is_never_reported_as_the_largest_line():

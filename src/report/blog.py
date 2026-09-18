@@ -48,12 +48,21 @@ class Post:
 
 _POST_XBRL_ACCURACY = Post(
     slug="sec-xbrl-data-wrong-one-in-five",
-    title="Why SEC XBRL Data Is Wrong 1 Out of 5 Times (And How to Fix It)",
+    # The subject is the PARSER, not the SEC. This post is linked directly
+    # beneath the identity sentence on every flagged company page, and the
+    # earlier title -- "Why SEC XBRL Data Is Wrong" -- read as a second
+    # accusation against the filer sitting under the first. The body always
+    # said this: the thing that is wrong 1 in 5 times is naive tag-picking,
+    # which is also what `compare.py`'s NAIVE_ACCURACY measures. The slug is
+    # deliberately unchanged -- `_learn_more` looks posts up by slug and drops
+    # the link silently on a miss, so renaming it would quietly remove this
+    # post from every company page.
+    title="Why Naive XBRL Extraction Is Wrong 1 Out of 5 Times (And How to Fix It)",
     # 61 characters, which truncated in a result list. The "SEC Filings API
     # Accuracy:" prefix was the part carrying least weight -- "accuracy" is a
     # word this site deliberately does not quantify anywhere else -- so it is
     # the part that goes. The keyword and the hook both survive.
-    seo_title="Why SEC XBRL Data Is Wrong 1 in 5 Times (And How to Fix It)",
+    seo_title="Why Naive XBRL Extraction Is Wrong 1 in 5 Times (And How to Fix It)",
     description=(
         "JPMorgan reports Total Assets 23 different ways in one SEC filing. "
         "Most filings APIs pick one at random. Here is why, and how "

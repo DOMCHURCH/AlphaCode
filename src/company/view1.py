@@ -131,6 +131,12 @@ class View1:
     # Set when total liabilities was computed from the identity rather than
     # read off the filing. Never left implicit.
     liabilities_derived_from: str | None = None
+    # The filer's own stated `LiabilitiesAndStockholdersEquity`, as filed, or
+    # None when they published no such total. Carried on the view so the page
+    # can referee a failed identity against the filer's own arithmetic instead
+    # of asserting the filing is wrong -- which, for the overwhelming majority
+    # of failures, it is not.
+    stated_rhs: float | None = None
     negative_equity: bool = False
     # Height of the claims column relative to assets. Exceeds 100 only when
     # equity is negative, which is exactly when it should.
@@ -266,9 +272,16 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
     # guessed from peers or averages. Leaving half the picture blank when the
     # number is recoverable would be the worse answer -- but it is labelled, so
     # a derived figure never passes as one read off the filing.
+    # The filer's OWN stated total for the credit side, read unconditionally
+    # rather than only when liabilities need deriving. It is what referees a
+    # failed identity: if this equals total assets, the filing balances against
+    # its own arithmetic and the gap is in what we read, not in what they
+    # filed. The page cannot say which side is at fault without it, and for
+    # 206 of 215 failures the answer is "ours".
+    stated_rhs = _val(bs.liabilities, "liabilities_and_equity")
+
     liabilities_derived_from: str | None = None
     if total_liabilities is None and total_equity is not None:
-        stated_rhs = _val(bs.liabilities, "liabilities_and_equity")
         if stated_rhs is not None:
             total_liabilities = stated_rhs - total_equity
             liabilities_derived_from = "liabilities and equity, less equity"
@@ -288,6 +301,7 @@ def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
         mode="detailed",
         total_assets=total_assets,
         total_liabilities=total_liabilities,
+        stated_rhs=stated_rhs,
         total_equity=total_equity,
         liabilities_derived_from=liabilities_derived_from,
     )

@@ -337,6 +337,7 @@ def compute_and_store(ticker: str, origin: str) -> bool:
             balances=view.balances,
             identity_basis=view.identity_basis,
             imbalance_pct=view.imbalance_pct,
+            stated_rhs=view.stated_rhs,
         )
         row.peers_html = build_peers_html(peers)
         row.filings_html = build_filings_html(symbol, filings)
