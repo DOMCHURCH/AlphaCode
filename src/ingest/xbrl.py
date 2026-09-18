@@ -141,6 +141,24 @@ CONCEPTS: tuple[Concept, ...] = (
             "TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests",
             "TemporaryEquityCarryingAmountAttributableToParent",
             "TemporaryEquityCarryingAmount",
+            # The SPAC spelling, and the reason the /sector/unclassified hub
+            # reports a flag rate eighteen times the site average: 253 of the
+            # 385 companies with no SIC sector are acquisition corps, and a
+            # SPAC's Class A shares subject to redemption ARE the balance
+            # sheet -- the trust is 99% of assets, so failing to read that one
+            # line misses essentially the whole credit side.
+            #
+            # "Excluding additional paid-in capital" makes this a LESS complete
+            # total than the three above, which is why it goes last in the
+            # prefer-don't-sum chain rather than first. For a SPAC the
+            # distinction is usually empty: the shares are carried at
+            # redemption value with no APIC component.
+            #
+            # Verified against Colombier Acquisition Corp II (CLBR),
+            # 2026-06-30: assets 303,722,700, liabilities 3,157,709,
+            # stockholders' equity -1,665,198. L + E leaves a 99.51% gap; this
+            # tag is 302,230,189 and closes it to 0.00%, exactly.
+            "TemporaryEquityValueExcludingAdditionalPaidInCapital",
         ),
         INSTANT,
     ),

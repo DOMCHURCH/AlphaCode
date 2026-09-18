@@ -509,3 +509,76 @@ def test_the_circular_derivation_still_says_nothing():
 
     assert view.imbalance_pct == 0.0
     assert not view.notes, "a tautology must not be reported as a finding"
+
+
+# --- the SPAC cohort -------------------------------------------------------
+
+def test_the_spac_redemption_tag_closes_the_identity():
+    """Colombier Acquisition Corp II (CLBR), 2026-06-30. Real filed figures.
+
+    253 of the 385 companies with no SIC sector are acquisition corps, and for
+    a SPAC the Class A shares subject to redemption ARE the balance sheet --
+    the trust is 99% of assets. Missing that one line misses the whole credit
+    side, which is why /sector/unclassified showed a flag rate eighteen times
+    the site average.
+
+    CLBR tags it `TemporaryEquityValueExcludingAdditionalPaidInCapital`, a
+    standard us-gaap concept this site did not read.
+    """
+    ASSETS = 303_722_700.0
+    LIAB = 3_157_709.0
+    EQUITY = -1_665_198.0
+    TEMPORARY = 302_230_189.0
+
+    without = resolve_identity(ASSETS, LIAB, EQUITY)
+    assert without[0] is False
+    assert without[1] == pytest.approx(99.51, abs=0.01)
+
+    balances, drift, basis, _eq = resolve_identity(
+        ASSETS, LIAB, EQUITY, mezzanine=TEMPORARY
+    )
+    assert balances is True
+    assert basis == "mezzanine"
+    assert drift == pytest.approx(0.0, abs=0.001), "closes to the dollar"
+
+
+def test_the_spac_tag_is_mapped_last_in_the_prefer_chain():
+    """It excludes APIC, so it is a LESS complete total than the three above
+    it. Promoting it would make a filer who publishes both report the smaller
+    figure -- the prefer-don't-sum chain only works if it is ordered by
+    completeness."""
+    from src.ingest.xbrl import CONCEPTS
+
+    temp = next(c for c in CONCEPTS if c.metric == "temporary_equity")
+    assert temp.tags[-1] == "TemporaryEquityValueExcludingAdditionalPaidInCapital"
+    assert temp.tags[0].startswith(
+        "TemporaryEquityCarryingAmountIncludingPortion"
+    )
+
+
+def test_assets_held_in_trust_is_never_read_as_a_credit_side_line():
+    """The trap this cohort sets, and which the audit already recorded once.
+
+    A SPAC's trust is ~99% of assets and its redeemable shares are carried at
+    about the trust value, so `AssetsHeldInTrustNoncurrent` MATCHES the gap on
+    almost every one of them -- by construction, not because it belongs on the
+    credit side. It is an ASSET. Mapping it would close hundreds of filings by
+    counting the same money twice, which is fabricating a balance rather than
+    finding one.
+
+    MOZAYYX Acquisition Corp (MZYX), 2026-06-30, is the case: the gap is
+    303,593,729 and `AssetsHeldInTrust` is 303,593,729, to the dollar. Its
+    filer publishes no temporary-equity amount at all for that period, so
+    there is genuinely nothing on the credit side to read.
+    """
+    from src.ingest.xbrl import CONCEPTS
+
+    credit_side = {"temporary_equity", "redeemable_preferred_stock",
+                   "redeemable_noncontrolling_interest", "total_equity",
+                   "total_equity_incl_nci", "minority_interest",
+                   "total_liabilities", "liabilities_and_equity"}
+    for concept in CONCEPTS:
+        if concept.metric in credit_side:
+            assert not any("AssetsHeldInTrust" in t for t in concept.tags), (
+                f"{concept.metric} maps an ASSET tag onto the credit side"
+            )
