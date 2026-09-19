@@ -177,6 +177,10 @@ class Match:
     ticker: str
     name: str | None
     sector: str | None
+    # The name this registrant filed under before the current one, where SEC
+    # reports one. Matched against, never rendered: a result card showing a
+    # name the company no longer has would be the opposite of helpful.
+    former: str | None = None
 
 
 @dataclass(frozen=True)
@@ -245,6 +249,8 @@ def _search_names(query: str) -> list[Match]:
     from src.storage.db import session_scope
     from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
 
+    from sqlalchemy import or_
+
     needle = f"%{query.lower()}%"
     with session_scope() as s:
         rows = s.execute(
@@ -256,7 +262,23 @@ def _search_names(query: str) -> list[Match]:
             .join(Fundamental, Fundamental.ticker == UniverseSnapshot.ticker)
             .outerjoin(SectorMap, SectorMap.ticker == UniverseSnapshot.ticker)
             .where(
-                func.lower(UniverseSnapshot.name).like(needle),
+                # THE FORMER NAME COUNTS AS A NAME.
+                #
+                # `former_name` is already stored on this row, and it was only
+                # ever rendered -- never matched. So a reader who knows the
+                # company by the name it filed under could not find it, which
+                # is exactly the case where search is the only way in: somebody
+                # typing "Helix Energy Solutions" knows less, not more, than
+                # somebody who can type HLX.
+                #
+                # SEC renames a registrant in place and relabels every past
+                # filing with the new name, so the old one is often the only
+                # name a reader has. This site already hit the same problem
+                # from the other side when To Scale became BalanceProof.
+                or_(
+                    func.lower(UniverseSnapshot.name).like(needle),
+                    func.lower(UniverseSnapshot.former_name).like(needle),
+                ),
                 Fundamental.metric == "total_assets",
                 Fundamental.value > 0,
             )
@@ -351,6 +373,7 @@ def _all_named() -> list[Match]:
                 UniverseSnapshot.ticker,
                 func.max(UniverseSnapshot.name),
                 func.max(SectorMap.sector),
+                func.max(UniverseSnapshot.former_name),
             )
             .join(Fundamental, Fundamental.ticker == UniverseSnapshot.ticker)
             .outerjoin(SectorMap, SectorMap.ticker == UniverseSnapshot.ticker)
@@ -362,7 +385,10 @@ def _all_named() -> list[Match]:
             )
             .group_by(UniverseSnapshot.ticker)
         ).all()
-    _named_cache = [Match(t, n, sec) for t, n, sec in rows]
+    # `former` rides along on the Match so the normalised pass can compare
+    # against it without a second query. It is not displayed -- the card still
+    # shows the current name -- it only widens what counts as a hit.
+    _named_cache = [Match(t, n, sec, f) for t, n, sec, f in rows]
     _named_cache_at = time.monotonic()
     return _named_cache
 
@@ -380,7 +406,11 @@ def _search_names_normalised(query: str) -> list[Match]:
     if not q:
         return []
     try:
-        return [m for m in _all_named() if q in _bare((m.name or "").lower())]
+        return [
+            m for m in _all_named()
+            if q in _bare((m.name or "").lower())
+            or (m.former and q in _bare(m.former.lower()))
+        ]
     except Exception as exc:  # noqa: BLE001
         log.warning("normalised_search_failed", error=str(exc)[:200])
         return []

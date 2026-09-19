@@ -289,3 +289,76 @@ html.reeded-frost .keybox {
   backdrop-filter: none;
   background: var(--panel-solid, #141414);
 }
+
+/* ---------------------------------------------------------------------------
+   PROSE NEEDS A GROUND TO SIT ON.
+
+   Measured rather than guessed: with the backdrop animating, 30 text blocks
+   on the home page had no painted ancestor at all -- 6 section intros, 5
+   headings, 5 list items, the hero lede, the disclaimer. They were legible
+   against a still photograph and they are not against a moving glow, because
+   the contrast under any given word now changes as the light drifts past it.
+
+   The fix is one layer, not eleven selectors: every `.sec` gets a faint
+   frosted plate. The cards and plans inside them keep their own stronger
+   panel, so the result reads as two depths of glass rather than as a box in
+   a box -- which is what makes it look layered instead of boxed. */
+html.reeded-frost main .sec {
+  background: rgba(14, 16, 24, .52);
+  -webkit-backdrop-filter: blur(16px) saturate(1.15);
+  backdrop-filter: blur(16px) saturate(1.15);
+  border: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 14px;
+  padding: 20px 22px;
+}
+
+/* A plate inside a plate is a box in a box. The inner surfaces keep their
+   border and shadow -- that is what separates them -- but drop back to a
+   thinner wash so the two depths read as glass rather than as nesting. */
+html.reeded-frost main .sec .card,
+html.reeded-frost main .sec .plan,
+html.reeded-frost main .sec .tile,
+html.reeded-frost main .sec .split-half,
+html.reeded-frost main .sec .faq-item,
+html.reeded-frost main .sec .ep {
+  background: rgba(20, 23, 33, .62);
+}
+
+/* THE HERO IS THE ONE PLACE THAT STAYS OPEN.
+
+   glass.css: "The hero is type over the film and nothing else. Putting it on
+   glass would be a fifth pane and would box in the one part of the page that
+   should feel open." That still holds -- so the hero gets a soft radial
+   scrim behind the type rather than a plate around it. It darkens the ground
+   under the words and fades to nothing before it reaches an edge, so there
+   is no box, only contrast. */
+html.reeded-on .hero {
+  position: relative;
+}
+html.reeded-on .hero > * {
+  position: relative;
+  z-index: 1;
+}
+html.reeded-on .hero::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: -28px -48px -20px -40px;
+  border-radius: 40px;
+  background: radial-gradient(70% 82% at 28% 48%,
+    rgba(7, 8, 13, .80) 0%,
+    rgba(7, 8, 13, .58) 48%,
+    rgba(7, 8, 13, 0) 100%);
+  pointer-events: none;
+}
+
+/* The loose lines that sit outside any section: the summary under the search
+   box, the disclaimer, the example caption. Too small to plate, so they get
+   the cheapest possible legibility -- a shadow, which costs no compositing
+   and no layer. */
+html.reeded-on .summary,
+html.reeded-on .disclaim,
+html.reeded-on .exnote,
+html.reeded-on .formnote {
+  text-shadow: 0 1px 14px rgba(0, 0, 0, .85), 0 0 3px rgba(0, 0, 0, .7);
+}

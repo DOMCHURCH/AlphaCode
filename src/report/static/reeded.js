@@ -63,7 +63,10 @@
     breathe: 1.77,
     scale: 0.50,
     c0: [0.039, 0.039, 0.039],
-    c1: [0.086, 0.125, 0.310],
+    // c1 lifted and c2 held at --a0 exactly. The indigo was there before but
+    // barely surfaced: the low stop was almost black, so most of the frame
+    // read as ground and the eye only caught the cyan tip.
+    c1: [0.129, 0.184, 0.470],
     c2: [0.231, 0.337, 0.839],
     c3: [0.133, 0.827, 0.933]
   };
@@ -87,10 +90,16 @@
   var MIN_FPS = 22;
   var CHECK_MS = 1600;
 
-  /* Below this viewport width the backdrop is not drawn at all. A phone gets
-     the still image: the animation would cost battery for scenery nobody is
-     looking at, on the device least able to afford it. */
-  var MIN_WIDTH = 720;
+  /* NARROW SCREENS DRAW IT TOO. This used to bail under 720px and hand a
+     phone the still image, which made the site look like two different
+     products depending on what you opened it on.
+
+     What replaces the cut-off is a cheaper starting point rather than an
+     exception: a phone begins at a lower render scale, and the same watchdog
+     that protects a desktop protects it. If the device cannot hold the frame
+     rate it still ends up on the still image -- it just has to demonstrate
+     that rather than be assumed. */
+  var NARROW = 820;
 
   var canvas = document.getElementById('backdrop-gl');
   if (!canvas) { return; }
@@ -104,7 +113,6 @@
     document.documentElement.classList.remove('reeded-frost');
   }
 
-  if (window.innerWidth < MIN_WIDTH) { bail(); return; }
 
   var gl = null;
   try {
@@ -237,9 +245,11 @@
     '',
     // Intensity through a four-stop ramp: the geometry never touches hue.
     '  float m = clamp(lit.g, 0.0, 1.6);',
-    '  vec3 col = mix(u_c0, u_c1, smoothstep(0.02, 0.38, m));',
-    '  col = mix(col, u_c2, smoothstep(0.34, 0.78, m));',
-    '  col = mix(col, u_c3, smoothstep(0.72, 1.18, m));',
+    // Indigo owns the middle now: it arrives earlier and cyan is pushed to
+    // the top of the ramp, so the accent stays a tip rather than a wash.
+    '  vec3 col = mix(u_c0, u_c1, smoothstep(0.02, 0.30, m));',
+    '  col = mix(col, u_c2, smoothstep(0.26, 0.70, m));',
+    '  col = mix(col, u_c3, smoothstep(0.97, 1.40, m));',
     '',
     // Dispersion applied as a ratio against green, so it tints the ramped
     // colour rather than overwriting it and losing the palette.
@@ -248,7 +258,10 @@
     '    col *= clamp(vec3(lit.r / g, 1.0, lit.b / g), 0.55, 1.85);',
     '  }',
     '',
-    '  col += u_bloom * 0.30 * smoothstep(0.55, 1.25, m) * u_c3;',
+    // Bloom in u_c2, not u_c3. Glowing in the accent was quietly washing
+    // cyan across everything bright enough to bloom, which is most of
+    // the lit side.
+    '  col += u_bloom * 0.34 * smoothstep(0.50, 1.20, m) * u_c2;',
     '  float vig = smoothstep(1.45, 0.30, length(uv - vec2(0.5, 0.52)));',
     '  col *= mix(0.55, 1.05, vig);',
     '  col = clamp(col, 0.0, 1.0);',
@@ -311,7 +324,9 @@
   gl.uniform3fv(U.u_c3, SETTINGS.c3);
 
   var step = 0;
-  var scale = SETTINGS.scale;
+  // A phone has a dense display and a battery: same picture, fewer pixels.
+  var scale = window.innerWidth < NARROW
+    ? Math.min(SETTINGS.scale, 0.34) : SETTINGS.scale;
 
   /* A BACKDROP DOES NOT NEED 60fps. Capped at ~36, which halves the GPU work
      against a vsync-paced loop and is indistinguishable on a drifting glow --

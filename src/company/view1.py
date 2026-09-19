@@ -208,7 +208,16 @@ class View1:
             "missing_components": self.missing_components,
             "liabilities_derived_from": self.liabilities_derived_from,
             "balances": self.balances,
-            "identity_basis": self.identity_basis,
+            # SERIALISED as an explicit value, never as "".
+            #
+            # The field stays "" internally because `page_extras` branches on
+            # `not basis` to mean "closed on the plain sum", and several
+            # thousand stored rows already carry "". But over JSON an empty
+            # string is indistinguishable from a missing value, and the API
+            # and the MCP tool both advertise this key as "the basis used" --
+            # so a consumer reading "" cannot tell "nothing had to be added"
+            # from "we did not say". "as_filed" says the first one out loud.
+            "identity_basis": self.identity_basis or "as_filed",
             "imbalance_pct": round(self.imbalance_pct, 3),
             "negative_equity": self.negative_equity,
             "claims_span_pct": round(self.claims_span_pct, 3),

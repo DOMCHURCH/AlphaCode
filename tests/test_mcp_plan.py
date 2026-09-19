@@ -195,3 +195,88 @@ def test_pro_is_not_pitched_an_upgrade_it_already_has(client):
     plan = call(client, key=key)["_meta"]["balanceproof/plan"]
     assert plan["tier"] == "pro"
     assert plan["monthly_limit"] == 500
+
+
+# ---------------------------------------------------------------------------
+# Finding a company by the name it used to file under
+# ---------------------------------------------------------------------------
+
+
+def seed_renamed():
+    """A registrant SEC renamed in place, which is the real HLX case.
+
+    SEC relabels every past filing with the new name, so the old name is
+    frequently the only one a reader has.
+    """
+    from src.company import lookup
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as s:
+        s.add(UniverseSnapshot(
+            as_of_date=dt.date.today(), ticker="HLX",
+            name="HORNBECK OFFSHORE SERVICES INC",
+            former_name="HELIX ENERGY SOLUTIONS GROUP INC",
+            former_name_until=dt.date(2026, 8, 31),
+        ))
+        for metric, val in [("total_assets", 2.57e9),
+                            ("total_liabilities", 1.2e9),
+                            ("total_equity", 1.37e9)]:
+            s.add(Fundamental(
+                ticker="HLX", metric=metric, value=val,
+                period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+                filing_date=dt.date(2026, 8, 1), source="sec",
+            ))
+    lookup.reset_cache()
+
+
+def search(client, q):
+    return client.post("/mcp", json={
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "search_companies", "arguments": {"query": q}},
+    }).json()["result"]
+
+
+def test_the_current_name_still_finds_it(client):
+    seed_renamed()
+    assert "HLX" in search(client, "Hornbeck Offshore")["content"][0]["text"]
+
+
+def test_the_FORMER_name_finds_it_too(client):
+    """The case search exists for. Somebody who knows this company as Helix
+    Energy Solutions knows LESS than somebody who can type HLX, and before
+    this they were the one who could not find it -- the former name was
+    stored on the row and rendered, but never matched."""
+    seed_renamed()
+    text = search(client, "Helix Energy Solutions")["content"][0]["text"]
+    assert "HLX" in text
+    # And it is reported as a real match, not as a fuzzy near-miss.
+    assert "No exact match" not in text
+
+
+def test_the_former_name_matches_ignoring_legal_form(client):
+    """The normalised pass has to see the former name too, or "helix energy"
+    misses "HELIX ENERGY SOLUTIONS GROUP INC" over the dropped suffix."""
+    seed_renamed()
+    assert "HLX" in search(client, "helix energy")["content"][0]["text"]
+
+
+def test_the_card_still_shows_the_CURRENT_name(client):
+    """Matched against, never rendered: a result showing a name the company
+    no longer has would be the opposite of helpful."""
+    seed_renamed()
+    rows = search(client, "Helix Energy Solutions")["structuredContent"]["matches"]
+    assert rows[0]["name"] == "HORNBECK OFFSHORE SERVICES INC"
+
+
+# ---------------------------------------------------------------------------
+# The identity basis is never an empty string over the wire
+# ---------------------------------------------------------------------------
+
+
+def test_a_clean_filing_names_its_basis_explicitly(client):
+    """Over JSON "" is indistinguishable from a missing value, and this key is
+    advertised as "the basis used"."""
+    seed()
+    payload = call(client)["structuredContent"]
+    assert payload["identity_basis"] == "as_filed"
