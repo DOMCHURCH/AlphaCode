@@ -670,7 +670,7 @@ def _example_figure() -> str:
 
     return f"""
   <section class="sec">
-    <div class="sec-head"><h2>What you're looking at</h2></div>
+    <div class="sec-head"><h2>Both columns are the same money, counted twice</h2></div>
     <p class="sec-sub">Both columns are the same height because they are the
       same money, counted twice. The left column is what the company owns,
       sorted by what it is. The right column is who has a claim on it — lenders
@@ -741,7 +741,7 @@ def _numbers(stats: dict) -> str:
 
     return f"""
   <section class="sec">
-    <div class="sec-head"><h2>The numbers behind it</h2></div>
+    <div class="sec-head"><h2>Every figure traces back to a filing</h2></div>
     <div class="stats">{cells}</div>
     {headline}
   </section>"""
@@ -783,7 +783,7 @@ def _hard() -> str:
     )
     return f"""
   <section class="sec">
-    <div class="sec-head"><h2>Why it's harder than it looks</h2></div>
+    <div class="sec-head"><h2>JPMorgan tags total assets 23 different ways</h2></div>
     <div class="hard">{blocks}</div>
     <p class="method">Every tag was confirmed against the raw filing data
       before being used. Nothing was mapped on the strength of it sounding
@@ -1000,7 +1000,7 @@ def _trust(stats: dict) -> str:
 
     return f"""
   <section class="sec" id="trust">
-    <div class="sec-head"><h2>Data &amp; method</h2></div>
+    <div class="sec-head"><h2>How a figure gets chosen &mdash; and checked</h2></div>
     <div class="trust">
       <div class="tblock">
         <h3>Source</h3>
@@ -1041,6 +1041,26 @@ def _trust(stats: dict) -> str:
       </div>
     </div>
   </section>"""
+
+
+def _closing_cta() -> str:
+    """A way to act, after the limits rather than before them.
+
+    The page ended on what the product does NOT do, which is the right note to
+    be honest on and the wrong one to leave a convinced reader stranded on.
+    """
+    return """
+  <aside class="sec cta" id="start">
+    <div class="sec-head"><h2>Check it against a filing you already know</h2></div>
+    <p class="sec-sub">Take a company where you know the answer, call it, and
+      compare the response against EDGAR. That is the only comparison with an
+      authority behind it, and the free tier needs no card.</p>
+    <div class="api-cta">
+      <a class="btn" href="/dashboard">Get a free API key</a>
+      <a class="btn ghost" href="/api">API docs</a>
+      <a class="btn ghost" href="/methodology">How we verify</a>
+    </div>
+  </aside>"""
 
 
 def render_home(
@@ -1098,7 +1118,7 @@ def render_home(
     if pairs:
         gallery = f"""
   <section class="sec">
-    <div class="sec-head"><h2>Same scale rules, other companies</h2></div>
+    <div class="sec-head"><h2>Compare any two companies at true scale</h2></div>
     <p class="sec-sub">Each drawing is that company's own balance sheet at its
       own proportions. They look nothing alike because they are nothing alike.
       A bank is the clearest case:
@@ -1146,8 +1166,18 @@ def render_home(
       when it does not you get the reason.</p>
     {_definition_para()}
     {search_form(autofocus=True)}
-    <p class="summary"><a href="/methodology">How we verify</a>
-      &middot; <a href="#how">How this works</a></p>
+    <!-- THE HOMEPAGE HAD NO BUTTON. Seven conversion links, every one of them
+         plain text, and the first was the phrase "get the data" inside a
+         paragraph -- while every comparison page carried a proper "Get a free
+         API key". The page most visitors land on was the one asking least.
+         `.btn` and `.api-cta` are dashboard.css's, already loaded on every
+         page, so this matches those pages rather than inventing a style. -->
+    <div class="api-cta hero-cta">
+      <a class="btn" href="/dashboard">Get a free API key</a>
+      <a class="btn ghost" href="#how">See how it works</a>
+    </div>
+    <p class="summary">1,000 calls a month, no card &middot;
+      <a href="/methodology">how we verify</a></p>
   </header>
   {hero_bs}
   {_status_strip(stats or {}, freshness)}
@@ -1156,14 +1186,20 @@ def render_home(
   {_trust(stats or {})}
   {_accuracy_banner()}
   {gallery}
-  {_pricing(stats or {})}
+  <!-- DEMO BEFORE PRICE. Pricing used to sit here, two sections above the
+       live demo, which asked a first-time reader for money before showing
+       them the product working. The explanation now runs first, pricing
+       follows it, and the limits stay last because they are the honest note
+       to end on -- with a way to act underneath them. -->
   {_demo_section()}
 
   <div class="fold" id="how"></div>
   {_example_figure()}
   {_numbers(stats or {})}
   {_hard()}
+  {_pricing(stats or {})}
   {_limits()}
+  {_closing_cta()}
 
 {footer}
 </main>

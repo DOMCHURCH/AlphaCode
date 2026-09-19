@@ -451,8 +451,8 @@ def test_the_landing_page_puts_search_before_showing_off(client):
     assert body.index('action="/search"') < fold
     assert body.index('href="/company/JPM"') < fold
     assert body.index('class="strip"') < fold
-    for later in ("Why it's harder than it looks", "What you're looking at",
-                  "What this doesn't do", "The numbers behind it",
+    for later in ("JPMorgan tags total assets 23 different ways", "Both columns are the same money, counted twice",
+                  "What this doesn't do", "Every figure traces back to a filing",
                   'class="example"'):
         assert body.index(later) > fold, f"{later!r} must come after the fold"
 
@@ -631,7 +631,7 @@ def test_the_numbers_section_is_absent_on_an_empty_database(client):
     """Better to say nothing than to print zeroes as if they were a scale."""
     body = client.get("/").text
 
-    assert "The numbers behind it" not in body
+    assert "Every figure traces back to a filing" not in body
     assert "as-reported fact" not in body
 
 
@@ -645,7 +645,7 @@ def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
 
     body = client.get("/").text
 
-    assert "The numbers behind it" in body, "the counts still show"
+    assert "Every figure traces back to a filing" in body, "the counts still show"
     assert "satisfy assets = liabilities + equity" not in body
 
 
@@ -730,7 +730,7 @@ def test_the_page_explains_the_drawing(client):
 
     body = client.get("/").text
 
-    assert "What you're looking at" in body
+    assert "Both columns are the same money, counted twice" in body
     assert "same money, counted twice" in body
     # The schematic is drawn, not described.
     assert 'class="example"' in body and "exband" in body
@@ -751,7 +751,7 @@ def test_the_hard_part_is_stated_with_the_real_numbers(client):
 
     body = client.get("/").text
 
-    assert "Why it's harder than it looks" in body
+    assert "JPMorgan tags total assets 23 different ways" in body
     assert "twenty-three separate times" in body
     assert "$641 billion instead of $4.4 trillion" in body
     assert "ExcludingAccruedInterest" in body
@@ -1108,3 +1108,50 @@ def test_the_service_is_branded_to_scale(client):
     assert "BalanceProof" in client.get("/").text
     assert "BalanceProof" in client.get("/company/JPM").text
     assert client.get("/api.json").json()["service"] == "BalanceProof"
+
+
+def test_the_homepage_actually_asks_for_something(client):
+    """It had no button at all.
+
+    Seven conversion links, every one plain text, and the first was the phrase
+    "get the data" inside a paragraph -- while every comparison page carried a
+    proper "Get a free API key". The page most visitors land on was the one
+    asking least.
+    """
+    body = client.get("/").text
+    main = body.split("<main", 1)[1]
+
+    assert 'class="btn"' in main, "the homepage has no primary button"
+    assert "Get a free API key" in main
+
+    # In the hero, not only at the foot: a reader who is already convinced
+    # should not have to scroll past the whole explanation to act.
+    hero = main.split("</header>", 1)[0]
+    assert "Get a free API key" in hero, "the call to action is below the fold"
+
+    # And the objection answered where it forms.
+    assert "no card" in hero.lower()
+
+
+def test_the_demo_comes_before_the_price(client):
+    """Pricing used to sit two sections above the live demo, which asked a
+    first-time reader for money before showing them the product working."""
+    body = client.get("/").text
+    main = body.split("<main", 1)[1]
+
+    demo = main.find("Live demo")
+    price = main.find("<h2>Pricing</h2>")
+    assert demo != -1 and price != -1
+    assert demo < price, "pricing appears before the demo again"
+
+
+def test_the_page_does_not_end_on_what_it_cannot_do(client):
+    """"What this doesn't do" is the right note to be honest on and the wrong
+    one to strand a convinced reader on."""
+    body = client.get("/").text
+    main = body.split("<main", 1)[1]
+
+    limits = main.find("What this doesn't do")
+    closing = main.find('id="start"')
+    assert limits != -1 and closing != -1
+    assert limits < closing, "nothing to act on after the limits"

@@ -295,12 +295,12 @@ def test_a_drawing_stays_on_the_page_and_the_prose_around_it_comes_here():
 def test_the_gallery_of_thumbnails_does_not_come_here_either():
     text = to_text(
         '<section class="sec">'
-        '<div class="sec-head"><h2>Same scale rules, other companies</h2></div>'
+        '<div class="sec-head"><h2>Compare any two companies at true scale</h2></div>'
         '<div class="cards"><a class="card" href="/company/JPM">'
         '<span class="ctick">JPM</span>'
         '<span class="csize">$4.36T of assets</span></a></div></section>'
     )
-    assert "### Same scale rules, other companies" in text
+    assert "### Compare any two companies at true scale" in text
     assert "JPM" not in text and "of assets" not in text
 
 
