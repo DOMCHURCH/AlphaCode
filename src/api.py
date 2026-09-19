@@ -51,6 +51,57 @@ from src.storage.models import DailyBar
 log = structlog.get_logger(__name__)
 
 
+# How long after the database is ready before the whole-universe warm-ups
+# begin. Long enough that a deploy's first visitors -- who are already waiting
+# on the restart -- are served from an idle connection pool.
+_WARM_DELAY_S = 45.0
+# And a breath between them, so the three never overlap.
+_WARM_GAP_S = 5.0
+
+
+async def _warm(app: FastAPI) -> None:
+    """The three whole-universe walks, staggered instead of stampeding.
+
+    These used to start as three concurrent tasks the moment the database was
+    up. `refresh_drawable` alone puts every one of ~6,200 tickers through
+    `build_view1`, which is roughly twenty queries each -- on the order of
+    124,000 -- and `warm_identity` walks the universe again. Against a pool of
+    five connections, launched together, they saturate both the pool and the
+    default thread pool for as long as they take.
+
+    Anything a reader asks for in that window queues behind them. That is the
+    "first load takes forever, then it is fast" the site was reported as
+    showing: not caching, and not a cold start, but a deploy's own warm-up
+    competing with the first visitors after that deploy. On a day with ten
+    deploys it is most visits.
+
+    So: a delay first, so the people already waiting on the restart are served
+    from an idle pool, then one walk at a time with a breath between them. Each
+    is still optional -- the sitemap falls back to its unfiltered set, the home
+    page omits the identity line, and the panels render on demand -- so a
+    failure here costs a decoration and never a page.
+    """
+    await asyncio.sleep(_WARM_DELAY_S)
+
+    from src import sitemap as _sitemap
+    from src.company.stats import warm_identity
+    from src.company.suggest import warm_panels
+
+    # Cheapest first: the home page's five drawings are what an early visitor
+    # actually looks at, and they cost five tickers rather than six thousand.
+    for name, fn in (
+        ("panels", warm_panels),
+        ("identity", warm_identity),
+        ("sitemap_drawable", _sitemap.refresh_drawable),
+    ):
+        try:
+            await asyncio.to_thread(fn)
+            log.info("warm_done", step=name)
+        except Exception as exc:  # noqa: BLE001 - a warm-up is never critical
+            log.warning("warm_skipped", step=name, error=str(exc)[:200])
+        await asyncio.sleep(_WARM_GAP_S)
+
+
 async def _boot(app: FastAPI) -> None:
     """Migrate the DB off the critical path.
 
@@ -89,12 +140,6 @@ async def _boot(app: FastAPI) -> None:
     # memoised sitemap build. Until it lands the sitemap lists its old
     # unfiltered set, which is the behaviour this replaces rather than a
     # regression.
-    try:
-        from src import sitemap as _sitemap
-
-        asyncio.create_task(asyncio.to_thread(_sitemap.refresh_drawable))
-    except Exception as exc:  # noqa: BLE001 - the sitemap builds without it
-        log.warning("sitemap_drawable_warm_skipped", error=str(exc)[:200])
 
     try:
         from src.report.home_page import SITE_ORIGIN
@@ -117,18 +162,7 @@ async def _boot(app: FastAPI) -> None:
     # The home page states its own identity pass rate. Computing it walks every
     # company, so it is warmed once here rather than on a reader's request; the
     # page renders without it and simply omits the line until it lands.
-    try:
-        from src.company.stats import warm_identity
-        from src.company.suggest import warm_panels
-
-        asyncio.create_task(asyncio.to_thread(warm_identity))
-        # The home page's five drawings, built off the critical path. Without
-        # this the first reader after a deploy pays for all five -- and the
-        # first reader after a deploy is disproportionately likely to be a
-        # crawler measuring the site.
-        asyncio.create_task(asyncio.to_thread(warm_panels))
-    except Exception as exc:  # noqa: BLE001 - never block boot on a statistic
-        log.warning("site_identity_warm_skipped", error=str(exc)[:200])
+    asyncio.create_task(_warm(app))
 
     # The data keeps itself current from here. Started after init_db so the
     # first tick reads a migrated schema, and as a background task so a slow
