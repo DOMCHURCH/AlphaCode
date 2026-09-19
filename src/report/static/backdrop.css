@@ -97,6 +97,29 @@
    -- those set a 100deg gradient keyed to `body[data-film]`, dark on the left
    under the copy and nearly clear on the right where the figure sits. This is
    the floor, not the final word. */
+/* THE REEDED-GLASS CANVAS.
+
+   z-index 1, which puts it BETWEEN the still image and the veil, and both
+   sides of that sandwich are the point:
+
+     * the still WebP stays underneath, so it is the fallback for free -- no
+       WebGL, a failed shader compile, or a viewport this switches itself off
+       on all land on the photograph rather than on a black rectangle.
+     * the veil stays on top. The veil is what makes copy readable over the
+       backdrop; drawing under it means that contract keeps working rather
+       than having to be re-earned by the shader.
+
+   No `pointer-events` of its own -- `.backdrop` already sets none, and this
+   is scenery that must never eat a click. */
+.backdrop-gl {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
 .backdrop-veil {
   position: absolute;
   inset: 0;

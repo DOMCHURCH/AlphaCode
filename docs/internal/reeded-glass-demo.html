@@ -1,0 +1,480 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Reeded glass — WebGL</title>
+<style>
+  :root{
+    --panel:rgba(8,9,14,.78); --hair:rgba(255,255,255,.13);
+    --text:#f0f2f7; --dim:#969cad; --acc:#cfd6e6;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:#000;color:var(--text);overflow:hidden;
+    font:14px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+
+  #gl{position:fixed;inset:0;width:100%;height:100%;display:block;z-index:0}
+
+  .stage{position:relative;z-index:1;height:100%;display:flex;align-items:center;
+    padding:0 clamp(24px,7vw,120px);pointer-events:none}
+  .copy{max-width:720px}
+  .kicker{font-family:var(--mono);font-size:11px;letter-spacing:.2em;
+    text-transform:uppercase;color:rgba(255,255,255,.55);margin:0 0 16px}
+  .copy h1{font-size:clamp(32px,6.4vw,70px);line-height:.96;margin:0;
+    letter-spacing:-.035em;font-weight:600;
+    text-shadow:0 2px 40px rgba(0,0,0,.6)}
+  .copy p{margin:22px 0 0;max-width:560px;font-size:clamp(15px,1.4vw,18px);
+    line-height:1.6;color:rgba(255,255,255,.72);
+    text-shadow:0 1px 20px rgba(0,0,0,.7)}
+
+  .panel{position:fixed;z-index:3;right:14px;top:14px;width:250px;
+    background:var(--panel);border:1px solid var(--hair);border-radius:12px;
+    padding:12px;backdrop-filter:blur(16px);font-family:var(--mono);font-size:11px;
+    max-height:calc(100vh - 28px);overflow:auto}
+  .panel h2{margin:12px 0 8px;font-size:9.5px;letter-spacing:.16em;
+    text-transform:uppercase;color:var(--dim);font-weight:700}
+  .panel h2:first-child{margin-top:0}
+  .seg{display:grid;grid-template-columns:repeat(2,1fr);gap:4px;margin:0 0 6px}
+  .seg button{padding:7px 2px;cursor:pointer;border-radius:6px;
+    border:1px solid var(--hair);background:rgba(255,255,255,.05);
+    color:var(--dim);font-family:var(--mono);font-size:10px}
+  .seg button.on{background:rgba(255,255,255,.17);color:#fff;
+    border-color:rgba(255,255,255,.4)}
+  .row{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center}
+  .row label{color:var(--dim)}
+  .row output{color:var(--text)}
+  input[type=range]{width:100%;height:17px;margin:1px 0 4px;accent-color:#c9d2e4;
+    background:transparent}
+  .hint{margin:10px 0 0;color:var(--dim);font-size:10px;line-height:1.5}
+  .hud{position:fixed;z-index:3;left:14px;top:14px;background:var(--panel);
+    border:1px solid var(--hair);border-radius:10px;padding:8px 12px;
+    font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .hud b{color:#fff}
+</style>
+</head>
+<body>
+
+<canvas id="gl"></canvas>
+
+<div class="stage">
+  <div class="copy">
+    <p class="kicker">Reeded glass</p>
+    <h1>Light, moving behind glass.</h1>
+    <p>Vertical ribs, each one a cylindrical lens bending the glow behind it.
+       Drag anywhere to push the light around.</p>
+  </div>
+</div>
+
+<div class="hud"><b id="fps">–</b> fps · <span id="res">–</span></div>
+
+<div class="panel">
+  <h2>Palette</h2>
+  <div class="seg">
+    <button id="pMono" class="on">mono</button>
+    <button id="pEmber">ember</button>
+    <button id="pViolet">violet</button>
+    <button id="pBrand">brand</button>
+  </div>
+
+  <h2>Glass</h2>
+  <div class="row"><label for="bars">ribs</label><output id="barsV"></output></div>
+  <input type="range" id="bars" min="10" max="140" step="1" value="54">
+
+  <div class="row"><label for="jitter">width jitter</label><output id="jitterV"></output></div>
+  <input type="range" id="jitter" min="0" max="1" step="0.01" value="0.35">
+
+  <div class="row"><label for="refract">refraction</label><output id="refractV"></output></div>
+  <input type="range" id="refract" min="0" max="2.5" step="0.01" value="1">
+
+  <div class="row"><label for="spec">specular</label><output id="specV"></output></div>
+  <input type="range" id="spec" min="0" max="2" step="0.01" value="1">
+
+  <div class="row"><label for="ca">chromatic</label><output id="caV"></output></div>
+  <input type="range" id="ca" min="0" max="3" step="0.01" value="0.7">
+
+  <h2>Light behind</h2>
+  <div class="row"><label for="speed">speed</label><output id="speedV"></output></div>
+  <input type="range" id="speed" min="0" max="3" step="0.01" value="1">
+
+  <div class="row"><label for="beam">beam</label><output id="beamV"></output></div>
+  <input type="range" id="beam" min="0" max="1.5" step="0.01" value="0.55">
+
+  <div class="row"><label for="bloom">bloom</label><output id="bloomV"></output></div>
+  <input type="range" id="bloom" min="0" max="1.5" step="0.01" value="0.6">
+
+  <div class="row"><label for="gamma">contrast</label><output id="gammaV"></output></div>
+  <input type="range" id="gamma" min="0.6" max="2.6" step="0.01" value="1.45">
+
+  <div class="row"><label for="sweep">sweep</label><output id="sweepV"></output></div>
+  <input type="range" id="sweep" min="0" max="2" step="0.01" value="0.75">
+
+  <div class="row"><label for="shimmer">shimmer</label><output id="shimmerV"></output></div>
+  <input type="range" id="shimmer" min="0" max="2" step="0.01" value="1">
+
+  <div class="row"><label for="breathe">rib breathing</label><output id="breatheV"></output></div>
+  <input type="range" id="breathe" min="0" max="3" step="0.01" value="1">
+
+  <h2>Cost</h2>
+  <div class="row"><label for="dpr">resolution</label><output id="dprV"></output></div>
+  <input type="range" id="dpr" min="0.5" max="2" step="0.05" value="1.25">
+
+  <p class="hint" id="hint"></p>
+</div>
+
+<script>
+/* ---------------------------------------------------------------------------
+   REEDED GLASS — vertical ribs over a moving light.
+
+   WHAT IT IS PHYSICALLY, because that is what makes it read as glass rather
+   than as stripes: reeded (fluted) glass is a sheet of parallel half-round
+   ribs. Each rib is a little CYLINDRICAL LENS, so it does not dim what is
+   behind it -- it DISPLACES it sideways, by an amount that depends on where
+   across the rib you are looking. Dead centre of a rib you see straight
+   through; near its edge you see a slice from further along the glow.
+
+   That single idea is the whole shader. The sample coordinate is pushed
+   sideways by the rib's local surface slope, and everything else -- the
+   specular line down each rib, the dark seams, the colour fringing at the
+   edges -- falls out of the same number.
+
+   WHAT IT DELIBERATELY IS NOT: there is no fbm here, and no noise octaves.
+   The previous attempt used the component's 3-stacked-fbm field, which is
+   ~60 sine calls per pixel and ran at 10-19fps on a software rasteriser. The
+   light behind this one is four smoothsteps and six sines, total, because a
+   large soft glow has no high-frequency detail to lose -- and it gets sliced
+   into ribs afterwards regardless. Cheap by construction, not by tuning.
+
+   The ribs multiply the glow rather than adding to it, which is why they
+   vanish in the dark regions and only show where light is passing -- exactly
+   how the reference images behave.
+--------------------------------------------------------------------------- */
+
+const VERT = 'attribute vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }';
+
+const FRAG = [
+'precision highp float;',
+'uniform vec2  u_res;',
+'uniform float u_time;',
+'uniform vec2  u_mouse;',
+'uniform float u_bars;',
+'uniform float u_jitter;',
+'uniform float u_refract;',
+'uniform float u_spec;',
+'uniform float u_ca;',
+'uniform float u_beam;',
+'uniform float u_bloom;',
+'uniform float u_gamma;',
+'uniform float u_sweep;',
+'uniform float u_shimmer;',
+'uniform float u_breathe;',
+'uniform vec3  u_c0;',
+'uniform vec3  u_c1;',
+'uniform vec3  u_c2;',
+'uniform vec3  u_c3;',
+'',
+'float hash(float n){ return fract(sin(n * 127.1) * 43758.5453123); }',
+'',
+/* THE LIGHT BEHIND THE GLASS.
+   Two drifting lobes plus one diagonal beam. Anisotropic scaling on the lobes
+   keeps them from reading as circles, and the beam is what produces the
+   diagonal sweep in the violet reference. Returns a scalar intensity; colour
+   is applied after, so the ribs can modulate brightness without touching hue. */
+'float lightField(vec2 q, float t){',
+'  vec2 c1 = vec2(sin(t * 0.17) * 0.58, cos(t * 0.13) * 0.34 - 0.10);',
+'  float g1 = 1.0 - smoothstep(0.0, 1.00, length((q - c1) * vec2(0.80, 1.35)));',
+'',
+'  vec2 c2 = vec2(cos(t * 0.11) * 0.80 + 0.18, sin(t * 0.19) * 0.42 + 0.26);',
+'  float g2 = 1.0 - smoothstep(0.0, 0.78, length((q - c2) * vec2(1.15, 0.95)));',
+'',
+'  vec2 bdir = normalize(vec2(0.62, -0.79));',
+'  float across = dot(q, bdir) + sin(t * 0.09) * 0.42;',
+'  float beam = 1.0 - smoothstep(0.0, 0.52, abs(across));',
+'',
+'  float v = g1 * 0.95 + g2 * 0.72 + beam * u_beam;',
+'  return max(v, 0.0);',
+'}',
+'',
+'void main(){',
+'  vec2 uv = gl_FragCoord.xy / u_res;',
+'  vec2 p  = (gl_FragCoord.xy - 0.5 * u_res) / u_res.y;',
+'  float t = u_time;',
+'',
+/* RIB GEOMETRY.
+   x is warped before quantising so rib widths vary; without it the wall is a
+   perfect comb and reads as a barcode. Two frequencies, because one gives a
+   regular wobble rather than the mix of wide panes and hairlines the
+   references have. */
+'  float xw = p.x',
+'           + u_jitter * 0.055 * sin(p.x * 3.10 + 1.7 + t * 0.09 * u_breathe)',
+'           + u_jitter * 0.022 * sin(p.x * 8.70 - 0.6 - t * 0.14 * u_breathe);',
+'',
+'  float s = xw * u_bars;',
+'  float i = floor(s);',
+'  float f = fract(s);',
+'',
+/* lens: -1 at the rib's left edge, 0 at its crown, +1 at its right edge.
+   This IS the surface slope, and every optical term below is a function of
+   it. Per-rib hash varies the strength a little so the wall is not uniform. */
+'  float lens = (f - 0.5) * 2.0;',
+'  float ribVar = 0.80 + 0.40 * hash(i * 1.37);',
+'',
+/* REFRACTION. The displacement is strongest at the rib edges where the
+   surface is steepest and zero at the crown, so cube it rather than using it
+   raw -- a linear ramp looks like a shear, not like glass. */
+'  float bend = lens * lens * lens;',
+'  float disp = bend * 0.085 * u_refract * ribVar;',
+'',
+'  float ca = u_ca * 0.012 * abs(bend);',
+'',
+/* Three samples for dispersion. The light field is four smoothsteps, so this
+   is affordable at full screen -- unlike an fbm field, where it would not be. */
+'  vec2 q = p + vec2(disp, 0.0);',
+'  float lr = lightField(q + vec2( ca, 0.0), t);',
+'  float lg = lightField(q,                  t);',
+'  float lb = lightField(q - vec2( ca, 0.0), t);',
+'',
+/* SHADING ACROSS THE RIB.
+   A cosine gives the half-round body: bright along the crown, falling away to
+   the edges. The seam is a hard dark line where two ribs meet. */
+'  float body = 0.42 + 0.58 * cos(lens * 1.45);',
+'  float seam = 1.0 - 0.75 * smoothstep(0.80, 1.0, abs(lens));',
+'',
+/* SPECULAR. A light from the upper left catches each rib where its slope
+   faces the source -- a narrow vertical line, slightly off the crown, which
+   is the signature of the reference images. Modulated by the glow behind so
+   the ribs stay invisible in the dark. */
+'  float ndl  = 1.0 - abs(lens + 0.38);',
+'  float spec = pow(max(ndl, 0.0), 7.0) * 0.55 * u_spec * ribVar;',
+'  float glint = pow(max(1.0 - abs(lens + 0.62), 0.0), 26.0) * 0.5 * u_spec;',
+'',
+/* A slow vertical drift in the highlight keeps the wall alive even when the
+   glow behind is barely moving. */
+'  float rs = 0.22 + hash(i * 5.13) * 1.05;',
+'  float travel  = 0.5 + 0.5 * sin(p.y * (1.2 + hash(i * 2.7) * 1.7)',
+'                                  + t * rs + i * 0.22);',
+'  float travel2 = 0.5 + 0.5 * sin(p.y * 3.7 - t * rs * 1.9 + i * 1.13);',
+'  spec *= 0.40 + u_shimmer * (0.70 * travel + 0.36 * travel2);',
+'',
+'  vec3 lit = vec3(lr, lg, lb) * (body * seam);',
+'  lit += (spec + glint) * (0.25 + 0.95 * lg);',
+'',
+'  float sweepX = fract(t * 0.055) * 3.2 - 1.6;',
+'  float sweep = exp(-pow((p.x - sweepX) * 1.9, 2.0));',
+'  sweep *= 0.55 + 0.45 * sin(p.y * 2.1 + t * 0.8);',
+'  lit += sweep * u_sweep * (0.16 + 0.55 * lg) * (body * seam);',
+'',
+/* COLOUR. The intensity is mapped through a four-stop ramp, so a palette is
+   four colours and nothing else -- the geometry above never touches hue. */
+'  float m = clamp(lit.g, 0.0, 1.6);',
+'  vec3 col = mix(u_c0, u_c1, smoothstep(0.02, 0.38, m));',
+'  col = mix(col, u_c2, smoothstep(0.34, 0.78, m));',
+'  col = mix(col, u_c3, smoothstep(0.72, 1.18, m));',
+'',
+/* Dispersion is applied as a ratio against the green channel so it tints the
+   ramped colour rather than overwriting it -- otherwise the palette is lost
+   wherever the fringing is strong. */
+'  if (u_ca > 0.0) {',
+'    float g = max(lit.g, 1e-3);',
+'    col *= clamp(vec3(lit.r / g, 1.0, lit.b / g), 0.55, 1.85);',
+'  }',
+'',
+'  col += u_bloom * 0.30 * smoothstep(0.55, 1.25, m) * u_c3;',
+'',
+'  float vig = smoothstep(1.45, 0.30, length(uv - vec2(0.5, 0.52)));',
+'  col *= mix(0.55, 1.05, vig);',
+'',
+'  col = pow(clamp(col, 0.0, 1.0), vec3(u_gamma));',
+'',
+'  col += (hash(dot(gl_FragCoord.xy, vec2(0.7, 3.1)) + t) - 0.5) / 210.0;',
+'  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
+'}',
+].join('\n');
+
+const canvas = document.getElementById('gl');
+const gl = canvas.getContext('webgl', {
+  alpha: false, antialias: false, depth: false, stencil: false,
+  powerPreference: 'high-performance',
+});
+const hint = document.getElementById('hint');
+
+if (!gl) {
+  document.body.style.background =
+    'repeating-linear-gradient(90deg,#000 0 6px,#141414 6px 12px), #000';
+  canvas.remove();
+  hint.textContent = 'WebGL unavailable — CSS fallback.';
+} else {
+
+function compile(type, src){
+  const sh = gl.createShader(type);
+  gl.shaderSource(sh, src); gl.compileShader(sh);
+  if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS))
+    throw new Error(gl.getShaderInfoLog(sh));
+  return sh;
+}
+const prog = gl.createProgram();
+gl.attachShader(prog, compile(gl.VERTEX_SHADER, VERT));
+gl.attachShader(prog, compile(gl.FRAGMENT_SHADER, FRAG));
+gl.linkProgram(prog);
+if (!gl.getProgramParameter(prog, gl.LINK_STATUS))
+  throw new Error(gl.getProgramInfoLog(prog));
+gl.useProgram(prog);
+
+const buf = gl.createBuffer();
+gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+gl.bufferData(gl.ARRAY_BUFFER,
+  new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+const aloc = gl.getAttribLocation(prog, 'p');
+gl.enableVertexAttribArray(aloc);
+gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
+
+const U = {};
+for (const n of ['u_res','u_time','u_mouse','u_bars','u_jitter','u_refract',
+                 'u_spec','u_ca','u_beam','u_bloom','u_gamma',
+                 'u_sweep','u_shimmer','u_breathe',
+                 'u_c0','u_c1','u_c2','u_c3'])
+  U[n] = gl.getUniformLocation(prog, n);
+
+const $ = id => document.getElementById(id);
+const R = { bars:$('bars'), jitter:$('jitter'), refract:$('refract'),
+            spec:$('spec'), ca:$('ca'), speed:$('speed'), beam:$('beam'),
+            bloom:$('bloom'), gamma:$('gamma'), dpr:$('dpr'),
+            sweep:$('sweep'), shimmer:$('shimmer'), breathe:$('breathe') };
+const O = { bars:$('barsV'), jitter:$('jitterV'), refract:$('refractV'),
+            spec:$('specV'), ca:$('caV'), speed:$('speedV'), beam:$('beamV'),
+            bloom:$('bloomV'), gamma:$('gammaV'), dpr:$('dprV'),
+            sweep:$('sweepV'), shimmer:$('shimmerV'), breathe:$('breatheV') };
+function sync(){
+  for (const k in R)
+    O[k].textContent = (k === 'bars') ? R[k].value : (+R[k].value).toFixed(2);
+}
+for (const k in R) R[k].addEventListener('input', sync);
+sync();
+
+// Four stops per palette: ground, low, mid, hot.
+const PALETTES = {
+  mono:   [[0.008,0.008,0.010],[0.20,0.21,0.23],[0.62,0.64,0.68],[1.00,1.00,1.00]],
+  ember:  [[0.012,0.010,0.016],[0.42,0.07,0.04],[0.96,0.36,0.06],[1.00,0.88,0.60]],
+  violet: [[0.010,0.006,0.020],[0.26,0.07,0.46],[0.68,0.26,0.95],[0.98,0.92,1.00]],
+  // Read off the site's own tokens, not invented:
+  //   #0A0A0A  terminal.css --bg, the ground
+  //   #3B56D6  dark.css --a0, the deepest ASSETS indigo
+  //   #8299EF  dark.css --a3, mid assets
+  //   #22D3EE  terminal.css --acc, the one sanctioned accent
+  // Red and lemon are deliberately absent -- see the note in the panel.
+  // Restrained on purpose. The first cut put --a0 indigo at the LOW stop
+  // and --acc cyan across the whole mid range, which flooded the screen
+  // with the one colour the site spends exactly three times (reconcile
+  // figure, active nav item, focus ring). Scarcity is the point of that
+  // accent, so here it is the hot TIP only: ground, a darkened indigo,
+  // --a0 proper, and cyan just at the very top of the ramp.
+  brand:  [[0.039,0.039,0.039],[0.086,0.125,0.310],
+           [0.231,0.337,0.839],[0.133,0.827,0.933]],
+};
+let pal = 'mono';
+const BTN = { mono:$('pMono'), ember:$('pEmber'), violet:$('pViolet'),
+              brand:$('pBrand') };
+const PAL_DEFAULTS = {
+  brand:  { bloom: 0.30, gamma: 1.85, beam: 0.38, ca: 0.45, spec: 0.75 },
+  mono:   { bloom: 0.60, gamma: 1.45, beam: 0.55, ca: 0.70, spec: 1.00 },
+  ember:  { bloom: 0.60, gamma: 1.45, beam: 0.55, ca: 0.70, spec: 1.00 },
+  violet: { bloom: 0.45, gamma: 1.70, beam: 0.45, ca: 0.60, spec: 0.85 },
+};
+function setPal(name){
+  pal = name;
+  for (const k in BTN) BTN[k].classList.toggle('on', k === name);
+  const d = PAL_DEFAULTS[name];
+  if (d) { for (const k in d) if (R[k]) R[k].value = d[k]; sync(); }
+}
+for (const k in BTN) BTN[k].addEventListener('click', () => setPal(k));
+
+hint.textContent = 'Each rib is a cylindrical lens: the sample is pushed '
+  + 'sideways by the rib slope, so the glow behind is displaced rather than '
+  + 'dimmed. No noise, no fbm — the light is four smoothsteps.';
+
+// Dragging nudges the light behind the glass.
+let px = 0, py = 0, tx = 0, ty = 0, down = false;
+addEventListener('pointerdown', e => { down = true; aim(e); });
+addEventListener('pointerup',   () => { down = false; });
+addEventListener('pointermove', e => { if (down) aim(e); }, { passive: true });
+function aim(e){
+  tx = (e.clientX / innerWidth  - 0.5) * 1.4;
+  ty = (0.5 - e.clientY / innerHeight) * 1.4;
+}
+
+const resEl = $('res'), fpsEl = $('fps');
+function resize(){
+  // The slider IS the render scale. Not clamped by devicePixelRatio: that
+  // made the control a no-op on a dpr-1 display, which is exactly where you
+  // most want to be able to turn cost down.
+  const dpr = Math.max(0.4, Math.min(+R.dpr.value, 2));
+  const w = Math.max(1, Math.round(innerWidth * dpr));
+  const h = Math.max(1, Math.round(innerHeight * dpr));
+  if (canvas.width !== w || canvas.height !== h){
+    canvas.width = w; canvas.height = h;
+    gl.viewport(0, 0, w, h);
+    resEl.textContent = w + '×' + h;
+  }
+}
+addEventListener('resize', resize, { passive: true });
+R.dpr.addEventListener('input', resize);
+resize();
+
+/* Reduced motion is honoured as a slowdown, not a freeze. On Windows the
+   "Show animations" setting makes Chrome report prefers-reduced-motion
+   permanently for every site, so freezing on it alone would show a still
+   frame and read as a broken build rather than a respected preference. */
+const rmScale = matchMedia('(prefers-reduced-motion: reduce)').matches ? 0.45 : 1;
+
+let clock = 0, last = performance.now(), running = true;
+let frames = 0, fpsAt = last;
+
+function frame(now){
+  if (!running) return;
+  requestAnimationFrame(frame);
+  const dt = Math.min((now - last) / 1000, 0.05);
+  last = now;
+  clock += dt * (+R.speed.value) * rmScale;
+
+  const k = 1 - Math.pow(0.004, dt);
+  px += (tx - px) * k; py += (ty - py) * k;
+
+  resize();
+  const c = PALETTES[pal];
+  gl.uniform2f(U.u_res, canvas.width, canvas.height);
+  gl.uniform1f(U.u_time, clock);
+  gl.uniform2f(U.u_mouse, px, py);
+  gl.uniform1f(U.u_bars, +R.bars.value);
+  gl.uniform1f(U.u_jitter, +R.jitter.value);
+  gl.uniform1f(U.u_refract, +R.refract.value);
+  gl.uniform1f(U.u_spec, +R.spec.value);
+  gl.uniform1f(U.u_ca, +R.ca.value);
+  gl.uniform1f(U.u_beam, +R.beam.value);
+  gl.uniform1f(U.u_bloom, +R.bloom.value);
+  gl.uniform1f(U.u_gamma, +R.gamma.value);
+  gl.uniform1f(U.u_sweep, +R.sweep.value);
+  gl.uniform1f(U.u_shimmer, +R.shimmer.value);
+  gl.uniform1f(U.u_breathe, +R.breathe.value);
+  gl.uniform3fv(U.u_c0, c[0]); gl.uniform3fv(U.u_c1, c[1]);
+  gl.uniform3fv(U.u_c2, c[2]); gl.uniform3fv(U.u_c3, c[3]);
+
+  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+
+  frames++;
+  if (now - fpsAt >= 500){
+    fpsEl.textContent = Math.round(frames * 1000 / (now - fpsAt));
+    frames = 0; fpsAt = now;
+  }
+}
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) running = false;
+  else if (!running){ running = true; last = performance.now(); frame(last); }
+});
+requestAnimationFrame(frame);
+
+}
+</script>
+</body>
+</html>

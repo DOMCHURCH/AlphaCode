@@ -70,7 +70,23 @@ def render_backdrop() -> str:
     `alt=""` and `aria-hidden` on the container because this is scenery: it
     carries no information a screen reader should stop for.
     """
+    # Imported here, not at module scope: `company_page` reaches back into this
+    # module for `render_backdrop`, so a top-level import would close the loop.
+    # Every other cross-import in this file is lazy for the same reason.
+    from src.report.company_page import asset_version
+
     v = media_version()
+    # THE ONE PLACE the backdrop is built, which is why the reeded-glass canvas
+    # and its script go here rather than into a page shell. There are THREE
+    # separate `<head>` blocks on this site -- `home_page._shell` and two in
+    # `company_page` -- and anything added to one and not the others leaves the
+    # company pages silently on the old look. This function is called by all
+    # three, so it is the only edit that cannot half-land.
+    #
+    # The canvas is empty markup: `reeded.js` finds it by id, and if WebGL is
+    # missing, the shader fails to compile, or the viewport is too narrow, the
+    # script removes the element and the still image below it is what shows.
+    # Nothing to sequence and no flash between the two.
     return f"""
 <div class="backdrop" id="backdrop" aria-hidden="true">
   <picture class="backdrop-still">
@@ -80,5 +96,7 @@ def render_backdrop() -> str:
          width="{HERO_W}" height="{HERO_H}"
          loading="eager" fetchpriority="high" decoding="async">
   </picture>
+  <canvas class="backdrop-gl" id="backdrop-gl"></canvas>
   <div class="backdrop-veil"></div>
-</div>"""
+</div>
+<script src="/static/reeded.js?v={asset_version()}" defer></script>"""
