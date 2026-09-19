@@ -189,6 +189,22 @@
    it if it degrades itself off, so a reader whose machine gives up gets the
    blur back along with the still image. The class selector out-specifies the
    bare element selectors, so load order does not matter. */
+/* TWO CLASSES, AND THE DIFFERENCE MATTERS.
+
+   `.reeded-on`     the canvas is drawing.
+   `.reeded-frost`  frosted glass is affordable ON TOP of that.
+
+   They are separate because they fail separately, and because frost is the
+   first thing worth giving up. `backdrop-filter` cost lands on the compositor,
+   not on the main thread -- which means it does not show up in a
+   requestAnimationFrame measurement at all. It cannot be measured honestly
+   from a headless software rasteriser, so it is not guessed at: reeded.js
+   drops `.reeded-frost` at the first sign of a slow frame, before it touches
+   render scale, and the browser makes the call on the reader's own hardware.
+
+   Base state while the canvas runs and frost has been shed: nav goes opaque
+   using the alpha its own `@supports not (backdrop-filter)` block already
+   specifies. */
 html.reeded-on nav {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
@@ -198,4 +214,78 @@ html.reeded-on .strip {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   background: rgba(22, 24, 38, .93);
+}
+
+/* --- frost, when it is affordable ------------------------------------- */
+
+html.reeded-frost nav {
+  background: rgba(10, 11, 17, .72);
+  -webkit-backdrop-filter: blur(12px) saturate(1.2);
+  backdrop-filter: blur(12px) saturate(1.2);
+}
+
+/* PROSE PANELS. .74, and that is not a taste call -- dark.css measured it:
+   "a white cloud passing under body text: .62 gives 4.2:1 and fails prose,
+   .72 gives 5.9:1". These hold body copy over a moving glow, so they stay
+   above that floor. */
+html.reeded-frost .trust,
+html.reeded-frost .plans,
+html.reeded-frost .card,
+html.reeded-frost .tile,
+html.reeded-frost .plan,
+html.reeded-frost .buy,
+html.reeded-frost .sheet,
+html.reeded-frost .faq-item,
+html.reeded-frost .split-half,
+html.reeded-frost .ep,
+html.reeded-frost .compare,
+html.reeded-frost .tablewrap,
+html.reeded-frost .chead,
+html.reeded-frost .empty {
+  background: rgba(17, 19, 27, .74);
+  -webkit-backdrop-filter: blur(14px) saturate(1.22);
+  backdrop-filter: blur(14px) saturate(1.22);
+  border: 1px solid rgba(255, 255, 255, .085);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .07),
+              0 14px 34px rgba(0, 0, 0, .40);
+}
+
+/* DECORATIVE SURFACES carry figures and labels rather than prose, so they are
+   allowed under the prose floor and read as thinner glass. */
+html.reeded-frost .strip,
+html.reeded-frost .stat,
+html.reeded-frost .bignum,
+html.reeded-frost .shape,
+html.reeded-frost .banner,
+html.reeded-frost .acc,
+html.reeded-frost .meter,
+html.reeded-frost .planline {
+  background: rgba(18, 20, 30, .60);
+  -webkit-backdrop-filter: blur(12px) saturate(1.18);
+  backdrop-filter: blur(12px) saturate(1.18);
+  border: 1px solid rgba(255, 255, 255, .075);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .06);
+}
+
+/* NOT FROSTED, AND THIS IS THE ONE RULE NOT TO RELAX.
+
+   glass.css: "The drawing sits on solid ground, always. A cloud drifting
+   behind a blue band shifts its perceived hue, and the product is a claim
+   about proportion and colour being read accurately."
+
+   A reeded glow behind a translucent band does precisely that to the indigo,
+   red and lemon the drawing uses to MEAN assets, liabilities and equity. So
+   the drawings stay opaque, and so does code -- monospace on glass is a
+   legibility problem for no gain. Restated here rather than left to the
+   cascade, because the selectors above out-specify the bare class selectors
+   that would otherwise hold this line. */
+html.reeded-frost .bs,
+html.reeded-frost .stack,
+html.reeded-frost .hero-bs .bs,
+html.reeded-frost .band,
+html.reeded-frost .code,
+html.reeded-frost .keybox {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: var(--panel-solid, #141414);
 }

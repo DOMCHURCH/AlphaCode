@@ -68,9 +68,21 @@
     c3: [0.133, 0.827, 0.933]
   };
 
-  /* Give-up ladder. Each step is tried for CHECK_MS before the next.
-     The last entry is 0, which means stop drawing and remove the canvas. */
-  var DEGRADE = [0.50, 0.35, 0.25, 0];
+  /* GIVE-UP LADDER, cheapest loss first. Each step is tried for CHECK_MS
+     before the next one is taken.
+
+       frost   drop the frosted glass on the overlays
+       0.35    then start cutting render scale
+       0.25
+       0       then stop drawing and remove the canvas
+
+     Frost goes FIRST on purpose. `backdrop-filter` cost lands on the
+     compositor rather than the main thread, so it is invisible to a
+     requestAnimationFrame measurement and cannot be measured honestly from a
+     headless software rasteriser -- which means the only trustworthy
+     benchmark is the reader's own machine, at runtime. Shedding it first
+     costs a visual effect; shedding scale first costs the whole look. */
+  var DEGRADE = ['frost', 0.35, 0.25, 0];
   // Measured against the 36fps draw cap below, not against vsync.
   var MIN_FPS = 22;
   var CHECK_MS = 1600;
@@ -89,6 +101,7 @@
     // Give the blurs back: nothing is animating behind them any more, so they
     // are a one-off cost again rather than a per-frame one.
     document.documentElement.classList.remove('reeded-on');
+    document.documentElement.classList.remove('reeded-frost');
   }
 
   if (window.innerWidth < MIN_WIDTH) { bail(); return; }
@@ -298,7 +311,7 @@
   gl.uniform3fv(U.u_c3, SETTINGS.c3);
 
   var step = 0;
-  var scale = DEGRADE[0];
+  var scale = SETTINGS.scale;
 
   /* A BACKDROP DOES NOT NEED 60fps. Capped at ~36, which halves the GPU work
      against a vsync-paced loop and is indistinguishable on a drifting glow --
@@ -339,6 +352,8 @@
      animating behind `nav` turned a cached blur into a per-frame one on every
      page. Removed again by bail(). */
   document.documentElement.classList.add('reeded-on');
+  // Frost is opt-IN and separately revocable: see the ladder above.
+  document.documentElement.classList.add('reeded-frost');
 
   /* Reduced motion is honoured as a SLOWDOWN, not a freeze. A still frame of
      this is a perfectly good backdrop, and what triggers motion sickness is
@@ -384,13 +399,18 @@
     lowWindows++;
     if (lowWindows < 2) { return; }
     lowWindows = 0;
+    var next = DEGRADE[step];
     step++;
-    if (step >= DEGRADE.length || DEGRADE[step] === 0) {
+    if (next === 'frost') {
+      document.documentElement.classList.remove('reeded-frost');
+      return;
+    }
+    if (next === 0 || step > DEGRADE.length) {
       running = false;
       bail();
       return;
     }
-    scale = DEGRADE[step];
+    scale = next;
     resize();
   }
 
