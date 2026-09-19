@@ -512,16 +512,20 @@ def test_the_home_page_carries_a_quotable_definition(client):
     # The clause names the product once. Twice is the bug this guards.
     assert hero.count("BalanceProof is the verification layer") == 1
 
-    # The definition paragraph no longer sits in the hero. It closed on the
-    # same four figures the stat strip shows a few inches away -- "6,227
-    # companies covered. 4,935 reconcile directly. 194 flagged with a reason.
-    # 0 hidden." -- and those six lines were most of why the strip, the search
-    # box and the button could not share one screen.
-    #
-    # What it was FOR still has to hold, though, because it was written to be
-    # the sentence an assistant lifts. So the assertion moves rather than
-    # disappearing: the method must remain quotable from this page, in the
-    # metadata a crawler reads first and in the body a reader scrolls to.
+    # The definition paragraph keeps its place under the lede, minus the four
+    # counts it used to close on -- those are the stat strip's job, and saying
+    # them twice a few inches apart was most of why the strip, the search box
+    # and the button could not share one screen.
+    assert body.index('class="hlede"') < body.index('class="hlede hdef"'), (
+        "the lede comes before the method"
+    )
+    assert "Every filing is reconciled against the accounting identity" in body
+    # The counts belong to the strip and must not come back here.
+    hero_def = body.split('class="hlede hdef"', 1)[1].split("</p>", 1)[0]
+    assert "companies covered" not in hero_def
+    assert "reconcile directly" not in hero_def
+
+    # And it stays quotable where a crawler looks first.
     assert "accounting identity" in body or "A = L + E" in body, (
         "the method must stay quotable from the home page"
     )

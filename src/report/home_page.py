@@ -265,12 +265,31 @@ def _compact(n: int) -> str:
 # the lede directly above it says the same words. Rendered on a phone the two
 # paragraphs read as the same paragraph printed twice, because the first
 # screenful of both was identical.
-_DEFINITION_METHOD = (
+# The method, in three sentences, kept as parts so the hero can take a subset
+# without a second copy of the words drifting away from this one.
+_METHOD_IDENTITY = (
     "Every filing is reconciled against the accounting identity "
-    "(Assets = Liabilities + Equity). Every figure is pulled as-filed and "
-    "checked before it is stored. When a filing does not balance, the page "
-    "says so with the reason instead of adjusting the numbers."
+    "(Assets = Liabilities + Equity)."
 )
+_METHOD_AS_FILED = (
+    "Every figure is pulled as-filed and checked before it is stored."
+)
+_METHOD_FLAGGED = (
+    "When a filing does not balance, the page says so with the reason "
+    "instead of adjusting the numbers."
+)
+_DEFINITION_METHOD = f"{_METHOD_IDENTITY} {_METHOD_AS_FILED} {_METHOD_FLAGGED}"
+
+# What the HERO carries: the two sentences that make the argument. The
+# as-filed line is true, useful and the least distinctive of the three -- it
+# is what every vendor claims -- so it stays on /about and /methodology where
+# there is room, and the hero keeps the definition and the promise.
+#
+# The full paragraph used to sit in the hero and closed on the same four
+# figures the stat strip shows a few inches above it. Those six lines were
+# most of the reason the strip, the search box and the button could not share
+# one screen; the counts are the strip's job and this is the method's.
+_HERO_METHOD = f"{_METHOD_IDENTITY} {_METHOD_FLAGGED}"
 
 
 def product_definition(with_name: bool = True) -> str:
@@ -1164,14 +1183,9 @@ def render_home(
       balance sheets. Built for developers and analysts who cannot tolerate a
       silently wrong number: when a filing reconciles you get the figure, and
       when it does not you get the reason.</p>
-    <!-- The definition paragraph used to sit here and repeated the stat strip
-         verbatim -- "6,227 companies covered. 4,935 reconcile directly. 194
-         flagged with a reason. 0 hidden." are the same four figures the strip
-         shows a few inches away, in a form that is harder to scan. Saying them
-         twice cost about six lines of hero height, which is most of the reason
-         the search box, the button and the strip could not fit on one screen.
-         The prose version lives on /about and /methodology, where it is the
-         point rather than a reprise. -->
+    <!-- The method, minus the counts the strip already carries. See
+         `_HERO_METHOD` for which two sentences and why. -->
+    <p class="hlede hdef">{_HERO_METHOD}</p>
     {search_form()}
     <!-- THE HOMEPAGE HAD NO BUTTON. Seven conversion links, every one of them
          plain text, and the first was the phrase "get the data" inside a
