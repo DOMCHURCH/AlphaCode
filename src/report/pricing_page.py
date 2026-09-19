@@ -101,7 +101,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
     return f"""
     <div class="plan pro-plan">
       <span class="plan-name">Pro</span>
-      <div class="bill-toggle" role="group" aria-label="Billing period">
+      <div class="bill-toggle in-card" role="group" aria-label="Billing period">
         <a class="bill-opt on" href="/dashboard#billing" data-period="month"
           data-plan="pro" aria-current="true">Monthly</a>
         <a class="bill-opt" href="/dashboard#billing" data-period="year"
@@ -183,6 +183,16 @@ def plan_cards(
     </div>"""
 
     return f"""
+    <div class="bill-lead">
+      <span class="bill-lead-label">Billing period</span>
+      <div class="bill-toggle" role="group" aria-label="Billing period">
+        <a class="bill-opt on" href="/dashboard#billing" data-period="month"
+          data-plan="pro" aria-current="true">Monthly</a>
+        <a class="bill-opt" href="/dashboard#billing" data-period="year"
+          data-plan="pro_annual" aria-current="false">Yearly
+          <small>save {escape(annual_saving)}</small></a>
+      </div>
+    </div>
     <div class="plans">
       {card(
         "Free", "$0", "", "Unlimited — look up as many companies as you like",
@@ -231,7 +241,7 @@ def coverage_line() -> str:
 
     Every other page carries the coverage; /pricing described what a tier
     buys without ever saying what it buys access TO, which leaves the reader
-    weighing 1,000 calls a month against a universe they have to go and find.
+    weighing {FREE_CALLS} calls a month against a universe they have to go and find.
 
     Counts read live. `identity_breakdown()` for the companies -- the same
     source the home page definition and /methodology use, so the three cannot

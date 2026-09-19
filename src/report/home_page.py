@@ -1160,6 +1160,10 @@ def render_home(
 
     # One page, in the order someone actually uses it: search, then the five
     # shapes, then -- only for whoever is still reading -- the explanation.
+    # Read, never typed: production runs its own
+    # FREE_TIER_MONTHLY_CALLS and the copy must follow it.
+    from src.config.settings import get_settings as _gs
+    free_calls = _gs().free_tier_monthly_calls
     body = f"""
 <!-- No nav link to the explanation. It is further down THIS page, and a nav
      item reads as a separate destination -- which is exactly the confusion
@@ -1197,7 +1201,7 @@ def render_home(
       <a class="btn" href="/dashboard">Get a free API key</a>
       <a class="btn ghost" href="#how">See how it works</a>
     </div>
-    <p class="summary">1,000 calls a month, no card &middot;
+    <p class="summary">{free_calls:,} calls a month, no card &middot;
       <a href="/methodology">how we verify</a></p>
   </header>
   {hero_bs}

@@ -505,3 +505,14 @@
 /* The price swaps in place, so the card must not resize as it does. */
 .pro-plan .plan-price{min-height:1.1em}
 .pro-plan .plan-line{min-height:2.8em}
+
+/* The period choice, lifted out of the Pro card. Inside it, it read as one
+   card's detail; the choice actually reprices the whole comparison, so it
+   belongs above the row where it is seen before the prices it changes. */
+.bill-lead{display:flex;align-items:center;gap:12px;margin:0 0 16px;flex-wrap:wrap}
+.bill-lead-label{font:600 11px/1 var(--disp);letter-spacing:.09em;
+  text-transform:uppercase;color:var(--ink2)}
+.bill-lead .bill-toggle{margin:0}
+.bill-lead .bill-opt{padding:10px 18px;font-size:13px}
+/* The in-card copy stays for no-JS, but the lead one is the visible control. */
+.bill-toggle.in-card{display:none}

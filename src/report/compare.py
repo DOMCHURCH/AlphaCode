@@ -598,12 +598,12 @@ vendor. That comparison is the only one with an authority behind it.</p>
             Row("Coverage", "{COVERAGE}", "Wider \u2014 many markets and data types", False),
             Row("Latency", LATENCY + "; EDGAR swept every 6h", "Check their site"),
             Row("Price", "Free tier \u00b7 $49/mo \u00b7 $490/yr \u00b7 $79.99 one-off", "Check their site \u2014 their pricing page blocks automated reads"),
-            Row("Free tier", "Yes, 1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "Yes, {FREE_CALLS} calls/month, no card", "Check their site"),
             Row("Bulk download", "$79.99, one CSV, no contract", "Check their site"),
         ),
         choose_us=(
             "<b>You are already on FMP and want a referee.</b> The free tier "
-            "is 1,000 calls a month with no card, which is enough to run "
+            "is {FREE_CALLS} calls a month with no card, which is enough to run "
             "against what you already serve and see whether anything "
             "disagrees. That is the actual use case here, not replacement.",
             "<b>You need to defend a number.</b> Every figure reconciles "
@@ -661,7 +661,7 @@ about someone else.</p>
             Row("Fundamentals", "The whole product", "An add-on \u2014 \u201cFinancials &amp; Ratios\u201d, sold separately or bundled on their top tier"),
             Row("Selection method", "A = L + E, published and testable", "Check their site \u2014 not found published"),
             Row("Tells you when it is unsure", "Yes \u2014 every exception flagged with its reason", "Check their site"),
-            Row("Free tier", "1,000 calls/month, no card", "A free Basic tier, metered per minute, end-of-day \u2014 check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "A free Basic tier, metered per minute, end-of-day \u2014 check their site"),
             Row("Entry paid tier", "$49/mo", "Check their site"),
             Row("Latency", LATENCY, "Check their site \u2014 real-time market data is their pitch, not ours", False),
             Row("Bulk download", "$79.99, one CSV, no contract", "Check their site"),
@@ -725,7 +725,7 @@ decision on it; it is one <code>curl -I</code>.</p>
             Row("Scope", "SEC balance sheets, reconciled", "Broad: prices, FX, crypto, technicals, fundamentals", False),
             Row("Selection method", "A = L + E, published and testable", "Check their site \u2014 not documented on their premium page"),
             Row("Tells you when it is unsure", "Yes \u2014 every exception flagged with its reason", "Check their site"),
-            Row("Free tier", "1,000 calls/month, no card", "Free tier metered per DAY \u2014 check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Free tier metered per DAY \u2014 check their site"),
             Row("Entry paid tier", "$49/mo", "Check their site"),
             Row("Paid tiers sold in", "Calls per month", "Requests per minute", False),
             Row("Coverage", "{COVERAGE}", "Wider \u2014 many asset classes", False),
@@ -733,7 +733,7 @@ decision on it; it is one <code>curl -I</code>.</p>
         ),
         choose_us=(
             "<b>You are doing a backfill, not a poll.</b> A per-day free cap is "
-            "a sampling budget; 1,000 calls a month is a walk-the-universe "
+            "a sampling budget; {FREE_CALLS} calls a month is a walk-the-universe "
             "budget. Check their current limit against that shape \u2014 it "
             "is the difference that matters, not the number.",
             "<b>You want the exceptions named.</b> Their premium page documents "
@@ -779,7 +779,7 @@ decision on it; it is one <code>curl -I</code>.</p>
             Row("If you need to defend a figure", "Every row ties to a filing; exceptions named", "Check their site"),
             Row("If you need point-in-time", "As-reported, with filing dates", "Check their site"),
             Row("Migration cost", "Low \u2014 add it alongside, do not replace", "n/a"),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site"),
             Row("Price", "Free \u00b7 $49/mo \u00b7 $490/yr \u00b7 $79.99 one-off", "Check their site"),
         ),
         choose_us=(
@@ -828,7 +828,7 @@ decision on it; it is one <code>curl -I</code>.</p>
             Row("Handles mezzanine equity", "Yes, as its own block", "Ask \u2014 this is where SPACs and biotechs break"),
             Row("Handles noncontrolling interest", "Yes, added explicitly and said out loud", "Ask"),
             Row("As-reported, not restated", "Yes, with filing dates", "Ask"),
-            Row("Free tier without a call", "1,000/month, no card", "Varies"),
+            Row("Free tier without a call", "{FREE_CALLS}/month, no card", "Varies"),
         ),
         choose_us=(
             "<b>Check 1: the twenty-three-tags test.</b> JPMorgan&rsquo;s 10-Q "
@@ -900,7 +900,7 @@ the category where the fault is ours rather than the filer&rsquo;s.</p>
             Row("Tells you when it is unsure", "Yes \u2014 every exception flagged with its reason, counted at /methodology", "Check their site"),
             Row("Duplicate-tag resolution", "By the identity, not by tag name", "Check their site"),
             Row("Coverage", "{COVERAGE}", "Wider \u2014 many asset classes", False),
-            Row("Free tier", "1,000 calls/month, no card", "Yes \u2014 their front page leads with it; check their site for limits", False),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Yes \u2014 their front page leads with it; check their site for limits", False),
             Row("Bulk download", "One CSV, no contract", "Check their site"),
         ),
         choose_us=(
@@ -950,7 +950,7 @@ the category where the fault is ours rather than the filer&rsquo;s.</p>
             Row("Selection method", "A = L + E, published and testable", "Check their site \u2014 not found published"),
             Row("Tells you when it is unsure", "Yes \u2014 exception and reason, counted in public", "Check their site"),
             Row("Coverage", "{COVERAGE}", "Wider by every measure", False),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site"),
         ),
         choose_us=(
             "<b>You need one filing read properly, not many markets read "
@@ -996,7 +996,7 @@ the category where the fault is ours rather than the filer&rsquo;s.</p>
             Row("Per-figure exception reason", "Yes, named on the company's own page", "Check their site"),
             Row("Stated coverage", "{COVERAGE}", "80,000+ assets, 20+ years of fundamentals \u2014 their figures", False),
             Row("News", "None", "70M+ articles, 20+ years \u2014 their figures", False),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site"),
         ),
         choose_us=(
             "<b>Anomaly detection and an identity test answer different "
@@ -1064,7 +1064,7 @@ being read on the wrong terms, the identity is.</p>
             Row("Selection method", "A = L + E, published and testable", "Varies by dataset \u2014 check the dataset's own documentation"),
             Row("Tells you when it is unsure", "Yes \u2014 exception, reason, and a public count", "Varies by dataset"),
             Row("Coverage", "{COVERAGE}", "Very wide across economics, alternative data and markets", False),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site \u2014 varies by dataset"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site \u2014 varies by dataset"),
         ),
         choose_us=(
             "<b>You want one answerable party.</b> On a catalogue the method is "
@@ -1111,7 +1111,7 @@ being read on the wrong terms, the identity is.</p>
             Row("Result published per company", "Yes \u2014 pass, or the exception and its reason", "Check their site"),
             Row("Stated scope", "{COVERAGE}", "27,530 stocks, 75 sectors, 30+ years \u2014 their figures", False),
             Row("Statements covered", "Balance sheets only", "Balance sheets, cash flow, earnings, insider trades, segments", False),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site"),
         ),
         choose_us=(
             "<b>A sample tells you a rate; a test tells you about YOUR "
@@ -1183,7 +1183,7 @@ right answers.</p>
             Row("If you need fundamentals", "This is the whole product", "It was an add-on \u2014 check what the destination site offers now"),
             Row("If a balance sheet did not reconcile", "This is what the service is for", "Check their site for a published method"),
             Row("Migration cost", "Low \u2014 add alongside, do not replace", "n/a"),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site"),
         ),
         choose_us=(
             "<b>Do not migrate \u2014 add.</b> If you were using them for "
@@ -1232,7 +1232,7 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
             "is an argument for this site."
         ),
         rows=(
-            Row("If you ran out of free calls", "1,000/month, no card \u2014 a different budget shape", "Their free tier is metered per DAY \u2014 check their site", False),
+            Row("If you ran out of free calls", "{FREE_CALLS}/month, no card \u2014 a different budget shape", "Their free tier is metered per DAY \u2014 check their site", False),
             Row("If a figure would not tie to the filing", "This is the entire product", "Check their site for a published selection method"),
             Row("If you need prices, FX or crypto", "Not the answer", "Stay \u2014 that is what it is for", False),
             Row("Paid tiers sold in", "Calls per month", "Requests per minute", False),
@@ -1281,7 +1281,7 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
             Row("Duplicate-tag resolution", "Done for you, by the identity", "Yours to do \u2014 the tags arrive as filed", False),
             Row("Tells you when a statement does not reconcile", "Yes, with the reason", "Not applicable \u2014 it is not selecting for you", False),
             Row("If you already have a reconciler you trust", "You want their raw access, not this", "Stay", False),
-            Row("Free tier", "1,000 calls/month, no card", "Check their site"),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Check their site"),
         ),
         choose_us=(
             "<b>You do not want to write the resolver.</b> JPMorgan's 10-Q "
@@ -1567,7 +1567,17 @@ def live_counts() -> dict[str, str]:
     companies = companies_label()
     facts = facts_label()
     filers = f"{companies} SEC filers" if companies else "SEC filers"
+    # THE FREE TIER, READ FROM SETTINGS RATHER THAN TYPED. It was typed --
+    # "{FREE_CALLS} calls/month, no card" on all twenty of these pages and in the
+    # hero -- while production runs FREE_TIER_MONTHLY_CALLS=100. The number in
+    # the copy was the code's DEFAULT, not the deployment's value, so the site
+    # advertised ten times the free tier it actually grants. A figure a
+    # deployment can change must never be written by hand.
+    from src.config.settings import get_settings
+
+    free_calls = get_settings().free_tier_monthly_calls
     return {
+        "{FREE_CALLS}": f"{free_calls:,}",
         "{FILERS}": filers,
         "{COVERAGE}": f"{filers}, {facts} facts" if facts else filers,
         "{COVERAGE_PROSE}": (
