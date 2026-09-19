@@ -294,7 +294,11 @@
     '  vec3 tone = mix(u_c1, u_c2, smoothstep(0.26, 0.48, hue));',
     '  tone = mix(tone, u_c3, smoothstep(0.58, 0.80, hue));',
     // A floor, so the unlit side still carries colour rather than going black.
-    '  float amb = max(m, 0.16);',
+    // ADDITIVE floor, not max(). max() is a hard discontinuity: it puts a
+    // contour line exactly where m crosses the floor, and on a phone's
+    // low-resolution buffer that contour renders as a visible staircase
+    // across the screen. Adding is smooth everywhere.
+    '  float amb = m + 0.13;',
     '  vec3 col = mix(u_c0, tone, smoothstep(0.02, 0.42, amb));',
     '  col += tone * smoothstep(0.62, 1.20, m) * 0.55;',
     '',
@@ -572,7 +576,11 @@
        fold: a phone opened on an almost black first screen, which is the
        only screen most phone readers see. Zero on a landscape frame, where
        sy is 1. */
-    var lift = 0.86 * (sy - 1);
+    // Clamped BEFORE anything uses it. An earlier value of 0.86 worked out to
+    // roughly the whole half-height on a phone and pushed both lobes clean off
+    // the top of the frame, leaving only the diagonal beam on screen -- which
+    // read as a stray coloured wedge in the corner rather than as a backdrop.
+    var lift = Math.min(0.34 * (sy - 1), hy * 0.40);
     gl.uniform2f(U.u_c1p,
       Math.sin(t * 0.17) * 0.58 * sx,
       (Math.cos(t * 0.13) * 0.34 - 0.10) * sy + lift);
