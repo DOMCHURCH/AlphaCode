@@ -580,14 +580,14 @@
     // roughly the whole half-height on a phone and pushed both lobes clean off
     // the top of the frame, leaving only the diagonal beam on screen -- which
     // read as a stray coloured wedge in the corner rather than as a backdrop.
-    var lift = Math.min(0.34 * (sy - 1), hy * 0.40);
+    var lift = Math.min(0.62 * (sy - 1), hy * 0.55);
     gl.uniform2f(U.u_c1p,
       Math.sin(t * 0.17) * 0.58 * sx,
-      (Math.cos(t * 0.13) * 0.34 - 0.10) * sy + lift);
+      (Math.cos(t * 0.13) * 0.34 - 0.10) + lift);
     gl.uniform2f(U.u_c2p,
       (Math.cos(t * 0.11) * 0.80 + 0.18) * sx,
-      (Math.sin(t * 0.19) * 0.42 + 0.26) * sy + lift);
-    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42 * sy - lift * 0.6);
+      (Math.sin(t * 0.19) * 0.42 + 0.26) + lift);
+    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42 - lift * 0.62);
     gl.uniform1f(U.u_time, t);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
