@@ -912,3 +912,51 @@ def test_no_page_prints_a_competitor_price():
         if money.search(row.theirs)
     ]
     assert not offenders, f"competitor prices printed: {offenders!r}"
+
+
+def test_structured_data_never_carries_markup():
+    """JSON-LD item text is read literally by a search engine.
+
+    The stripper handled `<b>` and nothing else, which held exactly as long as
+    `choose_us` contained nothing else. The first test that cited a company
+    page put a raw anchor into the structured data, where it says
+    `<a href="/company/LCID">Lucid</a>` and means "Lucid".
+    """
+    import json
+    import re
+
+    from src.report.compare import PAGES, render
+
+    for page in PAGES:
+        for blob in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>',
+            render(page), re.S,
+        ):
+            obj = json.loads(blob)      # also pins that it stays valid JSON
+            assert not re.search(r"<[a-z]+[ >]", json.dumps(obj)), (
+                f"{page.slug} leaked markup into structured data"
+            )
+
+
+def test_every_itemlist_is_named_for_its_own_page():
+    """Three `best` pages sharing one list name is three lists claiming to be
+    the same list. The name was hardcoded while there was only one."""
+    import json
+    import re
+
+    from src.report.compare import PAGES, render
+
+    names = {}
+    for page in PAGES:
+        for blob in re.findall(
+            r'<script type="application/ld\+json">(.*?)</script>',
+            render(page), re.S,
+        ):
+            obj = json.loads(blob)
+            if isinstance(obj, dict) and obj.get("@type") == "ItemList":
+                names[page.slug] = obj.get("name")
+
+    assert len(names) >= 3, "expected several roundup pages"
+    assert len(set(names.values())) == len(names), f"shared list names: {names}"
+    for slug, name in names.items():
+        assert name == next(p.h1 for p in PAGES if p.slug == slug)
