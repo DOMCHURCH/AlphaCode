@@ -226,18 +226,44 @@ class _Metered:
     not exist must not cost the caller anything.
     """
 
-    def __init__(self, account: Any, ip_hash: str, anonymous: bool) -> None:
+    def __init__(self, account: Any, ip_hash: str, anonymous: bool,
+                 used: int = 0) -> None:
         self.account = account
         self.ip_hash = ip_hash
         self.anonymous = anonymous
+        # Taken from `enforce_monthly_limit`, which already counted, rather
+        # than queried again here. Two reads of the same number one line apart
+        # is a query nobody needs.
+        self.used = used
 
     def spend(self, ticker: str) -> None:
         from src import accounts, demo
 
         if self.anonymous:
-            demo.record(self.ip_hash, ticker)
+            # Tagged, so anonymous MCP traffic is separable from the home page
+            # demo box -- they meter into the same table.
+            demo.record(self.ip_hash, ticker, source="mcp")
         else:
             accounts.record_call(self.account, "/mcp")
+            self.used += 1
+
+    def plan(self) -> dict[str, Any]:
+        """What tier this caller is on, for the result's `_meta`.
+
+        A client that shows tool metadata can surface it; a model that reads it
+        can answer "what plan am I on" without a round trip. It is NOT appended
+        to the text on every call -- see `_plan_note` for when it is.
+        """
+        if self.anonymous:
+            return {"tier": "demo", "authenticated": False}
+        limit = self.account.call_limit
+        return {
+            "tier": self.account.tier,
+            "authenticated": True,
+            "monthly_limit": limit,
+            "used_this_month": self.used,
+            "remaining": max(0, limit - self.used) if limit else None,
+        }
 
 
 def _authorise(request: Request) -> _Metered:
@@ -278,8 +304,8 @@ def _authorise(request: Request) -> _Metered:
                     "https://balanceproof.dev/dashboard"
                 ),
             )
-        accounts.enforce_monthly_limit(account)
-        return _Metered(account, "", anonymous=False)
+        used = accounts.enforce_monthly_limit(account)
+        return _Metered(account, "", anonymous=False, used=used)
 
     # Anonymous. Same three windows as the demo, in the same order, because
     # this endpoint serves the same data from the same code path.
@@ -492,7 +518,44 @@ def _error(req_id: Any, code: int, message: str, data: Any = None) -> dict[str, 
     return {"jsonrpc": "2.0", "id": req_id, "error": err}
 
 
-def _tool_result(text: str, structured: Any = None, is_error: bool = False) -> dict:
+def _plan_note(metered: Any) -> str:
+    """The allowance line, appended to the text ONLY when it is about to bite.
+
+    Deliberately not on every call. A model relays what it is given, so a
+    running "847 calls left" on every answer becomes the loudest thing in the
+    conversation and makes the tool feel like a billing page. It appears at
+    20% remaining, which is late enough to be information and early enough to
+    act on -- and the 429 already speaks loudly at zero.
+
+    Anonymous callers get nothing here. Their pitch belongs in the server
+    instructions, which a client reads once on connect, rather than stapled to
+    every reply.
+    """
+    if metered is None or metered.anonymous:
+        return ""
+    limit = metered.account.call_limit
+    if not limit:
+        return ""
+    left = max(0, limit - metered.used)
+    if left > limit * 0.2:
+        return ""
+    tail = ""
+    if metered.account.tier != "pro":
+        from src.config.settings import get_settings
+
+        tail = (
+            f" Pro raises it to {get_settings().pro_tier_monthly_calls:,} "
+            "at https://balanceproof.dev/pricing."
+        )
+    return (
+        "\n\n"
+        f"[{left:,} of {limit:,} calls left on the {metered.account.tier} "
+        f"tier this month. It resets on the 1st (UTC).{tail}]"
+    )
+
+
+def _tool_result(text: str, structured: Any = None, is_error: bool = False,
+                 meta: Any = None) -> dict:
     """An MCP tool result.
 
     A failed tool call is reported as `isError` inside a successful JSON-RPC
@@ -508,6 +571,11 @@ def _tool_result(text: str, structured: Any = None, is_error: bool = False) -> d
     }
     if structured is not None:
         out["structuredContent"] = structured
+    # `_meta`, not `structuredContent`: the structured payload is the balance
+    # sheet the caller asked for, and putting billing state inside it would
+    # make every consumer parse around it.
+    if meta is not None:
+        out["_meta"] = meta
     return out
 
 
@@ -587,7 +655,10 @@ def _dispatch(
                 f"Something went wrong running {name}: {exc}", is_error=True,
             ))
 
-        return _result(req_id, _tool_result(text, structured))
+        return _result(req_id, _tool_result(
+            text + _plan_note(metered), structured,
+            meta={"balanceproof/plan": metered.plan()},
+        ))
 
     return _error(req_id, ERR_METHOD_NOT_FOUND, f"Method not found: {method}")
 
@@ -600,7 +671,14 @@ _INSTRUCTIONS = (
     "a number either way. Resolve a company name with search_companies, read "
     "figures with get_balance_sheet, and use check_balance_sheet for any "
     "question about whether the data can be trusted. Figures are as-filed and "
-    "not restated. This is not investment advice."
+    "not restated. This is not investment advice.\n\n"
+    "Access: with no key this connector runs on a shared demo allowance, "
+    "rate-limited per address. A free API key at "
+    "https://balanceproof.dev/dashboard raises that to a monthly quota tied "
+    "to an account rather than to a machine; send it as an "
+    "'Authorization: Bearer <key>' header on this connector. Each tool result "
+    "carries the caller's current tier and remaining calls in its _meta under "
+    "'balanceproof/plan'."
 )
 
 

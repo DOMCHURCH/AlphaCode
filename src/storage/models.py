@@ -830,6 +830,17 @@ class DemoUsage(Base):
     ip_hash: Mapped[str] = mapped_column(String(32), nullable=False)
     day: Mapped[str] = mapped_column(String(10), nullable=False)
     ticker: Mapped[str | None] = mapped_column(String(16))
+    # WHICH SURFACE the call came through: "web" for the home page demo box,
+    # "mcp" for an anonymous MCP client. Nullable, because rows written before
+    # this column existed genuinely have an unknown source and backfilling
+    # them with a guess would be inventing data -- NULL means "before we
+    # counted", which is the truth.
+    #
+    # It exists because /mcp and the demo box meter into the same table, so
+    # without it the one number nobody could produce was "is anyone actually
+    # using the MCP server" -- and that is the whole question the directory
+    # listings are meant to answer.
+    source: Mapped[str | None] = mapped_column(String(8), default="web")
     created_at: Mapped[dt.datetime] = mapped_column(
         DateTime, nullable=False, default=_utcnow
     )

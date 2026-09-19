@@ -48,10 +48,20 @@ def client(tmp_path, monkeypatch):
     reset_engine_cache()
     init_db()
 
-    from src.api import app
+    from src.api import _demo_gate, _demo_ip_gate, app
 
+    # BOTH gates, and in teardown as well as setup. These are module-level and
+    # therefore shared by every test in the process: the loop test below spends
+    # the per-address window on purpose, and leaving it spent made whichever
+    # file pytest happened to run next fail on a limit it never touched.
+    # Suite results that depend on file order are worse than no suite.
+    _demo_ip_gate.reset()
+    _demo_gate.reset()
     with TestClient(app) as c:
         yield c
+
+    _demo_ip_gate.reset()
+    _demo_gate.reset()
 
     get_settings.cache_clear()
     reset_engine_cache()

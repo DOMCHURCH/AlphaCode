@@ -171,12 +171,20 @@ def remaining(ip_hash: str) -> int:
     return max(0, limit - calls_today(ip_hash))
 
 
-def record(ip_hash: str, ticker: str) -> None:
-    """Count one demo call. Never raises -- a lost row beats a failed demo."""
+def record(ip_hash: str, ticker: str, source: str = "web") -> None:
+    """Count one demo call. Never raises -- a lost row beats a failed demo.
+
+    `source` says which surface it arrived through -- "web" for the home page
+    demo box, "mcp" for an anonymous MCP client. Both meter here, and without
+    the tag they are one undifferentiated pile.
+    """
     try:
         with session_scope() as session:
             session.add(
-                DemoUsage(ip_hash=ip_hash, day=current_day(), ticker=ticker[:16])
+                DemoUsage(
+                    ip_hash=ip_hash, day=current_day(),
+                    ticker=ticker[:16], source=source[:8],
+                )
             )
     except Exception as exc:  # noqa: BLE001
         log.warning("demo_record_failed", error=str(exc)[:200])
