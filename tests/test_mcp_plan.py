@@ -280,3 +280,80 @@ def test_a_clean_filing_names_its_basis_explicitly(client):
     seed()
     payload = call(client)["structuredContent"]
     assert payload["identity_basis"] == "as_filed"
+
+
+# ---------------------------------------------------------------------------
+# Signing up without leaving the conversation
+# ---------------------------------------------------------------------------
+
+
+def signup(client, email="new@example.com", terms=True):
+    return client.post("/mcp", json={
+        "jsonrpc": "2.0", "id": 1, "method": "tools/call",
+        "params": {"name": "get_api_key",
+                   "arguments": {"email": email, "accept_terms": terms}},
+    }).json()["result"]
+
+
+def test_a_key_can_be_issued_inside_the_conversation(client):
+    """The whole point: before this, somebody who hit the demo limit had to
+    leave the conversation, find the site and sign up. Almost nobody does."""
+    from src import accounts
+
+    text = signup(client)["content"][0]["text"]
+    assert "Free API key created for new@example.com" in text
+    # And the key it printed is real: it resolves to the account.
+    key = [w for w in text.split() if len(w) > 24 and "@" not in w][0]
+    assert accounts.lookup(key) is not None
+
+
+def test_the_new_key_immediately_works_on_the_other_tools(client):
+    seed()
+    text = signup(client)["content"][0]["text"]
+    key = [w for w in text.split() if len(w) > 24 and "@" not in w][0]
+    plan = call(client, key=key)["_meta"]["balanceproof/plan"]
+    assert plan["authenticated"] is True
+    assert plan["tier"] == "free"
+
+
+def test_terms_must_actually_be_agreed_to(client):
+    """And refusing must not create the account anyway -- proved by the fact
+    that a later, proper signup for the same address still succeeds. If the
+    refused attempt had written a row, this would come back 'already
+    registered'."""
+    refused = signup(client, terms=False)["content"][0]["text"]
+    assert "terms" in refused.lower()
+    assert "API key created" not in refused
+
+    assert "Free API key created" in signup(client)["content"][0]["text"]
+
+
+def test_a_registered_address_is_never_handed_a_key(client):
+    """`/api/auth/register` answers 409 for this and says why: giving the key
+    back would make the endpoint a lookup service -- type a customer's
+    address, receive their paid key. Over MCP that is worse, because a model
+    can type the address on somebody else's behalf."""
+    first = signup(client, "taken@example.com")["content"][0]["text"]
+    assert "Free API key created" in first
+
+    second = signup(client, "taken@example.com")["content"][0]["text"]
+    assert "already registered" in second
+    assert "dashboard" in second
+    # The key must not appear anywhere in the refusal.
+    key = [w for w in first.split() if len(w) > 24 and "@" not in w][0]
+    assert key not in second
+
+
+def test_signing_up_is_NOT_blocked_by_a_spent_demo_allowance(client):
+    """The carve-out that makes the tool worth having. Metering this behind
+    the demo gate would refuse a key to the one caller certain to want one."""
+    from src.api import _demo_ip_gate
+
+    seed()
+    _demo_ip_gate.reset()
+    for _ in range(105):          # spend the anonymous window
+        call(client)
+    assert "rate limit" in call(client)["content"][0]["text"].lower()
+
+    # Still able to sign up.
+    assert "Free API key created" in signup(client)["content"][0]["text"]

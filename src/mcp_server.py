@@ -186,6 +186,36 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_api_key",
+        "description": (
+            "Create a free BalanceProof API key and return it. Use this when "
+            "the user has hit the demo rate limit, or asks for a key, or asks "
+            "to sign up — you do not need to send them to the website. "
+            "Requires their email address and their explicit agreement to the "
+            "terms at https://balanceproof.dev/terms: ASK for both, never "
+            "invent an address or assume agreement. The key is shown once and "
+            "cannot be retrieved again, so give it to the user verbatim and "
+            "tell them to store it. A free key allows 1,000 calls a month."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "email": {
+                    "type": "string",
+                    "description": "The user's email address. Ask for it.",
+                },
+                "accept_terms": {
+                    "type": "boolean",
+                    "description": (
+                        "True only if the user has actually agreed to the "
+                        "terms at https://balanceproof.dev/terms. Ask them."
+                    ),
+                },
+            },
+            "required": ["email", "accept_terms"],
+        },
+    },
+    {
         "name": "check_balance_sheet",
         "description": (
             "Verify that a company's filed balance sheet actually balances: "
@@ -495,10 +525,78 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
     return verdict, payload
 
 
+def _tool_get_api_key(args: dict[str, Any], _m: Any) -> tuple[str, Any]:
+    """Issue a free key without the user leaving the conversation.
+
+    THE POINT OF IT. Before this, somebody who hit the demo limit inside
+    Claude had to leave the conversation, find the site, and sign up. Almost
+    nobody does that, which made an exhausted rate limit the end of the
+    funnel rather than the middle of it.
+
+    IT DOES NOT GO THROUGH `_authorise`, deliberately -- see the carve-out in
+    `_dispatch`. Metering this tool would refuse a key to the one caller who
+    most wants one: the person who just spent the demo. It carries the site's
+    own registration gate instead, which is the right limit for it anyway.
+
+    AN ALREADY-REGISTERED ADDRESS DOES NOT GET A KEY, and that is not an
+    oversight. `/api/auth/register` answers 409 for the same reason, spelled
+    out there: handing the key back would make this a lookup service -- type
+    a customer's address, receive their paid key. Over MCP that would be
+    worse, because the address can be typed by a model on someone else's
+    behalf.
+    """
+    from fastapi import HTTPException
+
+    from src import accounts
+    from src.api import _enforce_rate, _register_gate
+
+    email = str(args.get("email") or "").strip()
+    if args.get("accept_terms") is not True:
+        return (
+            "I cannot create a key until you have agreed to the terms at "
+            "https://balanceproof.dev/terms. Say so and I will try again.",
+            None,
+        )
+
+    # Before the validity check, so a loop cannot probe this for free with
+    # addresses it already knows are malformed. Same order as the web route.
+    try:
+        _enforce_rate(_register_gate, "registration")
+    except HTTPException as exc:
+        return str(exc.detail), None
+
+    address = accounts.normalise_email(email)
+    if not accounts.valid_email(address):
+        return "That does not look like an email address.", None
+
+    try:
+        account, plaintext = accounts.register(address)
+    except accounts.EmailTaken:
+        return (
+            "That address is already registered, so a new key cannot be "
+            "issued for it here -- keys are never re-sent, because that would "
+            "turn this into a way to look up somebody else's. Sign in at "
+            "https://balanceproof.dev/dashboard and regenerate yours there.",
+            None,
+        )
+
+    log.info("mcp_user_registered", email=address)
+    return (
+        f"Free API key created for {account.email}:\n\n    {plaintext}\n\n"
+        "STORE THIS NOW -- it is shown once and cannot be retrieved again. "
+        f"It allows {account.call_limit:,} calls a month. To use it here, add "
+        "it to this connector as an 'Authorization: Bearer <key>' header; for "
+        "the REST API send it as 'X-API-Key'.",
+        {"email": account.email, "tier": account.tier,
+         "calls_limit": account.call_limit},
+    )
+
+
 _TOOL_IMPLS = {
     "search_companies": _tool_search_companies,
     "get_balance_sheet": _tool_get_balance_sheet,
     "check_balance_sheet": _tool_check_balance_sheet,
+    "get_api_key": _tool_get_api_key,
 }
 
 
@@ -636,6 +734,23 @@ def _dispatch(
             return _result(req_id, _tool_result(
                 "Tool arguments must be an object.", is_error=True,
             ))
+
+        # ONE TOOL IS NOT METERED, AND IT IS THE IMPORTANT ONE.
+        #
+        # `get_api_key` exists to convert somebody who has just spent the demo
+        # allowance. Putting it behind that same allowance would refuse a key
+        # to the only caller who is certain to want one -- the funnel would
+        # close at exactly the point it is meant to open. It carries the
+        # site's own registration gate instead, inside the implementation,
+        # which is the correct limit for account creation anyway.
+        if name == "get_api_key":
+            try:
+                text, structured = impl(args, None)
+            except Exception as exc:  # noqa: BLE001 - must still say why
+                log.exception("mcp_signup_failed", error=str(exc))
+                return _result(req_id, _tool_result(
+                    f"Could not create a key: {exc}", is_error=True))
+            return _result(req_id, _tool_result(text, structured))
 
         # Authorisation and metering happen here, once, for every tool -- not
         # inside the implementations, where a new tool could forget them.
