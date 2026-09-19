@@ -159,3 +159,43 @@
   .backdrop-still { background-position: 54% 74%; }
   .backdrop-img   { object-position: 54% 74%; }
 }
+
+
+/* ---------------------------------------------------------------------------
+   WHEN THE REEDED CANVAS IS RUNNING, THE BLURS COME OFF.
+
+   This is the single largest cost of animating the backdrop, and it is not in
+   the shader. `backdrop-filter` caches its result while the thing behind it
+   holds still -- which the backdrop was, for as long as it was a photograph.
+   The moment it became a canvas repainting every frame, every blurred element
+   above it became a gaussian blur recomputed every frame too. glass.css says
+   exactly this in its own words: "Each backdrop-filter over a playing video is
+   a separate re-blur every frame; a dozen of them is a slideshow with a
+   stylesheet."
+
+   After the cascade only two survive, and `nav` is the expensive one: sticky,
+   full width, on all 6,000-odd pages.
+
+     nav      blur(12px)   glass.css
+     .strip   blur(14px)   glass.css
+
+   The replacement alphas are NOT invented here. They are the values those same
+   rules already carry in their `@supports not (backdrop-filter)` blocks -- a
+   readability fallback this site designed and measured for exactly the case of
+   "no blur available", which is functionally where we now are. So this is a
+   known-good appearance, not a new one.
+
+   `reeded.js` adds `.reeded-on` to <html> when it starts drawing and REMOVES
+   it if it degrades itself off, so a reader whose machine gives up gets the
+   blur back along with the still image. The class selector out-specifies the
+   bare element selectors, so load order does not matter. */
+html.reeded-on nav {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(10, 11, 17, .93);
+}
+html.reeded-on .strip {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: rgba(22, 24, 38, .93);
+}

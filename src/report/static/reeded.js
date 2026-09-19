@@ -71,7 +71,8 @@
   /* Give-up ladder. Each step is tried for CHECK_MS before the next.
      The last entry is 0, which means stop drawing and remove the canvas. */
   var DEGRADE = [0.50, 0.35, 0.25, 0];
-  var MIN_FPS = 24;
+  // Measured against the 36fps draw cap below, not against vsync.
+  var MIN_FPS = 22;
   var CHECK_MS = 1600;
 
   /* Below this viewport width the backdrop is not drawn at all. A phone gets
@@ -85,6 +86,9 @@
   function bail() {
     if (canvas && canvas.parentNode) { canvas.parentNode.removeChild(canvas); }
     canvas = null;
+    // Give the blurs back: nothing is animating behind them any more, so they
+    // are a one-off cost again rather than a per-frame one.
+    document.documentElement.classList.remove('reeded-on');
   }
 
   if (window.innerWidth < MIN_WIDTH) { bail(); return; }
@@ -124,13 +128,27 @@
     '',
     // The light behind the glass: two drifting lobes plus one diagonal beam.
     // Anisotropic scaling keeps the lobes from reading as circles.
+    // The two lobe centres and the beam offset depend only on TIME, not on the
+    // pixel -- so they are computed once on the CPU and arrive as uniforms
+    // rather than being recomputed, identically, for every pixel on screen.
+    // That removes 5 of the 6 sines this function used to run per sample, and
+    // it ran three times per pixel.
+    'uniform vec2  u_c1p;',
+    'uniform vec2  u_c2p;',
+    'uniform float u_beamOff;',
+    '',
     'float lightField(vec2 q, float t){',
-    '  vec2 c1 = vec2(sin(t * 0.17) * 0.58, cos(t * 0.13) * 0.34 - 0.10);',
-    '  float g1 = 1.0 - smoothstep(0.0, 1.00, length((q - c1) * vec2(0.80, 1.35)));',
-    '  vec2 c2 = vec2(cos(t * 0.11) * 0.80 + 0.18, sin(t * 0.19) * 0.42 + 0.26);',
-    '  float g2 = 1.0 - smoothstep(0.0, 0.78, length((q - c2) * vec2(1.15, 0.95)));',
-    '  vec2 bdir = normalize(vec2(0.62, -0.79));',
-    '  float across = dot(q, bdir) + sin(t * 0.09) * 0.42;',
+    // smoothstep on SQUARED distance instead of length(): the falloff is
+    // arbitrary anyway, so squaring the bounds gives the same curve shape
+    // without the sqrt. Three sqrt per sample x three samples per pixel was
+    // real money for a difference nobody can see.
+    '  vec2 d1 = (q - u_c1p) * vec2(0.80, 1.35);',
+    '  float g1 = 1.0 - smoothstep(0.0, 1.00, dot(d1, d1));',
+    '  vec2 d2 = (q - u_c2p) * vec2(1.15, 0.95);',
+    '  float g2 = 1.0 - smoothstep(0.0, 0.61, dot(d2, d2));',
+    // normalize() of a literal is a sqrt and a divide per sample, for a
+    // constant. Baked.
+    '  float across = dot(q, vec2(0.6172, -0.7868)) + u_beamOff;',
     '  float beam = 1.0 - smoothstep(0.0, 0.52, abs(across));',
     '  return max(g1 * 0.95 + g2 * 0.72 + beam * u_beam, 0.0);',
     '}',
@@ -161,18 +179,29 @@
     '  float ca = u_ca * 0.012 * abs(bend);',
     '',
     '  vec2 q = p + vec2(disp, 0.0);',
-    '  float lr = lightField(q + vec2(ca, 0.0), t);',
     '  float lg = lightField(q, t);',
-    '  float lb = lightField(q - vec2(ca, 0.0), t);',
+    '  float lr = lg;',
+    '  float lb = lg;',
+    // THREE SAMPLES ONLY WHERE THERE IS A FRINGE. `ca` is proportional to
+    // |bend|, which is zero along the crown of every rib, so most of the
+    // screen was paying for two extra field evaluations that returned the
+    // same number. Threshold rather than always-on.
+    '  if (ca > 0.0008) {',
+    '    lr = lightField(q + vec2(ca, 0.0), t);',
+    '    lb = lightField(q - vec2(ca, 0.0), t);',
+    '  }',
     '',
     '  float body = 0.42 + 0.58 * cos(lens * 1.45);',
     '  float seam = 1.0 - 0.75 * smoothstep(0.80, 1.0, abs(lens));',
     '',
     // Specular from an upper-left light: a narrow vertical line slightly off
     // the crown. Modulated by the glow so ribs stay invisible in the dark.
-    '  float ndl  = 1.0 - abs(lens + 0.38);',
-    '  float spec = pow(max(ndl, 0.0), 7.0) * 0.55 * u_spec * ribVar;',
-    '  float glint = pow(max(1.0 - abs(lens + 0.62), 0.0), 26.0) * 0.5 * u_spec;',
+    '  float ndl = max(1.0 - abs(lens + 0.38), 0.0);',
+    '  float n2 = ndl * ndl; float n4 = n2 * n2;',
+    '  float spec = n4 * n2 * ndl * 0.55 * u_spec * ribVar;',
+    '  float gl1 = max(1.0 - abs(lens + 0.62), 0.0);',
+    '  float g2a = gl1 * gl1; float g4 = g2a * g2a; float g8 = g4 * g4;',
+    '  float glint = g8 * g8 * g8 * g2a * 0.5 * u_spec;',
     '',
     // Per-rib speed AND per-rib frequency. One shared speed made the whole
     // wall pulse in unison, which reads as a single blinking object.
@@ -188,7 +217,8 @@
     // A bright band crossing on a long cycle -- the one EVENT. Everything
     // else here drifts, and drift alone reads as static after a few seconds.
     '  float sweepX = fract(t * 0.055) * 3.2 - 1.6;',
-    '  float sweep = exp(-pow((p.x - sweepX) * 1.9, 2.0));',
+    '  float sx = (p.x - sweepX) * 1.9;',
+    '  float sweep = exp(-sx * sx);',
     '  sweep *= 0.55 + 0.45 * sin(p.y * 2.1 + t * 0.8);',
     '  lit += sweep * u_sweep * (0.16 + 0.55 * lg) * (body * seam);',
     '',
@@ -208,7 +238,8 @@
     '  col += u_bloom * 0.30 * smoothstep(0.55, 1.25, m) * u_c3;',
     '  float vig = smoothstep(1.45, 0.30, length(uv - vec2(0.5, 0.52)));',
     '  col *= mix(0.55, 1.05, vig);',
-    '  col = pow(clamp(col, 0.0, 1.0), vec3(u_gamma));',
+    '  col = clamp(col, 0.0, 1.0);',
+    '  col = col * (col * 0.86 + 0.14);',
     '  col += (hash(dot(gl_FragCoord.xy, vec2(0.7, 3.1)) + t) - 0.5) / 210.0;',
     '  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
     '}'
@@ -244,7 +275,8 @@
   var U = {};
   ['u_res', 'u_time', 'u_bars', 'u_jitter', 'u_refract', 'u_spec', 'u_ca',
    'u_beam', 'u_bloom', 'u_gamma', 'u_sweep', 'u_shimmer', 'u_breathe',
-   'u_c0', 'u_c1', 'u_c2', 'u_c3'].forEach(function (n) {
+   'u_c0', 'u_c1', 'u_c2', 'u_c3',
+   'u_c1p', 'u_c2p', 'u_beamOff'].forEach(function (n) {
     U[n] = gl.getUniformLocation(prog, n);
   });
 
@@ -268,17 +300,45 @@
   var step = 0;
   var scale = DEGRADE[0];
 
+  /* A BACKDROP DOES NOT NEED 60fps. Capped at ~36, which halves the GPU work
+     against a vsync-paced loop and is indistinguishable on a drifting glow --
+     there is nothing in this image with an edge sharp enough for the
+     difference to show. The cap is on DRAWING only: the rAF loop still runs
+     every frame, so the clock stays smooth and the page keeps its own
+     scheduling. */
+  var FRAME_MS = 1000 / 36;
+
+  /* Viewport size is CACHED, not read per frame. `window.innerWidth` is a
+     layout read, and doing one inside requestAnimationFrame is a classic way
+     to force synchronous layout on every frame of an animation -- the page
+     pays for it, not the canvas. Updated on resize, which is when it can
+     actually change. */
+  var vw = window.innerWidth;
+  var vh = window.innerHeight;
+
   function resize() {
-    var w = Math.max(1, Math.round(window.innerWidth * scale));
-    var h = Math.max(1, Math.round(window.innerHeight * scale));
+    var w = Math.max(1, Math.round(vw * scale));
+    var h = Math.max(1, Math.round(vh * scale));
     if (canvas.width !== w || canvas.height !== h) {
       canvas.width = w;
       canvas.height = h;
       gl.viewport(0, 0, w, h);
+      gl.uniform2f(U.u_res, w, h);
     }
   }
-  window.addEventListener('resize', resize, { passive: true });
+  window.addEventListener('resize', function () {
+    vw = window.innerWidth;
+    vh = window.innerHeight;
+    resize();
+  }, { passive: true });
   resize();
+
+  /* The blurs come off while this is drawing -- see the `.reeded-on` block in
+     backdrop.css. This is the single biggest win available, and it is not in
+     the shader: `backdrop-filter` caches while the backdrop holds still, so
+     animating behind `nav` turned a cached blur into a per-frame one on every
+     page. Removed again by bail(). */
+  document.documentElement.classList.add('reeded-on');
 
   /* Reduced motion is honoured as a SLOWDOWN, not a freeze. A still frame of
      this is a perfectly good backdrop, and what triggers motion sickness is
@@ -300,6 +360,7 @@
   var last = 0;
   var running = true;
   var frames = 0;
+  var lastDraw = 0;
   var windowStart = 0;
   var lowWindows = 0;
 
@@ -344,9 +405,19 @@
     last = now;
     clock += dt * SETTINGS.speed * rmScale;
 
-    resize();
-    gl.uniform2f(U.u_res, canvas.width, canvas.height);
-    gl.uniform1f(U.u_time, clock);
+    if (now - lastDraw < FRAME_MS) { return; }
+    lastDraw = now;
+
+    var t = clock;
+    // These three depend only on time, so they are computed ONCE here rather
+    // than identically for every pixel on screen. Five sines per sample, and
+    // the shader sampled three times per pixel.
+    gl.uniform2f(U.u_c1p,
+      Math.sin(t * 0.17) * 0.58, Math.cos(t * 0.13) * 0.34 - 0.10);
+    gl.uniform2f(U.u_c2p,
+      Math.cos(t * 0.11) * 0.80 + 0.18, Math.sin(t * 0.19) * 0.42 + 0.26);
+    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42);
+    gl.uniform1f(U.u_time, t);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
     watchFrames(now);
