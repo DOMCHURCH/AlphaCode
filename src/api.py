@@ -44,6 +44,10 @@ from src import scheduler
 from src.config.settings import get_settings
 from src.locks import BACKFILL
 from src.logging_config import configure_logging
+# Safe to import at module scope despite the mutual dependency: `mcp_server`
+# reaches back into this module only from inside function bodies, so nothing
+# here is touched while this file is still executing.
+from src.mcp_server import router as _mcp_router
 from src.storage import repository
 from src.storage.db import init_db, session_scope
 from src.storage.models import DailyBar
@@ -737,6 +741,19 @@ _FAVICON = (
     '<path d="M4 16A12 12 0 0 1 16 4V16Z" fill="#CBD3E0"/>'
     "</svg>"
 )
+
+
+# THE MCP ENDPOINT lives in its own module and is mounted here as a router.
+#
+# It is the first POST route on this app and the only one that speaks a
+# protocol rather than serving a page, which is the reason it is not inlined:
+# `/mcp` is ~400 lines of JSON-RPC plumbing with its own versioning rules, and
+# this file is already long enough that a reader looking for a route should not
+# have to scroll past a transport implementation to find one.
+#
+# Registered here, before the page routes, so its 405 on GET /mcp cannot be
+# shadowed by a catch-all added later.
+app.include_router(_mcp_router)
 
 
 @app.get("/favicon.ico", include_in_schema=False)
