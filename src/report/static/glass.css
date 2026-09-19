@@ -593,7 +593,45 @@ body[data-film="hero"] main::after {
    inline-flex so it hugs its cells, and a flex item is blockified -- without
    this it would stretch the full width of the fold and become the unfinished
    table the rule above exists to prevent. */
-.leadin { display: flex; flex-direction: column; }
+/* A GROUND FOR THE TYPE. The backdrop brightens toward its middle, so white
+   text over it loses contrast exactly where the headline sits -- the "washed
+   out" look. This lays a gradient under the text column only: opaque where the
+   words are, gone by the midpoint, so the photograph keeps the half that
+   carries the image. Cheaper and more reliable than a text-shadow, which
+   fringes at this weight. */
+.leadin { display: flex; flex-direction: column; position: relative; }
+.leadin::before {
+  content: ""; position: absolute;
+  /* FULL BLEED, NOT A BOX. Insetting the veil to the text column gave it a
+     left edge, and an edge on a flat dark fill is a visible vertical line down
+     the page -- which is what it looked like: a seam, not a shadow. It now
+     runs to the viewport on both sides (`html` carries overflow-x: hidden, so
+     this cannot produce a scrollbar) and reaches zero opacity well before its
+     own right edge, so there is no boundary to see anywhere. */
+  top: -80px; bottom: -24px;
+  left: calc(50% - 50vw); right: calc(50% - 50vw);
+  background: linear-gradient(100deg,
+    rgba(8,10,18,.88) 0%,
+    rgba(8,10,18,.84) 30%,
+    rgba(8,10,18,.52) 50%,
+    rgba(8,10,18,.16) 65%,
+    transparent 78%);
+  /* And the same treatment vertically: the top and bottom edges are softened
+     out rather than stopped, so the veil dissolves into the nav above it and
+     the section below instead of ending on a line. */
+  -webkit-mask-image: linear-gradient(180deg,
+    transparent 0%, #000 9%, #000 86%, transparent 100%);
+  mask-image: linear-gradient(180deg,
+    transparent 0%, #000 9%, #000 86%, transparent 100%);
+  pointer-events: none; z-index: 0;
+}
+.leadin > * { position: relative; z-index: 1; }
+@media (max-width: 860px) {
+  /* Portrait puts the text over the whole image, so the veil covers it all. */
+  .leadin::before { background: linear-gradient(180deg,
+    rgba(8,10,18,.82) 0%, rgba(8,10,18,.66) 65%, rgba(8,10,18,.30) 100%);
+    -webkit-mask-image: none; mask-image: none; }
+}
 .leadin > .strip { align-self: flex-start; }
 @media (min-width: 901px) {
   .leadin > .strip { order: -1; }

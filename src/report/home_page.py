@@ -1164,8 +1164,15 @@ def render_home(
       balance sheets. Built for developers and analysts who cannot tolerate a
       silently wrong number: when a filing reconciles you get the figure, and
       when it does not you get the reason.</p>
-    {_definition_para()}
-    {search_form(autofocus=True)}
+    <!-- The definition paragraph used to sit here and repeated the stat strip
+         verbatim -- "6,227 companies covered. 4,935 reconcile directly. 194
+         flagged with a reason. 0 hidden." are the same four figures the strip
+         shows a few inches away, in a form that is harder to scan. Saying them
+         twice cost about six lines of hero height, which is most of the reason
+         the search box, the button and the strip could not fit on one screen.
+         The prose version lives on /about and /methodology, where it is the
+         point rather than a reprise. -->
+    {search_form()}
     <!-- THE HOMEPAGE HAD NO BUTTON. Seven conversion links, every one of them
          plain text, and the first was the phrase "get the data" inside a
          paragraph -- while every comparison page carried a proper "Get a free

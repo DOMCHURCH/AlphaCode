@@ -152,3 +152,19 @@
     form.addEventListener("submit", run);
   });
 })();
+
+/* The search box used to carry `autofocus`, and the browser honours that by
+   scrolling the focused element into view. On this page the box sits below the
+   stat strip, the headline and the lede, so every visit opened part-way down
+   the page with the headline off the top -- which reads as though somebody had
+   scrolled for you.
+   Focusing from here with preventScroll keeps the cursor in the box AND the
+   page at the top. Where preventScroll is unsupported the worst case is the
+   old behaviour, so there is nothing to fall back to. Skipped entirely if the
+   visitor has already scrolled or the URL carries a hash. */
+(function () {
+  if (window.scrollY > 0 || window.location.hash) return;
+  var box = document.getElementById('q');
+  if (!box) return;
+  try { box.focus({ preventScroll: true }); } catch (e) { /* leave it be */ }
+})();

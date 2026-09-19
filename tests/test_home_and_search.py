@@ -14,6 +14,8 @@ The rules being defended here are the product's, not the framework's:
 
 from __future__ import annotations
 
+import re
+
 import datetime as dt
 
 import pytest
@@ -507,12 +509,27 @@ def test_the_home_page_carries_a_quotable_definition(client):
 
     assert "BalanceProof is the verification layer over SEC EDGAR" in body
     assert body.index('class="htitle"') < body.index('class="hlede"')
-    assert body.index('class="hlede"') < body.index('class="hlede hdef"'), (
-        "the lede comes before the definition"
-    )
     # The clause names the product once. Twice is the bug this guards.
     assert hero.count("BalanceProof is the verification layer") == 1
-    assert "Every filing is reconciled against the accounting identity" in body
+
+    # The definition paragraph no longer sits in the hero. It closed on the
+    # same four figures the stat strip shows a few inches away -- "6,227
+    # companies covered. 4,935 reconcile directly. 194 flagged with a reason.
+    # 0 hidden." -- and those six lines were most of why the strip, the search
+    # box and the button could not share one screen.
+    #
+    # What it was FOR still has to hold, though, because it was written to be
+    # the sentence an assistant lifts. So the assertion moves rather than
+    # disappearing: the method must remain quotable from this page, in the
+    # metadata a crawler reads first and in the body a reader scrolls to.
+    assert "accounting identity" in body or "A = L + E" in body, (
+        "the method must stay quotable from the home page"
+    )
+    desc = re.search(r'<meta name="description" content="([^"]+)"', body)
+    assert desc and ("A = L + E" in desc.group(1)
+                     or "accounting identity" in desc.group(1)), (
+        "the description a crawler reads must still carry the method"
+    )
     assert 'href="/about"' in body, "one visible route to the About page"
 
 

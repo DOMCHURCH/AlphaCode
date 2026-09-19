@@ -115,7 +115,7 @@ main{padding:6px 0 72px}
   box-shadow:var(--up)}
 .hero{border-radius:var(--r3);padding:34px 26px 30px;margin-bottom:34px}
 .htitle{font-size:clamp(30px,8.6vw,44px);line-height:1.06;font-weight:600;
-  letter-spacing:-.03em;margin:0 0 14px;max-width:14ch}
+  letter-spacing:-.03em;margin:0 0 14px;max-width:14ch;text-wrap:balance}
 .hlede{font-size:16px;line-height:1.55;color:var(--ink2);margin:0 0 26px;max-width:38ch}
 
 /* ---- search: a slot pressed into the sheet ---- */
@@ -493,7 +493,7 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
    type, and grids that get another column -- while every measure stays a
    measure. Nothing here changes below 1400px. */
 @media (min-width: 1400px) {
-  .htitle{font-size:clamp(44px,3.6vw,64px);max-width:16ch}
+  .htitle{font-size:clamp(40px,3.1vw,56px);max-width:20ch}
   .hlede{font-size:18px;max-width:52ch}
   .sec-sub{font-size:16px;max-width:64ch}
   .hero{padding:44px 46px 40px}
@@ -552,3 +552,31 @@ footer{margin-top:40px;padding:0 2px;font-size:12.5px;color:var(--ink2);line-hei
 .sectorlist{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));
   gap:6px 18px;list-style:none;padding:0}
 .sectorlist .muted{color:var(--ink2);font-variant-numeric:tabular-nums}
+
+/* ---- hero call to action ---- */
+/* A button that happens to be a link must not also be underlined like one:
+   `.btn` came from dashboard.css, where every one of them is a real <button>. */
+a.btn{text-decoration:none}
+
+/* The primary action sat beside the search submit and read as the weaker of
+   the two, because `.btn` is ink-on-background and the submit is the inverse.
+   The hero's main ask should be at least as loud as the box above it, so it
+   borrows exactly that treatment -- `.search button`'s colours, not a new
+   palette. */
+.hero-cta .btn{background:var(--ink);color:var(--bg)}
+.hero-cta .btn.ghost{background:transparent;color:var(--ink);
+  box-shadow:inset 0 0 0 1px var(--lo)}
+.hero-cta .btn.ghost:hover{box-shadow:inset 0 0 0 1px var(--ink)}
+.hero-cta{margin-top:18px;gap:12px}
+
+/* ---- wide screens ---- */
+/* `--measure` is 1100px because that is a comfortable LINE LENGTH, and on a
+   1100px column it is doing both jobs at once: capping the prose and sizing
+   everything else. On a 2000px monitor that leaves ~450px of dead margin each
+   side and the page reads as a narrow strip floating in the middle.
+   The prose does not need the container to protect it -- `.hlede` caps at
+   52ch and `.sec-sub` at 64ch on their own -- so the container is free to grow
+   for the things that actually benefit: the stat strip, the search box, and
+   the drawings, which are the point of the page and were being squeezed. */
+@media (min-width: 1500px){ :root{ --measure:1320px; --gut:32px } }
+@media (min-width: 1840px){ :root{ --measure:1500px; --gut:40px } }
