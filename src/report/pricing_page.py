@@ -81,6 +81,50 @@ def _supports_dash() -> bool:
 # The plans, in one place
 # ---------------------------------------------------------------------------
 
+def _pro_card(pro_price: str, pro_annual_price: str,
+              annual_saving: str, pro_limit: int) -> str:
+    """Pro, with the billing period as a toggle instead of a second card.
+
+    Monthly and annual were two cards side by side, which asked a reader to
+    compare two nearly identical lists to find the one line that differed --
+    and put the cheaper-looking number first, so the annual saving read as a
+    more expensive plan rather than a discount.
+
+    One card, one control. Everything the period changes carries a data
+    attribute and is swapped by home.js: the price, the unit, the saving line,
+    the button's label, and -- the one that matters -- the `data-plan` the
+    checkout reads. Without JavaScript it stays exactly as it renders here,
+    which is the monthly plan with a working button, so the fallback is a sale
+    rather than a dead card.
+    """
+    saving = escape(annual_saving)
+    return f"""
+    <div class="plan pro-plan">
+      <span class="plan-name">Pro</span>
+      <div class="bill-toggle" role="group" aria-label="Billing period">
+        <a class="bill-opt on" href="/dashboard#billing" data-period="month"
+          data-plan="pro" aria-current="true">Monthly</a>
+        <a class="bill-opt" href="/dashboard#billing" data-period="year"
+          data-plan="pro_annual" aria-current="false">Yearly
+          <small>save {saving}</small></a>
+      </div>
+      <p class="plan-price"><span data-price>{escape(pro_price)}</span><small
+        data-per>/month</small></p>
+      <p class="plan-line" data-line>Live, up-to-date data</p>
+      <ul class="plan-bullets">
+        <li>Programmatic access &mdash; query any company anytime</li>
+        <li>{compact(pro_limit)} API calls per month</li>
+        <li>Data updates daily &mdash; you always get the latest filings</li>
+        <li>Best for: algorithmic trading, dashboards, ongoing research</li>
+      </ul>
+      <a class="plan-cta" href="/dashboard#billing" data-plan="pro"
+        data-plan-month="pro" data-plan-year="pro_annual"
+        data-price-month="{escape(pro_price)}" data-price-year="{escape(pro_annual_price)}"
+        data-line-year="The same Pro access, paid yearly &mdash; save {saving}"
+        >Go Pro</a>
+    </div>"""
+
+
 def plan_cards(
     *,
     free_limit: int,
@@ -111,6 +155,8 @@ def plan_cards(
     automation -- because "10,000 API calls a month" tells somebody who has
     never bought market data nothing about whether it is the thing they need.
     """
+
+    from src.report.nav import SUPPORT_EMAIL
 
     def card(
         name: str,
@@ -160,28 +206,19 @@ def plan_cards(
         ),
         "Buy the dataset", True, "dataset",
     )}
+      {_pro_card(pro_price, pro_annual_price, annual_saving, pro_limit)}
       {card(
-        "Pro", pro_price, "/month",
-        "Live, up-to-date data",
+        "Enterprise", "Let's talk", "",
+        "Higher volume, an SLA, or terms your procurement team needs",
         (
-            "Programmatic access — query any company anytime",
-            f"{compact(pro_limit)} API calls per month",
-            "Best for: algorithmic trading, dashboards, ongoing research",
-            "Data updates daily — you always get the latest filings",
+            "Volume above the Pro tier, priced to what you actually use",
+            "Invoicing, a signed agreement, and security review",
+            "Bulk history and custom extracts",
+            "Best for: teams whose finance department will not pay by card",
         ),
-        "Go Pro", False, "pro",
-    )}
-      {card(
-        "Pro annual", pro_annual_price, "/year",
-        f"The same Pro access, paid yearly — save {annual_saving}",
-        (
-            "Everything in Pro",
-            f"{compact(pro_limit)} API calls per month",
-            "Two months free against the monthly price",
-            "Best for: a workflow you already know you are keeping",
-        ),
-        "Go Pro annually", False, "pro_annual", f"Save {annual_saving}",
-    )}
+        "Email us",
+    ).replace('href="/dashboard"',
+              'href="mailto:' + SUPPORT_EMAIL + '?subject=Enterprise%20enquiry"')}
     </div>"""
 
 

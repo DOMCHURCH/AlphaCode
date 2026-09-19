@@ -488,3 +488,20 @@
    worse than scrolling one. */
 .prose .code{max-width:none;margin:0 0 22px}
 .post .cta{margin-top:36px}
+
+/* ---- billing period toggle ---- */
+/* Two options in one control, so the choice reads as one decision rather than
+   two competing cards. The selected one is filled, matching the primary
+   button elsewhere, so it is obvious which price is on screen. */
+.bill-toggle{display:inline-flex;gap:2px;padding:3px;margin:0 0 12px;
+  border-radius:999px;background:var(--well);box-shadow:var(--in-sm)}
+.bill-opt{font:600 12px/1 var(--disp);letter-spacing:.01em;color:var(--ink2);
+  background:none;border:0;border-radius:999px;padding:8px 13px;cursor:pointer;
+  transition:background .14s,color .14s}
+.bill-opt small{font-weight:600;opacity:.8;margin-left:5px}
+.bill-opt:hover{color:var(--ink)}
+.bill-opt.on{background:var(--ink);color:var(--bg)}
+.bill-opt:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+/* The price swaps in place, so the card must not resize as it does. */
+.pro-plan .plan-price{min-height:1.1em}
+.pro-plan .plan-line{min-height:2.8em}

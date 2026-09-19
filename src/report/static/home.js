@@ -168,3 +168,42 @@
   if (!box) return;
   try { box.focus({ preventScroll: true }); } catch (e) { /* leave it be */ }
 })();
+
+/* The Pro card's billing toggle. Monthly and annual used to be two cards,
+   which asked a reader to compare two near-identical lists to find the one
+   line that differed. One card now, and everything the period changes is
+   swapped here: price, unit, the saving line, the button's label, and -- the
+   one that matters -- `data-plan`, which the checkout handler above reads.
+   With no JS the card stays as rendered: the monthly plan, with a working
+   button. The fallback is a sale, not a dead card. */
+(function () {
+  var card = document.querySelector(".pro-plan");
+  if (!card) return;
+  var cta = card.querySelector(".plan-cta");
+  var price = card.querySelector("[data-price]");
+  var per = card.querySelector("[data-per]");
+  var line = card.querySelector("[data-line]");
+  if (!cta || !price || !per || !line) return;
+
+  var monthLine = line.innerHTML;
+  var yearLine = cta.getAttribute("data-line-year") || monthLine;
+
+  card.querySelectorAll(".bill-opt").forEach(function (b) {
+    b.addEventListener("click", function (ev) {
+      /* The options are real links to the billing panel so the annual plan is
+         buyable with no JavaScript. With JS we would rather swap in place. */
+      ev.preventDefault();
+      var year = b.getAttribute("data-period") === "year";
+      card.querySelectorAll(".bill-opt").forEach(function (o) {
+        var on = o === b;
+        o.classList.toggle("on", on);
+        o.setAttribute("aria-pressed", on ? "true" : "false");
+      });
+      price.textContent = cta.getAttribute(year ? "data-price-year" : "data-price-month");
+      per.textContent = year ? "/year" : "/month";
+      line.innerHTML = year ? yearLine : monthLine;
+      cta.textContent = year ? "Go Pro annually" : "Go Pro";
+      cta.setAttribute("data-plan", cta.getAttribute(year ? "data-plan-year" : "data-plan-month"));
+    });
+  });
+})();
