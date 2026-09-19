@@ -234,10 +234,15 @@ def test_malformed_json_is_a_parse_error_not_a_500(client):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_is_the_three_tools(client):
+def test_tools_list_is_the_four_tools(client):
+    """Kept as an exact list rather than a count. The order and the names are
+    what a directory listing and a model's tool-choice both see, so a tool
+    appearing or being renamed should be a decision, not a diff nobody
+    noticed."""
     names = [t["name"] for t in rpc(client, "tools/list").json()["result"]["tools"]]
     assert names == [
-        "search_companies", "get_balance_sheet", "check_balance_sheet",
+        "search_companies", "get_balance_sheet", "get_api_key",
+        "check_balance_sheet",
     ]
 
 
