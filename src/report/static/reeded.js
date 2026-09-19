@@ -45,9 +45,9 @@
        #E1362C  company.css --red     the logo red
        #F3C218  company.css --yellow  the logo yellow
 
-     THE LOGO'S OWN THREE COLOURS, ordered as a temperature ramp -- blue cool,
-     red through the middle, yellow at the hot tip -- because blue straight to
-     yellow reads as two unrelated washes rather than one light source.
+     THE LOGO'S OWN THREE COLOURS, assigned by POSITION across the wall rather
+     than by intensity -- see the hue block in the shader for why that is the
+     only arrangement in which all three are actually visible.
 
      These are the same hexes the DRAWINGS use to mean liabilities and equity,
      which is a real collision with the rule that the only colour on the page
@@ -64,7 +64,7 @@
     speed: 3.00,
     beam: 0.38,
     bloom: 0.30,
-    gamma: 1.85,
+    sat: 1.10,
     sweep: 1.46,
     shimmer: 0.76,
     breathe: 1.77,
@@ -143,7 +143,7 @@
     'uniform float u_ca;',
     'uniform float u_beam;',
     'uniform float u_bloom;',
-    'uniform float u_gamma;',
+    'uniform float u_sat;',
     'uniform float u_sweep;',
     'uniform float u_shimmer;',
     'uniform float u_breathe;',
@@ -313,6 +313,21 @@
     '  col *= mix(0.55, 1.05, vig);',
     '  col = clamp(col, 0.0, 1.0);',
     '  col = col * (col * 0.86 + 0.14);',
+    /* SATURATION, as its own control.
+
+       `u_gamma` used to be read here as pow(col, vec3(u_gamma)) and was
+       replaced by the fixed curve above during the cost pass -- three pow()
+       per pixel for a constant exponent. The uniform was left plumbed in and
+       never removed, so it kept being set and never read: raising it for the
+       phone did exactly nothing, and the only setting that actually moved was
+       bloom, which is ADDITIVE and therefore lifts a picture by washing the
+       colour out of it. That is the undersaturation.
+
+       So the phone gets saturation, which is what was wanted, rather than
+       more bloom, which is not. Luma-preserving: pull toward or away from the
+       pixel's own brightness so nothing changes exposure. */
+    '  float luma = dot(col, vec3(0.299, 0.587, 0.114));',
+    '  col = clamp(mix(vec3(luma), col, u_sat), 0.0, 1.0);',
     '  col += (hash(dot(gl_FragCoord.xy, vec2(0.7, 3.1)) + t) - 0.5) / 210.0;',
     '  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);',
     '}'
@@ -347,7 +362,7 @@
 
   var U = {};
   ['u_res', 'u_time', 'u_bars', 'u_jitter', 'u_refract', 'u_spec', 'u_ca',
-   'u_beam', 'u_bloom', 'u_gamma', 'u_sweep', 'u_shimmer', 'u_breathe',
+   'u_beam', 'u_bloom', 'u_sat', 'u_sweep', 'u_shimmer', 'u_breathe',
    'u_c0', 'u_c1', 'u_c2', 'u_c3',
    'u_c1p', 'u_c2p', 'u_beamOff', 'u_half'].forEach(function (n) {
     U[n] = gl.getUniformLocation(prog, n);
@@ -361,7 +376,7 @@
   gl.uniform1f(U.u_ca, SETTINGS.ca);
   gl.uniform1f(U.u_beam, SETTINGS.beam);
   gl.uniform1f(U.u_bloom, SETTINGS.bloom);
-  gl.uniform1f(U.u_gamma, SETTINGS.gamma);
+  gl.uniform1f(U.u_sat, SETTINGS.sat);
   gl.uniform1f(U.u_sweep, SETTINGS.sweep);
   gl.uniform1f(U.u_shimmer, SETTINGS.shimmer);
   gl.uniform1f(U.u_breathe, SETTINGS.breathe);
@@ -392,9 +407,11 @@
      the device-side correction rather than a global lift that would blow out
      the desktop. */
   if (narrow) {
-    SETTINGS.gamma = 1.34;
-    SETTINGS.bloom = 0.52;
-    SETTINGS.beam = 0.52;
+    // Saturation, not bloom. Bloom is additive: it was making the phone
+    // brighter by making it greyer, which is exactly the complaint.
+    SETTINGS.sat = 1.42;
+    SETTINGS.bloom = 0.30;
+    SETTINGS.beam = 0.46;
   }
 
   /* A BACKDROP DOES NOT NEED 60fps. Capped at ~36, which halves the GPU work
