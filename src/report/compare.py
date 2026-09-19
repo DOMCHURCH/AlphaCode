@@ -824,7 +824,7 @@ decision on it; it is one <code>curl -I</code>.</p>
             Row("Resolves duplicate XBRL tags", "Yes \u2014 by A = L + E, not by tag name", "Ask. Most do not document it"),
             Row("Publishes its exception count", "Yes, on /methodology, updated each load", "Rare"),
             Row("Names which filings failed", "Yes \u2014 by ticker, with the reason", "Rare"),
-            Row("Says when the fault is its own", "Yes \u2014 \u201cours, not theirs\u201d is a published category", "Very rare"),
+            Row("Says when a figure is missing and why", "Yes — published as its own category, including where the line was never tagged", "Very rare"),
             Row("Handles mezzanine equity", "Yes, as its own block", "Ask \u2014 this is where SPACs and biotechs break"),
             Row("Handles noncontrolling interest", "Yes, added explicitly and said out loud", "Ask"),
             Row("As-reported, not restated", "Yes, with filing dates", "Ask"),

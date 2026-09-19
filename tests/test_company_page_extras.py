@@ -152,20 +152,44 @@ def _failed(**kw):
 
 
 def test_a_gap_we_cannot_read_is_never_blamed_on_the_filer():
-    """The filer's own totals agree, so the fault is ours and must say so.
+    """The filer's own totals agree, so the filing must not be called broken.
 
     This is the shape of 191 of the 202 flagged companies. The page used to
     say "this filing does not reconcile" for every one of them, while
-    /methodology said "Ours, not theirs" about the same filings. A page that
-    accuses a public company of a broken filing on our own parsing gap is a
-    false statement, and it was indexable.
+    /methodology said the gap was ours about the same filings. A page that
+    accuses a public company of a broken filing over a figure that never
+    reached us is a false statement, and it was indexable.
+
+    Whose fault the shortfall is, is a separate question and one this page
+    deliberately no longer answers -- see the test below.
     """
     body = _failed(stated_rhs=100.0)
     assert "the balance sheet balances" in body
-    assert "The gap is ours, not theirs" in body
-    assert "a tag we do not yet read" in body
+    assert "the filer's own arithmetic is sound" in body
     # The accusation must be gone, not merely softened.
     assert "does not reconcile" not in body
+
+
+def test_a_missing_component_never_claims_which_kind_of_missing_it_is():
+    """An unmapped tag and an untagged line arrive here identically: as absence.
+
+    The sentence used to assert both halves -- "a line the filer REPORTS under
+    a tag we do not yet read" and "the gap is OURS, not theirs". An EDGAR audit
+    of the 253 unclassified acquisition corps measured the cost: of the 85 that
+    fail, 80 publish no credit-side redemption amount in any form. For those
+    the filer did not tag the line at all, so the first half is false and the
+    second credits us with a bug we do not have.
+
+    Distinguishing them means re-reading the filing, which a page render cannot
+    do. So the page names both possibilities and claims neither.
+    """
+    body = _failed(stated_rhs=100.0)
+    assert "not tagged in the filing" in body
+    assert "does not read" in body
+    assert "indistinguishable" in body
+    # Neither unsupported claim may come back.
+    assert "gap is ours" not in body
+    assert "the filer reports" not in body
 
 
 def test_a_filer_whose_own_totals_disagree_is_named_as_such():

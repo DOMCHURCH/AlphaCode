@@ -335,13 +335,33 @@ def _identity_sentence(
             "adjusted."
         )
 
-    # The filing balances against its own stated total. The gap is ours.
+    # The filing balances against its own stated total, so the shortfall is on
+    # this side of the wire. WHICH failure it is, though, is not knowable from
+    # the data held here.
+    #
+    # This sentence used to say "a line the filer reports under a tag we do not
+    # yet read. The gap is ours, not theirs." Both halves assert more than the
+    # evidence supports, and an EDGAR audit of the 253 unclassified acquisition
+    # corps measured how much: of the 85 that fail, 80 publish NO credit-side
+    # redemption amount in any form -- 41 us-gaap tags and nothing on the
+    # credit side to read. For those the filer did not tag the line, so "the
+    # filer reports it" is false and "ours, not theirs" credits us with a bug
+    # we do not have.
+    #
+    # An unmapped tag and an untagged line are indistinguishable from the rows
+    # this site stores: both arrive as absence. Telling them apart means going
+    # back to the filing, which a page render cannot do. So the sentence now
+    # names both possibilities and claims neither -- which is the accurate
+    # statement, and on a site whose argument is that it says what it knows,
+    # the accurate statement is also the one worth publishing.
     return (
         f"As filed, {escape(name)}'s stated liabilities plus equity equals its "
-        f"total assets — the balance sheet balances. The components this page "
-        f"reads fall {pct} short of that stated total: a line the filer reports "
-        "under a tag we do not yet read. The gap is ours, not theirs, and it is "
-        "shown as read rather than filled in."
+        f"total assets — the balance sheet balances, and the filer's own "
+        f"arithmetic is sound. The components this page reads fall {pct} short "
+        "of that stated total, so something on the credit side is not reaching "
+        "this page: either tagged under a name this site does not read, or not "
+        "tagged in the filing's XBRL at all. Those are indistinguishable from "
+        "here, so the shortfall is shown as read rather than filled in."
     )
 
 

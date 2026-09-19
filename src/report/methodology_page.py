@@ -96,10 +96,25 @@ _BODY = """
       decimal places of nothing, and a gap under a percent of total assets is
       treated as the noise it is.</p>
 
-      <p><strong>Missing XBRL tag.</strong> The filing balances against its own
-      stated total but our sum falls short, which means there is a component in
-      the document we did not read. That is our gap, not the filer's, and it is
-      the category we work to empty.</p>
+      <p><strong>A component not reaching us.</strong> The filing balances
+      against its own stated total but our sum falls short, so a credit-side
+      line is missing from what we hold. There are two ways that happens and
+      they look identical from here: the filer tagged it under a name we do not
+      read, or the filer did not tag it at all.</p>
+
+      <p>The second is commoner than it sounds. Blank-cheque acquisition
+      companies keep almost their whole balance sheet in trust, matched on the
+      credit side by shares subject to redemption — and a large number of
+      them never tag that line in XBRL, so the figure exists on the rendered
+      statement and nowhere a machine can reach. We cannot call that our bug,
+      and we will not call it theirs either: the honest answer is that the
+      number is not there to read.</p>
+
+      <p>What we will not do is close it with the trust balance, which sits on
+      the ASSET side and matches the gap almost exactly on every one of these
+      filings. That match is a consequence of how a SPAC is built, not evidence
+      about the credit side, and using it would balance hundreds of filings by
+      counting the same money twice.</p>
 
       <p><strong>Unexplained.</strong> The filer published no stated total to
       referee against, so there is no way to tell whose arithmetic is at fault.
@@ -195,8 +210,10 @@ def _live_section() -> str:
         return ", ".join(eg.get(category) or []) or "—"
 
     rows = [
-        ("Missing XBRL tag", c["missing_tag"],
-         "We could not read a component the filing contains. Ours, not theirs.",
+        ("Component not reaching us", c["missing_tag"],
+         "The filer's own totals agree; a credit-side line is not reaching "
+         "this site. Either tagged under a name we do not read, or not tagged "
+         "at all — indistinguishable from the data we hold.",
          _eg("missing_tag")),
         ("Rounding", c["rounding"],
          "The two sides differ by under 1% of total assets — presentation "
