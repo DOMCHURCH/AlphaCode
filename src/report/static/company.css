@@ -391,6 +391,23 @@ table.legend{width:100%;border-collapse:collapse;margin:20px 0 0}
   box-shadow:0 1px 0 var(--lo)}
 .hardrow:last-child{border-bottom:0;box-shadow:none}
 .hardrow h3{margin:0 0 8px;font-size:16px;font-weight:600;letter-spacing:-.015em}
+
+/* Sub-headings inside the single "How it works" section.
+
+   That section absorbed four that used to be separate, so it now carries
+   three parts in sequence -- the shape of the drawing, why extracting it is
+   hard, and where the figures come from. Without a divider they read as one
+   wall of text, which is the thing the consolidation was meant to fix.
+
+   Quieter than `.sec-head h2` on purpose: these are parts of one argument,
+   not four sections wearing a new hat. No colour, per the rule that the only
+   colour on the page is data -- the rule is drawn with the border token each
+   theme already defines, falling back so the base layer renders correctly on
+   its own. */
+.how-h{margin:30px 0 10px;padding-top:15px;font-size:16px;font-weight:600;
+  letter-spacing:-.015em;
+  border-top:1px solid var(--hair-soft,var(--hi,rgba(128,128,128,.22)))}
+.how-h:first-of-type{margin-top:4px;padding-top:0;border-top:0}
 .hardrow p{margin:0;font-size:14.5px;line-height:1.6;color:var(--ink2);max-width:60ch}
 .method{margin:18px 0 0;font-size:14px;line-height:1.6;color:var(--ink);
   background:var(--well);border-radius:var(--r1);box-shadow:var(--in-sm);

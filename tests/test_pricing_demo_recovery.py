@@ -183,13 +183,19 @@ def test_the_demo_still_stops_a_loop(client, monkeypatch):
     assert 429 in codes, "an uncapped demo with no global gate is a free proxy"
 
 
-def test_pricing_sits_under_the_accuracy_banner(client):
+def test_pricing_sits_under_the_explanation(client):
     html = client.get("/").text
-    # Method first, then the claim about accuracy, then the price. Naming a
-    # price before saying where the numbers come from is the wrong order for a
-    # reader deciding whether to trust a financial dataset at all.
-    assert html.index('id="trust"') < html.index('class="acc"')
-    assert html.index('class="acc"') < html.index('id="pricing"')
+    # Method first, then the price. Naming a price before saying where the
+    # numbers come from is the wrong order for a reader deciding whether to
+    # trust a financial dataset at all.
+    #
+    # This used to assert on a separate `id="trust"` grid and a `class="acc"`
+    # accuracy banner. Both are gone: they and two further sections each told
+    # part of the same story, and the duplication was literal -- the SEC
+    # duplicate-tag problem was stated three times on one page. They are now
+    # one section, `id="how"`, and the ordering rule is unchanged.
+    assert html.index('id="demo"') < html.index('id="how"')
+    assert html.index('id="how"') < html.index('id="pricing"')
 
 
 def test_the_dataset_card_counts_the_rows_it_is_selling(client):

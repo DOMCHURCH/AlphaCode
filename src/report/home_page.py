@@ -351,44 +351,6 @@ def _definition_para() -> str:
     )
 
 
-def _accuracy_banner() -> str:
-    """The differentiator, stated as a method rather than a percentage.
-
-    This used to print "99.9%" against an industry "78.6%". Both numbers are
-    gone, and deliberately not replaced with a different one. The audit in
-    docs/internal/identity-failures.md established that the published figure
-    measured whether a filing balances against ITS OWN stated total -- very
-    nearly a self-consistency check -- and not whether we recovered every
-    component of it. Those are two different numbers, and quoting the flattering
-    one under the word "accuracy" is the thing this site exists not to do.
-
-    So the claim is now the method, which is true, checkable, and does not move
-    when the extraction improves: every valid filing is tested against the
-    identity, and one that does not balance is flagged with the reason.
-    """
-    return """
-  <div class="acc">
-    <div class="acc-pair us"><span class="acc-k">Every valid filing</span>
-      <span class="acc-v">reconciles</span></div>
-    <p class="acc-why">Checked against the accounting identity, not sampled.
-      The failure this avoids is the SEC
-      duplicate-tag problem — JPMorgan reports “Total Assets” 23 times in one
-      filing, once per segment and subsidiary — solved by isolating the
-      consolidated row.
-      <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why XBRL data is wrong one
-      time in five</a>, and <a href="/dashboard">get the data</a>.</p>
-    <p class="acc-why">Every valid SEC filing we ingest reconciles to the
-      accounting identity. When a filing doesn’t balance, we flag the exact
-      reason — noncontrolling interests, mezzanine equity, rounding, or a
-      broken filing — never silently fudged.
-      <a href="/methodology">How the check works</a>.</p>
-    <p class="acc-why">Weighing this against something else?
-      <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
-      considering for quant work</a> is the roundup, written to be useful
-      even where it does not conclude in my favour.</p>
-  </div>"""
-
-
 def _pricing(stats: dict) -> str:
     """Four cards, rendered by `pricing_page.plan_cards`.
 
@@ -468,6 +430,13 @@ def _demo_section() -> str:
     <div class="sec-head"><h2>Live demo</h2></div>
     <p class="sec-sub">The real endpoint, the real data, no key needed.
       {allowance}</p>
+    <!-- The only line on this page addressed to somebody who is not going to
+         write any code. /mcp is the same three checks as an MCP connector, so
+         it belongs beside the demo rather than in the pricing table: both
+         answer "can I see this work without signing up". -->
+    <p class="sec-sub">Not writing code? Add
+      <code>https://balanceproof.dev/mcp</code> to Claude, ChatGPT or Cursor
+      as an MCP connector and ask it to check a filing for you.</p>
     <form class="search" id="demo-form">
       <label class="slabel" for="demo-ticker">Ticker</label>
       <div class="sfield">
@@ -688,14 +657,11 @@ def _example_figure() -> str:
         )
 
     return f"""
-  <section class="sec">
-    <div class="sec-head"><h2>Both columns are the same money, counted twice</h2></div>
-    <p class="sec-sub">Both columns are the same height because they are the
-      same money, counted twice. The left column is what the company owns,
-      sorted by what it is. The right column is who has a claim on it — lenders
-      and suppliers first, then whatever is left over for the owners. Every
-      band is drawn at the size the company reported, so a bar twice as tall is
-      twice the money.</p>
+    <h3 class="how-h">Both columns are the same money, counted twice</h3>
+    <p class="sec-sub">Left is what the company owns. Right is who has a claim
+      on it — lenders first, then whatever is left for the owners. Both columns
+      are the same height because they are the same money, counted twice, and
+      every band is drawn at the size the company reported.</p>
     <div class="example">
       <div class="excol">
         <span class="excap">Owns</span>
@@ -706,64 +672,7 @@ def _example_figure() -> str:
         <span class="exstack">{col(owed)}</span>
       </div>
     </div>
-    <p class="exnote">An example with round numbers, not a real company.</p>
-  </section>"""
-
-
-def _numbers(stats: dict) -> str:
-    """The scale of the data, counted live so the page cannot go stale.
-
-    Any figure that cannot be counted right now is omitted rather than
-    estimated -- the same rule the drawings follow.
-    """
-    if not stats or not stats.get("facts"):
-        return ""
-
-    rows = [
-        (fmt_int(stats["facts"]),
-         plural(stats["facts"], "as-reported fact", "as-reported facts"),
-         "from SEC quarterly Financial Statement Data Sets"),
-        (fmt_int(stats["companies"]),
-         plural(stats["companies"], "company", "companies"),
-         f"{fmt_int(stats['drawable'])} with enough detail to draw"),
-    ]
-    # Filing dates, not a count of period ends. Seven quarterly downloads
-    # contain ninety-odd distinct period ends, because filers close their books
-    # on different days -- so counting those and calling them quarters
-    # overstates the load by an order of magnitude.
-    if stats.get("earliest_filing") and stats.get("latest_filing"):
-        span = (
-            "every figure carries the date it became public"
-            if stats["earliest_filing"] == stats["latest_filing"]
-            else f"earliest in the load: {stats['earliest_filing']} — every "
-                 f"figure carries the date it became public"
-        )
-        rows.append((stats["latest_filing"], "most recent filing", span))
-
-    cells = "".join(
-        f'<div class="stat"><b>{escape(big)}</b>'
-        f'<span class="statk">{escape(label)}</span>'
-        f'<span class="statn">{escape(note)}</span></div>'
-        for big, label, note in rows
-    )
-
-    ident = stats.get("identity") or {}
-    headline = ""
-    if ident.get("pass_rate_pct") is not None:
-        headline = f"""
-    <div class="bignum">
-      <b>{fmt_int(ident['checkable'])}</b>
-      <span>{plural(ident['checkable'], 'company', 'companies')} with a complete
-        balance sheet, every one checked against assets = liabilities + equity —
-        and every one that does not balance flagged with the reason</span>
-    </div>"""
-
-    return f"""
-  <section class="sec">
-    <div class="sec-head"><h2>Every figure traces back to a filing</h2></div>
-    <div class="stats">{cells}</div>
-    {headline}
-  </section>"""
+    <p class="exnote">An example with round numbers, not a real company.</p>"""
 
 
 _HARD = (
@@ -801,13 +710,11 @@ def _hard() -> str:
         for t, b in _HARD
     )
     return f"""
-  <section class="sec">
-    <div class="sec-head"><h2>JPMorgan tags total assets 23 different ways</h2></div>
+    <h3 class="how-h">Why this is hard</h3>
     <div class="hard">{blocks}</div>
     <p class="method">Every tag was confirmed against the raw filing data
       before being used. Nothing was mapped on the strength of it sounding
-      right.</p>
-  </section>"""
+      right.</p>"""
 
 
 def _limits() -> str:
@@ -989,14 +896,27 @@ def _hero_drawing(view: View1 | None, kind: str = "") -> str:
   </section>"""
 
 
-def _trust(stats: dict) -> str:
-    """Where the data comes from, how fresh it is, and how it is derived.
+def _how_it_works(stats: dict) -> str:
+    """ONE section explaining the method, and the only place it is explained.
 
-    Pulled into one section near the top rather than left implied across four
-    sections further down. For a technical reader deciding whether to trust a
-    financial dataset this is the section that does the work -- so it states
-    the unflattering parts too, because a methodology note that lists only
-    strengths is marketing wearing a lab coat.
+    This replaces four sections that each told part of the same story and
+    overlapped badly. The duplication was not stylistic -- it was literal:
+
+      * the SEC duplicate-tag problem was stated THREE times (the accuracy
+        banner, a "One row, not twenty-three" block in this grid, and a
+        whole section headed "JPMorgan tags total assets 23 different ways")
+      * "What it doesn't do" was a heading twice on one page, once as a block
+        here and once as its own section
+      * `_numbers` printed facts, companies and latest-filing -- every one of
+        which the status strip already carries a screen above it
+
+    So the page argued with itself about which section was the explanation.
+    Now there is one: the shape first (the schematic, for a reader who has
+    never seen the drawing), then why extracting it is hard, then where the
+    data comes from and what is checked. Each point appears once.
+
+    It states the unflattering parts too, because a methodology note that
+    lists only strengths is marketing wearing a lab coat.
     """
     ident = stats.get("identity") or {}
     checkable = ident.get("checkable")
@@ -1018,8 +938,21 @@ def _trust(stats: dict) -> str:
     )
 
     return f"""
-  <section class="sec" id="trust">
-    <div class="sec-head"><h2>How a figure gets chosen &mdash; and checked</h2></div>
+  <section class="sec" id="how">
+    <div class="sec-head"><h2>How it works</h2></div>
+    <!-- THE QUOTABLE SENTENCE, and the only copy of it on the page.
+         It used to sit in the hero as a second lede paragraph. It reads
+         better here -- it is the thesis of this section, not of the page --
+         but it must not simply vanish: it is the sentence an assistant lifts
+         when asked what this product does, and `_HERO_METHOD` keeps it in
+         one place so the wording cannot drift from /about and /methodology. -->
+    <p class="sec-sub">{_HERO_METHOD}</p>
+
+    {_example_figure()}
+
+    {_hard()}
+
+    <h3 class="how-h">Where the figures come from</h3>
     <div class="trust">
       <div class="tblock">
         <h3>Source</h3>
@@ -1046,19 +979,18 @@ def _trust(stats: dict) -> str:
         <p>{identity_line} The rest are drawn with what is missing named,
           rather than quietly balanced.</p>
       </div>
-      <div class="tblock">
-        <h3>One row, not twenty-three</h3>
-        <p>SEC's data carries the same figure many times per filing &mdash; by
-          segment, by geography, by legal entity. Exactly one of them is the
-          consolidated company, and isolating it is most of what this does.</p>
-      </div>
-      <div class="tblock">
-        <h3>What it doesn't do</h3>
-        <p>It draws what was filed and says so when it cannot. Nothing here
-          is an opinion about what a company is worth, or about what it is
-          going to do next.</p>
-      </div>
     </div>
+
+    <!-- The three links the accuracy banner used to carry. That banner said
+         the reconcile claim twice in its own three paragraphs and a third
+         time in the block above it; the links were the only part of it that
+         was not already on the page, so they are what survived. -->
+    <p class="method"><a href="/methodology">How the check works</a> ·
+      <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why XBRL data is wrong
+      one time in five</a> ·
+      <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
+      considering for quant work</a>, written to be useful even where it does
+      not conclude in my favour.</p>
   </section>"""
 
 
@@ -1183,13 +1115,14 @@ def render_home(
   <div class="leadin">
   <header class="hero">
     <h1 class="htitle">SEC balance sheets that prove they balance.</h1>
+    <!-- ONE sentence. This was two paragraphs plus the method, and the
+         method restated the check that "How it works" explains properly a
+         screen below -- so the fold carried the argument twice and the
+         search box got pushed off it. The hero's job is the claim; the
+         section's job is the proof. -->
     <p class="hlede">BalanceProof is the verification layer over SEC EDGAR
-      balance sheets. Built for developers and analysts who cannot tolerate a
-      silently wrong number: when a filing reconciles you get the figure, and
-      when it does not you get the reason.</p>
-    <!-- The method, minus the counts the strip already carries. See
-         `_HERO_METHOD` for which two sentences and why. -->
-    <p class="hlede hdef">{_HERO_METHOD}</p>
+      balance sheets: when a filing reconciles you get the figure, and when it
+      does not you get the reason instead of a number that looks fine.</p>
     {search_form()}
     <!-- THE HOMEPAGE HAD NO BUTTON. Seven conversion links, every one of them
          plain text, and the first was the phrase "get the data" inside a
@@ -1208,20 +1141,24 @@ def render_home(
   {_status_strip(stats or {}, freshness)}
   </div>
 {disclaimer}
-  {_trust(stats or {})}
-  {_accuracy_banner()}
-  {gallery}
-  <!-- DEMO BEFORE PRICE. Pricing used to sit here, two sections above the
-       live demo, which asked a first-time reader for money before showing
-       them the product working. The explanation now runs first, pricing
-       follows it, and the limits stay last because they are the honest note
-       to end on -- with a way to act underneath them. -->
-  {_demo_section()}
+  <!-- ONE JOB PER SECTION, in the order a first-time reader needs them:
+       the claim (hero), the proof it is real (drawing + strip, above), it
+       working (demo), why it can be trusted (how it works), what else there
+       is (gallery), what it costs (pricing), what it will not do (limits),
+       and a way to act (cta).
 
-  <div class="fold" id="how"></div>
-  {_example_figure()}
-  {_numbers(stats or {})}
-  {_hard()}
+       DEMO BEFORE PRICE is kept from the previous order and for the same
+       reason: pricing used to sit above the live demo, which asked a
+       first-time reader for money before showing them the product working.
+       The limits stay last because they are the honest note to end on --
+       with a way to act underneath them.
+
+       The demo also moved ABOVE the explanation. Showing the thing run is a
+       faster answer to "does this work" than three sections about how it
+       works, and a reader the demo satisfies never needed them. -->
+  {_demo_section()}
+  {_how_it_works(stats or {})}
+  {gallery}
   {_pricing(stats or {})}
   {_limits()}
   {_closing_cta()}

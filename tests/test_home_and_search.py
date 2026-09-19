@@ -442,8 +442,17 @@ def test_the_page_still_says_what_it_does_not_do(client):
 
 # ------------------------------------------------------- search-first landing
 def test_the_landing_page_puts_search_before_showing_off(client):
-    """One page, in the order someone actually uses it. The explanation stays
-    on it, but every part of it comes after the search and the five drawings.
+    """One page, in the order someone actually uses it.
+
+    The explanation stays on the page but comes after the search box, the
+    status strip and a real drawing -- a visitor meets the product before the
+    argument for it.
+
+    `id="how"` is now the explanation SECTION itself, rather than the empty
+    spacer div that used to sit above four separate explanation sections. The
+    drawing above the fold is the hero's, which carries its own
+    `href="/company/JPM"`; the gallery of other companies now sits below the
+    explanation, so that link is not what this asserts on.
     """
     _seed("JPM", _drawable(), sector="Financials")
 
@@ -451,10 +460,13 @@ def test_the_landing_page_puts_search_before_showing_off(client):
     fold = body.index('id="how"')
 
     assert body.index('action="/search"') < fold
-    assert body.index('href="/company/JPM"') < fold
     assert body.index('class="strip"') < fold
-    for later in ("JPMorgan tags total assets 23 different ways", "Both columns are the same money, counted twice",
-                  "What this doesn't do", "Every figure traces back to a filing",
+    # The hero drawing, not the gallery -- see the docstring.
+    assert body.index('hero-bs') < fold
+    assert body.index('href="/company/JPM"') < fold
+    for later in ("Why this is hard",
+                  "Both columns are the same money, counted twice",
+                  "What this doesn't do",
                   'class="example"'):
         assert body.index(later) > fold, f"{later!r} must come after the fold"
 
@@ -512,18 +524,24 @@ def test_the_home_page_carries_a_quotable_definition(client):
     # The clause names the product once. Twice is the bug this guards.
     assert hero.count("BalanceProof is the verification layer") == 1
 
-    # The definition paragraph keeps its place under the lede, minus the four
-    # counts it used to close on -- those are the stat strip's job, and saying
-    # them twice a few inches apart was most of why the strip, the search box
-    # and the button could not share one screen.
-    assert body.index('class="hlede"') < body.index('class="hlede hdef"'), (
-        "the lede comes before the method"
-    )
+    # The method sentence MOVED OUT of the hero and into "How it works",
+    # where it is that section's thesis rather than a second lede. What must
+    # not change is that it is still on the page exactly once: it is the
+    # sentence an assistant lifts when asked what this product does.
     assert "Every filing is reconciled against the accounting identity" in body
-    # The counts belong to the strip and must not come back here.
-    hero_def = body.split('class="hlede hdef"', 1)[1].split("</p>", 1)[0]
-    assert "companies covered" not in hero_def
-    assert "reconcile directly" not in hero_def
+    assert body.count(
+        "Every filing is reconciled against the accounting identity"
+    ) == 1, "the method sentence must appear once, not once per section"
+    assert body.index('class="hlede"') < body.index('id="how"'), (
+        "the lede comes before the explanation"
+    )
+    # The counts belong to the strip and must not come back into the method
+    # sentence, wherever that sentence lives. It now opens "How it works"
+    # rather than the hero, so that is where this looks for it.
+    method = body.split('id="how"', 1)[1].split("</p>", 1)[0]
+    assert "Every filing is reconciled against the accounting identity" in method
+    assert "companies covered" not in method
+    assert "reconcile directly" not in method
 
     # And it stays quotable where a crawler looks first.
     assert "accounting identity" in body or "A = L + E" in body, (
@@ -631,7 +649,13 @@ def test_the_scale_is_counted_live_not_written_down(client):
     assert c["companies"] == 2
     assert c["facts"] == 12, "6 metrics x 2 companies"
     assert f"{c['facts']:,}" in body
-    assert "2</b><span class=\"statk\">companies" in body.replace("\n", "")
+    # The status strip is now the only place the counts are printed. The
+    # second copy of them further down the page was deleted, not the
+    # counting -- `data-countup` carries the figure the database returned, so
+    # it is what proves the number was not written into the copy.
+    flat = body.replace("\n", "")
+    assert 'data-countup="2"' in flat
+    assert ">Companies<" in flat
 
 
 def test_drawable_is_narrower_than_present(client):
@@ -648,12 +672,21 @@ def test_drawable_is_narrower_than_present(client):
     assert c["drawable"] == 1
 
 
-def test_the_numbers_section_is_absent_on_an_empty_database(client):
-    """Better to say nothing than to print zeroes as if they were a scale."""
+def test_the_counts_are_absent_on_an_empty_database(client):
+    """Better to say nothing than to print zeroes as if they were a scale.
+
+    This used to guard a second counts section further down the page. That
+    section printed facts, companies and latest-filing -- every one of which
+    the status strip already carried a screen above it -- so it was deleted
+    and the rule it existed for moved onto the strip, which drops a cell it
+    cannot count rather than reporting a zero for it.
+    """
     body = client.get("/").text
 
-    assert "Every figure traces back to a filing" not in body
     assert "as-reported fact" not in body
+    flat = body.replace("\n", "")
+    assert ">Companies<" not in flat, "no count cell without a count"
+    assert ">Facts<" not in flat
 
 
 def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
@@ -666,7 +699,11 @@ def test_the_identity_line_is_omitted_until_it_is_known(client, monkeypatch):
 
     body = client.get("/").text
 
-    assert "Every figure traces back to a filing" in body, "the counts still show"
+    # The counts still show: they are the strip's job, and the strip does not
+    # depend on the identity being computable.
+    assert 'class="strip"' in body, "the counts still show"
+    assert ">Companies<" in body.replace("\n", "")
+    # But the claim about every company is not made until it is known.
     assert "satisfy assets = liabilities + equity" not in body
 
 
@@ -727,7 +764,10 @@ def test_period_ends_are_never_reported_as_quarters(client):
     body = client.get("/").text
     assert "quarters" not in body.lower().replace(
         "sec quarterly financial statement data sets", "")
-    assert "most recent filing" in body
+    # The strip's wording for the same fact. What matters is that a filing
+    # DATE is what gets reported, never a count of period ends called
+    # "quarters" -- see the docstring.
+    assert "Latest filing" in body
 
 
 def test_counts_survive_an_unreachable_database(monkeypatch):
@@ -772,7 +812,10 @@ def test_the_hard_part_is_stated_with_the_real_numbers(client):
 
     body = client.get("/").text
 
-    assert "JPMorgan tags total assets 23 different ways" in body
+    # The heading is now "Why this is hard" -- the JPMorgan figure was the H2
+    # of its own section AND was restated in two other places on the page, so
+    # the heading generalised and the vivid number stayed in the body, once.
+    assert "Why this is hard" in body
     assert "twenty-three separate times" in body
     assert "$641 billion instead of $4.4 trillion" in body
     assert "ExcludingAccruedInterest" in body
