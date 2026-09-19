@@ -40,14 +40,21 @@
 
   /* The settings, as tuned. Every one of these maps to a uniform below.
      Palette is read off the site's own tokens rather than invented:
-       #0A0A0A  terminal.css --bg          the ground
-       #16204F  a darkened --a0            low
-       #3B56D6  dark.css --a0              assets indigo, mid
-       #22D3EE  terminal.css --acc         the accent, HOT TIP ONLY
-     Red (--l*) and lemon (--yellow) are deliberately absent: those mean
-     liabilities and equity, and this is scenery. The accent is the hot tip and
-     nothing wider, because the site spends that colour exactly three times
-     and the scarcity is the point of it. */
+       #0A0A0A  terminal.css --bg     the ground
+       #2340BE  company.css --blue    the logo blue
+       #E1362C  company.css --red     the logo red
+       #F3C218  company.css --yellow  the logo yellow
+
+     THE LOGO'S OWN THREE COLOURS, ordered as a temperature ramp -- blue cool,
+     red through the middle, yellow at the hot tip -- because blue straight to
+     yellow reads as two unrelated washes rather than one light source.
+
+     These are the same hexes the DRAWINGS use to mean liabilities and equity,
+     which is a real collision with the rule that the only colour on the page
+     is data, and it was raised before this was chosen. It is a brand decision
+     and it is deliberate. What protects the drawings is that they stay opaque
+     over the backdrop -- see the `.reeded-frost` carve-out in backdrop.css --
+     so the bands a reader has to judge are never tinted by this. */
   var SETTINGS = {
     ribs: 19,
     jitter: 1.00,
@@ -66,9 +73,9 @@
     // c1 lifted and c2 held at --a0 exactly. The indigo was there before but
     // barely surfaced: the low stop was almost black, so most of the frame
     // read as ground and the eye only caught the cyan tip.
-    c1: [0.129, 0.184, 0.470],
-    c2: [0.231, 0.337, 0.839],
-    c3: [0.133, 0.827, 0.933]
+    c1: [0.137, 0.251, 0.745],
+    c2: [0.882, 0.212, 0.173],
+    c3: [0.953, 0.761, 0.094]
   };
 
   /* GIVE-UP LADDER, cheapest loss first. Each step is tried for CHECK_MS
@@ -264,13 +271,32 @@
     '  sweep *= 0.55 + 0.45 * sin(p.y * 2.1 + t * 0.8);',
     '  lit += sweep * u_sweep * (0.16 + 0.55 * lg) * (body * seam);',
     '',
-    // Intensity through a four-stop ramp: the geometry never touches hue.
     '  float m = clamp(lit.g, 0.0, 1.6);',
-    // Indigo owns the middle now: it arrives earlier and cyan is pushed to
-    // the top of the ramp, so the accent stays a tip rather than a wash.
-    '  vec3 col = mix(u_c0, u_c1, smoothstep(0.02, 0.30, m));',
-    '  col = mix(col, u_c2, smoothstep(0.26, 0.70, m));',
-    '  col = mix(col, u_c3, smoothstep(0.97, 1.40, m));',
+    /* HUE AND BRIGHTNESS ARE SEPARATE, and with three brand colours they
+       have to be.
+
+       Ramping colour along INTENSITY is what a single-hue palette wants:
+       dark ground rising to a lit accent. It fails with a tricolour, because
+       whichever colour sits at the low end is only ever drawn where the frame
+       is dark -- and a dark blue on near-black is not blue, it is black. That
+       is why the logo palette first came out as an amber wall with the blue
+       technically present and never once visible.
+
+       So hue is chosen by POSITION, drifting slowly across the wall, and
+       intensity only decides how lit that hue is. Blue, red and yellow each
+       get a band and each can be bright in its own.
+
+       EQUAL THIRDS matters as much as the split itself: a sine spends most of
+       its time near its extremes and crosses the middle quickly, so thresholds
+       that are not evenly spaced hand one colour a sliver the wave barely
+       visits. */
+    '  float hue = 0.5 + 0.5 * sin(p.x * 3.30 - t * 0.26);',
+    '  vec3 tone = mix(u_c1, u_c2, smoothstep(0.26, 0.48, hue));',
+    '  tone = mix(tone, u_c3, smoothstep(0.58, 0.80, hue));',
+    // A floor, so the unlit side still carries colour rather than going black.
+    '  float amb = max(m, 0.16);',
+    '  vec3 col = mix(u_c0, tone, smoothstep(0.02, 0.42, amb));',
+    '  col += tone * smoothstep(0.62, 1.20, m) * 0.55;',
     '',
     // Dispersion applied as a ratio against green, so it tints the ramped
     // colour rather than overwriting it and losing the palette.
@@ -357,7 +383,19 @@
      Ribs are thin vertical edges. A soft glow upscales invisibly; an edge
      upscaled 3x on a dpr-3 screen turns to mush, which is most of why the
      phone render looked bad. */
-  var scale = window.innerWidth < NARROW ? 0.75 : SETTINGS.scale;
+  var narrow = window.innerWidth < NARROW;
+  var scale = narrow ? 0.75 : SETTINGS.scale;
+
+  /* A PHONE GETS A BRIGHTER GRADE. It is held at arm's length in daylight,
+     not viewed on a calibrated monitor in a dim room, and the same numbers
+     read markedly darker there. Reported as too dim on the device; this is
+     the device-side correction rather than a global lift that would blow out
+     the desktop. */
+  if (narrow) {
+    SETTINGS.gamma = 1.34;
+    SETTINGS.bloom = 0.52;
+    SETTINGS.beam = 0.52;
+  }
 
   /* A BACKDROP DOES NOT NEED 60fps. Capped at ~36, which halves the GPU work
      against a vsync-paced loop and is indistinguishable on a drifting glow --
@@ -397,9 +435,28 @@
      the shader: `backdrop-filter` caches while the backdrop holds still, so
      animating behind `nav` turned a cached blur into a per-frame one on every
      page. Removed again by bail(). */
-  document.documentElement.classList.add('reeded-on');
-  // Frost is opt-IN and separately revocable: see the ladder above.
-  document.documentElement.classList.add('reeded-frost');
+  /* NOTHING STARTS UNTIL THE PAGE HAS PAINTED ITSELF.
+
+     The reported symptom was a second of lag on load that then cleared, and
+     that is exactly the shape of this: shader compile and link are
+     synchronous, and adding `.reeded-frost` puts a dozen backdrop-filters on
+     the page in the same frame the browser is still trying to lay out and
+     paint text in. All of it landed on the critical path, competing with the
+     thing the reader is actually waiting for.
+
+     So: the canvas starts after `load`, and frost is added a further beat
+     later. Two rAFs rather than a timer, because what matters is that a
+     frame has actually been presented, not that some number of milliseconds
+     has passed on a machine of unknown speed. */
+  function begin() {
+    document.documentElement.classList.add('reeded-on');
+    window.requestAnimationFrame(frame);
+    window.requestAnimationFrame(function () {
+      window.requestAnimationFrame(function () {
+        if (canvas) { document.documentElement.classList.add('reeded-frost'); }
+      });
+    });
+  }
 
   /* Reduced motion is honoured as a SLOWDOWN, not a freeze. A still frame of
      this is a perfectly good backdrop, and what triggers motion sickness is
@@ -498,7 +555,7 @@
        fold: a phone opened on an almost black first screen, which is the
        only screen most phone readers see. Zero on a landscape frame, where
        sy is 1. */
-    var lift = 0.42 * (sy - 1);
+    var lift = 0.86 * (sy - 1);
     gl.uniform2f(U.u_c1p,
       Math.sin(t * 0.17) * 0.58 * sx,
       (Math.cos(t * 0.13) * 0.34 - 0.10) * sy + lift);
@@ -524,5 +581,11 @@
     }
   });
 
-  window.requestAnimationFrame(frame);
+  if (document.readyState === 'complete') {
+    window.requestAnimationFrame(begin);
+  } else {
+    window.addEventListener('load', function () {
+      window.requestAnimationFrame(begin);
+    }, { once: true });
+  }
 })();
