@@ -157,26 +157,43 @@
     'uniform vec2  u_c1p;',
     'uniform vec2  u_c2p;',
     'uniform float u_beamOff;',
+    // Half-extents of the frame in p units. The composition is laid out
+    // against these rather than against constants, so it fills a
+    // portrait frame instead of being a landscape one cropped.
+    'uniform vec2  u_half;',
     '',
     'float lightField(vec2 q, float t){',
     // smoothstep on SQUARED distance instead of length(): the falloff is
     // arbitrary anyway, so squaring the bounds gives the same curve shape
     // without the sqrt. Three sqrt per sample x three samples per pixel was
     // real money for a difference nobody can see.
-    '  vec2 d1 = (q - u_c1p) * vec2(0.80, 1.35);',
-    '  float g1 = 1.0 - smoothstep(0.0, 1.00, dot(d1, d1));',
-    '  vec2 d2 = (q - u_c2p) * vec2(1.15, 0.95);',
-    '  float g2 = 1.0 - smoothstep(0.0, 0.61, dot(d2, d2));',
+    // Lobe size tracks the frame too: fixed radii on a tall screen are two
+    // small blobs adrift in a lot of black.
+    '  float grow = max(1.0, u_half.y / 0.5);',
+    '  vec2 d1 = (q - u_c1p) * vec2(0.80, 1.35 / grow);',
+    '  float g1 = 1.0 - smoothstep(0.0, 1.00 * grow, dot(d1, d1));',
+    '  vec2 d2 = (q - u_c2p) * vec2(1.15, 0.95 / grow);',
+    '  float g2 = 1.0 - smoothstep(0.0, 0.61 * grow, dot(d2, d2));',
     // normalize() of a literal is a sqrt and a divide per sample, for a
     // constant. Baked.
     '  float across = dot(q, vec2(0.6172, -0.7868)) + u_beamOff;',
-    '  float beam = 1.0 - smoothstep(0.0, 0.52, abs(across));',
+    '  float beam = 1.0 - smoothstep(0.0, 0.52 * max(u_half.y, 0.5) * 2.0,',
+    '                              abs(across));',
     '  return max(g1 * 0.95 + g2 * 0.72 + beam * u_beam, 0.0);',
     '}',
     '',
     'void main(){',
     '  vec2 uv = gl_FragCoord.xy / u_res;',
-    '  vec2 p  = (gl_FragCoord.xy - 0.5 * u_res) / u_res.y;',
+    // NORMALISED TO THE SHORT EDGE, not to height.
+    //
+    // Dividing by height makes rib width a fraction of the HEIGHT, so a
+    // portrait phone got the same 19 ribs spread over a p.x range of
+    // only +/-0.23 -- about nine fat slabs instead of thirty fine ones.
+    // The short edge is the one the ribs run across, so that is what
+    // their width should be a fraction of. On a landscape screen the
+    // short edge IS the height, so desktop is unchanged to the pixel.
+    '  float unit = min(u_res.x, u_res.y);',
+    '  vec2 p  = (gl_FragCoord.xy - 0.5 * u_res) / unit;',
     '  float t = u_time;',
     '',
     // Rib widths vary, and the warp PHASE drifts, so the wall slowly pans.
@@ -237,7 +254,11 @@
     '',
     // A bright band crossing on a long cycle -- the one EVENT. Everything
     // else here drifts, and drift alone reads as static after a few seconds.
-    '  float sweepX = fract(t * 0.055) * 3.2 - 1.6;',
+    // Travels the width of THIS frame. Hard-coded to +/-1.6 it spent most
+    // of its cycle off the side of a phone, so the one event on the page
+    // was invisible there.
+    '  float halfW = 0.5 * u_res.x / unit;',
+    '  float sweepX = (fract(t * 0.055) * 2.0 - 1.0) * (halfW + 0.45);',
     '  float sx = (p.x - sweepX) * 1.9;',
     '  float sweep = exp(-sx * sx);',
     '  sweep *= 0.55 + 0.45 * sin(p.y * 2.1 + t * 0.8);',
@@ -302,7 +323,7 @@
   ['u_res', 'u_time', 'u_bars', 'u_jitter', 'u_refract', 'u_spec', 'u_ca',
    'u_beam', 'u_bloom', 'u_gamma', 'u_sweep', 'u_shimmer', 'u_breathe',
    'u_c0', 'u_c1', 'u_c2', 'u_c3',
-   'u_c1p', 'u_c2p', 'u_beamOff'].forEach(function (n) {
+   'u_c1p', 'u_c2p', 'u_beamOff', 'u_half'].forEach(function (n) {
     U[n] = gl.getUniformLocation(prog, n);
   });
 
@@ -324,9 +345,19 @@
   gl.uniform3fv(U.u_c3, SETTINGS.c3);
 
   var step = 0;
-  // A phone has a dense display and a battery: same picture, fewer pixels.
-  var scale = window.innerWidth < NARROW
-    ? Math.min(SETTINGS.scale, 0.34) : SETTINGS.scale;
+  /* A PHONE GETS A HIGHER SCALE, NOT A LOWER ONE, AND THAT IS NOT A TYPO.
+
+     Cost is the pixel COUNT, and a phone has far fewer pixels to begin with.
+     390x844 at 0.75 is 185k pixels; 1440x900 at 0.50 is 324k. So the phone is
+     still doing barely half the desktop's work at more than twice the scale
+     factor -- the first cut used 0.34 on the reasoning that phones are weak,
+     and bought a saving that was never needed by paying for it in the one
+     thing this image cannot afford to lose.
+
+     Ribs are thin vertical edges. A soft glow upscales invisibly; an edge
+     upscaled 3x on a dpr-3 screen turns to mush, which is most of why the
+     phone render looked bad. */
+  var scale = window.innerWidth < NARROW ? 0.75 : SETTINGS.scale;
 
   /* A BACKDROP DOES NOT NEED 60fps. Capped at ~36, which halves the GPU work
      against a vsync-paced loop and is indistinguishable on a drifting glow --
@@ -444,14 +475,37 @@
     lastDraw = now;
 
     var t = clock;
-    // These three depend only on time, so they are computed ONCE here rather
-    // than identically for every pixel on screen. Five sines per sample, and
-    // the shader sampled three times per pixel.
+
+    /* THE COMPOSITION IS LAID OUT AGAINST THE FRAME IT IS IN.
+       `hx`/`hy` are the half-extents in shader units: 0.5 on the short edge
+       and more on the long one. On a 1440x900 desktop that is (0.80, 0.50) --
+       the numbers this was originally tuned against, so nothing moves there.
+       On a 390x844 phone it is (0.50, 1.08), and the lobes spread down the
+       tall axis instead of bunching in a landscape band across the middle. */
+    var unit = Math.min(canvas.width, canvas.height);
+    var hx = 0.5 * canvas.width / unit;
+    var hy = 0.5 * canvas.height / unit;
+    gl.uniform2f(U.u_half, hx, hy);
+
+    // Time-only terms, computed once here rather than identically for every
+    // pixel -- five sines per sample, and the shader samples three times.
+    // Scaled into the frame: the x terms by hx/0.8 and y by hy/0.5, both of
+    // which are 1.0 at the aspect this was tuned at.
+    var sx = hx / 0.80;
+    var sy = hy / 0.50;
+    /* On a tall frame, lift the whole composition toward the top.
+       Spreading the lobes down a portrait screen put the light below the
+       fold: a phone opened on an almost black first screen, which is the
+       only screen most phone readers see. Zero on a landscape frame, where
+       sy is 1. */
+    var lift = 0.42 * (sy - 1);
     gl.uniform2f(U.u_c1p,
-      Math.sin(t * 0.17) * 0.58, Math.cos(t * 0.13) * 0.34 - 0.10);
+      Math.sin(t * 0.17) * 0.58 * sx,
+      (Math.cos(t * 0.13) * 0.34 - 0.10) * sy + lift);
     gl.uniform2f(U.u_c2p,
-      Math.cos(t * 0.11) * 0.80 + 0.18, Math.sin(t * 0.19) * 0.42 + 0.26);
-    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42);
+      (Math.cos(t * 0.11) * 0.80 + 0.18) * sx,
+      (Math.sin(t * 0.19) * 0.42 + 0.26) * sy + lift);
+    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42 * sy - lift * 0.6);
     gl.uniform1f(U.u_time, t);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
