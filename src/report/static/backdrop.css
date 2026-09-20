@@ -136,6 +136,45 @@
       rgba(10, 10, 10, 0.90) 100%);
 }
 
+/* THE VEIL IS RE-AIMED FOR A TALL FRAME, AND THIS IS THE MOBILE FIX.
+
+   The gradients above were tuned against a 1440x900 landscape frame, where
+   they read as a soft vignette. Reused unchanged on a 390x844 phone they
+   stop being a vignette and become BANDING: the radial's bright centre sits
+   at 38% down, and the linear opens to .42 at 42% and closes back to .90 by
+   the bottom, so on a tall screen the whole image is squeezed into one
+   horizontal window with near-black above and below it.
+
+   That is what "it's so low and not good at all, it should be in the middle"
+   is describing, and it is made worse by the section plates: `.sec` lays
+   rgba(14,16,24,.52) over the backdrop, and on a phone those stack full-width
+   so the backdrop only shows through the GAPS between them. The visible
+   result is a hard horizontal edge with black on one side of it.
+
+   So on a narrow screen the radial is re-centred (50% instead of 38%) and
+   the linear is flattened to a near-constant middle, which spreads the image
+   evenly over the frame instead of concentrating it in a band. The alphas
+   stay inside the same range the landscape veil already uses, so the
+   contrast floor the prose depends on is unchanged -- this moves darkness
+   around, it does not remove it.
+
+   820px matches NARROW in reeded.js, which is where the render scale and the
+   phone colour grade also switch. One breakpoint, one idea. */
+@media (max-width: 820px) {
+  .backdrop-veil {
+    background:
+      radial-gradient(135% 58% at 50% 50%,
+        rgba(10, 10, 10, 0.44) 0%,
+        rgba(10, 10, 10, 0.68) 58%,
+        rgba(10, 10, 10, 0.84) 100%),
+      linear-gradient(to bottom,
+        rgba(10, 10, 10, 0.72) 0%,
+        rgba(10, 10, 10, 0.58) 26%,
+        rgba(26, 18, 8, 0.56) 62%,
+        rgba(10, 10, 10, 0.76) 100%);
+  }
+}
+
 /* The video layer is gone, and the rules that managed it went with it: the
    phone cutoff, and the `prefers-reduced-motion` gate a still image has no
    motion to need. A narrow screen now gets the 1200px variant from `srcset`

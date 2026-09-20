@@ -191,11 +191,30 @@
     // real money for a difference nobody can see.
     // Lobe size tracks the frame too: fixed radii on a tall screen are two
     // small blobs adrift in a lot of black.
+    /* `grow` IS APPLIED ONCE, NOT TWICE. This is the mobile fix.
+
+       It used to divide the distance AND multiply the falloff threshold. Both
+       enlarge the lobe, so on a 390x844 phone (grow = 2.16) the two
+       compounded: the y distance shrank by 2.16 while the threshold it is
+       measured against grew by 2.16, which is roughly a 4.7x inflation of the
+       area at full brightness.
+
+       The result was not "bigger lobes". It was NO LOBES: g1 and g2 saturated
+       at 1.0 across the entire frame, `amb` cleared the top of its smoothstep
+       everywhere, and the phone rendered a flat wall of fully saturated
+       colour with no light in it at all. The only vertical structure left on
+       screen was the single diagonal edge of the beam, sitting low -- exactly
+       the reported "it's so low and not good at all".
+
+       Dividing the distance is the half that does the intended job: it
+       stretches the lobes down a tall frame so they are not two small blobs
+       adrift in black. The threshold stays put, so there is still a falloff
+       to see. Desktop has grow = 1.0 and is unchanged either way. */
     '  float grow = max(1.0, u_half.y / 0.5);',
     '  vec2 d1 = (q - u_c1p) * vec2(0.80, 1.35 / grow);',
-    '  float g1 = 1.0 - smoothstep(0.0, 1.00 * grow, dot(d1, d1));',
+    '  float g1 = 1.0 - smoothstep(0.0, 1.00, dot(d1, d1));',
     '  vec2 d2 = (q - u_c2p) * vec2(1.15, 0.95 / grow);',
-    '  float g2 = 1.0 - smoothstep(0.0, 0.61 * grow, dot(d2, d2));',
+    '  float g2 = 1.0 - smoothstep(0.0, 0.61, dot(d2, d2));',
     // normalize() of a literal is a sqrt and a divide per sample, for a
     // constant. Baked.
     '  float across = dot(q, vec2(0.6172, -0.7868)) + u_beamOff;',
@@ -313,9 +332,24 @@
     // contour line exactly where m crosses the floor, and on a phone's
     // low-resolution buffer that contour renders as a visible staircase
     // across the screen. Adding is smooth everywhere.
+    // Same quantity as in lightField, which is a separate scope.
+    '  float grow = max(1.0, u_half.y / 0.5);',
     '  float amb = m + 0.13;',
-    '  vec3 col = mix(u_c0, tone, smoothstep(0.02, 0.42, amb));',
-    '  col += tone * smoothstep(0.62, 1.20, m) * 0.55;',
+    /* THE RAMP IS AS LONG AS THE FRAME IS TALL.
+
+       These two thresholds are where the image actually gets clipped. `amb`
+       only has to reach 0.42 to be at FULL colour, which is fine on a
+       landscape frame where the light field dips well below that between the
+       lobes. On a phone the lobes are stretched down the long axis, so the
+       field sits above 0.42 nearly everywhere and every pixel lands on the
+       flat top of the ramp: a wall of solid colour with no light in it.
+
+       Scaling both thresholds by `grow` keeps the ramp proportional to how
+       much of the frame the light now covers, so there is somewhere for the
+       image to fall off to. grow is 1.0 on a landscape frame, so this is an
+       identity there and the desktop grade is untouched. */
+    '  vec3 col = mix(u_c0, tone, smoothstep(0.02, 0.42 * grow, amb));',
+    '  col += tone * smoothstep(0.62 * grow, 1.20 * grow, m) * 0.55;',
     '',
     // Dispersion applied as a ratio against green, so it tints the ramped
     // colour rather than overwriting it and losing the palette.
@@ -574,23 +608,36 @@
     // which are 1.0 at the aspect this was tuned at.
     var sx = hx / 0.80;
     var sy = hy / 0.50;
-    /* On a tall frame, lift the whole composition toward the top.
-       Spreading the lobes down a portrait screen put the light below the
-       fold: a phone opened on an almost black first screen, which is the
-       only screen most phone readers see. Zero on a landscape frame, where
-       sy is 1. */
-    // Clamped BEFORE anything uses it. An earlier value of 0.86 worked out to
-    // roughly the whole half-height on a phone and pushed both lobes clean off
-    // the top of the frame, leaving only the diagonal beam on screen -- which
-    // read as a stray coloured wedge in the corner rather than as a backdrop.
-    var lift = Math.min(0.62 * (sy - 1), hy * 0.55);
+    /* THERE IS NO LIFT ANY MORE, AND THAT IS THE FIX.
+
+       A `lift` term used to push the composition toward the top of a tall
+       frame, on the theory that spreading the lobes down a portrait screen
+       would put the light below the fold. It was wrong twice over.
+
+       It was wrong in premise: the canvas is sized to the VIEWPORT, so there
+       is no below-the-fold for it to fall into. And the lobes already grow to
+       fill a tall frame -- see `grow` in lightField, which stretches them by
+       hy/0.5, so 2.16x on a phone. Nothing needed moving.
+
+       It was wrong in sign, too: the lobes got `+ lift` and the beam got
+       `- lift * 0.62`, so the two halves of one composition were pushed in
+       OPPOSITE directions. On a 390x844 phone lift came out at 0.594 against
+       a half-height of 1.08, which put the second lobe's centre at up to
+       1.274 -- off the top of the frame entirely -- while dragging the beam's
+       centre line down to y = -1.0, hard against the bottom edge. What was
+       left on screen was the bottom edge of a diagonal beam and two black
+       thirds above it. Reported, accurately, as "it's so low and not good at
+       all, it should be in the middle".
+
+       Centred is the whole fix. On a landscape frame sy is 1 and lift was
+       already 0, so a desktop is bit-for-bit unchanged. */
     gl.uniform2f(U.u_c1p,
       Math.sin(t * 0.17) * 0.58 * sx,
-      (Math.cos(t * 0.13) * 0.34 - 0.10) + lift);
+      Math.cos(t * 0.13) * 0.34 - 0.10);
     gl.uniform2f(U.u_c2p,
       (Math.cos(t * 0.11) * 0.80 + 0.18) * sx,
-      (Math.sin(t * 0.19) * 0.42 + 0.26) + lift);
-    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42 - lift * 0.62);
+      Math.sin(t * 0.19) * 0.42 + 0.26);
+    gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42);
     gl.uniform1f(U.u_time, t);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
 
