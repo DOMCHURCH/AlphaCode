@@ -121,14 +121,29 @@
   }
 
 
+  /* NOTHING TOUCHES THE GPU UNTIL THE PAGE HAS PAINTED.
+
+     The reported symptom is a second of lag on arrival that then clears. A
+     previous pass deferred `begin()` to the load event and did not fix it,
+     because the expensive part was never in `begin()`: this script is
+     `defer`red, so it runs as soon as parsing finishes, and everything from
+     `getContext` to the last `getUniformLocation` used to execute right
+     there -- in the window where the browser is trying to lay out and paint
+     the text the reader is waiting for.
+
+     Worse, `getShaderParameter(COMPILE_STATUS)` and
+     `getProgramParameter(LINK_STATUS)` are SYNCHRONISING queries. The driver
+     compiles lazily and in parallel, and asking for the status forces the
+     main thread to stop until it has finished. On a fragment shader this size
+     -- nineteen ribs, refraction, chromatic aberration, specular, bloom --
+     that is the whole stall, and it is invisible in a profile that only looks
+     at script execution because the time is spent inside one getter.
+
+     So the GL work all moved into `glBoot`, which runs after `load`, and the
+     link result is POLLED rather than demanded. See `waitForLink`. */
   var gl = null;
-  try {
-    gl = canvas.getContext('webgl', {
-      alpha: false, antialias: false, depth: false, stencil: false,
-      powerPreference: 'low-power', preserveDrawingBuffer: false
-    });
-  } catch (e) { gl = null; }
-  if (!gl) { bail(); return; }
+  var prog = null;
+  var linkExt = null;
 
   var VERT = 'attribute vec2 p; void main(){ gl_Position = vec4(p,0.,1.); }';
 
@@ -337,57 +352,17 @@
     '}'
   ].join('\n');
 
+  /* No COMPILE_STATUS query. It is the synchronising call described above,
+     and it buys nothing: a shader that failed to compile fails the link, and
+     the link is checked once -- off the critical path -- in `finishBoot`. */
   function compile(type, src) {
     var sh = gl.createShader(type);
     gl.shaderSource(sh, src);
     gl.compileShader(sh);
-    if (!gl.getShaderParameter(sh, gl.COMPILE_STATUS)) { return null; }
     return sh;
   }
 
-  var vs = compile(gl.VERTEX_SHADER, VERT);
-  var fs = compile(gl.FRAGMENT_SHADER, FRAG);
-  if (!vs || !fs) { bail(); return; }
-
-  var prog = gl.createProgram();
-  gl.attachShader(prog, vs);
-  gl.attachShader(prog, fs);
-  gl.linkProgram(prog);
-  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { bail(); return; }
-  gl.useProgram(prog);
-
-  var buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER,
-    new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  var aloc = gl.getAttribLocation(prog, 'p');
-  gl.enableVertexAttribArray(aloc);
-  gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
-
   var U = {};
-  ['u_res', 'u_time', 'u_bars', 'u_jitter', 'u_refract', 'u_spec', 'u_ca',
-   'u_beam', 'u_bloom', 'u_sat', 'u_sweep', 'u_shimmer', 'u_breathe',
-   'u_c0', 'u_c1', 'u_c2', 'u_c3',
-   'u_c1p', 'u_c2p', 'u_beamOff', 'u_half'].forEach(function (n) {
-    U[n] = gl.getUniformLocation(prog, n);
-  });
-
-  // Uniforms that never change after boot are set once, not every frame.
-  gl.uniform1f(U.u_bars, SETTINGS.ribs);
-  gl.uniform1f(U.u_jitter, SETTINGS.jitter);
-  gl.uniform1f(U.u_refract, SETTINGS.refract);
-  gl.uniform1f(U.u_spec, SETTINGS.spec);
-  gl.uniform1f(U.u_ca, SETTINGS.ca);
-  gl.uniform1f(U.u_beam, SETTINGS.beam);
-  gl.uniform1f(U.u_bloom, SETTINGS.bloom);
-  gl.uniform1f(U.u_sat, SETTINGS.sat);
-  gl.uniform1f(U.u_sweep, SETTINGS.sweep);
-  gl.uniform1f(U.u_shimmer, SETTINGS.shimmer);
-  gl.uniform1f(U.u_breathe, SETTINGS.breathe);
-  gl.uniform3fv(U.u_c0, SETTINGS.c0);
-  gl.uniform3fv(U.u_c1, SETTINGS.c1);
-  gl.uniform3fv(U.u_c2, SETTINGS.c2);
-  gl.uniform3fv(U.u_c3, SETTINGS.c3);
 
   var step = 0;
   /* A PHONE GETS A HIGHER SCALE, NOT A LOWER ONE, AND THAT IS NOT A TYPO.
@@ -447,9 +422,8 @@
   window.addEventListener('resize', function () {
     vw = window.innerWidth;
     vh = window.innerHeight;
-    resize();
+    if (gl) { resize(); }
   }, { passive: true });
-  resize();
 
   /* The blurs come off while this is drawing -- see the `.reeded-on` block in
      backdrop.css. This is the single biggest win available, and it is not in
@@ -472,11 +446,8 @@
   function begin() {
     document.documentElement.classList.add('reeded-on');
     window.requestAnimationFrame(frame);
-    window.requestAnimationFrame(function () {
-      window.requestAnimationFrame(function () {
-        if (canvas) { document.documentElement.classList.add('reeded-frost'); }
-      });
-    });
+    /* No frost here any more. It is added by watchFrames after a measured
+       window proves the frame rate can carry it -- see the comment there. */
   }
 
   /* Reduced motion is honoured as a SLOWDOWN, not a freeze. A still frame of
@@ -502,6 +473,9 @@
   var lastDraw = 0;
   var windowStart = 0;
   var lowWindows = 0;
+  /* FROST IS EARNED, NOT GRANTED. See watchFrames. */
+  var frostOn = false;
+  var FROST_FPS = 30;
 
   /* THE GIVE-UP LADDER.
      Measured over CHECK_MS windows rather than per frame: a single slow frame
@@ -519,15 +493,44 @@
     var fps = frames * 1000 / (now - windowStart);
     windowStart = now;
     frames = 0;
-    if (fps >= MIN_FPS) { lowWindows = 0; return; }
+    if (fps >= MIN_FPS) {
+      lowWindows = 0;
+      /* FROST IS EARNED, NOT GRANTED -- AND THIS IS THE FIX FOR THE LAG.
+
+         It used to be switched on two frames after load and taken away by the
+         ladder below, which needs TWO low windows of CHECK_MS: over three
+         seconds of jank before any relief arrived. That is the reported
+         symptom exactly -- "painfully slow for the first second, then it gets
+         better" -- and the thing getting better was this watchdog rescuing a
+         page that should never have been put in that state.
+
+         A dozen `backdrop-filter`s are nearly free while the backdrop holds
+         still and cost a full gaussian per element per frame once something
+         animates behind them. So the page now starts in the cheap state and
+         only buys frost once the machine has DEMONSTRATED, over a real
+         measured window, that it can afford it. Comfortably above the floor,
+         not at it: a device sitting exactly on MIN_FPS cannot pay for this. */
+      if (!frostOn && step === 0 && fps >= FROST_FPS && canvas) {
+        frostOn = true;
+        document.documentElement.classList.add('reeded-frost');
+      }
+      return;
+    }
     lowWindows++;
     if (lowWindows < 2) { return; }
     lowWindows = 0;
     var next = DEGRADE[step];
     step++;
     if (next === 'frost') {
-      document.documentElement.classList.remove('reeded-frost');
-      return;
+      if (frostOn) {
+        frostOn = false;
+        document.documentElement.classList.remove('reeded-frost');
+        return;
+      }
+      /* Never earned it, so this rung is already paid for. Drop through to
+         the next one rather than spending a whole window doing nothing. */
+      next = DEGRADE[step];
+      step++;
     }
     if (next === 0 || step > DEGRADE.length) {
       running = false;
@@ -598,7 +601,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) {
       running = false;
-    } else if (canvas) {
+    } else if (canvas && gl) {
       running = true;
       last = 0;
       windowStart = 0;
@@ -606,11 +609,100 @@
     }
   });
 
+  /* ---------------------------------------------------------------------
+     Boot. Everything below here runs AFTER the load event, never before.
+     --------------------------------------------------------------------- */
+
+  function glBoot() {
+    try {
+      gl = canvas.getContext('webgl', {
+        alpha: false, antialias: false, depth: false, stencil: false,
+        powerPreference: 'low-power', preserveDrawingBuffer: false
+      });
+    } catch (e) { gl = null; }
+    if (!gl) { bail(); return; }
+
+    /* The extension that makes the link result pollable. Where it is missing
+       the fallback is still correct -- `finishBoot` just blocks on
+       LINK_STATUS the way this always used to -- but by then the page has
+       painted, so it costs the reader nothing. */
+    linkExt = gl.getExtension('KHR_parallel_shader_compile');
+
+    var vs = compile(gl.VERTEX_SHADER, VERT);
+    var fs = compile(gl.FRAGMENT_SHADER, FRAG);
+    prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+
+    waitForLink(0);
+  }
+
+  function waitForLink(tries) {
+    // ~3s at 60fps. A driver that never reports completion must not leave the
+    // page with a canvas that is never drawn to, so give up waiting and ask.
+    if (linkExt && tries < 180 &&
+        !gl.getProgramParameter(prog, linkExt.COMPLETION_STATUS_KHR)) {
+      window.requestAnimationFrame(function () { waitForLink(tries + 1); });
+      return;
+    }
+    finishBoot();
+  }
+
+  function finishBoot() {
+    if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) { bail(); return; }
+    gl.useProgram(prog);
+
+    var buf = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+    gl.bufferData(gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+    var aloc = gl.getAttribLocation(prog, 'p');
+    gl.enableVertexAttribArray(aloc);
+    gl.vertexAttribPointer(aloc, 2, gl.FLOAT, false, 0, 0);
+
+    ['u_res', 'u_time', 'u_bars', 'u_jitter', 'u_refract', 'u_spec', 'u_ca',
+     'u_beam', 'u_bloom', 'u_sat', 'u_sweep', 'u_shimmer', 'u_breathe',
+     'u_c0', 'u_c1', 'u_c2', 'u_c3',
+     'u_c1p', 'u_c2p', 'u_beamOff', 'u_half'].forEach(function (n) {
+      U[n] = gl.getUniformLocation(prog, n);
+    });
+
+    /* Uniforms that never change after boot are set once, not every frame.
+
+       THE ORDER HERE IS THE FIX FOR A SECOND BUG. These used to be uploaded
+       further up the file, ABOVE the `narrow` branch that raises sat/bloom/
+       beam for a phone -- so the phone's correction mutated SETTINGS after
+       the values had already gone to the GPU and never reached it. The
+       device kept rendering the desktop grade, which is exactly the
+       "undersaturated on the phone" report, still true after the u_gamma
+       replacement because the new uniform was being set from the old value.
+       Uploading after the branch is what makes the branch mean anything. */
+    gl.uniform1f(U.u_bars, SETTINGS.ribs);
+    gl.uniform1f(U.u_jitter, SETTINGS.jitter);
+    gl.uniform1f(U.u_refract, SETTINGS.refract);
+    gl.uniform1f(U.u_spec, SETTINGS.spec);
+    gl.uniform1f(U.u_ca, SETTINGS.ca);
+    gl.uniform1f(U.u_beam, SETTINGS.beam);
+    gl.uniform1f(U.u_bloom, SETTINGS.bloom);
+    gl.uniform1f(U.u_sat, SETTINGS.sat);
+    gl.uniform1f(U.u_sweep, SETTINGS.sweep);
+    gl.uniform1f(U.u_shimmer, SETTINGS.shimmer);
+    gl.uniform1f(U.u_breathe, SETTINGS.breathe);
+    gl.uniform3fv(U.u_c0, SETTINGS.c0);
+    gl.uniform3fv(U.u_c1, SETTINGS.c1);
+    gl.uniform3fv(U.u_c2, SETTINGS.c2);
+    gl.uniform3fv(U.u_c3, SETTINGS.c3);
+
+    resize();
+    begin();
+  }
+
   if (document.readyState === 'complete') {
-    window.requestAnimationFrame(begin);
+    window.requestAnimationFrame(glBoot);
   } else {
     window.addEventListener('load', function () {
-      window.requestAnimationFrame(begin);
+      window.requestAnimationFrame(glBoot);
     }, { once: true });
   }
 })();
