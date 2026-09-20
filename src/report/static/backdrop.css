@@ -64,9 +64,11 @@
      hung past the fold. `object-fit` on the image does that job properly. */
   background-color: var(--bd-base);
   background-image:
-    url("data:image/webp;base64,UklGRmgAAABXRUJQVlA4IFwAAADwAwCdASoYAA0APrVIn0mnJCKhMAgA4BaJZgCdACHYeiQDSHlNu3EAAPqT6DSLmw4J/XIAIRNFA9xuyrJZ3UbboLszL3SlpL7ajhkCy76YVsDJUxRZCDFmrWHAAA==");
+    url("data:image/webp;base64,UklGRqwCAABXRUJQVlA4WAoAAAAgAAAAFwAADQAASUNDUMgBAAAAAAHIAAAAAAQwAABtbnRyUkdCIFhZWiAH4AABAAEAAAAAAABhY3NwAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAQAA9tYAAQAAAADTLQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAlkZXNjAAAA8AAAACRyWFlaAAABFAAAABRnWFlaAAABKAAAABRiWFlaAAABPAAAABR3dHB0AAABUAAAABRyVFJDAAABZAAAAChnVFJDAAABZAAAAChiVFJDAAABZAAAAChjcHJ0AAABjAAAADxtbHVjAAAAAAAAAAEAAAAMZW5VUwAAAAgAAAAcAHMAUgBHAEJYWVogAAAAAAAAb6IAADj1AAADkFhZWiAAAAAAAABimQAAt4UAABjaWFlaIAAAAAAAACSgAAAPhAAAts9YWVogAAAAAAAA9tYAAQAAAADTLXBhcmEAAAAAAAQAAAACZmYAAPKnAAANWQAAE9AAAApbAAAAAAAAAABtbHVjAAAAAAAAAAEAAAAMZW5VUwAAACAAAAAcAEcAbwBvAGcAbABlACAASQBuAGMALgAgADIAMAAxADZWUDggvgAAALAFAJ0BKhgADgA+0VamS6gko6GwCAEAGglsAJ0yhHA3kE2AVwBkkv6VhFf/bpbanfGCRLHWMAD+/HXYr9+i6MtoccHdD7hXjPnyhpjqBrR/K53Uj8D2M/5hIu4lr++69X3T3SEzQdvwJwp/Wu+9R9yifh1jXM//y1kSH9nhhCjQ8hm4VTB/86Iz+LO/clYPIig685Yavd3gw/9h4tQJX3v4Ev8aMzkjMVz+XX+89gSc3pv2uvdcT5iP3iYAAAA=");
   background-size: cover;
-  background-position: 70% 62%;
+  /* Centred: this picture is composed for the frame rather than
+     being a photograph with a subject off to one side. */
+  background-position: center;
   background-repeat: no-repeat;
 }
 
@@ -81,7 +83,7 @@
   width: 100%;
   height: 100%;
   object-fit: cover;
-  object-position: 70% 62%;
+  object-position: center;
 }
 
 /* The veil is what makes text readable over the picture, and it does two jobs
@@ -111,15 +113,6 @@
 
    No `pointer-events` of its own -- `.backdrop` already sets none, and this
    is scenery that must never eat a click. */
-.backdrop-gl {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  display: block;
-  width: 100%;
-  height: 100%;
-}
-
 .backdrop-veil {
   position: absolute;
   inset: 0;
@@ -224,7 +217,8 @@
    "no blur available", which is functionally where we now are. So this is a
    known-good appearance, not a new one.
 
-   `reeded.js` adds `.reeded-on` to <html> when it starts drawing and REMOVES
+   HISTORICAL NOTE, kept because the reasoning still governs these rules.
+   `reeded.js` used to add `.reeded-on` to <html> when it started drawing and REMOVE
    it if it degrades itself off, so a reader whose machine gives up gets the
    blur back along with the still image. The class selector out-specifies the
    bare element selectors, so load order does not matter. */
@@ -244,20 +238,9 @@
    Base state while the canvas runs and frost has been shed: nav goes opaque
    using the alpha its own `@supports not (backdrop-filter)` block already
    specifies. */
-html.reeded-on nav {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: rgba(10, 11, 17, .93);
-}
-html.reeded-on .strip {
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-  background: rgba(22, 24, 38, .93);
-}
-
 /* --- frost, when it is affordable ------------------------------------- */
 
-html.reeded-frost nav {
+nav {
   background: rgba(10, 11, 17, .72);
   -webkit-backdrop-filter: blur(12px) saturate(1.2);
   backdrop-filter: blur(12px) saturate(1.2);
@@ -267,20 +250,20 @@ html.reeded-frost nav {
    "a white cloud passing under body text: .62 gives 4.2:1 and fails prose,
    .72 gives 5.9:1". These hold body copy over a moving glow, so they stay
    above that floor. */
-html.reeded-frost .trust,
-html.reeded-frost .plans,
-html.reeded-frost .card,
-html.reeded-frost .tile,
-html.reeded-frost .plan,
-html.reeded-frost .buy,
-html.reeded-frost .sheet,
-html.reeded-frost .faq-item,
-html.reeded-frost .split-half,
-html.reeded-frost .ep,
-html.reeded-frost .compare,
-html.reeded-frost .tablewrap,
-html.reeded-frost .chead,
-html.reeded-frost .empty {
+.trust,
+.plans,
+.card,
+.tile,
+.plan,
+.buy,
+.sheet,
+.faq-item,
+.split-half,
+.ep,
+.compare,
+.tablewrap,
+.chead,
+.empty {
   background: rgba(17, 19, 27, .74);
   -webkit-backdrop-filter: blur(14px) saturate(1.22);
   backdrop-filter: blur(14px) saturate(1.22);
@@ -291,14 +274,14 @@ html.reeded-frost .empty {
 
 /* DECORATIVE SURFACES carry figures and labels rather than prose, so they are
    allowed under the prose floor and read as thinner glass. */
-html.reeded-frost .strip,
-html.reeded-frost .stat,
-html.reeded-frost .bignum,
-html.reeded-frost .shape,
-html.reeded-frost .banner,
-html.reeded-frost .acc,
-html.reeded-frost .meter,
-html.reeded-frost .planline {
+.strip,
+.stat,
+.bignum,
+.shape,
+.banner,
+.acc,
+.meter,
+.planline {
   background: rgba(18, 20, 30, .60);
   -webkit-backdrop-filter: blur(12px) saturate(1.18);
   backdrop-filter: blur(12px) saturate(1.18);
@@ -318,12 +301,12 @@ html.reeded-frost .planline {
    legibility problem for no gain. Restated here rather than left to the
    cascade, because the selectors above out-specify the bare class selectors
    that would otherwise hold this line. */
-html.reeded-frost .bs,
-html.reeded-frost .stack,
-html.reeded-frost .hero-bs .bs,
-html.reeded-frost .band,
-html.reeded-frost .code,
-html.reeded-frost .keybox {
+.bs,
+.stack,
+.hero-bs .bs,
+.band,
+.code,
+.keybox {
   -webkit-backdrop-filter: none;
   backdrop-filter: none;
   background: var(--panel-solid, #141414);
@@ -342,7 +325,7 @@ html.reeded-frost .keybox {
    frosted plate. The cards and plans inside them keep their own stronger
    panel, so the result reads as two depths of glass rather than as a box in
    a box -- which is what makes it look layered instead of boxed. */
-html.reeded-frost main .sec {
+main .sec {
   background: rgba(14, 16, 24, .52);
   -webkit-backdrop-filter: blur(16px) saturate(1.15);
   backdrop-filter: blur(16px) saturate(1.15);
@@ -354,12 +337,12 @@ html.reeded-frost main .sec {
 /* A plate inside a plate is a box in a box. The inner surfaces keep their
    border and shadow -- that is what separates them -- but drop back to a
    thinner wash so the two depths read as glass rather than as nesting. */
-html.reeded-frost main .sec .card,
-html.reeded-frost main .sec .plan,
-html.reeded-frost main .sec .tile,
-html.reeded-frost main .sec .split-half,
-html.reeded-frost main .sec .faq-item,
-html.reeded-frost main .sec .ep {
+main .sec .card,
+main .sec .plan,
+main .sec .tile,
+main .sec .split-half,
+main .sec .faq-item,
+main .sec .ep {
   background: rgba(20, 23, 33, .62);
 }
 
@@ -371,14 +354,14 @@ html.reeded-frost main .sec .ep {
    scrim behind the type rather than a plate around it. It darkens the ground
    under the words and fades to nothing before it reaches an edge, so there
    is no box, only contrast. */
-html.reeded-on .hero {
+.hero {
   position: relative;
 }
-html.reeded-on .hero > * {
+.hero > * {
   position: relative;
   z-index: 1;
 }
-html.reeded-on .hero::before {
+.hero::before {
   content: "";
   position: absolute;
   z-index: 0;
@@ -395,9 +378,9 @@ html.reeded-on .hero::before {
    box, the disclaimer, the example caption. Too small to plate, so they get
    the cheapest possible legibility -- a shadow, which costs no compositing
    and no layer. */
-html.reeded-on .summary,
-html.reeded-on .disclaim,
-html.reeded-on .exnote,
-html.reeded-on .formnote {
+.summary,
+.disclaim,
+.exnote,
+.formnote {
   text-shadow: 0 1px 14px rgba(0, 0, 0, .85), 0 0 3px rgba(0, 0, 0, .7);
 }

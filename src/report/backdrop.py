@@ -42,10 +42,18 @@ _MEDIA = Path(__file__).parent / "static" / "media"
 HERO_2400 = "/static/media/backdrop-2400.webp"
 HERO_1200 = "/static/media/backdrop-1200.webp"
 
+# PORTRAIT IS A DIFFERENT PICTURE, NOT A CROP OF THE SAME ONE.
+# `object-fit: cover` on a 2400x1350 landscape image inside a 390x844 frame
+# scales to HEIGHT and throws away most of the width, which is how the phone
+# came to look like a different product from the desktop. These are composed
+# for the frame they are shown in. See scripts/render_backdrop.mjs.
+HERO_P1200 = "/static/media/backdrop-portrait-1200.webp"
+HERO_P800 = "/static/media/backdrop-portrait-800.webp"
+
 # The intrinsic size of the desktop variant. Declared on the <img> so the box
 # is known before the bytes land -- a fixed full-screen layer cannot shift the
 # page, but stating the ratio keeps the intent legible and costs nothing.
-HERO_W, HERO_H = 2400, 1339
+HERO_W, HERO_H = 2400, 1350
 
 
 def media_version() -> str:
@@ -70,33 +78,29 @@ def render_backdrop() -> str:
     `alt=""` and `aria-hidden` on the container because this is scenery: it
     carries no information a screen reader should stop for.
     """
-    # Imported here, not at module scope: `company_page` reaches back into this
-    # module for `render_backdrop`, so a top-level import would close the loop.
-    # Every other cross-import in this file is lazy for the same reason.
-    from src.report.company_page import asset_version
-
     v = media_version()
-    # THE ONE PLACE the backdrop is built, which is why the reeded-glass canvas
-    # and its script go here rather than into a page shell. There are THREE
+    # THE ONE PLACE the backdrop is built. There are THREE
     # separate `<head>` blocks on this site -- `home_page._shell` and two in
     # `company_page` -- and anything added to one and not the others leaves the
     # company pages silently on the old look. This function is called by all
     # three, so it is the only edit that cannot half-land.
     #
-    # The canvas is empty markup: `reeded.js` finds it by id, and if WebGL is
-    # missing, the shader fails to compile, or the viewport is too narrow, the
-    # script removes the element and the still image below it is what shows.
-    # Nothing to sequence and no flash between the two.
+    # THE LIVE CANVAS IS GONE. A WebGL shader used to draw behind every page,
+    # and it cost a visibly slow first second on a phone and a laptop both.
+    # The same shader now runs once, offline, into the pictures below -- see
+    # scripts/render_backdrop.mjs. Nothing to sequence, nothing to compile, no
+    # frame-rate watchdog, and `backdrop-filter` on the panels is a cached
+    # one-off again rather than a per-frame gaussian.
     return f"""
 <div class="backdrop" id="backdrop" aria-hidden="true">
   <picture class="backdrop-still">
+    <source type="image/webp" media="(max-aspect-ratio: 3/4)" sizes="100vw"
+            srcset="{HERO_P800}?v={v} 800w, {HERO_P1200}?v={v} 1200w">
     <source type="image/webp" sizes="100vw"
             srcset="{HERO_1200}?v={v} 1200w, {HERO_2400}?v={v} 2400w">
     <img class="backdrop-img" src="{HERO_2400}?v={v}" alt=""
          width="{HERO_W}" height="{HERO_H}"
          loading="eager" fetchpriority="high" decoding="async">
   </picture>
-  <canvas class="backdrop-gl" id="backdrop-gl"></canvas>
   <div class="backdrop-veil"></div>
-</div>
-<script src="/static/reeded.js?v={asset_version()}" defer></script>"""
+</div>"""
