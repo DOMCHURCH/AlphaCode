@@ -191,35 +191,18 @@
     // real money for a difference nobody can see.
     // Lobe size tracks the frame too: fixed radii on a tall screen are two
     // small blobs adrift in a lot of black.
-    /* `grow` IS APPLIED ONCE, NOT TWICE. This is the mobile fix.
-
-       It used to divide the distance AND multiply the falloff threshold. Both
-       enlarge the lobe, so on a 390x844 phone (grow = 2.16) the two
-       compounded: the y distance shrank by 2.16 while the threshold it is
-       measured against grew by 2.16, which is roughly a 4.7x inflation of the
-       area at full brightness.
-
-       The result was not "bigger lobes". It was NO LOBES: g1 and g2 saturated
-       at 1.0 across the entire frame, `amb` cleared the top of its smoothstep
-       everywhere, and the phone rendered a flat wall of fully saturated
-       colour with no light in it at all. The only vertical structure left on
-       screen was the single diagonal edge of the beam, sitting low -- exactly
-       the reported "it's so low and not good at all".
-
-       Dividing the distance is the half that does the intended job: it
-       stretches the lobes down a tall frame so they are not two small blobs
-       adrift in black. The threshold stays put, so there is still a falloff
-       to see. Desktop has grow = 1.0 and is unchanged either way. */
-    '  float grow = max(1.0, u_half.y / 0.5);',
-    '  vec2 d1 = (q - u_c1p) * vec2(0.80, 1.35 / grow);',
+    /* No aspect terms in here any more. `q` arrives already normalised to the
+       frame this was tuned in (see the q.y line in main), so these are the
+       tuned constants and nothing else -- which is the whole point of doing
+       it there instead of here. */
+    '  vec2 d1 = (q - u_c1p) * vec2(0.80, 1.35);',
     '  float g1 = 1.0 - smoothstep(0.0, 1.00, dot(d1, d1));',
-    '  vec2 d2 = (q - u_c2p) * vec2(1.15, 0.95 / grow);',
+    '  vec2 d2 = (q - u_c2p) * vec2(1.15, 0.95);',
     '  float g2 = 1.0 - smoothstep(0.0, 0.61, dot(d2, d2));',
     // normalize() of a literal is a sqrt and a divide per sample, for a
     // constant. Baked.
     '  float across = dot(q, vec2(0.6172, -0.7868)) + u_beamOff;',
-    '  float beam = 1.0 - smoothstep(0.0, 0.52 * max(u_half.y, 0.5) * 2.0,',
-    '                              abs(across));',
+    '  float beam = 1.0 - smoothstep(0.0, 0.52, abs(across));',
     '  return max(g1 * 0.95 + g2 * 0.72 + beam * u_beam, 0.0);',
     '}',
     '',
@@ -235,6 +218,22 @@
     // short edge IS the height, so desktop is unchanged to the pixel.
     '  float unit = min(u_res.x, u_res.y);',
     '  vec2 p  = (gl_FragCoord.xy - 0.5 * u_res) / unit;',
+
+    /* ONE VERTICAL COORDINATE FOR EVERYTHING THAT LAYS OUT DOWN THE FRAME.
+
+       `p.y` is normalised to the SHORT edge, so it spans +/-0.5 on the
+       1440x900 frame this was tuned at and +/-1.08 on a 390x844 phone.
+       Every term that modulates along the rib was reading it raw, so on a
+       phone each ran through more than twice as much of its cycle top to
+       bottom: the specular sweep alone went from a third of a sine to
+       three quarters of one, which is a bright band at the bottom of the
+       frame and darkness at the top. That is the vertical ramp that
+       survived every other fix.
+
+       `ny` is the same coordinate expressed against the tuned frame, so a
+       pattern covers the same fraction of the screen whatever shape the
+       screen is. 1.0 on a landscape frame, so desktop is untouched. */
+    '  float ny = p.y * (0.5 / u_half.y);',
     '  float t = u_time;',
     '',
     // Rib widths vary, and the warp PHASE drifts, so the wall slowly pans.
@@ -258,6 +257,28 @@
     '  float ca = u_ca * 0.012 * abs(bend);',
     '',
     '  vec2 q = p + vec2(disp, 0.0);',
+    /* THE LIGHT FIELD ALWAYS SEES THE FRAME IT WAS TUNED FOR.
+
+       `p` is normalised to the SHORT edge, which is right for the ribs --
+       rib width has to be a fraction of the axis they run across. It is
+       wrong for the composition behind them: on a 390x844 phone p.y spans
+       +/-1.08 against the +/-0.5 this was tuned at, so the field was being
+       asked to fill a frame more than twice as tall as the one it was
+       designed in.
+
+       Every previous attempt to fix that scaled a parameter -- lobe radius,
+       falloff threshold, colour ramp, a lift term -- and each one traded one
+       kind of wrong for another: a flat saturated wall, then a hard-edged
+       wedge in the corner. The mistake was adapting the composition to the
+       frame at all.
+
+       Compressing the SAMPLE coordinate stretches the RESULT: a feature the
+       field puts at q.y = 0.5 now lands at p.y = 1.08, the top of the phone
+       frame. So the phone gets the same composition as the desktop, centred,
+       stretched to fill -- and every scaling hack above it becomes
+       unnecessary. On a landscape frame u_half.y is 0.5 and this is
+       multiplication by one. */
+    '  q.y = ny + (q.y - p.y);',
     '  float lg = lightField(q, t);',
     '  float lr = lg;',
     '  float lb = lg;',
@@ -285,9 +306,9 @@
     // Per-rib speed AND per-rib frequency. One shared speed made the whole
     // wall pulse in unison, which reads as a single blinking object.
     '  float rs = 0.22 + hash(i * 5.13) * 1.05;',
-    '  float travel  = 0.5 + 0.5 * sin(p.y * (1.2 + hash(i * 2.7) * 1.7)',
+    '  float travel  = 0.5 + 0.5 * sin(ny * (1.2 + hash(i * 2.7) * 1.7)',
     '                                  + t * rs + i * 0.22);',
-    '  float travel2 = 0.5 + 0.5 * sin(p.y * 3.7 - t * rs * 1.9 + i * 1.13);',
+    '  float travel2 = 0.5 + 0.5 * sin(ny * 3.7 - t * rs * 1.9 + i * 1.13);',
     '  spec *= 0.40 + u_shimmer * (0.70 * travel + 0.36 * travel2);',
     '',
     '  vec3 lit = vec3(lr, lg, lb) * (body * seam);',
@@ -302,7 +323,7 @@
     '  float sweepX = (fract(t * 0.055) * 2.0 - 1.0) * (halfW + 0.45);',
     '  float sx = (p.x - sweepX) * 1.9;',
     '  float sweep = exp(-sx * sx);',
-    '  sweep *= 0.55 + 0.45 * sin(p.y * 2.1 + t * 0.8);',
+    '  sweep *= 0.55 + 0.45 * sin(ny * 2.1 + t * 0.8);',
     '  lit += sweep * u_sweep * (0.16 + 0.55 * lg) * (body * seam);',
     '',
     '  float m = clamp(lit.g, 0.0, 1.6);',
@@ -332,24 +353,11 @@
     // contour line exactly where m crosses the floor, and on a phone's
     // low-resolution buffer that contour renders as a visible staircase
     // across the screen. Adding is smooth everywhere.
-    // Same quantity as in lightField, which is a separate scope.
-    '  float grow = max(1.0, u_half.y / 0.5);',
     '  float amb = m + 0.13;',
-    /* THE RAMP IS AS LONG AS THE FRAME IS TALL.
-
-       These two thresholds are where the image actually gets clipped. `amb`
-       only has to reach 0.42 to be at FULL colour, which is fine on a
-       landscape frame where the light field dips well below that between the
-       lobes. On a phone the lobes are stretched down the long axis, so the
-       field sits above 0.42 nearly everywhere and every pixel lands on the
-       flat top of the ramp: a wall of solid colour with no light in it.
-
-       Scaling both thresholds by `grow` keeps the ramp proportional to how
-       much of the frame the light now covers, so there is somewhere for the
-       image to fall off to. grow is 1.0 on a landscape frame, so this is an
-       identity there and the desktop grade is untouched. */
-    '  vec3 col = mix(u_c0, tone, smoothstep(0.02, 0.42 * grow, amb));',
-    '  col += tone * smoothstep(0.62 * grow, 1.20 * grow, m) * 0.55;',
+    // Tuned constants, no aspect correction: the field that feeds `amb` is
+    // already frame-normalised, so these mean the same thing on every screen.
+    '  vec3 col = mix(u_c0, tone, smoothstep(0.02, 0.42, amb));',
+    '  col += tone * smoothstep(0.62, 1.20, m) * 0.55;',
     '',
     // Dispersion applied as a ratio against green, so it tints the ramped
     // colour rather than overwriting it and losing the palette.
@@ -615,9 +623,9 @@
        would put the light below the fold. It was wrong twice over.
 
        It was wrong in premise: the canvas is sized to the VIEWPORT, so there
-       is no below-the-fold for it to fall into. And the lobes already grow to
-       fill a tall frame -- see `grow` in lightField, which stretches them by
-       hy/0.5, so 2.16x on a phone. Nothing needed moving.
+       is no below-the-fold for it to fall into. And the composition already
+       fills a tall frame on its own -- see the q.y normalisation in main,
+       which stretches the whole field to the frame. Nothing needed moving.
 
        It was wrong in sign, too: the lobes got `+ lift` and the beam got
        `- lift * 0.62`, so the two halves of one composition were pushed in
@@ -631,12 +639,30 @@
 
        Centred is the whole fix. On a landscape frame sy is 1 and lift was
        already 0, so a desktop is bit-for-bit unchanged. */
+    /* THE COMPOSITION'S VERTICAL BIAS IS SCALED OUT ON A TALL FRAME.
+
+       Positive y renders DOWNWARD here -- measured, by pinning both lobes to
+       a fixed offset and looking, after reasoning about gl_FragCoord got it
+       backwards twice. So the standing offsets below are not symmetric: c1
+       sits slightly high at -0.10 and c2, the larger warm lobe carrying the
+       heavier weight, sits at +0.26, about half a half-height BELOW centre.
+
+       On a 1440x900 frame that asymmetry reads as depth, and it is the
+       desktop look nobody has complained about. On a 390x844 phone the frame
+       is mostly vertical, so the same proportional offset stops being depth
+       and becomes the only thing in the picture: a glow sitting in the bottom
+       third under a lot of black. Reported twice, in those words.
+
+       So the bias is kept on a wide frame and mostly removed on a narrow one.
+       The oscillations are untouched -- the composition still moves, it just
+       moves about the middle. */
+    var bias = narrow ? 0.25 : 1.0;
     gl.uniform2f(U.u_c1p,
       Math.sin(t * 0.17) * 0.58 * sx,
-      Math.cos(t * 0.13) * 0.34 - 0.10);
+      Math.cos(t * 0.13) * 0.34 - 0.10 * bias);
     gl.uniform2f(U.u_c2p,
       (Math.cos(t * 0.11) * 0.80 + 0.18) * sx,
-      Math.sin(t * 0.19) * 0.42 + 0.26);
+      Math.sin(t * 0.19) * 0.42 + 0.26 * bias);
     gl.uniform1f(U.u_beamOff, Math.sin(t * 0.09) * 0.42);
     gl.uniform1f(U.u_time, t);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
