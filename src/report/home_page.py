@@ -275,8 +275,15 @@ _METHOD_AS_FILED = (
     "Every figure is pulled as-filed and checked before it is stored."
 )
 _METHOD_FLAGGED = (
+    # "never silently fudged" is the site's standing phrase for this: it is
+    # what /methodology says in prose and what the tile there counts to zero.
+    # The old tail -- "instead of adjusting the numbers" -- made the same
+    # promise in more words, and in words used nowhere else on the site. This
+    # is shorter, which the hero wants, and identical to the phrasing the
+    # reader meets one click later, which a promise repeated across four pages
+    # needs more than it needs variety.
     "When a filing does not balance, the page says so with the reason "
-    "instead of adjusting the numbers."
+    "— never silently fudged."
 )
 _DEFINITION_METHOD = f"{_METHOD_IDENTITY} {_METHOD_AS_FILED} {_METHOD_FLAGGED}"
 
