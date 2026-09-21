@@ -1362,7 +1362,185 @@ noticing. Send me the ticker and the period and I will look.</p>
 )
 
 
+_POST_TOTAL_LIABILITIES = Post(
+    slug="total-liabilities-from-sec-edgar",
+    title="Total Liabilities from SEC EDGAR: Why the Obvious Tag Is Often Empty",
+    # 54 characters. The headline above keeps "Obvious" because the whole
+    # point is that the obvious move fails; in a result list the reader has
+    # not made the move yet, so the word is doing nothing and the length is.
+    seo_title="Total Liabilities from SEC EDGAR: Why the Tag Is Empty",
+    description=(
+        "Coca-Cola, Amazon and Walmart do not report us-gaap:Liabilities at "
+        "all. Here is why the tag is missing, and how to derive the figure "
+        "from what is there."
+    ),
+    summary=(
+        "Ask EDGAR for us-gaap:Liabilities and a large share of filers "
+        "return nothing, Coca-Cola and Amazon among them. The tag is not "
+        "missing data — it is a subtotal those companies never printed."
+    ),
+    published="2026-09-21",
+    updated="2026-09-21",
+    minutes=7,
+    body="""
+<p class="lede">You want total liabilities for a company. EDGAR publishes XBRL
+facts for free, there is a <code>us-gaap</code> element called
+<code>Liabilities</code>, and the request is three lines of Python. You run it
+over a few hundred tickers and a large share of them come back with nothing at
+all.</p>
+
+<p>The tag is right. The request is right. The assumption underneath it is
+wrong. XBRL does not contain every figure you can compute from a balance sheet.
+It contains the figures the filer actually presented. If a company's balance
+sheet never prints a line reading "Total liabilities," there is no fact to tag,
+and the element is simply absent.</p>
+
+<p>This is not an edge case and it is not a data quality problem at EDGAR. Ask
+the company concept endpoint for <code>Liabilities</code> at
+<a href="/company/KO">Coca-Cola</a>, <a href="/company/AMZN">Amazon</a> or
+Walmart and all three return a 404. Ask it for
+<code>LiabilitiesAndStockholdersEquity</code> and all three return a figure.
+<a href="/company/AAPL">Apple</a> happens to publish both. Nothing about the
+three that do not is unusual — they run from the last liability line into the
+equity section without printing a subtotal on the way.</p>
+
+<h2>What the endpoint gives you</h2>
+
+<p>Company facts is one call, no key, no auth. The CIK is zero-padded to ten
+digits, so Apple's 320193 becomes <code>CIK0000320193</code>. Send a
+descriptive <code>User-Agent</code> with a real address on it and stay inside
+the rate ceiling — that is its own problem, and it has
+<a href="/blog/build-scalable-sec-edgar-pipeline">its own note</a>.</p>
+
+<pre class="code"><code class="language-python">import requests
+
+HEADERS = {"User-Agent": "YourCompany you@example.com"}
+
+def facts(cik):
+    url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik:010d}.json"
+    return requests.get(url, headers=HEADERS, timeout=30).json()
+
+def latest(f, tag, unit="USD"):
+    # A tag the filer never used is absent from the document entirely.
+    # That is a presentation fact about the company, not a failed request.
+    node = f["facts"].get("us-gaap", {}).get(tag)
+    if not node:
+        return None
+    rows = [r for r in node["units"].get(unit, [])
+            if r.get("form") in ("10-K", "10-Q")]
+    return max(rows, key=lambda r: r["end"]) if rows else None</code></pre>
+
+<p>Run that across a universe and the empty returns are not failures of your
+code. They are filings in which no total-liabilities line was presented.</p>
+
+<h2>The figure that is always there</h2>
+
+<p>A balance sheet has two sides that must agree. The left totals to assets.
+The right totals to the claims on those assets, and presentation of the right
+side is where filers diverge. What they all print is the bottom line:</p>
+
+<p class="pull">us-gaap:LiabilitiesAndStockholdersEquity</p>
+
+<p>That is the sum of everything on the claims side, the figure that has to
+equal total assets, and the most reliably present element on that side of the
+taxonomy. Total liabilities is what remains of it once every equity claim is
+taken out.</p>
+
+<p class="pull">Liabilities = (L + SE) − Equity − NCI − Mezzanine</p>
+
+<p>Each subtraction is there for a reason, and skipping one produces a number
+that looks plausible and is wrong.</p>
+
+<p><strong>Equity.</strong> <code>StockholdersEquity</code> is parent-only. Its
+sibling
+<code>StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest</code>
+already has the minority stake folded in. Take whichever the filer published
+and know which one you took — take the inclusive one and also subtract
+<code>MinorityInterest</code> and you have removed the same money twice.</p>
+
+<p><strong>Noncontrolling interests.</strong> A parent consolidating a
+subsidiary it does not wholly own carries all of that subsidiary's assets, and
+carries the slice it does not own as a claim on the right side.
+<code>MinorityInterest</code> is equity, not liability. Leave it in and total
+liabilities is overstated by exactly the minority stake.</p>
+
+<p><strong>Mezzanine.</strong> Redeemable preferred, redeemable noncontrolling
+interests and shares subject to possible redemption sit between the two
+sections and belong to neither.
+<code>TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests</code>,
+<code>RedeemablePreferredStockCarryingAmount</code> and
+<code>RedeemableNoncontrollingInterestEquityCarryingAmount</code> are the tags
+to look for. They are not liabilities.</p>
+
+<pre class="code"><code class="language-python">def total_liabilities(f):
+    direct = latest(f, "Liabilities")
+    if direct:
+        return direct["val"], "reported"
+
+    rhs = latest(f, "LiabilitiesAndStockholdersEquity")
+    if not rhs:
+        return None, "no right-hand-side total"
+
+    period = rhs["end"]
+
+    # Facts are not aligned for you. Equity from one quarter subtracted
+    # from a right-hand side from another is a number with no meaning,
+    # and nothing in the response will tell you it happened.
+    def at(tag):
+        r = latest(f, tag)
+        return r["val"] if r and r["end"] == period else 0
+
+    incl = at("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+    equity = incl if incl else at("StockholdersEquity") + at("MinorityInterest")
+
+    mezz = (
+        at("TemporaryEquityCarryingAmountIncludingPortionAttributableToNoncontrollingInterests")
+        or at("RedeemablePreferredStockCarryingAmount")
+        or at("RedeemableNoncontrollingInterestEquityCarryingAmount")
+    )
+
+    return rhs["val"] - equity - mezz, "derived"</code></pre>
+
+<h2>Check the answer before you use it</h2>
+
+<p>The derivation gives you a figure. It does not tell you the figure is right.
+The check is the identity itself: pull <code>us-gaap:Assets</code> for the same
+period and confirm it meets the right-hand side within a tolerance set as a
+fraction of assets rather than a flat amount, because filers round at a scale
+set by their own size.</p>
+
+<p>If the two sides do not meet, one of three things is true: you missed a
+claim line, the filing uses a basis you have not accounted for, or the filing
+itself is wrong. Those are different problems with different responses, and
+<a href="/blog/five-ways-a-balance-sheet-fails">the five mechanisms</a> are
+worth knowing before you meet one.</p>
+
+<p>The response that ruins the exercise is to reach for whichever candidate
+closes the gap. That converts a wrong number into a wrong number nobody can
+audit, and it destroys the discrepancy that was about to tell you
+something.</p>
+
+<h2>When to stop building this</h2>
+
+<p>The derivation above is forty lines. The work after it is not: period
+alignment across amended filings, extension tags no standard mapping reaches,
+taxonomy versions drifting under you, banks and insurers presenting a
+right-hand side shaped like nobody else's, and the standing job of noticing
+when a filer changes presentation between quarters.</p>
+
+<p>That is the work here. Every balance sheet across {COMPANIES} companies is
+reconciled against A = L + E before it is served, and the ones that do not
+close are flagged with the reason rather than quietly patched — total
+liabilities comes back as a field with the basis it was computed on attached to
+it. <a href="/pricing">The free tier</a> covers the whole universe. If you
+would rather keep your own pipeline, the sections above are the parts people
+usually find out about after they ship.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_TOTAL_LIABILITIES,
     _POST_FIVE_FAILURES,
     _POST_WHAT_I_GOT_WRONG,
     _POST_EDGAR_PIPELINE,
@@ -1497,6 +1675,11 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
         ("AAL", "negative equity that balances perfectly"),
         ("WMT", "an ordinary A = L + E, drawn"),
         ("FCX", "capital-heavy, and the identity still holds"),
+    ),
+    "total-liabilities-from-sec-edgar": (
+        ("KO", "no Liabilities tag at all — the post opens on this filing"),
+        ("AMZN", "the same absence, a different balance sheet"),
+        ("AAPL", "publishes the subtotal, for the contrast"),
     ),
 }
 
