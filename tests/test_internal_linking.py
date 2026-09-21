@@ -79,8 +79,21 @@ def links_in(html: str) -> set[str]:
 # Blog -> companies, and blog -> blog
 # ---------------------------------------------------------------------------
 
+# Posts that are legitimately about no company in particular. `what-i-got-
+# wrong` is about an incident -- a delete-and-reload that took 1,231,927 rows
+# out of production at 2 AM -- and the one filer it names is named to describe
+# the shape of a bank's balance sheet, not because the post is about JPMorgan.
+# Manufacturing a second ticker for it would be the link stuffing that
+# `_POST_COMPANIES` exists to refuse. Kept as a hand-written exception for the
+# same reason that dict is hand-written: nothing computable knows what a post
+# is about.
+NOT_ABOUT_COMPANIES = {"what-i-got-wrong-about-sec-filings"}
+
+
 def test_every_post_links_to_the_companies_it_is_about(client):
     for post in POSTS:
+        if post.slug in NOT_ABOUT_COMPANIES:
+            continue
         html = client.get(f"/blog/{post.slug}").text
         company_links = {ln for ln in links_in(html) if ln.startswith("/company/")}
         assert len(company_links) >= 2, (
@@ -173,7 +186,7 @@ def test_every_internal_link_added_here_resolves(client):
     # ticker missing from this list fails here as a broken link, which is the
     # test working: add the ticker, do not drop the link.
     for ticker in ("JPM", "BAC", "GS", "WFC", "MSFT", "AAL", "WMT", "FCX",
-                   "AAPL"):
+                   "AAPL", "BLK", "KKR", "KO", "AMZN", "LCID"):
         seed(ticker, sector="Financial Services" if ticker == "JPM" else None)
 
     pages = ["/company/JPM", "/blog"]
