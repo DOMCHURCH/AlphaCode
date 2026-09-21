@@ -363,7 +363,12 @@ def test_a_count_that_cannot_be_read_becomes_a_sentence_not_a_hole(monkeypatch):
     assert counts["{FILERS}"] == "SEC filers"
     assert counts["{COVERAGE}"] == "SEC filers"
     assert counts["{COVERAGE_PROSE}"] == "SEC filers, as reported"
-    assert not any(c.isdigit() for c in "".join(counts.values()))
+    # The COVERAGE keys only. `{FREE_CALLS}` is a bare number on purpose and
+    # always readable -- it comes from settings rather than from the table, so
+    # an unreadable table cannot put a hole in it. This assertion predates that
+    # key and swept it up when it arrived.
+    coverage = ("{FILERS}", "{COVERAGE}", "{COVERAGE_PROSE}")
+    assert not any(c.isdigit() for k in coverage for c in counts[k])
 
 
 def test_the_comparison_pages_count_the_table_the_rest_of_the_site_counts(client):
