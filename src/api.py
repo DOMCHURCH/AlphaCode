@@ -2445,6 +2445,65 @@ class VerifyRequest(BaseModel):
     token: str
 
 
+# How much use buys another chance to ask. Counted across the website, the
+# keyless API and the MCP server together, because the offer is for using the
+# service and not for using one particular door into it.
+#
+# It is a COUNT rather than a number of days on purpose. A reader who opens two
+# pages a month should not be asked every time simply because a fortnight
+# passed, and somebody working through three hundred companies in an afternoon
+# has plainly got enough value to be worth asking twice.
+SIGNIN_PROMPT_INTERVAL = 100
+
+
+@app.get("/api/signin-prompt")
+def api_signin_prompt(request: Request) -> JSONResponse:
+    """What the browser needs to decide whether to offer a sign-in.
+
+    The decision cannot be made on the server and baked into the page: every
+    reader-facing page is served from an in-process cache shared by everybody,
+    so a per-visitor flag rendered into the HTML would be handed to the next
+    visitor too. So the pages ship the same markup for everyone, hidden, and
+    this endpoint -- uncached, and under /api, which `analytics.should_count`
+    ignores, so asking the question does not itself advance the count -- tells
+    the script what it is looking at.
+
+    The COUNT lives here and the DISMISSAL lives in the browser, which is the
+    split that survives both being wrong. The count has to be server-side to
+    include API and MCP calls, which the browser cannot see; the dismissal is a
+    preference belonging to one person at one keyboard, and storing it per
+    address would mean an office silencing the offer for the whole floor.
+
+    The count is per ADDRESS, so a shared office address advances faster than
+    one person does and the offer returns sooner for that group. That is what
+    "a hundred calls" literally counts and the alternative -- identifying
+    people rather than addresses -- is a tracker, which this site does not run.
+    """
+    from src import analytics, auth, demo
+
+    signed_in = bool(auth.session_email(request))
+    payload: dict[str, object] = {
+        "signed_in": signed_in,
+        "count": 0,
+        "interval": SIGNIN_PROMPT_INTERVAL,
+        "login_enabled": auth.is_enabled(),
+    }
+    if not signed_in:
+        try:
+            ip_hash = _caller_ip_hash(request)
+            payload["count"] = (
+                analytics.views_for(ip_hash) + demo.calls_all_time(ip_hash)
+            )
+        except Exception as exc:  # noqa: BLE001
+            # A count that cannot be read is reported as zero, which leaves the
+            # offer waiting rather than firing on every page. Failing the other
+            # way would turn a database wobble into a modal nobody can escape.
+            log.warning("signin_prompt_count_failed", error=str(exc)[:200])
+    # Never cached: it is a different answer for every caller, and a shared
+    # cache in front of this would hand one reader another reader's count.
+    return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
 @app.post("/api/auth/magic-link")
 def api_magic_link(body: MagicLinkRequest, tasks: BackgroundTasks) -> JSONResponse:
     """Email a one-time login link. Same reply whatever the address.

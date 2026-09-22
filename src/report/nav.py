@@ -122,7 +122,57 @@ def render_nav(
   </div>
 </div>
 <p class="navnote" id="nav-note" role="status" aria-live="polite" hidden></p>
-</nav>"""
+</nav>
+{render_signin_prompt(active=active, signed_in=signed_in, login_enabled=login_enabled)}"""
+
+
+def render_signin_prompt(
+    *, active: str = "", signed_in: bool = False, login_enabled: bool = True
+) -> str:
+    """The offer to sign in, rendered hidden on every page the nav appears on.
+
+    HERE, rather than in each page module, for the reason the nav itself is
+    here: seventeen page modules already load `nav.js`, and a panel added to
+    each of them is sixteen chances to add it to fifteen. It is
+    `position: fixed`, so where it sits in the document does not matter.
+
+    THE MARKUP IS THE SAME FOR EVERY READER. Whether it is shown is decided in
+    the browser by `nav.js` from `/api/signin-prompt`, because these pages come
+    out of a process-wide cache -- a panel rendered visible for one visitor
+    would be served visible to the next. What varies per reader is visibility,
+    never HTML.
+
+    Three pages do not get it, and each for its own reason: `/login` and
+    `/auth/verify` (`active` is "login") because offering a sign-in to
+    somebody already signing in is absurd, `/dashboard` because reaching it
+    means being signed in already, and any deployment with login switched off,
+    where the panel would advertise a door that is not there.
+    """
+    if signed_in or not login_enabled or active in {"login", "dashboard"}:
+        return ""
+    return """
+<div class="sp-wrap" id="signin-prompt" hidden>
+  <div class="sp-sheet" role="dialog" aria-modal="true"
+    aria-labelledby="sp-title" aria-describedby="sp-lede">
+    <button type="button" class="sp-x" id="sp-close" aria-label="Close">
+      <span aria-hidden="true">&times;</span>
+    </button>
+    <h2 id="sp-title">Keep what you find</h2>
+    <p id="sp-lede" class="sp-lede">A free key gives you the same figures as
+      JSON, 1,000 calls a month, and somewhere to come back to. No card, and
+      nothing here stops being free either way.</p>
+    <form class="sp-form" id="sp-form" novalidate>
+      <label class="vh" for="sp-email">Email address</label>
+      <input id="sp-email" name="email" type="email" required
+        placeholder="you@company.com" autocomplete="email"
+        spellcheck="false" enterkeyhint="send">
+      <button type="submit" class="btn" id="sp-send">Email me a link</button>
+    </form>
+    <p class="sp-note" id="sp-note" role="status" aria-live="polite" hidden></p>
+    <p class="sp-alt">Already have an account?
+      <a href="/login">Sign in</a>.</p>
+  </div>
+</div>"""
 
 
 # The repository the site is built from. A link rather than a claim: "open

@@ -91,6 +91,31 @@ def should_count(path: str) -> bool:
     return not any(path.startswith(p) for p in IGNORED_PREFIXES)
 
 
+def views_for(ip_hash: str) -> int:
+    """How many pages this address has read. Never raises; 0 on any fault.
+
+    Bot rows are excluded, and that is load-bearing rather than tidy: this
+    number decides when a reader is next offered a sign-in, and one crawler
+    sharing an office address would otherwise run the count past the threshold
+    on its own and make the offer reappear for everybody behind it.
+    """
+    from sqlalchemy import func, select
+
+    from src.storage.db import session_scope
+    from src.storage.models import PageView
+
+    try:
+        with session_scope() as s:
+            return int(s.execute(
+                select(func.count(PageView.id)).where(
+                    PageView.ip_hash == ip_hash, PageView.is_bot.is_(False)
+                )
+            ).scalar_one() or 0)
+    except Exception as exc:  # noqa: BLE001 - a count must not break a page
+        log.warning("views_for_failed", error=str(exc)[:200])
+        return 0
+
+
 def record(
     path: str,
     ip: str,

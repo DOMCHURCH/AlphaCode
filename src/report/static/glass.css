@@ -809,3 +809,108 @@ footer {
 .accept label { color: var(--ink); }
 
 .navlink { color: #C6C8D6; }
+
+/* ---- the sign-in offer ---------------------------------------------------
+   An OFFER, and it has to look like one. The site's whole promise is that
+   reading it is free, so this is dressed as a panel rather than as a wall: no
+   dimmed-to-black backdrop, a close control that is the first thing a pointer
+   meets, and copy that says the free part stays free. A reader who wants to
+   ignore it can, and the veil is light enough to read the page through.
+
+   It sits above the nav (z-index 200, matching the dashboard's paywall sheet)
+   because a dialog under the bar that opened it is a dialog you cannot reach. */
+.sp-wrap {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(10, 12, 24, .55);
+  animation: sp-in .18s ease-out;
+}
+.sp-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 420px;
+  background: var(--bg);
+  border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: var(--r3);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
+  padding: 26px 24px 20px;
+  animation: sp-rise .2s ease-out;
+}
+/* Top right, and big enough for a thumb. 44px is the smallest target that is
+   comfortable on a phone, and this is the control most people will want. */
+.sp-x {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 44px;
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  line-height: 1;
+  color: var(--ink2);
+  background: none;
+  border: 0;
+  border-radius: var(--r1);
+  cursor: pointer;
+}
+.sp-x:hover { color: var(--ink); background: var(--well); }
+.sp-sheet h2 {
+  margin: 0 8px 10px 0;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -.02em;
+  color: var(--ink);
+}
+.sp-lede {
+  margin: 0 0 16px;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+.sp-form { display: flex; gap: 8px; flex-wrap: wrap; }
+.sp-form input {
+  flex: 1 1 200px;
+  min-width: 0;
+  padding: 11px 13px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--well);
+  border: 1px solid var(--lo);
+  border-radius: var(--r1);
+}
+.sp-form input:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 1px;
+}
+.sp-form .btn { flex: 0 0 auto; }
+.sp-note {
+  margin: 12px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink2);
+}
+.sp-alt {
+  margin: 14px 0 0;
+  font-size: 13px;
+  color: var(--ink2);
+}
+.sp-alt a { color: var(--ink); }
+
+@keyframes sp-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes sp-rise {
+  from { opacity: 0; transform: translateY(8px) }
+  to { opacity: 1; transform: none }
+}
+/* Windows reports reduced motion on this machine by default, so this is not a
+   rare path: the panel must still ARRIVE, just without travelling. */
+@media (prefers-reduced-motion: reduce) {
+  .sp-wrap, .sp-sheet { animation: none }
+}

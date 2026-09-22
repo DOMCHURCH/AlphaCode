@@ -155,6 +155,26 @@ def calls_today(ip_hash: str, day: str | None = None) -> int:
         )
 
 
+def calls_all_time(ip_hash: str) -> int:
+    """Every anonymous call this address has made, across all days.
+
+    `calls_today` meters the daily gate and resets at midnight, which is right
+    for a rate limit and wrong for the sign-in prompt: "we will ask again after
+    another hundred calls" has to keep counting across a date boundary or the
+    hundred resets every night. Both surfaces are included -- a row's `source`
+    is "web" or "mcp" -- because the prompt is offered for using the service,
+    not for using one particular door into it.
+    """
+    with session_scope() as session:
+        return int(
+            session.execute(
+                select(func.count())
+                .select_from(DemoUsage)
+                .where(DemoUsage.ip_hash == ip_hash)
+            ).scalar_one()
+        )
+
+
 UNLIMITED = -1
 
 
