@@ -372,7 +372,7 @@ def _compute_breakdown() -> dict[str, Any] | None:
     """
     from sqlalchemy import func, select
 
-    from src.company.view1 import resolve_identity
+    from src.company.view1 import IDENTITY_TOLERANCE, resolve_identity
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
 
@@ -453,8 +453,44 @@ def _compute_breakdown() -> dict[str, Any] | None:
         assets = m.get("total_assets")
         liab = m.get("total_liabilities")
         equity = m.get("total_equity_incl_nci") or m.get("total_equity")
-        if not assets or assets <= 0 or liab is None or equity is None:
+        if not assets or assets <= 0:
             not_testable += 1
+            continue
+        if liab is None or equity is None:
+            # THE STATED-TOTAL FALLBACK, and the reason this function and
+            # `universe_check.run_universe_check` now count the same set.
+            #
+            # A filer who publishes total assets and their own stated
+            # right-hand-side total, but no separate liabilities or equity
+            # line, is testable -- and tested on BETTER evidence than the
+            # component path, because the stated total carries none of the
+            # ambiguity of choosing which equity tag to add. Requiring the
+            # components dropped ~686 such companies into "no identity to
+            # test", while the sentence a few inches up the same page counted
+            # them, and the home page published both numbers.
+            #
+            # Two of the four flag categories are unreachable from here, and
+            # that is the definitions talking rather than a simplification.
+            # `missing_tag` means the filer's own totals agree and a
+            # credit-side line did not reach us -- with no components there is
+            # nothing of ours that could have fallen short. `unexplained`
+            # means there is no stated total to referee against, which is the
+            # branch we are inside the negation of. What is left: it balances,
+            # it is presentation slack, or the filer's own two sides disagree.
+            stated = m.get("liabilities_and_equity")
+            if not stated:
+                not_testable += 1
+                continue
+            checked += 1
+            own = abs(assets - stated) / assets * 100.0
+            if own <= IDENTITY_TOLERANCE * 100.0:
+                _bump(ticker, "balanced")
+            elif own < 1.0:
+                _bump(ticker, "rounding")
+                _note_example(examples, "rounding", ticker)
+            else:
+                _bump(ticker, "broken")
+                _note_example(examples, "broken", ticker)
             continue
         checked += 1
         # Both equity figures and the NCI go to `resolve_identity`, which picks
