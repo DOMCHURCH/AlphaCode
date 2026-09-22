@@ -519,10 +519,19 @@ def test_the_home_page_carries_a_quotable_definition(client):
     body = client.get("/").text
     hero = body.split('<header class="hero">', 1)[1].split("</header>", 1)[0]
 
+    # The definition survives as the meta description -- which is what an
+    # assistant actually lifts -- but it no longer OPENS the lede. It used to:
+    # the most-read line on the page spent its first eight words naming a
+    # category before saying what the reader gets, so the benefit now comes
+    # first and the H1 and nav carry the name. See
+    # docs/internal/homepage-checklist-2026-09-22.md, "Benefit before feature".
     assert "BalanceProof is the verification layer over SEC EDGAR" in body
     assert body.index('class="htitle"') < body.index('class="hlede"')
-    # The clause names the product once. Twice is the bug this guards.
-    assert hero.count("BalanceProof is the verification layer") == 1
+    lede = hero.split('class="hlede"', 1)[1].split("</p>", 1)[0]
+    assert "When a filing reconciles you get the figure" in lede
+    # The naming clause must not come back into the hero, where it delayed the
+    # benefit. Once, in the head, is where it belongs.
+    assert "BalanceProof is the verification layer" not in hero
 
     # The method sentence MOVED OUT of the hero and into "How it works",
     # where it is that section's thesis rather than a second lede. What must
@@ -818,8 +827,12 @@ def test_the_hard_part_is_stated_with_the_real_numbers(client):
     assert "Why this is hard" in body
     assert "twenty-three separate times" in body
     assert "$641 billion instead of $4.4 trillion" in body
-    assert "ExcludingAccruedInterest" in body
-    assert "confirmed against the raw filing data" in body
+    # The deprecated-tag-names aside and the "every tag was confirmed against
+    # the raw filing data" line were both cut: the first was a third example
+    # of a point already made twice, the second answered a doubt nobody had
+    # raised. Asserted as ABSENT so they are not quietly restored.
+    assert "ExcludingAccruedInterest" not in body
+    assert "confirmed against the raw filing data" not in body
 
 
 def test_the_fold_opens_on_a_real_balance_sheet(client):
@@ -858,8 +871,10 @@ def test_the_status_strip_never_states_a_freshness_it_cannot_read(client):
     """An unknown age must not render as a confident one."""
     from src.report.home_page import _pipeline_age, _status_strip
 
-    assert _status_strip({}, "").count("Pipeline") == 0
-    assert "Pipeline" in _status_strip({}, "3h ago")
+    # Label renamed Pipeline -> Updated: "pipeline" is the word the engineer
+    # uses, not the visitor. The guarantee is unchanged -- no age, no cell.
+    assert _status_strip({}, "").count("Updated") == 0
+    assert "Updated" in _status_strip({}, "3h ago")
     # Never raises, whatever the scheduler is doing.
     assert isinstance(_pipeline_age(), str)
 

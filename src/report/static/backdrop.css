@@ -326,9 +326,38 @@ nav {
    panel, so the result reads as two depths of glass rather than as a box in
    a box -- which is what makes it look layered instead of boxed. */
 main .sec {
-  background: rgba(14, 16, 24, .52);
-  -webkit-backdrop-filter: blur(16px) saturate(1.15);
-  backdrop-filter: blur(16px) saturate(1.15);
+  /* NO backdrop-filter here, and the reason is above: the blur existed to
+     hold contrast steady under text while the backdrop MOVED. The backdrop
+     does not move any more -- `backdrop.py` replaced the film with one still
+     WebP -- so the blur was re-sampling a picture that never changes, nine
+     full-width sections of it, ~5.3M px^2 per frame or about four viewports.
+
+     Measured on the home page at 1440x900, scrolling top to bottom:
+
+         with blur     30fps median, p95 50ms, 61% of frames over 20ms
+         without       60fps median, p95 17ms,  0% of frames over 20ms
+
+     Identical under 4x CPU throttling, which is what says it was the
+     compositor rather than script. The fill below is not a guess either: it
+     is the colour the blurred plate actually rendered, solved from a sample
+     of the blurred panel against the bare backdrop behind it, so the plate
+     renders the same colour and costs nothing. The nav and the strip keep
+     their blur -- they are small, they are sticky, and that is where glass
+     reads.
+
+     WHY .85 AND NOT THE .52 THIS REPLACED. Blur did a second job here besides
+     colour: it smoothed the backdrop's reeded striping. A flat plate lets the
+     stripes through, measured as the mean luminance step between adjacent
+     columns over an empty part of the panel:
+
+         blurred            0.153
+         flat at .60        0.892      stripes plainly visible
+         flat at .85        0.337      a third of one luminance level
+
+     .85 is where the striping stops reading, and it is still lighter than the
+     .94 the inner panels use, so the two depths of glass the comment above
+     asks for survive. The colour is re-solved for that alpha. */
+  background: rgba(20, 22, 42, .85);
   border: 1px solid rgba(255, 255, 255, .06);
   border-radius: 14px;
   padding: 20px 22px;

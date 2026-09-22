@@ -75,7 +75,7 @@ def render_dataset(
   <header class="hero">
     <h1 class="htitle">The full dataset</h1>
     <p class="hlede">Every as-reported fact behind every drawing on this site,
-      as one CSV. Bought once, downloaded as often as you like — and fixed at
+      as one CSV. Bought once, downloaded as often as you like, and fixed at
       the moment it was generated.</p>
   </header>
 
@@ -87,7 +87,7 @@ def render_dataset(
       <span class="banner-tick" aria-hidden="true">&#9888;</span>
       <span><strong>This is a static snapshot.</strong> It contains the data as
         of {escape(as_of)} and will never update. When new filings land, this
-        file does not change — you would buy a fresh copy.
+        file does not change. You would buy a fresh copy.
         <a href="/pricing#compare">For live data, use the API</a>, which is
         current every time you call it.</span>
     </div>
@@ -156,7 +156,7 @@ def render_dataset(
         subscription attached to a dataset purchase. A later snapshot is another
         purchase.</li>
       <li><b>It is as-reported, not restated.</b> Each row is the figure as it
-        appeared in the filing, which is the point — it is what a backtest needs
+        appeared in the filing, which is the point: it is what a backtest needs
         and what a restated feed cannot give you.</li>
       <li><b>It is a large file.</b> Leave the tab open while it streams; it is
         generated row by row rather than served from disk.</li>

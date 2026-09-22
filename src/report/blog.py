@@ -1377,7 +1377,7 @@ _POST_TOTAL_LIABILITIES = Post(
     summary=(
         "Ask EDGAR for us-gaap:Liabilities and a large share of filers "
         "return nothing, Coca-Cola and Amazon among them. The tag is not "
-        "missing data — it is a subtotal those companies never printed."
+        "missing data: it is a subtotal those companies never printed."
     ),
     published="2026-09-21",
     updated="2026-09-21",
@@ -1580,8 +1580,8 @@ def render_index(*, nav: str = "") -> str:
 <main class="wrap" id="main">
   <header class="hero">
     <h1 class="htitle">SEC XBRL Data Notes</h1>
-    <p class="hlede">What I learned building a reconciler over every SEC filing
-      — the parts that surprised me, written down while they were still
+    <p class="hlede">What I learned building a reconciler over every SEC
+      filing: the parts that surprised me, written down while they were still
       surprising.</p>
   </header>
   <section class="sec">
@@ -1612,7 +1612,7 @@ def render_index(*, nav: str = "") -> str:
             "building an SEC filings API that agrees with the filing."
         ),
         canonical="/blog",
-        ld=breadcrumb_ld([("Home", "/"), ("Notes", "/blog")]),
+        ld=breadcrumb_ld([("Home", "/"), ("Research", "/blog")]),
     )
 
 
@@ -1732,7 +1732,7 @@ def render_post(post: Post, *, nav: str = "") -> str:
 <main class="wrap post" id="main">
   <article>
     <header class="hero">
-      <p class="post-meta"><a href="/blog">Notes</a> · {escape(post.published)}
+      <p class="post-meta"><a href="/blog">Research</a> · {escape(post.published)}
         · {post.minutes} min read</p>
       <h1 class="htitle">{escape(post.title)}</h1>
     </header>
@@ -1770,7 +1770,7 @@ def render_post(post: Post, *, nav: str = "") -> str:
         )
         + breadcrumb_ld([
             ("Home", "/"),
-            ("Notes", "/blog"),
+            ("Research", "/blog"),
             (post.title, f"/blog/{post.slug}"),
         ]),
     )

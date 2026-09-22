@@ -822,7 +822,7 @@ def test_the_paid_pricing_cards_start_a_checkout_not_a_login(client):
     # and is written for somebody who already has an account, which is the one
     # thing a reader pressing "Get a key" does not have. /dashboard opens with
     # a section headed "Get a key" and an address field.
-    assert '<a class="plan-cta" href="/dashboard">Get a key</a>' in home
+    assert '<a class="plan-cta" href="/dashboard">Get a free API key</a>' in home
 
 
 def test_the_home_script_posts_a_checkout_and_never_redirects_to_login(client):

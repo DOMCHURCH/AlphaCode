@@ -73,17 +73,17 @@ def render_api(
     <h1 class="htitle">SEC Filings API Reference</h1>
     <p class="hlede">Every balance sheet on this site, as JSON. One header, one
       key, no SDK. Every figure is reconciled against A = L + E before it is
-      stored — <a href="/blog/sec-xbrl-data-wrong-one-in-five">here is why that
-      matters</a>. Filed figures only — nothing here is derived, scored or
+      stored. <a href="/blog/sec-xbrl-data-wrong-one-in-five">Here is why that
+      matters</a>. Filed figures only: nothing here is derived, scored or
       predicted.</p>
   </header>
 
   <section class="sec">
     <div class="sec-head"><h2>Getting a key</h2></div>
     <p class="sec-sub">A key is issued the moment you give an address. The free
-      tier needs no payment and no card — it is not a trial that stops.</p>
+      tier needs no payment and no card. It is not a trial that stops.</p>
     <div class="api-cta">
-      <a class="btn" href="/dashboard">Get a key</a>
+      <a class="btn" href="/dashboard">Get a free API key</a>
       <a class="btn ghost" href="/#pricing">See the plans</a>
     </div>
   </section>
@@ -99,8 +99,8 @@ def render_api(
   {host}/api/company/JPM</code></pre>
     <p class="plan-note">Lost it? <a href="/dashboard">Sign in</a>. The
       dashboard shows the first eight characters, so you can tell which key
-      an account is holding, and a Regenerate button that issues a new one —
-      the old key stops working the moment you press it.</p>
+      an account is holding, and a Regenerate button that issues a new one.
+      The old key stops working the moment you press it.</p>
   </section>
 
   <section class="sec">
@@ -123,7 +123,7 @@ def render_api(
      "Every fundamental figure this site holds, streamed as CSV. One purchase, "
      "no subscription, re-downloadable whenever you like.")}
 {_ep("GET", "/api.json", "Public",
-     "This page's machine-readable index — the endpoint list, as JSON.")}
+     "This page's machine-readable index: the endpoint list, as JSON.")}
 {_ep("GET", "/health", "Public",
      "Whether the service is up and can reach its database. Cheap, and the "
      "one to point an uptime monitor at.")}
@@ -155,7 +155,7 @@ def render_api(
 
   <section class="sec">
     <div class="sec-head"><h2>Responses</h2></div>
-    <p class="sec-sub">JSON on every path, including the errors — a failure
+    <p class="sec-sub">JSON on every path, including the errors: a failure
       never returns an HTML page to something that asked for data.</p>
     <div class="tablewrap">
       <table class="compare">

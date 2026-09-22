@@ -20,9 +20,9 @@ _HEAD = """
     <h1>How we verify every number</h1>
     <p class="lede">Every balance sheet must satisfy
       <strong>Assets = Liabilities + Equity</strong>. It is not a statistic, it
-      is double-entry bookkeeping. A filing that does not balance has an error
-      — either in the filing, or in how we read it — and this page says which,
-      for every company we cover.</p>
+      is double-entry bookkeeping. A filing that does not balance has an
+      error, either in the filing or in how we read it, and this page says
+      which, for every company we cover.</p>
   </header>
 """
 
@@ -35,7 +35,7 @@ _BODY = """
     <header class="hero">
       <h2 class="htitle">How the accounting-identity check works</h2>
       <p class="hlede">Assets = Liabilities + Equity is not a rule filers
-        follow. It is a consequence of double-entry bookkeeping — which is
+        follow. It is a consequence of double-entry bookkeeping, which is
         exactly what makes it usable as a test on data you did not produce.</p>
     </header>
 
@@ -50,8 +50,8 @@ _BODY = """
       rather than to round the number up.</p>
 
       <p>Every miss is one of two things. Either the filing is not being read on
-      the terms it was written on — their arithmetic is fine and our reading is
-      wrong — or we failed to pull something the filing contains. A third case,
+      the terms it was written on: their arithmetic is fine and our reading is
+      wrong, or we failed to pull something the filing contains. A third case,
       the filer's own arithmetic being wrong, is possible and should be
       vanishingly rare for an audited public company.</p>
 
@@ -75,7 +75,7 @@ _BODY = """
       were.</p>
 
       <p><strong>Mezzanine equity.</strong> Redeemable preferred stock and
-      similar instruments sit between liabilities and equity — neither one, by
+      similar instruments sit between liabilities and equity: neither one, by
       design. Airlines, biotechs and companies that came public through a SPAC
       carry it often. Four tags are read for it: temporary equity, redeemable
       preferred stock, redeemable noncontrolling interest, and minority
@@ -104,7 +104,7 @@ _BODY = """
 
       <p>The second is commoner than it sounds. Blank-cheque acquisition
       companies keep almost their whole balance sheet in trust, matched on the
-      credit side by shares subject to redemption — and a large number of
+      credit side by shares subject to redemption, and a large number of
       them never tag that line in XBRL, so the figure exists on the rendered
       statement and nowhere a machine can reach. We cannot call that our bug,
       and we will not call it theirs either: the honest answer is that the
@@ -132,7 +132,7 @@ _BODY = """
       <p>Guessing which category a failure belongs to would make the whole
       exercise worthless. One field settles it: <code>LiabilitiesAndEquity</code>,
       the filer's own stated right-hand side. Where a company publishes it, we
-      can ask two questions instead of one — does the filing balance against its
+      can ask two questions instead of one: does the filing balance against its
       own figures, and did we recover everything it put there?</p>
 
       <p>If the filing balances against itself and our sum falls short, the
@@ -147,7 +147,7 @@ _BODY = """
       <p>Plug the gap. A figure adjusted until the columns agree is no longer
       what the company filed, and what the company filed is the entire product.
       Every number on this site is as reported, and where the two sides do not
-      meet you get the gap, the size of it, and the reason — not a tidier
+      meet you get the gap, the size of it, and the reason. Not a tidier
       number.</p>
     </div>
   </article>
@@ -213,10 +213,10 @@ def _live_section() -> str:
         ("Component not reaching us", c["missing_tag"],
          "The filer's own totals agree; a credit-side line is not reaching "
          "this site. Either tagged under a name we do not read, or not tagged "
-         "at all — indistinguishable from the data we hold.",
+         "at all: indistinguishable from the data we hold.",
          _eg("missing_tag")),
         ("Rounding", c["rounding"],
-         "The two sides differ by under 1% of total assets — presentation "
+         "The two sides differ by under 1% of total assets: presentation "
          "slack, not error.", _eg("rounding")),
         ("Unexplained", c["unexplained"],
          "The filer published no stated total to referee against. Under "
@@ -235,7 +235,7 @@ def _live_section() -> str:
     <h2>What the check found</h2>
     <div class="mcounts">
       <div class="mc"><b>{_fmt(b["companies"])}</b><span>companies covered</span></div>
-      <div class="mc"><b>{_fmt(b["reconciled"])}</b><span>reconciled — balanced, or
+      <div class="mc"><b>{_fmt(b["reconciled"])}</b><span>reconciled: balanced, or
         balanced once noncontrolling interests or mezzanine equity are
         included</span></div>
       <div class="mc"><b>{_fmt(flagged)}</b><span>flagged with a specific
@@ -246,7 +246,7 @@ def _live_section() -> str:
       totals, so there is no identity to test. They are excluded rather than
       counted as passes.</p>
     <p class="sec-sub">This split is also published <b>per sector</b>, alongside
-      every company in it ranked by total assets &mdash; see
+      every company in it ranked by total assets. See
       <a href="/sector/financials">financials</a>,
       <a href="/sector/health-care">health care</a>,
       <a href="/sector/information-technology">information technology</a>, or
@@ -261,7 +261,7 @@ def _live_section() -> str:
 
     <h3>Why there is no percentage here</h3>
     <p>The denominator moves as we improve coverage. In one week we restored 31
-      companies that had been silently unreachable — and the pass rate went
+      companies that had been silently unreachable, and the pass rate went
       <em>down</em>, because the newly visible filings were the awkward ones. A
       number that falls when quality rises is not a quality measure, it is a
       moving target. So we publish the raw counts, and we update them as gaps

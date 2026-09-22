@@ -102,11 +102,14 @@ def test_the_home_page_separates_the_snapshot_from_the_live_api(client):
     data DOES, and the words are the differentiator rather than decoration."""
     html = client.get("/").text
 
+    # Em-dash retired site-wide 2026-09-22. What is guarded here is the
+    # photograph-vs-window distinction, not the punctuation: each card must
+    # still say, in words, whether its data moves.
     assert "Static snapshot of all company data as of" in html
-    assert "One-time download — no updates" in html
-    assert "Data is fixed — it does not change" in html
+    assert "One-time download. No updates." in html
+    assert "The snapshot never changes" in html
     assert "Live, up-to-date data" in html
-    assert "Data updates daily — you always get the latest filings" in html
+    assert "Data updates daily, so you always get the latest filings" in html
 
 
 def test_the_home_page_offers_the_annual_plan_with_a_computed_saving(client):

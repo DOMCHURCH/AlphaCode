@@ -700,5 +700,6 @@ def test_the_pricing_page_says_reading_the_site_is_unlimited(client):
 
     assert "Looking things up is free and unlimited" in html
     assert "no daily counter" in html
-    assert "Unlimited — look up as many companies as you like" in html
+    # Em-dash retired site-wide 2026-09-22; the claim is unchanged.
+    assert "Unlimited: look up as many companies as you like" in html
     assert "Drawings &amp; search on this site" in html

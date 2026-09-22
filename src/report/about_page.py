@@ -30,9 +30,9 @@ _BODY = """
     <h2>The method</h2>
     <p>Every balance sheet is tested against the accounting identity before it
       is stored. A filing that reconciles is published with its figures. A
-      filing that does not is published with the reason — noncontrolling
-      interests, mezzanine equity, rounding, or a genuinely broken filing —
-      rather than quietly adjusted until it balances. The counts are public and
+      filing that does not is published with the reason: noncontrolling
+      interests, mezzanine equity, rounding, or a genuinely broken filing. It
+      is never quietly adjusted until it balances. The counts are public and
       the categories are named: <a href="/methodology">how we verify every
       number</a>.</p>
 
@@ -43,7 +43,7 @@ _BODY = """
 
     <h2>Using it</h2>
     <p>Looking companies up on this site is free and needs no account. The
-      machine-readable version — the REST API and the bulk CSV — is what costs
+      machine-readable version, the REST API and the bulk CSV, is what costs
       money: <a href="/pricing">what it costs</a>, and
       <a href="/api">the API reference</a>.</p>
   </article>

@@ -112,16 +112,16 @@ def _pro_card(pro_price: str, pro_annual_price: str,
         data-per>/month</small></p>
       <p class="plan-line" data-line>Live, up-to-date data</p>
       <ul class="plan-bullets">
-        <li>Programmatic access &mdash; query any company anytime</li>
+        <li>Programmatic access: query any company anytime</li>
         <li>{compact(pro_limit)} API calls per month</li>
-        <li>Data updates daily &mdash; you always get the latest filings</li>
+        <li>Data updates daily, so you always get the latest filings</li>
         <li>Best for: algorithmic trading, dashboards, ongoing research</li>
       </ul>
       <a class="plan-cta" href="/dashboard#billing" data-plan="pro"
         data-plan-month="pro" data-plan-year="pro_annual"
         data-price-month="{escape(pro_price)}" data-price-year="{escape(pro_annual_price)}"
-        data-line-year="The same Pro access, paid yearly &mdash; save {saving}"
-        >Go Pro</a>
+        data-line-year="The same Pro access, paid yearly. Save {saving}"
+        >Start Pro</a>
     </div>"""
 
 
@@ -195,24 +195,23 @@ def plan_cards(
     </div>
     <div class="plans">
       {card(
-        "Free", "$0", "", "Unlimited — look up as many companies as you like",
+        "Free", "$0", "", "Unlimited: look up as many companies as you like",
         (
             "Every company, every balance sheet, no key and no account",
-            "The live demo runs the real endpoint — generous, and plenty to "
-            "evaluate with",
+            "The live demo runs the real endpoint, not a canned sample",
             f"{free_limit:,} keyed API calls a month if you want JSON in bulk",
             "Best for: reading the site, and evaluating the API",
         ),
-        "Get a key",
+        "Get a free API key",
     )}
       {card(
         "Full dataset", dataset_price, " once",
         f"Static snapshot of all company data as of {dataset_as_of}",
         (
-            "One-time download — no updates",
+            "One-time download. No updates.",
             f"{dataset_rows} rows as one CSV file",
             "Best for: one-time analysis, research, Excel work",
-            "Data is fixed — it does not change",
+            "The snapshot never changes",
         ),
         "Buy the dataset", True, "dataset",
     )}
@@ -356,20 +355,20 @@ def faq(
             f"""<p>The dataset is a <strong>photograph</strong>; the API is a
               <strong>window</strong>. For {escape(dataset_price)} you download one
               CSV containing every filed figure in the database at the moment you
-              buy it. That file never changes again — when Apple files its next
+              buy it. That file never changes again: when Apple files its next
               10-Q, your copy still ends at the quarter before. The API answers
               from the live database, so the same call made tomorrow returns
               tomorrow&rsquo;s filings.</p>
             <p>Buy the dataset if the analysis has an end: a study, a model you
               are fitting once, a spreadsheet. Buy Pro if the thing you are
-              building has to keep being right — a dashboard, a screen that runs
+              building has to keep being right: a dashboard, a screen that runs
               every morning, a strategy that trades on new filings.</p>""",
             True,
         ),
         (
             "Can I buy the dataset and get updates?",
             f"""<p>No. A dataset purchase is one download of one snapshot, and
-              it stays yours forever — but it is never refreshed. To get a later
+              it stays yours forever, but it is never refreshed. To get a later
               snapshot you buy the dataset again at {escape(dataset_price)}.</p>
             <p>If you find yourself wanting a second copy, Pro at
               {escape(pro_price)}/month is almost certainly the cheaper answer, and
@@ -380,7 +379,7 @@ def faq(
         (
             "How do I use the API key?",
             f"""<p>Send it as an <code>X-API-Key</code> header. There is no SDK,
-              no OAuth dance and no token exchange — one header on an ordinary
+              no OAuth dance and no token exchange, just one header on an ordinary
               GET:</p>
             <pre class="code"><code>curl -H "X-API-Key: YOUR_KEY" \\
   {host}/api/company/AAPL</code></pre>
@@ -399,7 +398,7 @@ def faq(
               restated, and research notebooks that pull a peer group in one
               loop.</p>
             <p>Pro is {compact(pro_limit)} calls a month, which is roughly 330 a
-              day — comfortably a few hundred companies refreshed daily. If your
+              day, comfortably a few hundred companies refreshed daily. If your
               use needs more than that, email {contact} before you build against
               the limit rather than after.</p>""",
             False,
@@ -461,7 +460,7 @@ def render_pricing(
   <header class="hero">
     <h1 class="htitle">SEC Filings API Pricing</h1>
     <p class="hlede">The drawings are free and always will be. The
-      machine-readable version is what costs money — and it comes two ways,
+      machine-readable version is what costs money, and it comes two ways,
       which are not the same product.</p>
     {coverage_line()}
   </header>
@@ -477,7 +476,7 @@ def render_pricing(
         <p class="split-lede">A photograph.</p>
         <p class="split-body">One CSV, downloaded once, containing every filed
           figure as of {escape(dataset_as_of)}. It is yours forever and it never
-          changes — the filings that land next quarter are not in it. No key, no
+          changes: the filings that land next quarter are not in it. No key, no
           calls, no code: open it in Excel, load it into pandas, keep it.</p>
         <p class="split-for"><b>Best for:</b> one-time analysis, research,
           Excel work.</p>
@@ -487,7 +486,7 @@ def render_pricing(
         <p class="split-lede">A window.</p>
         <p class="split-body">A live query against the same database this site
           draws from. Ask for any company at any time and the answer is current
-          when you ask it — including filings that arrived this morning. One
+          when you ask it, including filings that arrived this morning. One
           header, one key, JSON back.</p>
         <p class="split-for"><b>Best for:</b> algorithmic trading, dashboards,
           ongoing research.</p>
@@ -497,7 +496,7 @@ def render_pricing(
 
   <section class="sec" id="pricing">
     <div class="sec-head"><h2>Plans</h2></div>
-    <p class="sec-sub"><b>Looking things up is free and unlimited</b> — every
+    <p class="sec-sub"><b>Looking things up is free and unlimited</b>: every
       drawing, every company, as many as you
       like, no key and no account and no daily counter. The live demo on the
       front page calls the real API, so it is generous rather than unlimited:
@@ -527,7 +526,7 @@ def render_pricing(
         dataset_price=dataset_price, pro_price=pro_price, pro_limit=pro_limit
     )}
     <p class="plan-note">Buying the dataset does not include API access, and a
-      Pro subscription does not include the CSV export — they are separate
+      Pro subscription does not include the CSV export. They are separate
       purchases because they are separate things. A Pro subscriber who also
       wants the file can <a href="/dataset">buy the dataset</a> at any time.</p>
   </section>
@@ -576,8 +575,8 @@ def render_pricing(
         ),
         (
             "What can I build with a balance sheet API?",
-            "Anything needing as-reported balance-sheet figures on a schedule "
-            "— screens that rank companies on a filed ratio, dashboards that "
+            "Anything needing as-reported balance-sheet figures on a schedule: "
+            "screens that rank companies on a filed ratio, dashboards that "
             "redraw when a 10-Q lands, backtests that need the figure as it "
             "was reported rather than as it was later restated, and research "
             "notebooks that pull a peer group in one loop.",

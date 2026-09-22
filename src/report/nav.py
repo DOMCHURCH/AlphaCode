@@ -25,7 +25,7 @@ _LINKS = (
     ("About", "/about", "about"),
     ("How we verify", "/methodology", "methodology"),
     ("Pricing", "/pricing", "pricing"),
-    ("Notes", "/blog", "blog"),
+    ("Research", "/blog", "blog"),
     ("API", "/api", "api"),
 )
 
@@ -70,7 +70,7 @@ def render_nav(
             '<button type="button" class="navlink off" id="nav-dash-off"'
             ' aria-disabled="true"'
             ' title="Log in to access your dashboard">Dashboard'
-            '<span class="vh"> — log in to access your dashboard</span>'
+            '<span class="vh">, log in to access your dashboard</span>'
             "</button>"
         )
 

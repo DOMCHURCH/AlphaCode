@@ -190,7 +190,7 @@ def render_dashboard(
         <input id="dash-q" name="q" type="text" placeholder="JPM or Walmart"
           autocomplete="off" autocapitalize="none" spellcheck="false"
           maxlength="64" enterkeyhint="go">
-        <button type="submit">Draw it</button>
+        <button type="submit">Search</button>
       </div>
     </form>
     <p class="tryline">Or start with one of these</p>
@@ -337,9 +337,9 @@ def render_dashboard(
       <div class="buy">
         <span class="plan-name">Pro annual<span class="badge">Save {annual_saving}</span></span>
         <p class="plan-price">{pro_annual_price}<small>/year</small></p>
-        <p class="plan-line">The same Pro access, paid yearly — two months free
+        <p class="plan-line">The same Pro access, paid yearly: two months free
           against the monthly price.</p>
-        <button type="button" class="btn" id="buy-pro-annual">Go Pro annually</button>
+        <button type="button" class="btn" id="buy-pro-annual">Start Pro annually</button>
       </div>
       <div class="buy">
         <span class="plan-name">Full dataset</span>

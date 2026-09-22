@@ -203,7 +203,7 @@
       price.textContent = cta.getAttribute(year ? "data-price-year" : "data-price-month");
       per.textContent = year ? "/year" : "/month";
       line.innerHTML = year ? yearLine : monthLine;
-      cta.textContent = year ? "Go Pro annually" : "Go Pro";
+      cta.textContent = year ? "Start Pro annually" : "Start Pro";
       cta.setAttribute("data-plan", cta.getAttribute(year ? "data-plan-year" : "data-plan-month"));
     });
   });

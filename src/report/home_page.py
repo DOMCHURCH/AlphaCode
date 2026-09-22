@@ -282,8 +282,8 @@ _METHOD_FLAGGED = (
     # is shorter, which the hero wants, and identical to the phrasing the
     # reader meets one click later, which a promise repeated across four pages
     # needs more than it needs variety.
-    "When a filing does not balance, the page says so with the reason "
-    "— never silently fudged."
+    "When a filing does not balance, the page says so with the reason, "
+    "never silently fudged."
 )
 _DEFINITION_METHOD = f"{_METHOD_IDENTITY} {_METHOD_AS_FILED} {_METHOD_FLAGGED}"
 
@@ -385,7 +385,7 @@ def _pricing(stats: dict) -> str:
   <section class="sec" id="pricing">
     <div class="sec-head"><h2>Pricing</h2></div>
     <p class="sec-sub">The drawings are free and always will be. The
-      machine-readable version is what costs money — and it comes two ways. The
+      machine-readable version is what costs money, and it comes two ways. The
       <b>dataset is a photograph</b>: one CSV, downloaded once, fixed forever.
       The <b>API is a window</b>: live data, current every time you call it.
       <a href="/pricing">Full comparison and FAQ</a>.</p>
@@ -430,7 +430,7 @@ def _demo_section() -> str:
         # sentence this page can honestly print. No number quoted: the gate
         # lives in `api._demo_ip_gate` and a figure repeated here would be one
         # more thing to keep in step with it.
-        else "Generous — plenty to evaluate with. A free key gives you more."
+        else "Generous: plenty to evaluate with. A free key gives you more."
     )
     return f"""
   <section class="sec" id="demo">
@@ -638,7 +638,7 @@ def search_form(value: str = "", autofocus: bool = False) -> str:
       <input id="q" name="q" type="text" value="{escape(value)}"
         placeholder="JPM or Walmart" autocomplete="off" autocapitalize="none"
         spellcheck="false" maxlength="64" enterkeyhint="go"{af}>
-      <button type="submit">Draw it</button>
+      <button type="submit">Search</button>
     </div>
   </form>"""
 
@@ -666,7 +666,7 @@ def _example_figure() -> str:
     return f"""
     <h3 class="how-h">Both columns are the same money, counted twice</h3>
     <p class="sec-sub">Left is what the company owns. Right is who has a claim
-      on it — lenders first, then whatever is left for the owners. Both columns
+      on it: lenders first, then whatever is left for the owners. Both columns
       are the same height because they are the same money, counted twice, and
       every band is drawn at the size the company reported.</p>
     <div class="example">
@@ -685,28 +685,25 @@ def _example_figure() -> str:
 _HARD = (
     (
         "Filings don't say things once",
-        "SEC's data carries the same figure many times per company per quarter "
-        "— broken out by segment, by geography, by legal entity, by fair-value "
+        "SEC's data carries the same figure many times per company per quarter: "
+        "broken out by segment, by geography, by legal entity, by fair-value "
         "level. JPMorgan reports “total assets” twenty-three separate "
         "times in one filing. Exactly one of those is the company. Take the "
         "wrong one and you get $641 billion instead of $4.4 trillion, and "
         "nothing about it looks wrong.",
     ),
     (
-        "Balance sheet items and income items are different kinds of fact",
-        "One is a photograph, the other is a film. A balance sheet figure is "
-        "an instant — what was there on one day. Revenue is a duration — what "
-        "happened over three months. Read a duration where you needed an "
-        "instant and you get the change in assets rather than assets, which is "
-        "how a company ends up with a negative total.",
+        "Point-in-time figures",
+        "A balance sheet figure is an instant: what was there on one day. "
+        "Revenue covers a duration: what happened over three months. Read a "
+        "duration where you needed an instant and you get the change in assets "
+        "rather than assets, which is how a company ends up with a negative "
+        "total.",
     ),
     (
         "Every industry files differently",
         "A bank doesn't report inventory; it reports loans and deposits. Look "
-        "for the retail tags on a bank and you get a grey rectangle. The tag "
-        "names move too — the short names most people use are deprecated, and "
-        "the modern bank tags carry an “ExcludingAccruedInterest” "
-        "suffix from a 2020 accounting standard.",
+        "for the retail tags on a bank and you get a grey rectangle.",
     ),
 )
 
@@ -717,11 +714,8 @@ def _hard() -> str:
         for t, b in _HARD
     )
     return f"""
-    <h3 class="how-h">Why this is hard</h3>
-    <div class="hard">{blocks}</div>
-    <p class="method">Every tag was confirmed against the raw filing data
-      before being used. Nothing was mapped on the strength of it sounding
-      right.</p>"""
+    <h2 class="how-h">Why this is hard</h2>
+    <div class="hard">{blocks}</div>"""
 
 
 def _limits() -> str:
@@ -729,7 +723,7 @@ def _limits() -> str:
         "No predictions.",
         "No scores.",
         "No recommendations.",
-        "Nothing estimated — where a company doesn't report something, the "
+        "Nothing estimated: where a company doesn't report something, the "
         "page says so rather than showing zero.",
         "Every figure traces to a filing, with the date it was filed.",
     )
@@ -827,12 +821,12 @@ def _status_strip(stats: dict, freshness: str = "") -> str:
     if b.get("flagged") is not None:
         cell("Flagged with a reason", escape(fmt_int(b["flagged"])),
              count=str(b["flagged"]))
-    if b.get("counts"):
-        cell("Hidden", escape(fmt_int(b["counts"].get("broken", 0))),
-             count=str(b["counts"].get("broken", 0)))
+    # "Hidden" was an ops label facing the public: a visitor reads it as
+    # "things you are not showing me", which is the opposite of what the strip
+    # is for. The count still exists and is still on /admin.
     if freshness:
         cells.append(
-            '<div class="scell"><span class="sk">Pipeline</span>'
+            '<div class="scell"><span class="sk">Updated</span>'
             '<span class="sv"><i class="pulse" aria-hidden="true"></i>'
             f"{escape(freshness)}</span></div>"
         )
@@ -875,7 +869,7 @@ def _hero_drawing(view: View1 | None, kind: str = "") -> str:
     return f"""
   <section class="sec hero-bs">
     <div class="sec-head">
-      <h2>Live from the filings</h2>
+      <h2>One real filing, drawn</h2>
       <span class="bs-meta">{ticker} {why} quarter ended {escape(d["period_end"])},
         filed {escape(d["filing_date"])}</span>
     </div>
@@ -925,18 +919,34 @@ def _how_it_works(stats: dict) -> str:
     It states the unflattering parts too, because a methodology note that
     lists only strengths is marketing wearing a lab coat.
     """
-    ident = stats.get("identity") or {}
-    checkable = ident.get("checkable")
-
+    # The count published HERE must be the one the stat strip's two numbers
+    # add up to. There are two definitions of "checkable" in the codebase and
+    # they disagree by several hundred companies: `identity()` counts a filer
+    # whenever its own stated liabilities-and-equity total is present, while
+    # `identity_breakdown()` -- which the strip reports as Reconciled and
+    # Flagged -- requires the components. Publishing one in the strip and the
+    # other in this sentence put two totals a few inches apart on the one page
+    # whose whole argument is that numbers reconcile, and a reader who added
+    # the strip up got a third. The strip's definition wins because the strip
+    # shows its working; see docs/internal/homepage-checklist-2026-09-22.md.
+    #
     # `rate` is still computed and still read internally; it is deliberately
     # not rendered. See docs/internal/identity-failures.md -- the figure
     # measures whether a filing balances against its own stated total, which is
     # not the claim the word "accuracy" makes to a reader.
+    from src.company.stats import identity_breakdown
+
+    _bd = identity_breakdown() or {}
+    checked = (
+        (_bd.get("reconciled") or 0) + (_bd.get("flagged") or 0)
+        if _bd.get("reconciled") is not None
+        else None
+    )
     identity_line = (
-        f"All {fmt_int(checkable)} companies with a complete balance sheet are "
+        f"All {fmt_int(checked)} companies with a complete balance sheet are "
         "checked against assets = liabilities + equity; any that do not balance "
         "are flagged with the reason."
-        if checkable
+        if checked
         else "Every drawing is checked against assets = liabilities + equity."
     )
     span = (
@@ -959,7 +969,7 @@ def _how_it_works(stats: dict) -> str:
 
     {_hard()}
 
-    <h3 class="how-h">Where the figures come from</h3>
+    <h2 class="how-h">Where the figures come from</h2>
     <div class="trust">
       <div class="tblock">
         <h3>Source</h3>
@@ -971,9 +981,8 @@ def _how_it_works(stats: dict) -> str:
       </div>
       <div class="tblock">
         <h3>Freshness</h3>
-        <p>The loader decides it is behind by asking the database, not by
-          watching a clock, so a container that was down for a week closes the
-          gap on its next tick instead of waiting for a schedule. {span}</p>
+        <p>Every load starts from the last filing already in the database,
+          so a gap of any length closes on the next run. {span}</p>
       </div>
       <div class="tblock">
         <h3>As reported, never restated</h3>
@@ -1015,8 +1024,8 @@ def _closing_cta() -> str:
       authority behind it, and the free tier needs no card.</p>
     <div class="api-cta">
       <a class="btn" href="/dashboard">Get a free API key</a>
-      <a class="btn ghost" href="/api">API docs</a>
-      <a class="btn ghost" href="/methodology">How we verify</a>
+      <a class="btn ghost" href="/api">Read the API docs</a>
+      <a class="btn ghost" href="/methodology">See how we verify</a>
     </div>
   </aside>"""
 
@@ -1076,9 +1085,9 @@ def render_home(
     if pairs:
         gallery = f"""
   <section class="sec">
-    <div class="sec-head"><h2>Compare any two companies at true scale</h2></div>
+    <div class="sec-head"><h2>Every company is a different shape</h2></div>
     <p class="sec-sub">Each drawing is that company's own balance sheet at its
-      own proportions. They look nothing alike because they are nothing alike.
+      own proportions, so no two of them look the same.
       A bank is the clearest case:
       <a href="/blog/why-bank-balance-sheets-are-different">its shape inverts
       the one most people picture</a>, with deposits as liabilities and loans
@@ -1127,9 +1136,8 @@ def render_home(
          screen below -- so the fold carried the argument twice and the
          search box got pushed off it. The hero's job is the claim; the
          section's job is the proof. -->
-    <p class="hlede">BalanceProof is the verification layer over SEC EDGAR
-      balance sheets: when a filing reconciles you get the figure, and when it
-      does not you get the reason instead of a number that looks fine.</p>
+    <p class="hlede">When a filing reconciles you get the figure. When it
+      does not, you get the reason instead of a number that looks fine.</p>
     {search_form()}
     <!-- THE HOMEPAGE HAD NO BUTTON. Seven conversion links, every one of them
          plain text, and the first was the phrase "get the data" inside a
@@ -1276,7 +1284,7 @@ def render_no_names(query: str, suggestions: list[Suggestion]) -> str:
   <div class="empty">
     <h1>Search by ticker for now</h1>
     <p>Company names are not loaded on this instance, so “{escape(query)}”
-      can only be read as a ticker symbol — and there is no company with that
+      can only be read as a ticker symbol, and there is no company with that
       symbol.</p>
     {search_form()}
     <p class="tryline">These five are loaded:</p>

@@ -337,7 +337,7 @@
     accountEmail = s.email || "";
     /* BOTH Pro buttons go dead once the account is Pro, not just the monthly
        one. There is a single Pro tier and the annual plan grants exactly it,
-       so an enabled "Go Pro annually" next to an account that already has Pro
+       so an enabled "Start Pro annually" next to an account that already has Pro
        is a second subscription for access it already holds. Switching between
        billing periods is a change to an existing subscription and belongs in
        Stripe's portal, not in a second checkout. */
