@@ -171,6 +171,16 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
       refunded in full, no reason needed. A refund ends Pro access and the
       account returns to the free allowance. Payments older than 14 days are
       not refunded, though cancelling stops the next one.</p>
+    <p><strong>Introductory offer.</strong> A visitor may be offered a discount
+      on the first month of monthly Pro. It is shown at most once per internet
+      connection, can only be claimed from the page it is shown on, and ends if
+      you leave that page without claiming it. Once claimed it is applied
+      automatically at checkout for one hour. It is for first-time customers
+      only, can be used once, does not apply to annual Pro or the dataset, has
+      no cash value, and cannot be transferred or combined with another
+      discount. After the first month Pro renews at its normal price. We may
+      change or withdraw the offer at any time; a discount already applied to a
+      completed checkout is honoured.</p>
     <p><strong>The dataset download is non-refundable</strong> once the file
       has been downloaded, because a file cannot be returned. If something goes
       wrong on our side, with either product, contact {who} and we will make
@@ -327,6 +337,9 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
       <li>Page views and digests — retained in aggregate for analytics. They are
         not linked to your account.</li>
       <li>Login links — deleted shortly after they expire.</li>
+      <li>Sign-in offer records (the digest, when the offer was shown and
+        whether it was claimed) — kept so the offer is only ever shown once
+        per connection.</li>
     </ul>
 
     <h2>7. Your rights</h2>
