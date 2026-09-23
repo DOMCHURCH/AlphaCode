@@ -1974,6 +1974,19 @@ def company_page(ticker: str, request: Request) -> HTMLResponse:
     # extras row is keyed by that -- looking it up under the symbol in the URL
     # silently drops the prose from every aliased page.
     extras = load_extras(view.ticker)
+    if extras is not None and view.period_end is not None:
+        # The JSON-LD is rebuilt here rather than read from the row: it is a
+        # pure function of figures already loaded, costs no query, and a
+        # schema change (2026-09-23, Dataset description/license/creator) then
+        # reaches every page on deploy instead of waiting for a backfill.
+        from src.report.home_page import SITE_ORIGIN
+        from src.report.page_extras import build_company_ld
+
+        extras["jsonld"] = build_company_ld(
+            ticker=view.ticker, company_name=view.company_name,
+            sector=view.sector, origin=SITE_ORIGIN,
+            assets=view.total_assets, period_end=view.period_end,
+        )
     return HTMLResponse(
         render_company_page(
             view,
