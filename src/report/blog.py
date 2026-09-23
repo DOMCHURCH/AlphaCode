@@ -1539,7 +1539,195 @@ usually find out about after they ship.</p>
 )
 
 
+_POST_SUBMISSIONS_API = Post(
+    slug="sec-submissions-api-reconciliation",
+    title="The SEC Submissions API: What It Returns, and What It Cannot Reconcile",
+    # 56 characters. The query this answers was already reaching the site
+    # ("sec edgar submissions api filing reconciliation", position 41) with no
+    # page that was about it.
+    seo_title="The SEC Submissions API Cannot Reconcile a Balance Sheet",
+    description=(
+        "The EDGAR submissions endpoint lists filings but holds no figures. "
+        "How to join it to company facts on the right key, and why amendments "
+        "break it."
+    ),
+    summary=(
+        "Submissions is an index of documents and company facts is a bag of "
+        "numbers. Reconciling a balance sheet needs both, joined on the "
+        "period and kept inside one accession number."
+    ),
+    published="2026-09-23",
+    updated="2026-09-23",
+    minutes=6,
+    body="""
+<p class="lede">There are two EDGAR endpoints people reach for first, and they
+answer different questions. Confusing them costs an afternoon, and the confusion
+is reasonable, because both are described as giving you a company's
+filings.</p>
+
+<pre class="code"><code>https://data.sec.gov/submissions/CIK##########.json
+https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json</code></pre>
+
+<p>The first is an index of documents. The second is a bag of numbers. Neither
+one, on its own, lets you reconcile a balance sheet, and the reason is worth
+understanding before you build around either.</p>
+
+<h2>What submissions actually returns</h2>
+
+<p>Submissions is the filing history. For a given CIK you get identity fields
+(name, SIC, exchange, former names) and then a <code>filings</code> object whose
+<code>recent</code> member holds parallel arrays, one per column, not a list of
+records:</p>
+
+<pre class="code"><code>import requests
+
+HEADERS = {"User-Agent": "YourCompany yourname@example.com"}
+
+def submissions(cik: int) -&gt; dict:
+    url = f"https://data.sec.gov/submissions/CIK{cik:010d}.json"
+    return requests.get(url, headers=HEADERS, timeout=30).json()
+
+def recent_filings(cik: int, forms=("10-K", "10-Q")):
+    doc = submissions(cik)
+    r = doc["filings"]["recent"]
+    rows = zip(r["accessionNumber"], r["form"], r["filingDate"],
+               r["reportDate"], r["primaryDocument"])
+    return [
+        {"accession": a, "form": f, "filed": fd, "period": rd, "doc": pd}
+        for a, f, fd, rd, pd in rows
+        if f in forms
+    ]</code></pre>
+
+<p>Two things about that response catch people out.</p>
+
+<p><strong>The arrays are columnar.</strong> You have to zip them back into
+records yourself. Index drift between columns is silent and produces filings
+whose form type belongs to one document and whose date belongs to another.</p>
+
+<p><strong><code>recent</code> is not everything.</strong> It holds at least a
+year of filings or the latest thousand, whichever is more; anything older is paged out into separate files listed
+under <code>filings.files</code>. For an established filer that window may not
+reach back as far as you assume. Fetch the additional files and concatenate
+before you claim to have a company's history.</p>
+
+<p>What you will not find anywhere in that response is a number off the balance
+sheet. There are no assets, no liabilities, no equity. Submissions tells you
+that a 10-Q exists, when it was filed, what period it covers, and where the
+document lives. It does not tell you what the document says.</p>
+
+<h2>Why reconciliation needs the second call</h2>
+
+<p>Reconciliation is a statement about figures: assets on one side, liabilities
+and equity on the other, agreeing within tolerance. Submissions has no figures,
+so there is nothing to reconcile. The facts live in company facts, or in the
+narrower company concept endpoint if you know exactly which element you
+want:</p>
+
+<pre class="code"><code>https://data.sec.gov/api/xbrl/companyconcept/CIK##########/us-gaap/Assets.json</code></pre>
+
+<p>So the shape of any real pipeline is a join. Submissions establishes which
+filings exist and what periods they cover. Company facts supplies the values.
+The join key is where the work is.</p>
+
+<h2>Joining on period, not on filing date</h2>
+
+<p>The instinct is to join on <code>filingDate</code>. It does not work, and the
+failure is quiet.</p>
+
+<p>A fact in company facts carries <code>end</code> (the balance sheet date),
+<code>fy</code> and <code>fp</code> (the fiscal year and period it was reported
+under), <code>form</code>, <code>filed</code>, and usually <code>accn</code>, the
+accession number. A filing in submissions carries <code>reportDate</code> and
+<code>filingDate</code>. The pair that means the same thing is
+<code>reportDate</code> and <code>end</code>. <code>filingDate</code> is when
+the document was transmitted, which may be weeks later and which changes on
+amendment while the period does not.</p>
+
+<p><a href="/company/KO">Coca-Cola</a> is a clean example. Its first-quarter
+2024 10-Q, for the period ended 29 March 2024, was filed on 2 May 2024. A 10-Q/A
+for the same period followed on 30 May 2024. Same <code>reportDate</code>, two
+filing dates, two accession numbers. A join on filing date treats them as two
+unrelated quarters.</p>
+
+<pre class="code"><code>def facts_for_period(f: dict, tag: str, period: str, unit: str = "USD"):
+    node = f["facts"].get("us-gaap", {}).get(tag)
+    if not node:
+        return []
+    return [r for r in node["units"].get(unit, []) if r["end"] == period]</code></pre>
+
+<p>Call that and you will often get more than one row back for a single period.
+That is not a bug either.</p>
+
+<h2>The same period, reported more than once</h2>
+
+<p>A balance sheet date appears in company facts once for every filing that
+reported it. A figure as of the end of Q2 shows up in the Q2 10-Q, again as a
+comparative in the Q3 10-Q, again in the annual report, and again in any
+amendment to any of those. The values are usually identical. When they are not,
+the difference is the thing you actually wanted to know, and taking
+<code>max</code> over the list throws it away.</p>
+
+<p>Use <code>accn</code> to keep the provenance:</p>
+
+<pre class="code"><code>def by_filing(rows):
+    out = {}
+    for r in rows:
+        out.setdefault(r.get("accn"), []).append(r)
+    return out</code></pre>
+
+<p>Reconcile within a single accession number. Assets from the original 10-Q
+against liabilities and equity from the amendment is not a reconciliation of
+anything; it is two filings averaged into a number that appears in neither. If
+the identity closes on the original and fails on the amendment, that is a real
+finding about the company. If you mixed them, you have destroyed the evidence
+and produced a figure you cannot defend to anyone who asks where it came
+from.</p>
+
+<p>This is the same discipline that applies to the individual claim lines. I set
+out the five mechanisms that make a filing fail the identity check, and what the
+correct response is to each, in <a href="/blog/five-ways-a-balance-sheet-fails">The
+Five Ways a Balance Sheet Fails the Identity Check</a>.</p>
+
+<h2>What submissions is genuinely good for</h2>
+
+<p>Having said what it cannot do, it does three things nothing else does as
+well.</p>
+
+<p><strong>Knowing what to fetch.</strong> Company facts returns a company's
+entire tagged history in one object, which for a large filer is a substantial
+download. If you only need the most recent annual figures, submissions tells you
+which period that is before you commit to the larger call.</p>
+
+<p><strong>Detecting amendments.</strong> <code>10-K/A</code> and
+<code>10-Q/A</code> appear in the form column. An amendment means a figure you
+already stored may have been restated. Submissions is where you learn that
+cheaply, on a schedule, without re-pulling facts for companies that have not
+filed anything.</p>
+
+<p><strong>Resolving identity.</strong> <code>formerNames</code> carries prior
+names with the dates they applied. <a href="/company/META">Meta</a> still lists
+Facebook Inc there, and <a href="/company/XYZ">Block</a> lists Square, Inc. up
+to December 2021, a rename later followed by a ticker change. Renames and
+reverse mergers are the ordinary reason a company appears to vanish from a
+universe between quarters, and the mapping is right there.</p>
+
+<p>Between the two endpoints, and the rate discipline in <a
+href="/blog/build-scalable-sec-edgar-pipeline">SEC EDGAR API Rate Limits: A
+Python Pipeline Under 10 RPS</a>, you have everything EDGAR offers for free.
+What remains is the reconciliation itself, the extension tags no standard
+mapping reaches, and the long tail of filers who present a right-hand side
+shaped like nobody else's.</p>
+
+<p>That is the layer <a href="/">BalanceProof</a> is. Every balance sheet across
+{COMPANIES} companies is reconciled within a single accession before it is
+served, and the ones that do not close carry the reason rather than a patched
+number. <a href="/pricing">The free tier</a> covers the full universe.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_SUBMISSIONS_API,
     _POST_TOTAL_LIABILITIES,
     _POST_FIVE_FAILURES,
     _POST_WHAT_I_GOT_WRONG,
@@ -1680,6 +1868,11 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
         ("KO", "no Liabilities tag at all — the post opens on this filing"),
         ("AMZN", "the same absence, a different balance sheet"),
         ("AAPL", "publishes the subtotal, for the contrast"),
+    ),
+    "sec-submissions-api-reconciliation": (
+        ("KO", "a 10-Q and its 10-Q/A, one period, two filing dates"),
+        ("META", "still carries Facebook Inc under formerNames"),
+        ("XYZ", "Square, Inc. until 2021, then a ticker change"),
     ),
 }
 
