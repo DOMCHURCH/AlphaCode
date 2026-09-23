@@ -44,6 +44,11 @@ class Post:
     updated: str
     minutes: int
     body: str
+    # Question-shaped queries reach some posts ("accounting identity meaning",
+    # "the balance sheet identity is"). These render as a visible Q&A under
+    # the article AND as FAQPage JSON-LD, from this one tuple, so the markup
+    # can never claim an answer the page does not show (see `faq_ld`).
+    faq: tuple[tuple[str, str], ...] = ()
 
 
 _POST_XBRL_ACCURACY = Post(
@@ -357,14 +362,15 @@ hold in your head — it is the shape of the picture.</p>
 _POST_ACCOUNTING_IDENTITY = Post(
     slug="understanding-the-accounting-identity",
     title="Understanding the Accounting Identity",
-    # 64 characters. "Actually" was doing rhetorical work rather than search
-    # work; dropping the one word fixes the length without touching the
-    # identity, which is the whole keyword.
-    seo_title="Assets = Liabilities + Equity: What the Identity Proves",
+    # 54 characters. Search Console (2026-09-23) showed the post reached by
+    # "accounting identity", "accounting identity meaning", "the balance sheet
+    # identity is" and "balance sheet identity" -- 16 impressions, 0 clicks --
+    # while neither the title tag nor the description contained the phrase.
+    seo_title="The Accounting Identity: Assets = Liabilities + Equity",
     description=(
-        "Assets = Liabilities + Equity is not a rule filers follow but a "
-        "consequence of double-entry bookkeeping, which makes it a test on "
-        "data you did not produce."
+        "The accounting identity is Assets = Liabilities + Equity. It follows "
+        "from double-entry bookkeeping, which makes it a test on data you did "
+        "not produce."
     ),
     summary=(
         "Assets = Liabilities + Equity is not a guideline, it is what makes "
@@ -373,8 +379,40 @@ _POST_ACCOUNTING_IDENTITY = Post(
         "negative equity."
     ),
     published="2026-09-10",
-    updated="2026-09-10",
+    updated="2026-09-23",
     minutes=5,
+    faq=(
+        (
+            "What is the accounting identity?",
+            "The accounting identity is the equation Assets = Liabilities + "
+            "Equity. It holds for every balance sheet because double-entry "
+            "bookkeeping records each transaction on two sides at once, so it "
+            "is a mechanical result of how the books are kept rather than a "
+            "rule a company chooses to follow.",
+        ),
+        (
+            "What is the balance sheet identity?",
+            "The balance sheet identity is another name for the same equation, "
+            "Assets = Liabilities + Equity. Because it holds by construction, "
+            "it can check figures taken from a filing, not only define what a "
+            "balance sheet is.",
+        ),
+        (
+            "What does the accounting identity mean in practice?",
+            "Three figures from one filing, total assets, total liabilities and "
+            "equity, have to agree. If they do not, something in the extraction "
+            "or, rarely, in the filing itself is wrong, which is why "
+            "BalanceProof runs the check on every company before serving it.",
+        ),
+        (
+            "Why doesn't a balance sheet always balance?",
+            "When a filing appears not to balance, there are five causes: a "
+            "tag the extractor did not read, noncontrolling interests, "
+            "mezzanine equity, rounding, and, rarely, a filing that genuinely "
+            "does not balance. The first four are gaps in the test, not in the "
+            "filing.",
+        ),
+    ),
     body="""
 <p class="lede">The identity is not a rule companies are asked to obey. It is a
 consequence of how the books are kept, which is exactly what makes it useful to
@@ -384,7 +422,10 @@ somebody reading those books from outside.</p>
 with cash and assets do not change — one asset becomes another. Buy it with a
 loan and assets and liabilities rise together. There is no legal transaction
 that moves one side without the other, so at the end of any period
-<strong>Assets = Liabilities + Equity</strong> holds by construction.</p>
+<strong>Assets = Liabilities + Equity</strong> holds by construction.
+That equation is the accounting identity, also called the balance sheet
+identity, because it is the one equation every balance sheet has to
+satisfy.</p>
 
 <p>That is why it works as a <em>test</em>. A figure you have extracted from a
 filing is not verifiable on its own — you cannot tell a correct total assets
@@ -1368,11 +1409,15 @@ _POST_TOTAL_LIABILITIES = Post(
     # 54 characters. The headline above keeps "Obvious" because the whole
     # point is that the obvious move fails; in a result list the reader has
     # not made the move yet, so the word is doing nothing and the length is.
-    seo_title="Total Liabilities from SEC EDGAR: Why the Tag Is Empty",
+    # 57 characters, and "API" in both fields since 2026-09-23: the queries
+    # reaching this post are commercial -- "free api with total liabilities",
+    # "api with total assets and total liabilities" -- and neither field said
+    # API or free.
+    seo_title="Total Liabilities from the SEC EDGAR API: Why It Is Empty",
     description=(
-        "Coca-Cola, Amazon and Walmart do not report us-gaap:Liabilities at "
-        "all. Here is why the tag is missing, and how to derive the figure "
-        "from what is there."
+        "Coca-Cola, Amazon and Walmart report no us-gaap:Liabilities tag. Why "
+        "it is missing, how to derive it, and a free API that returns it "
+        "reconciled."
     ),
     summary=(
         "Ask EDGAR for us-gaap:Liabilities and a large share of filers "
@@ -1917,8 +1962,27 @@ def _related_reading(post: Post) -> str:
   </section>"""
 
 
+def _faq_html(post: Post) -> str:
+    """The visible half of `post.faq`; `faq_ld` is the other, from the same tuple."""
+    if not post.faq:
+        return ""
+    items = "".join(
+        f"""
+      <details class="faq-item">
+        <summary>{escape(q)}</summary>
+        <div class="faq-a">{escape(a)}</div>
+      </details>"""
+        for q, a in post.faq
+    )
+    return f"""
+  <section class="sec" id="faq">
+    <div class="sec-head"><h2>Questions</h2></div>
+    <div class="faq">{items}</div>
+  </section>"""
+
+
 def render_post(post: Post, *, nav: str = "") -> str:
-    from src.report.schema import blogposting_ld, breadcrumb_ld
+    from src.report.schema import blogposting_ld, breadcrumb_ld, faq_ld
 
     nav_html, footer = _nav_and_footer(nav)
     body = f"""{nav_html}
@@ -1931,6 +1995,7 @@ def render_post(post: Post, *, nav: str = "") -> str:
     </header>
     <div class="prose">{_fill_scale(post.body)}</div>
   </article>
+  {_faq_html(post)}
   {_related_companies(post)}
 
   <aside class="sec cta">
@@ -1965,5 +2030,6 @@ def render_post(post: Post, *, nav: str = "") -> str:
             ("Home", "/"),
             ("Research", "/blog"),
             (post.title, f"/blog/{post.slug}"),
-        ]),
+        ])
+        + faq_ld(post.faq),
     )

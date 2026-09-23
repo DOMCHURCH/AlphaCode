@@ -95,7 +95,14 @@ body { background: var(--bg); color: var(--ink); }
    inline fill, the same way .exband already is. */
 .band[style*="--a2"] .bl,
 .band[style*="--a3"] .bl,
-.band[style*="--l1"] .bl { color: var(--band-ink-pale); }
+.band[style*="--l1"] .bl,
+/* The home page's worked example draws with `.exband`, not `.band`, so the
+   three lines above never reached it: white on its --a3 and --l1 bands
+   measured 2.7:1 and 3.64:1 in Lighthouse, the only contrast failures on the
+   page. Same tints, same answer. */
+.exband[style*="--a2"],
+.exband[style*="--a3"],
+.exband[style*="--l1"] { color: var(--band-ink-pale); }
 /* A negative-equity band is now a well with a yellow rule, so its label is
    yellow on near-black rather than yellow on ink. */
 .band.neg .bl, .band.keep.loss .bl { color: var(--yellow); }

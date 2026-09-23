@@ -38,12 +38,12 @@ from __future__ import annotations
 from src.report.company_page import asset_version
 from src.report.home_page import shell
 
-LAST_UPDATED = "8 September 2026"
+LAST_UPDATED = "23 September 2026"
 # The same day in the form a machine wants it. Written next to the prose
 # date rather than derived from it, so the two cannot drift: the sitemap
 # tells crawlers when these documents last changed, and a lastmod that
 # disagrees with the page is a claim the crawler can catch you making.
-LAST_UPDATED_ISO = "2026-09-08"
+LAST_UPDATED_ISO = "2026-09-23"
 
 # One sentence, used in three places, so the disclaimer cannot drift between
 # the banner, the terms and the footer.
@@ -166,9 +166,15 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
       checkout page. <strong>No card details are entered on this site or held
       by us</strong> — we receive confirmation that a payment succeeded and the
       email address it was made with, and nothing else.</p>
-    <p><strong>Digital products are non-refundable</strong> once access has been
-      granted or the dataset has been downloaded. If something goes wrong on our
-      side, contact {who} and we will make it right.</p>
+    <p><strong>Pro has a 14-day refund window.</strong> If you ask {who}
+      within 14 days of a Pro payment, monthly or annual, that payment is
+      refunded in full, no reason needed. A refund ends Pro access and the
+      account returns to the free allowance. Payments older than 14 days are
+      not refunded, though cancelling stops the next one.</p>
+    <p><strong>The dataset download is non-refundable</strong> once the file
+      has been downloaded, because a file cannot be returned. If something goes
+      wrong on our side, with either product, contact {who} and we will make
+      it right.</p>
     <p>Pro renews monthly through Stripe until it is cancelled. To cancel,
       email {who} — self-serve cancellation is not built yet. Access continues
       to the end of the period already paid for; when it lapses your account

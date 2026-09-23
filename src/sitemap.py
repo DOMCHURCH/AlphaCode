@@ -59,6 +59,36 @@ _cache: tuple[float, str, str] | None = None   # (built_at, base_url, xml)
 # outage this module's docstring warns about, so the walk happens once at boot
 # instead.
 _drawable: frozenset[str] | None = None
+_thin: frozenset[str] = frozenset()
+
+# A page Google should not be asked to index. Two tests, either sufficient:
+#
+# * Under $10M in total assets. Below that the universe is shells, blank-check
+#   vehicles and dormant registrants -- /company/BRLL is $135K -- and on a new
+#   domain Search Console reported 5,516 of 6,251 URLs "discovered, currently
+#   not indexed" (2026-09-23): Google is rationing crawl, and every shell in the
+#   sitemap is a crawl not spent on a page someone searches for. BRLL's one
+#   contribution was 71 impressions from a Bank of Baroda rate query it could
+#   never satisfy.
+# * No filing in 18 months. The page is a picture of a company that has stopped
+#   reporting, and its "most recent balance sheet" is not recent.
+#
+# The pages still render and still link out -- `noindex,follow` -- so a reader
+# who arrives by search or by the peer list loses nothing. Only the invitation
+# to index is withdrawn.
+THIN_ASSETS_USD = 10_000_000
+THIN_STALE_DAYS = 548
+
+
+def is_thin(total_assets: float | None, filing_date: dt.date | None,
+            today: dt.date | None = None) -> bool:
+    """Whether a company page is kept out of the sitemap and marked noindex."""
+    if not total_assets or total_assets < THIN_ASSETS_USD:
+        return True
+    if filing_date is None:
+        return False
+    today = today or dt.date.today()
+    return (today - filing_date).days > THIN_STALE_DAYS
 
 
 def refresh_drawable() -> int:
@@ -69,25 +99,32 @@ def refresh_drawable() -> int:
     fails: a stale filter lists a handful of 404s, an empty one would drop six
     thousand real pages out of the sitemap.
     """
-    global _drawable
+    global _drawable, _thin
 
     from src.company.view1 import build_view1
 
     try:
         candidates = [t for t, _ in _candidate_rows()]
         drawable = set()
+        thin = set()
         for ticker in candidates:
             try:
-                if build_view1(ticker) is not None:
-                    drawable.add(ticker)
+                view = build_view1(ticker)
             except Exception:  # noqa: BLE001 - one ticker is not the run
                 continue
+            if view is None:
+                continue
+            drawable.add(ticker)
+            if is_thin(view.total_assets, view.filing_date):
+                thin.add(ticker)
         _drawable = frozenset(drawable)
+        _thin = frozenset(thin)
         log.info(
             "sitemap_drawable_refreshed",
             candidates=len(candidates),
             drawable=len(_drawable),
             excluded=len(candidates) - len(_drawable),
+            thin=len(_thin),
         )
     except Exception as exc:  # noqa: BLE001 - the sitemap still builds without it
         log.warning("sitemap_drawable_refresh_failed", error=str(exc)[:200])
@@ -129,7 +166,7 @@ def _company_rows() -> list[tuple[str, dt.date | None]]:
     if known is None:
         log.info("sitemap_unfiltered", reason="drawable set not computed yet")
         return rows
-    return [(t, d) for t, d in rows if t in known]
+    return [(t, d) for t, d in rows if t in known and t not in _thin]
 
 
 def _newest_filing() -> dt.date | None:

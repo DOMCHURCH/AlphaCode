@@ -1033,7 +1033,7 @@ def test_company_page_cache_busts_its_css(client):
     _seed_company("X", {
         "total_assets": 1_000.0, "total_liabilities": 600.0, "total_equity": 400.0,
     })
-    assert "/static/company.css?v=" in client.get("/company/X").text
+    assert "/static/site.css?v=" in client.get("/company/X").text
 
 
 def test_raw_facts_presets_carry_their_own_parameters(client):

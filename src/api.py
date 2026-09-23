@@ -442,6 +442,34 @@ async def redirect_renamed_paths(request: Request, call_next):
     return await call_next(request)
 
 
+@app.middleware("http")
+async def redirect_trailing_slash(request: Request, call_next):
+    """301 `/company/AAPL/` to `/company/AAPL`, keeping the scheme.
+
+    Starlette's own slash redirect answered 307 to `http://` -- uvicorn sits
+    behind Railway's TLS proxy without `--proxy-headers`, so the absolute URL
+    it builds carries the scheme of the hop, not of the reader. A crawler got a
+    temporary redirect AND a downgrade, then a second hop back to https. The
+    Location here is relative, so the reader's own scheme and host are kept
+    wherever this runs, and the 301 says the clean URL is the canonical one.
+
+    Pages only: `/api/` and `/mcp` callers are scripts, and a redirect on a POST
+    turns into a GET in half the clients that follow it.
+    """
+    path = request.url.path
+    if (
+        request.method == "GET"
+        and len(path) > 1
+        and path.endswith("/")
+        and not path.startswith(("/api/", "/mcp", "/static/"))
+    ):
+        target = path.rstrip("/") or "/"
+        if request.url.query:
+            target = f"{target}?{request.url.query}"
+        return RedirectResponse(url=target, status_code=301)
+    return await call_next(request)
+
+
 # Every route is declared `@app.get`, which registers GET and nothing else, so
 # a HEAD arrived as a PARTIAL match and Starlette answered 405 -- on every URL
 # on the site. Bing probes with HEAD, so do link checkers, so do several
@@ -723,6 +751,24 @@ class _ImmutableStatic(StaticFiles):
         response = super().file_response(*args, **kwargs)
         response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
         return response
+
+
+@app.get("/static/site.css", include_in_schema=False)
+def site_css() -> Response:
+    """The five layered stylesheets as one request (`report/cssbundle.py`).
+
+    Declared BEFORE the `/static` mount on purpose: Starlette matches in
+    registration order, and after the mount this path would be looked up as a
+    file that does not exist. Same caching as the mount -- the URL carries
+    `?v=<mtime>`, so it changes whenever any layer does.
+    """
+    from src.report.cssbundle import bundle
+
+    return Response(
+        content=bundle(),
+        media_type="text/css",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 _STATIC_DIR = Path(__file__).parent / "report" / "static"

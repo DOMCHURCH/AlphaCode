@@ -21,6 +21,7 @@ import structlog
 from src.company.suggest import Suggestion
 from src.company.view1 import View1
 from src.report.backdrop import media_version
+from src.report.cssbundle import stylesheet_link
 from src.report.company_page import (
     _band,
     _legend_rows,
@@ -599,19 +600,9 @@ def _shell(
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
-<!-- Second sheet rather than more of the first: the accuracy banner and the
-     dashboard's controls are the only things that use it, and keeping them out
-     of company.css keeps the drawing's stylesheet about the drawing. -->
-<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
-<!-- Last, and only token overrides: this is what turns the whole site dark,
-     drawings included, without a rule being rewritten. -->
-<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<!-- Last of all, and token overrides again: this is what turns the flat
-     surfaces into glass and the corners soft. Swap this one line back to
-     terminal.css to return to the ruled treatment; nothing else changes. -->
-<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
+<!-- The five layered sheets, as one request. Their order, and the one-line
+     revert to terminal.css, live in `cssbundle.LAYERS`. -->
+{stylesheet_link()}
 <meta name="theme-color" content="#0a0a0a">
 </head>
 <body data-film="{film}">

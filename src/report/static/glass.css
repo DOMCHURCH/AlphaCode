@@ -919,3 +919,78 @@ footer {
 @media (prefers-reduced-motion: reduce) {
   .sp-wrap, .sp-sheet { animation: none }
 }
+
+/* ---------------------------------------------------------------------------
+   Related companies + recent filings
+   ---------------------------------------------------------------------------
+   Both sections shipped with markup and no stylesheet at all: three adjacent
+   spans with no whitespace between them rendered as one run --
+   "FNMAFEDERAL NATIONAL MORTGAGE ASSOCIATION FANNIE MAE$4.33T" -- on every
+   company page, sitting bare on the backdrop under a column of panels.
+
+   Styled HERE and not by changing the markup, because the markup is not
+   rendered per request: `page_extras_store` writes it into `company_page_extras`
+   once per filing. A markup fix would reach each company only when its next
+   filing lands; a stylesheet reaches all of them on the next deploy.
+
+   The plate is `main .sec`'s (backdrop.css), restated because these sections
+   do not carry the class. Figures in mono, like every figure on the site. */
+main .company-peers,
+main .company-filings {
+  margin: 0 0 40px;
+  background: rgba(20, 22, 42, .85);
+  border: 1px solid rgba(255, 255, 255, .06);
+  border-radius: 14px;
+  padding: 20px 22px;
+}
+.company-peers h2,
+.company-filings h2 {
+  font-family: var(--disp);
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -.015em;
+  color: var(--ink);
+  margin: 0 0 6px;
+}
+.company-peers .section-note,
+.company-filings .section-note {
+  margin: 0 0 14px;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink2);
+}
+.peer-list,
+.filing-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.peer-list li + li,
+.filing-list li + li { border-top: 1px solid rgba(255, 255, 255, .06); }
+.peer-list a {
+  display: grid;
+  grid-template-columns: 7ch minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+  padding: 11px 2px;
+  color: var(--ink);
+  text-decoration: none;
+}
+.peer-ticker { font: 700 14px/1.3 var(--mono); letter-spacing: .02em; }
+.peer-name {
+  font-size: 14.5px;
+  color: var(--ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.peer-assets { font: 400 13.5px/1.3 var(--mono); color: var(--ink); text-align: right; }
+.peer-list a:hover .peer-name { color: var(--ink); text-decoration: underline; }
+.filing-list a,
+.filing-list li { display: block; padding: 9px 2px; font: 400 13.5px/1.4 var(--mono); }
+.filing-list li:has(> a) { padding: 0; }
+.filing-list a { color: var(--ink); }
+@media (max-width: 560px) {
+  .peer-list a { grid-template-columns: 6ch minmax(0, 1fr) auto; gap: 10px; }
+}
+.chead .cta-note { margin: 10px 0 0; padding: 0; }

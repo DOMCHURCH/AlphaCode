@@ -403,6 +403,18 @@ def faq(
               the limit rather than after.</p>""",
             False,
         ),
+        (
+            "Can I get a refund?",
+            """<p>Pro, monthly or annual, carries a <strong>14-day refund
+              window</strong>: if it is not what you needed, email within 14 days
+              of paying and the payment is refunded in full, no questions asked.
+              The refund ends Pro access and your key returns to the free
+              allowance; nothing is deleted.</p>
+            <p>The dataset is a file, and a file cannot be handed back, so it is
+              non-refundable once downloaded. If it is broken or not what the
+              page described, say so and it will be made right.</p>""",
+            False,
+        ),
     )
     items = "".join(
         f"""

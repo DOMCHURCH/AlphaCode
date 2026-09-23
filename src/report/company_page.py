@@ -18,6 +18,7 @@ from src.company.view1 import View1, describe_shape
 from src.company.view2 import View2
 from src.company.view3 import View3, describe_flow
 from src.report.backdrop import media_version
+from src.report.cssbundle import stylesheet_link
 
 _STATIC = Path(__file__).parent / "static"
 
@@ -276,6 +277,44 @@ _METHOD_READING = (
     "How the figure on this page was chosen out of the twenty-odd tags the "
     "filer published for it.",
 )
+
+
+def _robots_meta(view: View1) -> str:
+    """`noindex,follow` for a page kept out of the sitemap; nothing otherwise.
+
+    The rule is `sitemap.is_thin`, called here rather than read from the
+    sitemap's cached set so the two can never disagree about one page: a page
+    missing from the sitemap but still inviting indexing is the half-measure
+    that leaves the shell ranking for noise.
+    """
+    from src.sitemap import is_thin
+
+    if is_thin(view.total_assets, view.filing_date):
+        return '<meta name="robots" content="noindex,follow">'
+    return ""
+
+
+def _cta_html(ticker: str) -> str:
+    """The page's one ask, in the header, where a reader decides to stay.
+
+    Nearly all search traffic lands on a company page, and until 2026-09-23 the
+    only route from here to a key was a sentence at the foot of "Learn more",
+    two screens down. The home page got its buttons on 2026-09-19; this is the
+    same block, carried to the page people actually arrive on. It names the
+    company, because "this balance sheet as JSON" is the offer a reader here
+    can picture and "an API key" is not.
+    """
+    from src.config.settings import get_settings
+
+    free_calls = get_settings().free_tier_monthly_calls
+    t = escape(ticker)
+    return f"""
+    <div class="api-cta hero-cta">
+      <a class="btn" href="/dashboard">Get {t} as JSON, free</a>
+      <a class="btn ghost" href="/api">API reference</a>
+    </div>
+    <p class="plan-note cta-note">A free key covers every company here:
+      {free_calls:,} calls a month, no card.</p>"""
 
 
 def _learn_more(d: dict) -> str:
@@ -688,15 +727,12 @@ def render_company_page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title_name(d["company_name"] or d["ticker"], str(d["ticker"])))} ({escape(d["ticker"])}) Balance Sheet — BalanceProof</title>
 {_company_meta(d)}
+{_robots_meta(view)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
+{stylesheet_link()}
 <meta name="theme-color" content="#0a0a0a">
 {company_ld}
 </head>
@@ -716,6 +752,7 @@ def render_company_page(
       <span class="chip filed">Filed {escape(d["filing_date"])}</span>
     </div>
     {same_registrant}
+    {_cta_html(d["ticker"])}
   </header>
 
   {intro_html}
@@ -840,12 +877,8 @@ def render_404_page(
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/static/company.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dashboard.css?v={asset_version()}">
 <meta name="robots" content="noindex,follow">
-<link rel="stylesheet" href="/static/backdrop.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/dark.css?v={asset_version()}">
-<link rel="stylesheet" href="/static/glass.css?v={asset_version()}">
+{stylesheet_link()}
 <meta name="theme-color" content="#0a0a0a">
 </head>
 <body data-film="hero">
