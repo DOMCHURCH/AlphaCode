@@ -407,6 +407,23 @@ class Settings(BaseSettings):
     stripe_price_pro_annual: str = Field(
         default="", alias="STRIPE_PRICE_PRO_ANNUAL"
     )
+    # The Stripe PROMOTION CODE (the customer-facing string, e.g. FIRSTMONTH50,
+    # not the promo_ id) offered to a reader who says no to the sign-in panel.
+    # Empty turns the offer off entirely: the panel simply closes on "no", as
+    # it did before. The discount itself is Stripe's object -- amount,
+    # duration, which products -- so changing the deal is a Stripe edit, and
+    # the wording on the panel comes from `signin_offer_label`.
+    signin_offer_code: str = Field(default="", alias="SIGNIN_OFFER_CODE")
+    signin_offer_label: str = Field(
+        default="Half off your first month of Pro", alias="SIGNIN_OFFER_LABEL"
+    )
+    # Must match the Stripe coupon behind the code: the panel prints the
+    # discounted first month from this number, and a panel promising $24.50
+    # beside a checkout charging $34.30 is the mismatch this site exists to
+    # catch in other people's numbers.
+    signin_offer_percent: int = Field(
+        default=50, ge=1, le=100, alias="SIGNIN_OFFER_PERCENT"
+    )
     # Empty means "whatever version the installed SDK is pinned to", which is
     # the right default: the SDK and its pinned version are upgraded together,
     # and a stale string here would ask a new library to speak an old dialect.

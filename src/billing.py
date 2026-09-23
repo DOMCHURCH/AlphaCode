@@ -511,8 +511,25 @@ def _customer_id_of(email: str) -> str:
         return str(row.stripe_customer_id or "") if row is not None else ""
 
 
+def _promotion_code_id(stripe: Any, code: str) -> str | None:
+    """The promo_ id behind a customer-facing code, or None.
+
+    None on ANY failure -- an unknown code, an inactive one, Stripe being down.
+    The checkout then opens with the code field instead, which is a slower
+    discount rather than a lost sale.
+    """
+    try:
+        found = stripe.PromotionCode.list(code=code, active=True, limit=1)
+        data = _field(found, "data", []) or []
+        return str(_field(data[0], "id", "")) or None if data else None
+    except Exception as exc:  # noqa: BLE001
+        log.warning("stripe_promotion_code_lookup_failed", error=_why(exc))
+        return None
+
+
 def create_checkout_session(
-    *, plan: str, origin: str, email: str | None = None
+    *, plan: str, origin: str, email: str | None = None,
+    promo_code: str | None = None,
 ) -> dict[str, str]:
     """Open a Stripe Checkout Session and return where to send the buyer.
 
@@ -608,6 +625,21 @@ def create_checkout_session(
         # inference is the only thing standing between a payment and a grant.
         "metadata": {"plan": wanted, "email": address},
     }
+    # A discount the reader claimed (the sign-in panel's offer) is applied
+    # for them; otherwise Stripe shows its own "Add promotion code" field so a
+    # code read off the panel still works when typed. Stripe refuses both at
+    # once, hence the either/or. MONTHLY Pro only: the offer is "your first
+    # month", and the Stripe coupon is restricted to the monthly product -- a
+    # discount attached to an annual checkout would make Stripe refuse to
+    # create the session at all, turning an offer into a 502.
+    promo_id = (
+        _promotion_code_id(stripe, promo_code)
+        if promo_code and wanted == "pro" else None
+    )
+    if promo_id:
+        params["discounts"] = [{"promotion_code": promo_id}]
+    else:
+        params["allow_promotion_codes"] = True
     if address:
         # Prefills and LOCKS the field on Stripe's page, so the account that
         # gets the grant is the account that started the purchase -- a buyer

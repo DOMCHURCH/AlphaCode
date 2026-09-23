@@ -909,6 +909,127 @@ footer {
 }
 .sp-alt a { color: var(--ink); }
 
+/* 2026-09-23 redesign. The first version was a heading, a sentence and a
+   field, which asked for an email without saying what it bought. This one
+   leads with the site's own mark (the drawing in miniature, in the data
+   colours, which is the one place those colours may appear decoratively
+   because the mark IS a drawing), then three concrete things a key gets you,
+   then the field. The "no" is a visible button, not only the X, and on a first
+   "no" the same sheet swaps to the Pro offer -- once. */
+.sp-sheet { max-width: 460px; padding: 26px 26px 18px; }
+.sp-mark {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 3fr 1fr;
+  gap: 2px;
+  width: 44px;
+  height: 36px;
+  margin: 0 0 16px;
+}
+.sp-mark i { display: block; border-radius: 3px; }
+.sp-a { grid-column: 1; grid-row: 1 / 3; background: var(--a2); }
+.sp-l { grid-column: 2; grid-row: 1; background: var(--l1); }
+.sp-e { grid-column: 2; grid-row: 2; background: var(--yellow); }
+.sp-perks {
+  list-style: none;
+  margin: 0 0 18px;
+  padding: 0;
+  display: grid;
+  gap: 9px;
+}
+.sp-perks li {
+  position: relative;
+  padding-left: 26px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink2);
+}
+.sp-perks li b { color: var(--ink); font-weight: 600; }
+.sp-perks li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, .06);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .35);
+}
+.sp-perks li::after {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 6px;
+  width: 3px;
+  height: 6px;
+  border: solid var(--ink);
+  border-width: 0 1.5px 1.5px 0;
+  transform: rotate(45deg);
+}
+.sp-fine {
+  margin: 12px 0 0;
+  font-size: 12.5px;
+  line-height: 1.5;
+  color: var(--ink2);
+}
+.sp-foot {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, .07);
+  font-size: 13px;
+  color: var(--ink2);
+}
+.sp-foot a { color: var(--ink); }
+.sp-no {
+  background: none;
+  border: 0;
+  padding: 8px 4px;
+  font: inherit;
+  color: var(--ink2);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.sp-no:hover { color: var(--ink); }
+.sp-eyebrow {
+  margin: 0 0 6px;
+  font: 700 11px/1 var(--mono);
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink2);
+}
+.sp-price { margin: 0 0 14px; font-size: 14px; line-height: 1.5; color: var(--ink2); }
+.sp-price s { color: var(--ink2); margin-right: 4px; }
+.sp-price b { font: 700 26px/1 var(--mono); color: var(--ink); margin-right: 6px; }
+.sp-price span { display: block; margin-top: 6px; }
+.sp-code {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 8px 8px 8px 14px;
+  border: 1px dashed rgba(255, 255, 255, .22);
+  border-radius: 12px;
+  font-size: 12.5px;
+  color: var(--ink2);
+}
+.sp-code code { flex: 1; font: 700 15px/1 var(--mono); letter-spacing: .06em; color: var(--ink); }
+.sp-code button {
+  background: rgba(255, 255, 255, .08);
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: 600 12.5px/1 var(--disp);
+  color: var(--ink);
+  cursor: pointer;
+}
+.sp-claim { display: block; text-align: center; width: 100%; box-sizing: border-box; }
+
 @keyframes sp-in { from { opacity: 0 } to { opacity: 1 } }
 @keyframes sp-rise {
   from { opacity: 0; transform: translateY(8px) }

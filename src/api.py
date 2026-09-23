@@ -2501,6 +2501,9 @@ class VerifyRequest(BaseModel):
 # has plainly got enough value to be worth asking twice.
 SIGNIN_PROMPT_INTERVAL = 100
 
+# Set by nav.js when a reader claims the panel's discount; read at checkout.
+OFFER_COOKIE = "bp_offer"
+
 
 @app.get("/api/signin-prompt")
 def api_signin_prompt(request: Request) -> JSONResponse:
@@ -2524,15 +2527,29 @@ def api_signin_prompt(request: Request) -> JSONResponse:
     one person does and the offer returns sooner for that group. That is what
     "a hundred calls" literally counts and the alternative -- identifying
     people rather than addresses -- is a tracker, which this site does not run.
+
+    2026-09-23: the ANSWER is now kept per address too (`answered`, `after`),
+    at the owner's request -- the browser-only copy re-asked the same person in
+    every other browser and every private window. The browser still keeps its
+    own; either one saying "not yet" keeps the panel closed. The trade that the
+    paragraph above avoided is now accepted on purpose: people behind one
+    address (an office, a phone carrier's shared NAT) share one answer.
     """
     from src import analytics, auth, demo
 
     signed_in = bool(auth.session_email(request))
+    s = get_settings()
     payload: dict[str, object] = {
         "signed_in": signed_in,
         "count": 0,
         "interval": SIGNIN_PROMPT_INTERVAL,
         "login_enabled": auth.is_enabled(),
+        "answered": None,
+        "after": None,
+        "offer": (
+            {"code": s.signin_offer_code, "label": s.signin_offer_label}
+            if s.signin_offer_code else None
+        ),
     }
     if not signed_in:
         try:
@@ -2540,6 +2557,11 @@ def api_signin_prompt(request: Request) -> JSONResponse:
             payload["count"] = (
                 analytics.views_for(ip_hash) + demo.calls_all_time(ip_hash)
             )
+            prior = _prompt_answer(ip_hash)
+            if prior is not None:
+                payload["answered"] = prior.answer
+                if prior.answer == "no":
+                    payload["after"] = prior.count_at + SIGNIN_PROMPT_INTERVAL
         except Exception as exc:  # noqa: BLE001
             # A count that cannot be read is reported as zero, which leaves the
             # offer waiting rather than firing on every page. Failing the other
@@ -2548,6 +2570,57 @@ def api_signin_prompt(request: Request) -> JSONResponse:
     # Never cached: it is a different answer for every caller, and a shared
     # cache in front of this would hand one reader another reader's count.
     return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+
+
+def _prompt_answer(ip_hash: str):
+    from src.storage.db import session_scope
+    from src.storage.models import SigninPromptAnswer
+
+    with session_scope() as session:
+        row = session.get(SigninPromptAnswer, ip_hash)
+        if row is not None:
+            session.expunge(row)
+        return row
+
+
+class PromptAnswerRequest(BaseModel):
+    answer: str
+    count: int = 0
+
+
+@app.post("/api/signin-prompt/answer")
+def api_signin_prompt_answer(body: PromptAnswerRequest, request: Request) -> JSONResponse:
+    """Remember what this address said to the panel: "yes" or "no".
+
+    The browser reports the count it was shown alongside a "no", so the offer
+    returns another interval after THAT point. It is the reader's own number
+    being handed back; a caller inflating it only delays their own next offer.
+    A "yes" is final for the address -- somebody who asked for a link, or
+    claimed the discount, is not asked again.
+    """
+    from src.storage.db import session_scope
+    from src.storage.models import SigninPromptAnswer
+
+    answer = (body.answer or "").strip().lower()
+    if answer not in ("yes", "no"):
+        raise HTTPException(status_code=422, detail="answer is 'yes' or 'no'")
+    ip_hash = _caller_ip_hash(request)
+    try:
+        with session_scope() as session:
+            row = session.get(SigninPromptAnswer, ip_hash)
+            if row is None:
+                row = SigninPromptAnswer(ip_hash=ip_hash)
+                session.add(row)
+            elif row.answer == "yes" and answer == "no":
+                # A later "no" from the same address does not undo a "yes":
+                # a colleague closing the panel is not the reader who signed up.
+                return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+            row.answer = answer
+            row.count_at = max(0, int(body.count))
+            row.answered_at = dt.datetime.now(dt.UTC).replace(tzinfo=None)
+    except Exception as exc:  # noqa: BLE001 - the browser copy still holds
+        log.warning("signin_prompt_answer_failed", error=str(exc)[:200])
+    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
 
 
 @app.post("/api/auth/magic-link")
@@ -3475,10 +3548,18 @@ def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONRespons
         )
 
     _enforce_rate(_checkout_gate, "checkout")
+    # A reader who claimed the sign-in panel's offer carries it in a cookie, so
+    # every buy button on the site applies it without each one knowing about
+    # it. Only the code currently configured counts; a stale or typed-in
+    # cookie is ignored rather than trusted.
+    offer = request.cookies.get(OFFER_COOKIE, "")
+    configured = get_settings().signin_offer_code
+    promo = configured if configured and offer.upper() == configured.upper() else None
     # The session cookie is proof and the body is not.
     return JSONResponse(
         billing.create_checkout_session(
-            plan=body.plan, origin=_public_origin(request), email=account.email
+            plan=body.plan, origin=_public_origin(request), email=account.email,
+            promo_code=promo,
         )
     )
 

@@ -106,15 +106,75 @@
        hundred away, so a reader who likes pressing Escape would never be
        asked again. */
     if (!_prompt || _prompt.hidden) return;
+    /* The first "no" is answered with the discount, once, when there is one
+       to offer. The second -- from the discount view -- is the real no. */
+    if (state.offer && !_dealShown) { showDeal(state); return; }
     writeStore(STORE_KEY, String(state.count + state.interval));
+    answer("no", state.count);
     closePrompt();
+  }
+
+  var _dealShown = false;
+
+  /* The address's answer, kept on the server as well as here, so a "no" on a
+     laptop is not asked again in the phone's browser on the same network or in
+     a private window. Fire-and-forget: the local copy already holds. */
+  function answer(value, count) {
+    try {
+      window.fetch("/api/signin-prompt/answer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answer: value, count: count || 0 }),
+        keepalive: true
+      }).catch(function () {});
+    } catch (e) { /* no fetch, no memory */ }
+  }
+
+  function showDeal(state) {
+    _dealShown = true;
+    var ask = $("sp-ask");
+    var deal = $("sp-deal");
+    var code = $("sp-code-text");
+    var claim = $("sp-claim");
+    var copy = $("sp-copy");
+    var sheet = _prompt.querySelector(".sp-sheet");
+    if (!ask || !deal) { _dealShown = true; return; }
+    if (code) code.textContent = state.offer.code;
+    ask.hidden = true;
+    deal.hidden = false;
+    if (sheet) sheet.setAttribute("aria-labelledby", "sp-deal-title");
+    if (claim) {
+      claim.focus();
+      claim.addEventListener("click", function () {
+        /* Read at checkout by the server, so every buy button on the site
+           applies the discount without each one knowing about it. Thirty
+           days: long enough to come back after comparing, short enough not
+           to linger. */
+        var secure = window.location.protocol === "https:" ? "; Secure" : "";
+        document.cookie = "bp_offer=" + encodeURIComponent(state.offer.code) +
+          "; Path=/; Max-Age=2592000; SameSite=Lax" + secure;
+        writeStore(STORE_KEY, "yes");
+        answer("yes", state.count);
+      });
+    }
+    if (copy && navigator.clipboard) {
+      copy.addEventListener("click", function () {
+        navigator.clipboard.writeText(state.offer.code).then(function () {
+          copy.textContent = "Copied";
+        }).catch(function () {});
+      });
+    } else if (copy) {
+      copy.hidden = true;
+    }
   }
 
   function onPromptKey(ev) {
     if (ev.key !== "Tab") return;
-    var f = _prompt.querySelectorAll(
+    /* Only what is on screen: the sheet holds two views and the hidden one's
+       controls are still in the DOM. */
+    var f = Array.prototype.filter.call(_prompt.querySelectorAll(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    );
+    ), function (el) { return el.offsetParent !== null; });
     if (!f.length) return;
     var lo = f[0];
     var hi = f[f.length - 1];
@@ -144,6 +204,10 @@
     if (close) close.focus();
 
     if (close) close.addEventListener("click", function () { dismissPrompt(state); });
+    ["sp-no", "sp-no-deal"].forEach(function (id) {
+      var b = $(id);
+      if (b) b.addEventListener("click", function () { dismissPrompt(state); });
+    });
     _prompt.addEventListener("click", function (ev) {
       if (ev.target === _prompt) dismissPrompt(state);
     });
@@ -184,16 +248,18 @@
             } else {
               say(body.message || "Check your email for the link.");
               if (form) form.hidden = true;
-              /* Accepting is not dismissing: the link still has to be opened.
-                 Counting it as a "no" would re-ask this reader in a hundred
-                 calls even though they just said yes. Held until they are
-                 actually signed in, which the next page load will see. */
+              writeStore(STORE_KEY, "yes");
+              answer("yes", state.count);
+              /* Accepting is not dismissing, so it is recorded as the "yes" it
+                 is: re-asking somebody who just asked for a link, on this
+                 browser or another one on the same address, reads as not
+                 having listened. */
             }
           });
         }).catch(function () {
           say("Could not reach the server. Try /login instead.");
         }).then(function () {
-          if (send) { send.disabled = false; send.textContent = "Email me a link"; }
+          if (send) { send.disabled = false; send.textContent = "Get my free key"; }
         });
       });
     }
@@ -214,8 +280,14 @@
       .then(function (r) { return r.ok ? r.json() : null; })
       .then(function (state) {
         if (!state || state.signed_in || !state.login_enabled) return;
+        /* The address's own answer first: a "yes" is final, a "no" holds
+           until another interval of use has passed. */
+        if (state.answered === "yes") return;
+        if (state.after !== null && state.after !== undefined &&
+            state.count < state.after) return;
         var after = readStore(STORE_KEY);
         if (after === undefined) return;          // storage blocked: say nothing
+        if (after === "yes") return;
         if (after !== null && state.count < Number(after)) return;
 
         /* NOT at DOMContentLoaded. The page is still drawing, the hero is the

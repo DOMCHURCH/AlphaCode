@@ -430,6 +430,28 @@ class CacheEntry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class SigninPromptAnswer(Base):
+    """What one ADDRESS last said to the sign-in panel. One row per ip_hash.
+
+    The browser keeps its own copy in localStorage, but that copy is per
+    browser: a reader who said no on a laptop was asked again in a second
+    browser, in a private window, and after clearing site data. This is the
+    copy that survives those. It is keyed on the same salted digest analytics
+    uses, never the address itself.
+
+    `answer` is "yes" (asked for a sign-in link, or claimed the offer) or "no".
+    `count_at` is the address's usage count when it answered, so a "no" can
+    return after another `SIGNIN_PROMPT_INTERVAL` of use without a clock.
+    """
+
+    __tablename__ = "signin_prompt_answers"
+
+    ip_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    answer: Mapped[str] = mapped_column(String(8), nullable=False)
+    count_at: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    answered_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class CompanyPageExtras(Base):
     """Pre-rendered prose and lists for one company page. One row per ticker.
 

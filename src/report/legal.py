@@ -251,6 +251,10 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
         The digest is enough to tell two visitors apart for a day; it is not
         reversible into an address, and it is not a person — one office shares
         an address, and one phone moving from wifi to cellular produces two.</li>
+      <li><strong>Your answer to the sign-in offer</strong> — "yes" or "no",
+        against the same digest, so the offer is not repeated in every browser
+        on your connection. Everyone sharing that connection shares the
+        answer.</li>
     </ul>
 
     <h2>2. What we do not collect</h2>
@@ -340,8 +344,10 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
 
     <h2>8. Cookies</h2>
     <p>One cookie, set only when you sign in, holding a signed session. It is
-      how the dashboard knows who you are. There are no tracking or advertising
-      cookies. Your browser also stores your API key locally if you paste one
+      how the dashboard knows who you are. A second, <code>bp_offer</code>, is
+      set only if you click to claim a discount, and holds nothing but the
+      discount code, for 30 days, so checkout can apply it. There are no
+      tracking or advertising cookies. Your browser also stores your API key locally if you paste one
       in; that never leaves your device except as the header on your own API
       calls.</p>
 
