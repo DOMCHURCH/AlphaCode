@@ -511,25 +511,37 @@ def _customer_id_of(email: str) -> str:
         return str(row.stripe_customer_id or "") if row is not None else ""
 
 
-def _promotion_code_id(stripe: Any, code: str) -> str | None:
-    """The promo_ id behind a customer-facing code, or None.
+def mint_offer_promotion_code(
+    *, coupon: str, expires_at: dt.datetime, ip_hash: str
+) -> str | None:
+    """A single-use promotion code for ONE claim of the sign-in panel's offer.
 
-    None on ANY failure -- an unknown code, an inactive one, Stripe being down.
-    The checkout then opens with the code field instead, which is a slower
-    discount rather than a lost sale.
+    Never shown to anybody: it goes straight into the checkout session, so
+    there is no string to copy or share. One redemption, first-time customers
+    only, and it dies with the claim. None on any failure -- the checkout then
+    opens at full price with Stripe's own code field, a lost discount rather
+    than a lost sale.
     """
+    stripe = _sdk()
+    if stripe is None or not coupon:
+        return None
     try:
-        found = stripe.PromotionCode.list(code=code, active=True, limit=1)
-        data = _field(found, "data", []) or []
-        return str(_field(data[0], "id", "")) or None if data else None
+        pc = stripe.PromotionCode.create(
+            promotion={"type": "coupon", "coupon": coupon},
+            max_redemptions=1,
+            expires_at=int(expires_at.replace(tzinfo=dt.UTC).timestamp()),
+            restrictions={"first_time_transaction": True},
+            metadata={"source": "signin-panel", "ip_hash": ip_hash[:16]},
+        )
+        return str(_field(pc, "id", "")) or None
     except Exception as exc:  # noqa: BLE001
-        log.warning("stripe_promotion_code_lookup_failed", error=_why(exc))
+        log.warning("stripe_offer_code_mint_failed", error=_why(exc))
         return None
 
 
 def create_checkout_session(
     *, plan: str, origin: str, email: str | None = None,
-    promo_code: str | None = None,
+    offer_promo_id: str | None = None,
 ) -> dict[str, str]:
     """Open a Stripe Checkout Session and return where to send the buyer.
 
@@ -625,17 +637,13 @@ def create_checkout_session(
         # inference is the only thing standing between a payment and a grant.
         "metadata": {"plan": wanted, "email": address},
     }
-    # A discount the reader claimed (the sign-in panel's offer) is applied
-    # for them; otherwise Stripe shows its own "Add promotion code" field so a
-    # code read off the panel still works when typed. Stripe refuses both at
-    # once, hence the either/or. MONTHLY Pro only: the offer is "your first
+    # A discount the reader claimed (the sign-in panel's offer, minted for that
+    # one claim) is applied for them; otherwise Stripe shows its own "Add
+    # promotion code" field. Stripe refuses both at once, hence the either/or. MONTHLY Pro only: the offer is "your first
     # month", and the Stripe coupon is restricted to the monthly product -- a
     # discount attached to an annual checkout would make Stripe refuse to
     # create the session at all, turning an offer into a 502.
-    promo_id = (
-        _promotion_code_id(stripe, promo_code)
-        if promo_code and wanted == "pro" else None
-    )
+    promo_id = offer_promo_id if offer_promo_id and wanted == "pro" else None
     if promo_id:
         params["discounts"] = [{"promotion_code": promo_id}]
     else:

@@ -254,7 +254,9 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
       <li><strong>Your answer to the sign-in offer</strong> — "yes" or "no",
         against the same digest, so the offer is not repeated in every browser
         on your connection. Everyone sharing that connection shares the
-        answer.</li>
+        answer. If you were shown the discount, the time it was shown and
+        whether it was claimed are kept against that digest too, so it is
+        only ever shown once.</li>
     </ul>
 
     <h2>2. What we do not collect</h2>
@@ -345,8 +347,9 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
     <h2>8. Cookies</h2>
     <p>One cookie, set only when you sign in, holding a signed session. It is
       how the dashboard knows who you are. A second, <code>bp_offer</code>, is
-      set only if you click to claim a discount, and holds nothing but the
-      discount code, for 30 days, so checkout can apply it. There are no
+      set only if you click to claim a discount, and holds nothing but a
+      random claim number until you close your browser, so checkout can apply
+      it. There are no
       tracking or advertising cookies. Your browser also stores your API key locally if you paste one
       in; that never leaves your device except as the header on your own API
       calls.</p>

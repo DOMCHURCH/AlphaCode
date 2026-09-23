@@ -209,14 +209,12 @@ def render_signin_prompt(
         data: dashboards, screens, anything that has to stay current.</p>
       <p class="sp-price"><s>{pro}</s> <b>{half}</b> <span>first month,
         then {pro}/month. Cancel any time, 14-day refund.</span></p>
-      <div class="sp-code">
-        <span>Code</span><code id="sp-code-text"></code>
-        <button type="button" id="sp-copy">Copy</button>
-      </div>
       <a class="btn sp-claim" id="sp-claim"
         href="/login?next=%2Fdashboard%3Fplan%3Dpro%23billing">Claim the
         discount</a>
-      <p class="sp-fine">Applied for you at checkout once you sign in.</p>
+      <p class="sp-fine">This offer is only on this page and is shown once.
+        Leave and it is gone. Claim it and it is applied for you at checkout
+        for the next hour.</p>
       <div class="sp-foot"><span></span>
         <button type="button" class="sp-no" id="sp-no-deal">No thanks</button>
       </div>

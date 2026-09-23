@@ -430,6 +430,28 @@ class CacheEntry(Base):
     created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
 
+class SigninOffer(Base):
+    """The sign-in panel's discount, shown to one ADDRESS at most once, ever.
+
+    The row is written the moment the offer is shown, and its existence is
+    what stops it being shown again -- whatever the reader does next. It is
+    only good at checkout once CLAIMED from that same page view, and only
+    until `expires_at`. Leaving the page, or "No thanks", forfeits it.
+    """
+
+    __tablename__ = "signin_offers"
+
+    ip_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
+    shown_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+    claimed_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    forfeited_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    # The single-use Stripe promotion code minted for this claim, reused if
+    # the reader opens checkout twice inside the window.
+    promo_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+
 class SigninPromptAnswer(Base):
     """What one ADDRESS last said to the sign-in panel. One row per ip_hash.
 

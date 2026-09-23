@@ -106,15 +106,45 @@
        hundred away, so a reader who likes pressing Escape would never be
        asked again. */
     if (!_prompt || _prompt.hidden) return;
-    /* The first "no" is answered with the discount, once, when there is one
-       to offer. The second -- from the discount view -- is the real no. */
-    if (state.offer && !_dealShown) { showDeal(state); return; }
+    /* The first "no" is answered with the discount -- once per address,
+       ever, which the server decides (it reserves the showing before it is
+       drawn). The second "no", from the discount view, is the real no. */
+    if (state.offer && !_dealShown) {
+      _dealShown = true;
+      post("/api/signin-offer/show").then(function (r) { return r.json(); })
+        .then(function (j) { if (j && j.show) showDeal(state); else finalNo(state); })
+        .catch(function () { finalNo(state); });
+      return;
+    }
+    if (_dealOpen && !_claimed) forfeit();
+    finalNo(state);
+  }
+
+  function finalNo(state) {
     writeStore(STORE_KEY, String(state.count + state.interval));
     answer("no", state.count);
     closePrompt();
   }
 
   var _dealShown = false;
+  var _dealOpen = false;
+  var _claimed = false;
+
+  function post(url) {
+    return window.fetch(url, {
+      method: "POST", credentials: "same-origin", keepalive: true
+    });
+  }
+
+  /* Leaving the page without claiming ends the offer for good. */
+  function forfeit() {
+    if (_claimed) return;
+    _dealOpen = false;
+    try {
+      if (navigator.sendBeacon) { navigator.sendBeacon("/api/signin-offer/forfeit"); return; }
+    } catch (e) { /* fall through */ }
+    try { post("/api/signin-offer/forfeit").catch(function () {}); } catch (e) {}
+  }
 
   /* The address's answer, kept on the server as well as here, so a "no" on a
      laptop is not asked again in the phone's browser on the same network or in
@@ -131,40 +161,31 @@
   }
 
   function showDeal(state) {
-    _dealShown = true;
     var ask = $("sp-ask");
     var deal = $("sp-deal");
-    var code = $("sp-code-text");
     var claim = $("sp-claim");
-    var copy = $("sp-copy");
     var sheet = _prompt.querySelector(".sp-sheet");
-    if (!ask || !deal) { _dealShown = true; return; }
-    if (code) code.textContent = state.offer.code;
+    if (!ask || !deal) { finalNo(state); return; }
     ask.hidden = true;
     deal.hidden = false;
+    _dealOpen = true;
+    window.addEventListener("pagehide", function () { if (_dealOpen) forfeit(); });
     if (sheet) sheet.setAttribute("aria-labelledby", "sp-deal-title");
     if (claim) {
       claim.focus();
-      claim.addEventListener("click", function () {
-        /* Read at checkout by the server, so every buy button on the site
-           applies the discount without each one knowing about it. Thirty
-           days: long enough to come back after comparing, short enough not
-           to linger. */
-        var secure = window.location.protocol === "https:" ? "; Secure" : "";
-        document.cookie = "bp_offer=" + encodeURIComponent(state.offer.code) +
-          "; Path=/; Max-Age=2592000; SameSite=Lax" + secure;
+      claim.addEventListener("click", function (ev) {
+        /* The server sets the claim cookie and starts the clock; only then
+           follow the link. If the claim is refused the reader still goes to
+           sign in, at full price, rather than being stuck on a dead button. */
+        ev.preventDefault();
+        var href = claim.getAttribute("href");
+        _claimed = true;
         writeStore(STORE_KEY, "yes");
         answer("yes", state.count);
+        post("/api/signin-offer/claim")
+          .catch(function () {})
+          .then(function () { window.location.href = href; });
       });
-    }
-    if (copy && navigator.clipboard) {
-      copy.addEventListener("click", function () {
-        navigator.clipboard.writeText(state.offer.code).then(function () {
-          copy.textContent = "Copied";
-        }).catch(function () {});
-      });
-    } else if (copy) {
-      copy.hidden = true;
     }
   }
 

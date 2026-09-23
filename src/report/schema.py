@@ -506,11 +506,11 @@ def dataset_ld(rows: int, companies: int, as_of: str) -> str:
                 "validated against Assets = Liabilities + Equity and the set "
                 "that reconciles is selected."
             ),
-            "isBasedOn": {
-                "@type": "Dataset",
-                "name": "SEC EDGAR XBRL company facts",
-                "url": "https://www.sec.gov/edgar/sec-api-documentation",
-            },
+            # A plain URL, not a nested Dataset: Google validates every Dataset
+            # node it finds, and a node for SEC's data would need a license
+            # and creator this site has no business asserting on SEC's behalf
+            # (Search Console, 2026-09-23: "Missing field 'description'").
+            "isBasedOn": "https://www.sec.gov/edgar/sec-api-documentation",
             "variableMeasured": [
                 "Total assets",
                 "Total liabilities",

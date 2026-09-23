@@ -2501,8 +2501,13 @@ class VerifyRequest(BaseModel):
 # has plainly got enough value to be worth asking twice.
 SIGNIN_PROMPT_INTERVAL = 100
 
-# Set by nav.js when a reader claims the panel's discount; read at checkout.
+# Set by the server when a reader claims the panel's discount; read at
+# checkout. A session cookie holding a random claim token, never a code.
 OFFER_COOKIE = "bp_offer"
+# How long after the offer is SHOWN it can still be claimed. The claim is meant
+# to happen on the page it was shown on; this is the backstop for a tab left
+# open, since "left the page" cannot always be reported (a killed browser).
+SIGNIN_OFFER_SHOW_MINUTES = 30
 
 
 @app.get("/api/signin-prompt")
@@ -2546,10 +2551,9 @@ def api_signin_prompt(request: Request) -> JSONResponse:
         "login_enabled": auth.is_enabled(),
         "answered": None,
         "after": None,
-        "offer": (
-            {"code": s.signin_offer_code, "label": s.signin_offer_label}
-            if s.signin_offer_code else None
-        ),
+        # Only a label: whether it can actually be shown is decided by
+        # POST /api/signin-offer/show at the moment of the "no", once ever.
+        "offer": None,
     }
     if not signed_in:
         try:
@@ -2557,6 +2561,8 @@ def api_signin_prompt(request: Request) -> JSONResponse:
             payload["count"] = (
                 analytics.views_for(ip_hash) + demo.calls_all_time(ip_hash)
             )
+            if s.signin_offer_coupon and _signin_offer(ip_hash) is None:
+                payload["offer"] = {"label": s.signin_offer_label}
             prior = _prompt_answer(ip_hash)
             if prior is not None:
                 payload["answered"] = prior.answer
@@ -2581,6 +2587,145 @@ def _prompt_answer(ip_hash: str):
         if row is not None:
             session.expunge(row)
         return row
+
+
+def _signin_offer(ip_hash: str):
+    from src.storage.db import session_scope
+    from src.storage.models import SigninOffer
+
+    with session_scope() as session:
+        row = session.get(SigninOffer, ip_hash)
+        if row is not None:
+            session.expunge(row)
+        return row
+
+
+def _utcnow_naive() -> dt.datetime:
+    return dt.datetime.now(dt.UTC).replace(tzinfo=None)
+
+
+@app.post("/api/signin-offer/show")
+def api_signin_offer_show(request: Request) -> JSONResponse:
+    """Reserve the one showing this address will ever get. {"show": bool}.
+
+    The row is written BEFORE the offer is on screen, so the insert itself is
+    the once-ever rule: a second browser, a private window, a reload -- all
+    find the row and get "show": false.
+    """
+    import secrets
+
+    from src.storage.db import session_scope
+    from src.storage.models import SigninOffer
+
+    no = JSONResponse({"show": False}, headers={"Cache-Control": "no-store"})
+    if not get_settings().signin_offer_coupon:
+        return no
+    ip_hash = _caller_ip_hash(request)
+    try:
+        with session_scope() as session:
+            if session.get(SigninOffer, ip_hash) is not None:
+                return no
+            session.add(SigninOffer(ip_hash=ip_hash, token=secrets.token_urlsafe(32)))
+    except Exception as exc:  # noqa: BLE001 - a race lost is a "no", not a 500
+        log.info("signin_offer_show_refused", error=str(exc)[:200])
+        return no
+    return JSONResponse({"show": True}, headers={"Cache-Control": "no-store"})
+
+
+@app.post("/api/signin-offer/claim")
+def api_signin_offer_claim(request: Request) -> JSONResponse:
+    """Claim the offer shown on this page: sets the claim cookie, starts the clock.
+
+    Refused if it was never shown to this address, was forfeited (the reader
+    left the page or said no thanks), was already claimed, or was shown too
+    long ago to still be "this page".
+    """
+    from src.storage.db import session_scope
+    from src.storage.models import SigninOffer
+
+    s = get_settings()
+    ip_hash = _caller_ip_hash(request)
+    now = _utcnow_naive()
+    with session_scope() as session:
+        row = session.get(SigninOffer, ip_hash)
+        if (
+            not s.signin_offer_coupon or row is None
+            or row.forfeited_at is not None or row.claimed_at is not None
+            or row.shown_at < now - dt.timedelta(minutes=SIGNIN_OFFER_SHOW_MINUTES)
+        ):
+            return JSONResponse({"ok": False}, status_code=410,
+                                headers={"Cache-Control": "no-store"})
+        row.claimed_at = now
+        row.expires_at = now + dt.timedelta(minutes=s.signin_offer_claim_minutes)
+        token = row.token
+    resp = JSONResponse({"ok": True, "minutes": s.signin_offer_claim_minutes},
+                        headers={"Cache-Control": "no-store"})
+    # No Max-Age: a session cookie, gone when the browser closes. The server
+    # side expiry is the real limit either way.
+    resp.set_cookie(OFFER_COOKIE, token, httponly=True, samesite="lax",
+                    secure=request.url.scheme == "https", path="/")
+    return resp
+
+
+@app.post("/api/signin-offer/forfeit")
+def api_signin_offer_forfeit(request: Request) -> JSONResponse:
+    """The reader left the page or said "No thanks" without claiming: gone.
+
+    Sent with navigator.sendBeacon on pagehide. A claimed offer is not undone
+    by this -- claiming then following the link is itself leaving the page.
+    """
+    from src.storage.db import session_scope
+    from src.storage.models import SigninOffer
+
+    try:
+        with session_scope() as session:
+            row = session.get(SigninOffer, _caller_ip_hash(request))
+            if row is not None and row.claimed_at is None and row.forfeited_at is None:
+                row.forfeited_at = _utcnow_naive()
+    except Exception as exc:  # noqa: BLE001
+        log.warning("signin_offer_forfeit_failed", error=str(exc)[:200])
+    return JSONResponse({"ok": True}, headers={"Cache-Control": "no-store"})
+
+
+def _claimed_offer_promo(request: Request, plan: str) -> str | None:
+    """The single-use promo id for a live claim by this caller, minting it once.
+
+    A live claim is found by the claim cookie, or failing that by address --
+    the magic link may be opened in another browser on the same connection.
+    Monthly Pro only (the coupon is "your first month").
+    """
+    from sqlalchemy import select
+
+    from src import billing
+    from src.storage.db import session_scope
+    from src.storage.models import SigninOffer
+
+    s = get_settings()
+    if plan != "pro" or not s.signin_offer_coupon:
+        return None
+    now = _utcnow_naive()
+    token = request.cookies.get(OFFER_COOKIE, "")
+    try:
+        with session_scope() as session:
+            row = None
+            if token:
+                row = session.execute(
+                    select(SigninOffer).where(SigninOffer.token == token)
+                ).scalar_one_or_none()
+            if row is None:
+                row = session.get(SigninOffer, _caller_ip_hash(request))
+            if (row is None or row.claimed_at is None or row.expires_at is None
+                    or row.expires_at <= now):
+                return None
+            if not row.promo_id:
+                row.promo_id = billing.mint_offer_promotion_code(
+                    coupon=s.signin_offer_coupon, expires_at=row.expires_at,
+                    ip_hash=row.ip_hash,
+                )
+            return row.promo_id
+    except Exception as exc:  # noqa: BLE001 - full price beats a failed checkout
+        log.warning("signin_offer_lookup_failed", error=str(exc)[:200])
+        return None
 
 
 class PromptAnswerRequest(BaseModel):
@@ -3548,18 +3693,14 @@ def api_billing_checkout(body: CheckoutRequest, request: Request) -> JSONRespons
         )
 
     _enforce_rate(_checkout_gate, "checkout")
-    # A reader who claimed the sign-in panel's offer carries it in a cookie, so
-    # every buy button on the site applies it without each one knowing about
-    # it. Only the code currently configured counts; a stale or typed-in
-    # cookie is ignored rather than trusted.
-    offer = request.cookies.get(OFFER_COOKIE, "")
-    configured = get_settings().signin_offer_code
-    promo = configured if configured and offer.upper() == configured.upper() else None
+    # A live claim of the sign-in panel's offer is applied for the reader, so
+    # every buy button on the site honours it without knowing about it.
+    promo = _claimed_offer_promo(request, body.plan)
     # The session cookie is proof and the body is not.
     return JSONResponse(
         billing.create_checkout_session(
             plan=body.plan, origin=_public_origin(request), email=account.email,
-            promo_code=promo,
+            offer_promo_id=promo,
         )
     )
 

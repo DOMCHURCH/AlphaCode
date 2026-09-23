@@ -463,9 +463,22 @@ def build_company_ld(
     if assets is not None and period_end is not None:
         # A dated, sourced figure. Undated it would be a claim with no shelf
         # life, which is the kind of thing that ages into a wrong answer.
+        # description, creator and license are what Google's Dataset report
+        # requires; without them all three company pages it sampled were
+        # "invalid" (Search Console, 2026-09-23).
+        label = company_name or ticker
         node["subjectOf"] = {
             "@type": "Dataset",
-            "name": f"{company_name or ticker} balance sheet, {period_end.isoformat()}",
+            "name": f"{label} balance sheet, {period_end.isoformat()}",
+            "description": (
+                f"Balance sheet of {label} ({ticker}) as of "
+                f"{period_end.isoformat()}, taken from its SEC EDGAR XBRL "
+                "filing and checked against Assets = Liabilities + Equity."
+            ),
+            "url": f"{origin}/company/{ticker}",
+            "creator": {"@type": "Organization", "name": "BalanceProof",
+                        "url": f"{origin}/"},
+            "license": f"{origin}/terms",
             "variableMeasured": {
                 "@type": "PropertyValue",
                 "name": "Total assets",

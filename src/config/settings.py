@@ -407,13 +407,18 @@ class Settings(BaseSettings):
     stripe_price_pro_annual: str = Field(
         default="", alias="STRIPE_PRICE_PRO_ANNUAL"
     )
-    # The Stripe PROMOTION CODE (the customer-facing string, e.g. FIRSTMONTH50,
-    # not the promo_ id) offered to a reader who says no to the sign-in panel.
-    # Empty turns the offer off entirely: the panel simply closes on "no", as
-    # it did before. The discount itself is Stripe's object -- amount,
-    # duration, which products -- so changing the deal is a Stripe edit, and
-    # the wording on the panel comes from `signin_offer_label`.
-    signin_offer_code: str = Field(default="", alias="SIGNIN_OFFER_CODE")
+    # The Stripe COUPON id offered, once per address ever, to a reader who says
+    # no to the sign-in panel. Empty turns the offer off entirely: the panel
+    # simply closes on "no". There is deliberately no public code: a claim
+    # mints a single-use, expiring promotion code at checkout, so the discount
+    # cannot be copied, shared, or used after the reader leaves the page
+    # (owner, 2026-09-23). Amount, duration and products are the coupon's.
+    signin_offer_coupon: str = Field(default="", alias="SIGNIN_OFFER_COUPON")
+    # Minutes a CLAIMED offer stays good for. Signing in is a magic link, so
+    # the reader has to leave the page to reach checkout; this is that trip.
+    signin_offer_claim_minutes: int = Field(
+        default=60, ge=5, le=1440, alias="SIGNIN_OFFER_CLAIM_MINUTES"
+    )
     signin_offer_label: str = Field(
         default="Half off your first month of Pro", alias="SIGNIN_OFFER_LABEL"
     )
