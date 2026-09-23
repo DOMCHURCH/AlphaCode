@@ -830,23 +830,29 @@ footer {
   background: rgba(10, 12, 24, .55);
   animation: sp-in .18s ease-out;
 }
+/* The same panel as `.trust` and `.plans` -- lit edge, lift, the site's panel
+   fill -- so it reads as one more card from this site and not as a stock
+   modal dropped on top of it. Opaque (e2e/signin-prompt.mjs asserts it) and
+   not blurred: it sits over whatever the reader scrolled to, often the moving
+   film, and one more backdrop-filter is a re-blur every frame for a surface
+   that is only up for a few seconds. */
 .sp-sheet {
   position: relative;
   width: 100%;
-  max-width: 420px;
-  background: var(--bg);
-  border: 1px solid rgba(255, 255, 255, .08);
-  border-radius: var(--r3);
-  box-shadow: 0 24px 60px rgba(0, 0, 0, .45);
-  padding: 26px 24px 20px;
+  max-width: 440px;
+  background: rgb(20, 22, 34);
+  border: 1px solid var(--edge);
+  border-radius: var(--r2);
+  box-shadow: var(--lift);
+  padding: 28px 26px 22px;
   animation: sp-rise .2s ease-out;
 }
 /* Top right, and big enough for a thumb. 44px is the smallest target that is
    comfortable on a phone, and this is the control most people will want. */
 .sp-x {
   position: absolute;
-  top: 8px;
-  right: 8px;
+  top: 10px;
+  right: 10px;
   width: 44px;
   height: 44px;
   display: flex;
@@ -857,40 +863,39 @@ footer {
   color: var(--ink2);
   background: none;
   border: 0;
-  border-radius: var(--r1);
+  border-radius: 999px;
   cursor: pointer;
 }
-.sp-x:hover { color: var(--ink); background: var(--well); }
+.sp-x:hover { color: var(--ink); background: rgba(255, 255, 255, .07); }
+/* Focus lands here on open, so the ring is on screen every time the panel
+   appears. The site-wide 2px white outline made the X the loudest thing in
+   the panel; a lit edge on the same round well still shows where focus is. */
+.sp-x:focus-visible {
+  outline: 0;
+  color: var(--ink);
+  background: rgba(255, 255, 255, .07);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .4);
+}
 .sp-sheet h2 {
-  margin: 0 8px 10px 0;
-  font-size: 20px;
+  margin: 0 44px 10px 0;
+  font-family: var(--disp);
+  font-size: 24px;
   font-weight: 600;
   letter-spacing: -.02em;
   color: var(--ink);
 }
 .sp-lede {
-  margin: 0 0 16px;
+  margin: 0 0 18px;
   font-size: 14.5px;
   line-height: 1.6;
   color: var(--ink2);
 }
-.sp-form { display: flex; gap: 8px; flex-wrap: wrap; }
-.sp-form input {
-  flex: 1 1 200px;
-  min-width: 0;
-  padding: 11px 13px;
-  font: inherit;
-  font-size: 15px;
-  color: var(--ink);
-  background: var(--well);
-  border: 1px solid var(--lo);
-  border-radius: var(--r1);
-}
-.sp-form input:focus-visible {
-  outline: 2px solid var(--blue);
-  outline-offset: 1px;
-}
-.sp-form .btn { flex: 0 0 auto; }
+/* The field is the /login field: `.search` + `.sfield`, the pill slot with the
+   white submit inside it. Only the spacing is the panel's own. */
+.sp-form { margin: 0; }
+.sp-form .sfield { padding: 5px 5px 5px 8px; }
+.sp-form .sfield input { padding: 10px 8px; font-size: 15px; }
+.sp-form .sfield button { padding: 12px 18px; }
 .sp-note {
   margin: 12px 0 0;
   font-size: 13.5px;

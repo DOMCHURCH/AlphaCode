@@ -161,12 +161,14 @@ def render_signin_prompt(
     <p id="sp-lede" class="sp-lede">A free key gives you the same figures as
       JSON, 1,000 calls a month, and somewhere to come back to. No card, and
       nothing here stops being free either way.</p>
-    <form class="sp-form" id="sp-form" novalidate>
+    <form class="search sp-form" id="sp-form" novalidate>
       <label class="vh" for="sp-email">Email address</label>
-      <input id="sp-email" name="email" type="email" required
-        placeholder="you@company.com" autocomplete="email"
-        spellcheck="false" enterkeyhint="send">
-      <button type="submit" class="btn" id="sp-send">Email me a link</button>
+      <div class="sfield">
+        <input id="sp-email" name="email" type="email" required
+          placeholder="you@company.com" autocomplete="email"
+          spellcheck="false" enterkeyhint="send">
+        <button type="submit" id="sp-send">Email me a link</button>
+      </div>
     </form>
     <p class="sp-note" id="sp-note" role="status" aria-live="polite" hidden></p>
     <p class="sp-alt">Already have an account?
