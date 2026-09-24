@@ -8,7 +8,8 @@ pydantic-settings>=2.2,<3
 python-dotenv>=1.0
 
 # --- storage ---
-SQLAlchemy>=2.0,<3
+# <2.1: 2.1 changed the default postgresql:// driver to psycopg 3 (not installed).
+SQLAlchemy>=2.0,<2.1
 psycopg2-binary>=2.9
 alembic>=1.13
 # Redis is optional and not installed by default -- the cache and rate-limiter

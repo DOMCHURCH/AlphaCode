@@ -527,9 +527,13 @@ class Settings(BaseSettings):
     @field_validator("database_url")
     @classmethod
     def _normalise_pg_scheme(cls, v: str) -> str:
-        # Railway hands out postgres://; SQLAlchemy 2 wants postgresql://
-        if v.startswith("postgres://"):
-            return v.replace("postgres://", "postgresql://", 1)
+        # Railway hands out postgres://; SQLAlchemy 2 wants postgresql://.
+        # The driver is named, not left to the default: SQLAlchemy 2.1 made a
+        # bare postgresql:// mean psycopg 3, which is not installed, and a
+        # fresh build took the whole site's database down (2026-09-24).
+        for bare in ("postgres://", "postgresql://"):
+            if v.startswith(bare):
+                return "postgresql+psycopg2://" + v[len(bare):]
         return v
 
     @property
