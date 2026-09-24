@@ -118,15 +118,18 @@
   inset: 0;
   z-index: 2;
   background:
+    /* Lightened 2026-09-24 (owner: "way too dark at the top, let the gradient
+       show"). The top of the linear was .78 and the radial's rim .88; the hero
+       text keeps its contrast from its own scrim and text-shadow. */
     radial-gradient(120% 80% at 50% 38%,
-      rgba(10, 10, 10, 0.30) 0%,
-      rgba(10, 10, 10, 0.66) 55%,
-      rgba(10, 10, 10, 0.88) 100%),
+      rgba(10, 10, 10, 0.12) 0%,
+      rgba(10, 10, 10, 0.42) 55%,
+      rgba(10, 10, 10, 0.70) 100%),
     linear-gradient(to bottom,
-      rgba(10, 10, 10, 0.78) 0%,
-      rgba(10, 10, 10, 0.42) 42%,
-      rgba(26, 18, 8, 0.55) 72%,
-      rgba(10, 10, 10, 0.90) 100%);
+      rgba(10, 10, 10, 0.34) 0%,
+      rgba(10, 10, 10, 0.22) 42%,
+      rgba(26, 18, 8, 0.42) 72%,
+      rgba(10, 10, 10, 0.85) 100%);
 }
 
 /* THE VEIL IS RE-AIMED FOR A TALL FRAME, AND THIS IS THE MOBILE FIX.
@@ -157,14 +160,14 @@
   .backdrop-veil {
     background:
       radial-gradient(135% 58% at 50% 50%,
-        rgba(10, 10, 10, 0.44) 0%,
-        rgba(10, 10, 10, 0.68) 58%,
-        rgba(10, 10, 10, 0.84) 100%),
+        rgba(10, 10, 10, 0.26) 0%,
+        rgba(10, 10, 10, 0.48) 58%,
+        rgba(10, 10, 10, 0.68) 100%),
       linear-gradient(to bottom,
-        rgba(10, 10, 10, 0.72) 0%,
-        rgba(10, 10, 10, 0.58) 26%,
-        rgba(26, 18, 8, 0.56) 62%,
-        rgba(10, 10, 10, 0.76) 100%);
+        rgba(10, 10, 10, 0.40) 0%,
+        rgba(10, 10, 10, 0.34) 26%,
+        rgba(26, 18, 8, 0.42) 62%,
+        rgba(10, 10, 10, 0.70) 100%);
   }
 }
 
@@ -397,8 +400,8 @@ main .sec .ep {
   inset: -28px -48px -20px -40px;
   border-radius: 40px;
   background: radial-gradient(70% 82% at 28% 48%,
-    rgba(7, 8, 13, .80) 0%,
-    rgba(7, 8, 13, .58) 48%,
+    rgba(7, 8, 13, .55) 0%,
+    rgba(7, 8, 13, .34) 48%,
     rgba(7, 8, 13, 0) 100%);
   pointer-events: none;
 }
