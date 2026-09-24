@@ -63,6 +63,20 @@ DIMENSION_COLUMNS = ("coreg", "segments")
 DURATION_QTRS = frozenset({"1", "4"})
 YTD_CUMULATIVE_QTRS = frozenset({"2", "3"})
 
+# Cash-flow statements in a 10-Q are year-to-date only: Q2 and Q3 carry the
+# six- and nine-month figures and no three-month one. Dropping qtrs 2/3 for
+# these left Q2/Q3 cash flow empty for ~97% of filers (2026-09-24 count), so
+# they are kept under `<metric>_ytd` -- a separate metric, because the stored
+# key has no window column -- and the quarter is derived by subtraction.
+YTD_KEPT_METRICS = frozenset({
+    "operating_cash_flow", "investing_cash_flow", "financing_cash_flow",
+    "fx_effect_on_cash", "cash_change", "capex",
+    "depreciation_amortization", "stock_compensation",
+})
+YTD_SUFFIX = "_ytd"
+# Fiscal periods of a quarterly report; a 10-K is "FY".
+QUARTER_FPS = frozenset({"Q1", "Q2", "Q3", "Q4"})
+
 
 @dataclass(frozen=True)
 class Concept:
@@ -268,6 +282,9 @@ CONCEPTS: tuple[Concept, ...] = (
             "RevenueFromContractWithCustomerExcludingAssessedTax",
             "Revenues",
             "SalesRevenueNet",
+            # Banks: JPM and peers file revenue net of interest expense and
+            # none of the tags above, so their income statement had no top line.
+            "RevenuesNetOfInterestExpense",
         ),
         DURATION,
     ),
@@ -279,6 +296,32 @@ CONCEPTS: tuple[Concept, ...] = (
         DURATION,
     ),
     Concept("capex", ("PaymentsToAcquirePropertyPlantAndEquipment",), DURATION),
+    # The rest of the cash-flow statement, so it can be checked:
+    # operating + investing + financing + FX = the change in cash.
+    Concept(
+        "investing_cash_flow",
+        ("NetCashProvidedByUsedInInvestingActivities",),
+        DURATION,
+    ),
+    Concept(
+        "financing_cash_flow",
+        ("NetCashProvidedByUsedInFinancingActivities",),
+        DURATION,
+    ),
+    # ASU 2016-18 (effective 2018) folded restricted cash into the cash-flow
+    # total, so the modern tags name it; the older ones follow.
+    Concept(
+        "fx_effect_on_cash",
+        ("EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+         "EffectOfExchangeRateOnCashAndCashEquivalents"),
+        DURATION,
+    ),
+    Concept(
+        "cash_change",
+        ("CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsPeriodIncreaseDecreaseIncludingExchangeRateEffect",
+         "CashAndCashEquivalentsPeriodIncreaseDecrease"),
+        DURATION,
+    ),
     Concept("cogs", ("CostOfRevenue", "CostOfGoodsAndServicesSold"), DURATION),
     Concept("gross_profit", ("GrossProfit",), DURATION),
     Concept("income_tax", ("IncomeTaxExpenseBenefit",), DURATION),
@@ -348,6 +391,14 @@ class ExtractionReport:
     # i.e. cumulative year-to-date. Broken out because dropping these is a
     # judgement call, and the number makes it auditable on a real load.
     dropped_ytd_cumulative: int = 0
+    # Year-to-date cash-flow facts kept as `<metric>_ytd` (see YTD_KEPT_METRICS).
+    kept_ytd: int = 0
+    # A four-quarter fact in a 10-Q. The stored row carries the filing's fiscal
+    # period, which is how a reader tells an annual figure from a quarterly
+    # one; this would read as the quarter, so it is dropped.
+    dropped_window_mismatch: int = 0
+    # One-quarter facts in a 10-K, stored with fiscal period "Q4".
+    relabelled_q4: int = 0
     # qtrs value -> count, over consolidated duration facts only. This is the
     # empirical answer to "what do filers actually report", read off the file.
     duration_qtrs_seen: dict[str, int] = field(default_factory=dict)
@@ -398,6 +449,9 @@ class ExtractionReport:
             "dropped_dimensional": self.dropped_dimensional,
             "dropped_wrong_qtrs": self.dropped_wrong_qtrs,
             "dropped_ytd_cumulative": self.dropped_ytd_cumulative,
+            "kept_ytd": self.kept_ytd,
+            "dropped_window_mismatch": self.dropped_window_mismatch,
+            "relabelled_q4": self.relabelled_q4,
             "duration_qtrs_seen": dict(sorted(self.duration_qtrs_seen.items())),
             "dropped_non_usd": self.dropped_non_usd,
             "dropped_unparseable": self.dropped_unparseable,
@@ -582,11 +636,17 @@ def extract_facts(
         # load reports what filers actually use rather than only what survived.
         if concept.kind == DURATION:
             report.duration_qtrs_seen[qtrs] = report.duration_qtrs_seen.get(qtrs, 0) + 1
+        metric = concept.metric
         if not _qtrs_ok(qtrs, concept.kind):
-            report.dropped_wrong_qtrs += 1
-            if concept.kind == DURATION and qtrs in YTD_CUMULATIVE_QTRS:
-                report.dropped_ytd_cumulative += 1
-            continue
+            if (concept.kind == DURATION and qtrs in YTD_CUMULATIVE_QTRS
+                    and concept.metric in YTD_KEPT_METRICS):
+                metric = concept.metric + YTD_SUFFIX
+                report.kept_ytd += 1
+            else:
+                report.dropped_wrong_qtrs += 1
+                if concept.kind == DURATION and qtrs in YTD_CUMULATIVE_QTRS:
+                    report.dropped_ytd_cumulative += 1
+                continue
 
         # A fact in an unexpected unit is not comparable and must not be stored
         # as if it were. Checked per concept: per-share figures are USD/shares,
@@ -632,9 +692,23 @@ def extract_facts(
             continue
 
         fiscal_period = str(meta["fp"] or "").strip()[:8] or None
+        if concept.kind == DURATION and qtrs == "1" and fiscal_period == "FY":
+            # Three months inside a 10-K is the fourth quarter. Labelled so,
+            # or it would read as the year.
+            fiscal_period = "Q4"
+            report.relabelled_q4 += 1
+        elif concept.kind == DURATION and qtrs == "4" and fiscal_period in QUARTER_FPS:
+            # Twelve months inside a 10-Q is a trailing-year aside, not a
+            # fiscal year and not the quarter.
+            report.dropped_window_mismatch += 1
+            continue
 
-        key = (ticker, concept.metric, period_end, filing_date)
+        key = (ticker, metric, period_end, filing_date)
         rank = _TAG_RANK.get(r.tag, 99)
+        if fiscal_period == "Q4" and qtrs == "1":
+            # The year and its fourth quarter end on the same day and share a
+            # key. The year always wins; Q4 is kept only where no year is filed.
+            rank += 100
         prev = best.get(key)
         if prev is not None:
             report.dropped_alias_duplicate += 1
@@ -648,7 +722,7 @@ def extract_facts(
                 report.conflicting_duplicate += 1
                 flag = {
                     "ticker": ticker,
-                    "metric": concept.metric,
+                    "metric": metric,
                     "rule": "conflicting_duplicate_fact",
                     "period_end": str(period_end),
                     "filing_date": str(filing_date),
@@ -664,7 +738,7 @@ def extract_facts(
             rank,
             {
                 "ticker": ticker,
-                "metric": concept.metric,
+                "metric": metric,
                 "value": value,
                 "period_end": period_end,
                 "fiscal_period": fiscal_period,

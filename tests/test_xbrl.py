@@ -763,3 +763,58 @@ def test_the_report_says_which_dimension_columns_it_could_filter_on():
     _out, rep = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), legacy, {"19617": "JPM"})
     assert rep.dimension_columns_present == ("coreg",)
     assert rep.as_dict()["dimension_filter_complete"] is False
+
+
+# ------------------------------------------------ cash-flow windows (2026-09-24)
+Q3_SUB = [
+    {"adsh": "q3", "cik": "0000019617", "name": "JPMORGAN CHASE & CO",
+     "form": "10-Q", "period": "20250930", "filed": "20251104", "fp": "Q3"},
+]
+
+
+def test_ytd_cash_flow_is_kept_as_its_own_metric():
+    """A Q3 10-Q files cash flow for nine months only. Kept as `_ytd`, so the
+    quarter can be derived; revenue's YTD rows are still dropped."""
+    num = _df([
+        _num(adsh="q3", ddate="20250930", tag="NetCashProvidedByUsedInOperatingActivities",
+             qtrs="3", value="900"),
+        _num(adsh="q3", ddate="20250930", tag="NetCashProvidedByUsedInInvestingActivities",
+             qtrs="3", value="-300"),
+        _num(adsh="q3", ddate="20250930", tag="Revenues", qtrs="3", value="3000"),
+    ], NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(Q3_SUB, SUB_COLS), num, CIK_MAP)
+    got = {r["metric"]: r["value"] for r in rows}
+    assert got == {"operating_cash_flow_ytd": 900.0, "investing_cash_flow_ytd": -300.0}
+    assert report.kept_ytd == 2
+    assert report.dropped_ytd_cumulative == 1
+
+
+def test_a_quarter_inside_a_10k_is_labelled_q4():
+    num = _df([
+        _num(tag="Revenues", qtrs="1", value="250"),
+        _num(tag="Revenues", qtrs="4", value="1000", ddate="20251231"),
+    ], NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    # Same (ticker, metric, period_end, filing_date): the year wins, whichever
+    # row comes first in the file.
+    assert [(r["value"], r["fiscal_period"]) for r in rows] == [(1000.0, "FY")]
+    assert report.relabelled_q4 == 1
+    num = _df([num.iloc[1].to_dict(), num.iloc[0].to_dict()], NUM_COLS)
+    rows, _ = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    assert [(r["value"], r["fiscal_period"]) for r in rows] == [(1000.0, "FY")]
+
+
+def test_a_lone_quarter_inside_a_10k_is_kept_as_q4():
+    num = _df([_num(tag="Revenues", qtrs="1", value="250")], NUM_COLS)
+    rows, _ = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    assert [(r["value"], r["fiscal_period"]) for r in rows] == [(250.0, "Q4")]
+
+
+def test_twelve_months_inside_a_10q_is_dropped():
+    num = _df([
+        _num(adsh="q3", ddate="20250930", tag="Revenues", qtrs="4", value="4000"),
+        _num(adsh="q3", ddate="20250930", tag="Revenues", qtrs="1", value="1000"),
+    ], NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(Q3_SUB, SUB_COLS), num, CIK_MAP)
+    assert [r["value"] for r in rows] == [1000.0]
+    assert report.dropped_window_mismatch == 1

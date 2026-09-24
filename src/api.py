@@ -3474,6 +3474,45 @@ def api_company_history(
     return JSONResponse(out)
 
 
+@app.get("/api/company/{ticker}/statements")
+def api_company_statements(
+    ticker: str,
+    period: str = Query("annual", pattern="^(annual|quarterly)$",
+                        description="annual or quarterly"),
+    years: int | None = Query(None, ge=1, le=30,
+                              description="How far back. Capped by your plan."),
+    as_of: dt.date | None = Query(
+        None, description="YYYY-MM-DD. As public that day. Pro and above."),
+    account=Depends(_ACCOUNT_OR_SESSION),
+) -> JSONResponse:
+    """Income statement and cash flow, each period checked. One metered call.
+
+    Quarterly Q4, and Q2/Q3 cash flow, are derived from filed year and
+    year-to-date figures and named in each period's `derived`. Depth is the
+    plan's history depth, as for /history.
+    """
+    from src import accounts, plans
+    from src.company.statements import statements
+
+    as_of = _as_of_for(account, as_of)
+    accounts.enforce_monthly_limit(account)
+    cap = plans.allowance(account.tier, "history_years")
+    wanted = years if years is not None else cap
+    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(422, "That does not look like a ticker symbol.")
+    out = statements(symbol, period, allowed, as_of)
+    if out is None:
+        if as_of is not None:
+            raise _nothing_known(symbol, as_of)
+        raise HTTPException(404, f"No filed income statement or cash flow for {symbol}.")
+    accounts.record_call(account, "/api/company/statements")
+    out["years_allowed"] = cap
+    out["plan"] = account.tier
+    return JSONResponse(jsonable_encoder(out))
+
+
 @app.get("/api/company/{ticker}/changes")
 def api_company_changes(ticker: str, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """What moved since the previous period, and what a later filing restated.
