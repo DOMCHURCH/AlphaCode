@@ -3471,6 +3471,44 @@ def api_verify(body: VerifyRequest, account=Depends(_ACCOUNT_DEP)) -> JSONRespon
     }))
 
 
+class WebhookRequest(BaseModel):
+    url: str
+
+
+@app.get("/api/webhooks")
+def api_webhooks(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    from src import plans, webhooks
+
+    return JSONResponse({"limit": plans.allowance(account.tier, "webhooks"),
+                         "endpoints": webhooks.list_for(account)})
+
+
+@app.post("/api/webhooks", status_code=201)
+def api_webhooks_create(body: WebhookRequest, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """Register an HTTPS endpoint for signed watchlist alerts. Business plan.
+
+    The signing secret is in this response and nowhere else, ever.
+    """
+    from src import webhooks
+
+    return JSONResponse(webhooks.create(account, body.url), status_code=201)
+
+
+@app.delete("/api/webhooks/{endpoint_id}")
+def api_webhooks_delete(endpoint_id: int, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    from src import webhooks
+
+    return JSONResponse({"removed": webhooks.delete(account, endpoint_id)})
+
+
+@app.post("/api/webhooks/{endpoint_id}/test")
+def api_webhooks_test(endpoint_id: int, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """Send a signed `ping` event now, so an integration can be checked."""
+    from src import webhooks
+
+    return JSONResponse({"delivered": webhooks.send_test(account, endpoint_id)})
+
+
 class WatchRequest(BaseModel):
     ticker: str
 
@@ -4672,6 +4710,10 @@ _KEYED_ENDPOINTS: tuple[str, ...] = (
     "GET /api/company/{ticker}/changes  (Starter and above)",
     "GET /api/plans  (public: what each plan includes)",
     "POST /api/verify  (Pro and above; one call per ticker)",
+    "GET /api/webhooks",
+    "POST /api/webhooks  (Business; returns the signing secret once)",
+    "DELETE /api/webhooks/{id}",
+    "POST /api/webhooks/{id}/test",
     "GET /api/watchlist",
     "POST /api/watchlist  (Starter and above)",
     "DELETE /api/watchlist/{ticker}",

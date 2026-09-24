@@ -290,3 +290,104 @@ def test_business_gets_filing_links_and_pro_does_not(client):
     assert hist[0]["provenance"]["matched"] is True
     # An older period with no matching filing event says so instead of guessing.
     assert hist[-1]["provenance"]["matched"] is False
+
+
+# ---------------------------------------------------------------------------
+# Stage D: webhooks (Business)
+# ---------------------------------------------------------------------------
+
+@pytest.fixture()
+def public_dns(monkeypatch):
+    """Every host resolves to a public address unless the test says otherwise."""
+    from src import webhooks
+
+    table = {"hooks.example.com": ["93.184.216.34"], "evil.example.com": ["10.0.0.5"],
+             "meta.example.com": ["169.254.169.254"], "v6.example.com": ["::1"],
+             "mapped.example.com": ["::ffff:10.0.0.5"]}
+    monkeypatch.setattr(webhooks, "_resolve", lambda h: table.get(h, ["93.184.216.34"]))
+    return table
+
+
+@pytest.fixture()
+def fake_http(monkeypatch):
+    import httpx
+
+    calls = []
+    state = {"status": 200}
+
+    def post(url, content, headers, timeout, follow_redirects):
+        assert follow_redirects is False
+        calls.append({"url": url, "body": content, "headers": headers})
+        return httpx.Response(state["status"])
+
+    monkeypatch.setattr(httpx, "post", post)
+    from src import webhooks
+
+    monkeypatch.setattr(webhooks, "BACKOFF_S", (0.0, 0.0, 0.0))
+    return calls, state
+
+
+@pytest.mark.parametrize("url", [
+    "http://hooks.example.com/x", "https://user:pw@hooks.example.com/x",
+    "https://hooks.example.com:22/x", "https://evil.example.com/x",
+    "https://meta.example.com/x", "https://v6.example.com/x",
+    "https://mapped.example.com/x",
+])
+def test_unsafe_webhook_urls_are_refused(client, public_dns, url):
+    h = _key(client, f"u{abs(hash(url))}@example.com", "business")
+    assert client.post("/api/webhooks", json={"url": url}, headers=h).status_code == 422
+
+
+def test_webhooks_need_business(client, public_dns):
+    h = _key(client, "wh0@example.com", "pro")
+    r = client.post("/api/webhooks", json={"url": "https://hooks.example.com/in"}, headers=h)
+    assert r.status_code == 403 and r.json()["detail"]["required_plan"] == "Business"
+
+
+def test_the_secret_is_shown_once_and_signs_the_ping(client, public_dns, fake_http):
+    import hashlib
+    import hmac
+
+    calls, _ = fake_http
+    h = _key(client, "wh1@example.com", "business")
+    made = client.post("/api/webhooks", json={"url": "https://hooks.example.com/in"}, headers=h).json()
+    secret = made["secret"]
+    listed = client.get("/api/webhooks", headers=h).json()["endpoints"][0]
+    assert "secret" not in listed and listed["secret_prefix"] == secret[:8]
+    assert client.post(f"/api/webhooks/{made['id']}/test", headers=h).json()["delivered"] is True
+    (call,) = calls
+    ts, v1 = (kv.split("=", 1)[1] for kv in call["headers"]["BalanceProof-Signature"].split(","))
+    expect = hmac.new(secret.encode(), f"{ts}.".encode() + call["body"], hashlib.sha256).hexdigest()
+    assert v1 == expect and call["headers"]["BalanceProof-Event"] == "ping"
+
+
+def test_failing_endpoints_retry_then_switch_off(client, public_dns, fake_http, monkeypatch):
+    from src import webhooks
+
+    calls, state = fake_http
+    state["status"] = 500
+    monkeypatch.setattr(webhooks, "DISABLE_AFTER", 2)
+    h = _key(client, "wh2@example.com", "business")
+    eid = client.post("/api/webhooks", json={"url": "https://hooks.example.com/in"}, headers=h).json()["id"]
+    client.post(f"/api/webhooks/{eid}/test", headers=h)
+    assert len(calls) == webhooks.ATTEMPTS
+    client.post(f"/api/webhooks/{eid}/test", headers=h)
+    ep = client.get("/api/webhooks", headers=h).json()["endpoints"][0]
+    assert ep["active"] is False and "disabled" in ep["last_error"]
+
+
+def test_a_watch_alert_reaches_the_webhook_even_when_email_fails(client, public_dns, fake_http, monkeypatch):
+    import json
+
+    from src import mailer, watchlist
+
+    calls, _ = fake_http
+    monkeypatch.setattr(mailer, "_send", lambda *a, **k: False)
+    h = _key(client, "wh3@example.com", "business")
+    client.post("/api/webhooks", json={"url": "https://hooks.example.com/in"}, headers=h)
+    client.post("/api/watchlist", json={"ticker": "TST"}, headers=h)
+    _file_new_period()
+    assert watchlist.run_alerts()["sent"] == 1
+    body = json.loads(calls[-1]["body"])
+    assert body["event"] == "watchlist.filed" and body["data"]["filings"][0]["ticker"] == "TST"
+    assert watchlist.pending() == []

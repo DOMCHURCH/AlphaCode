@@ -474,6 +474,40 @@ class WatchItem(Base):
     )
 
 
+class WebhookEndpoint(Base):
+    """A customer's HTTPS endpoint for signed alert POSTs (Business: 5).
+
+    `secret` is kept in the clear because it is an HMAC KEY, not a password:
+    signing needs it on every delivery. It is shown to the customer once.
+    """
+
+    __tablename__ = "webhook_endpoints"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    url: Mapped[str] = mapped_column(String(512), nullable=False)
+    secret: Mapped[str] = mapped_column(String(80), nullable=False)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+    consecutive_failures: Mapped[int | None] = mapped_column(Integer, default=0)
+    last_success_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+    last_error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+
+
+class WebhookDelivery(Base):
+    """One delivery attempt run (after retries): for support and the dashboard."""
+
+    __tablename__ = "webhook_deliveries"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    endpoint_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    event: Mapped[str] = mapped_column(String(48), nullable=False)
+    ok: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    status_code: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    attempted_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+
+
 class SigninPromptAnswer(Base):
     """What one ADDRESS last said to the sign-in panel. One row per ip_hash.
 

@@ -230,17 +230,20 @@ def run_alerts() -> dict[str, int]:
                 + f"\n\nManage your watchlist: {SITE}/dashboard\n")
         ok = mailer._send(group[0]["email"], subject=subject, text=text,
                           event="watch_alert_sent")
-        if ok:
-            _mark(ids, newest, alerted=True)
-            sent += 1
+        # Webhooks (Business) are independent of the email: a relay outage
+        # must not also silence the customer's integration.
+        hooked = 0
+        if plans.allowance(tier, "webhooks"):
             try:
                 from src import webhooks
 
-                webhooks.deliver_alert(group[0]["user_id"], [p for _, p in sections])
-            except ImportError:
-                pass
+                hooked = webhooks.deliver_alert(group[0]["user_id"],
+                                                [p for _, p in sections])
             except Exception as exc:  # noqa: BLE001
                 log.warning("watch_webhook_failed", error=str(exc)[:200])
+        if ok or hooked:
+            _mark(ids, newest, alerted=True)
+            sent += 1
         else:
             failed += 1
     return {"sent": sent, "skipped": skipped, "failed": failed}

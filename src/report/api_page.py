@@ -131,6 +131,12 @@ def render_api(
      "anything restated. Starter watches 3, Pro 50, Business 500. "
      "<code>GET /api/watchlist</code> lists them, "
      "<code>DELETE /api/watchlist/{ticker}</code> removes one.")}
+{_ep("POST", "/api/webhooks", "X-API-Key required · Business (5 endpoints) · free",
+     "Register an https URL: body <code>{&quot;url&quot;: &quot;https://...&quot;}</code>. When a "
+     "watched company files, it receives a <code>watchlist.filed</code> POST with the same "
+     "facts as the email. Each request carries <code>BalanceProof-Signature: t=..,v1=..</code>, "
+     "an HMAC-SHA256 of <code>t.body</code> with the secret returned once at creation. "
+     "<code>POST /api/webhooks/{id}/test</code> sends a signed ping.")}
 {_ep("GET", "/api/plans", "Public",
      "What each plan includes, as data: call quotas, history depth, "
      "watchlist size and the rest.")}
