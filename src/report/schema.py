@@ -326,7 +326,45 @@ def organization_ld() -> str:
     )
 
 
-def pricing_ld() -> str:
+def _tier_offers(all_tiers: bool) -> list[dict]:
+    """Starter and Business Offers, monthly and yearly, as their cards show."""
+    if not all_tiers:
+        return []
+    from src import billing
+    from src.config.settings import get_settings
+
+    st = get_settings()
+    out: list[dict] = []
+    for tier in ("starter", "business"):
+        if not billing.price_for(tier):
+            continue
+        periods = [("monthly", getattr(st, f"{tier}_price"), "MON")]
+        if billing.price_for(f"{tier}_annual"):
+            periods.append(("annual", getattr(st, f"{tier}_annual_price"), "ANN"))
+        for label, amount, unit in periods:
+            price = f"{amount:.2f}"
+            out.append({
+                "@type": "Offer",
+                "name": f"{tier.capitalize()} — {label}",
+                "price": price,
+                "priceCurrency": "CAD",
+                "url": f"{SITE}/pricing",
+                "availability": "https://schema.org/InStock",
+                "priceSpecification": {
+                    "@type": "UnitPriceSpecification",
+                    "price": price,
+                    "priceCurrency": "CAD",
+                    "referenceQuantity": {
+                        "@type": "QuantitativeValue",
+                        "value": 1,
+                        "unitCode": unit,
+                    },
+                },
+            })
+    return out
+
+
+def pricing_ld(all_tiers: bool = False) -> str:
     """The four ways to pay, as a Product with four Offers.
 
     **Why `Product` and not `FinancialProduct`.** `FinancialProduct` is
@@ -355,6 +393,12 @@ def pricing_ld() -> str:
     Belongs on `/pricing` only — the page where all four prices are visible.
     Putting it on the home page, where only some tiers appear, is the exact
     hidden-markup case Rule 16.6 forbids.
+
+    `all_tiers=True` (the /pricing page only) adds Starter and Business, each
+    only while its Stripe Price is set -- the same test that decides whether
+    its card renders, so the markup never names a plan the page does not
+    show. Without them, Google's AI answer read this block as the whole price
+    list and told a searcher the other plans were "gated behind a login".
     """
     return _script(
         {
@@ -374,7 +418,7 @@ def pricing_ld() -> str:
             # marking up a fact that is not true. Google treats them as
             # inapplicable for a digital good rather than missing.
             "image": IMAGE,
-            "offers": [
+            "offers": _tier_offers(all_tiers) + [
                 {
                     "@type": "Offer",
                     "name": "Free",

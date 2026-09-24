@@ -195,6 +195,36 @@ def _business_card() -> str:
     )
 
 
+def plan_price_list() -> str:
+    """Every plan the page shows, with its price, as one sentence.
+
+    Built from the same settings and Stripe checks as the cards, so the meta
+    description and the FAQ answer cannot list a plan the page hides or a
+    price the checkout does not charge.
+    """
+    from src import billing
+    from src.config.settings import get_settings, price_label
+
+    s = get_settings()
+    parts = ["Free tier"]
+
+    def tier(name: str, month: float, year: float, key: str) -> None:
+        text = f"{name} {price_label(month)}/month"
+        if billing.price_for(f"{key}_annual"):
+            text += f" or {price_label(year)}/year"
+        parts.append(text)
+
+    if billing.price_for("starter"):
+        tier("Starter", s.starter_price, s.starter_annual_price, "starter")
+    tier("Pro", s.pro_price_usd, s.pro_annual_price_usd, "pro")
+    if billing.price_for("business"):
+        tier("Business", s.business_price, s.business_annual_price, "business")
+    return (
+        ", ".join(parts)
+        + f", or {price_label(s.dataset_price_usd)} once for the full dataset (CAD)."
+    )
+
+
 def plan_cards(
     *,
     free_limit: int,
@@ -651,7 +681,14 @@ def render_pricing(
     # citation: four questions somebody actually types, answered in full
     # sentences that stand alone out of context. Marked up so a model quoting
     # one of them has the question attached to it.
+    price_list = plan_price_list()
     faq_pairs = [
+        (
+            "How much does BalanceProof cost?",
+            f"{price_list} All prices are in Canadian dollars and are shown "
+            "on this page; you do not need an account to see them. Enterprise "
+            "plans with a custom monthly allowance are priced on request.",
+        ),
         (
             "What's the difference between the SEC dataset and the API?",
             "The dataset is a static CSV snapshot of every filed figure at the "
@@ -687,12 +724,11 @@ def render_pricing(
         "Pricing — BalanceProof",
         body,
         description=(
-            "Free tier, $49/mo Pro, or $79.99 once for the dataset. Every "
-            "figure traced to its source, every exception named. "
-            f"{companies_label()} companies."
+            f"{price_list} Every figure traced to its source, every "
+            f"exception named. {companies_label()} companies."
         ),
         canonical="/pricing",
-        ld=pricing_ld()
+        ld=pricing_ld(all_tiers=True)
         + faq_ld(faq_pairs)
         + breadcrumb_ld([("Home", "/"), ("Pricing", "/pricing")]),
     )
