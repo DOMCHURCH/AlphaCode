@@ -149,7 +149,11 @@ def get_balance_sheet(
     """Fetch a balance sheet for a ticker.
 
     Returns None if the ticker has no usable fundamentals data.
-    Point-in-time: only shows data as of `as_of` and earlier.
+    Point-in-time: only figures FILED on or before `as_of` are read, so the
+    answer is what an observer could have known that day -- the original
+    figure before a restatement was filed, the restated one after. Until
+    2026-09-24 this filtered on `period_end` alone, which let a filing made
+    after `as_of` leak into an "as of" answer (lookahead).
 
     `period_end` pins the answer to ONE reporting period instead of "whichever
     is newest". A caller holding a figure read off a specific filing -- the
@@ -188,6 +192,15 @@ def get_balance_sheet(
             .limit(1)
         ).scalar_one_or_none()
 
+        if univ is None:
+            # A past `as_of` predates every universe snapshot; the name the
+            # company files under now is better than no name at all.
+            univ = session.execute(
+                select(UniverseSnapshot)
+                .where(UniverseSnapshot.ticker == ticker.upper())
+                .order_by(UniverseSnapshot.as_of_date.asc())
+                .limit(1)
+            ).scalar_one_or_none()
         if univ:
             # The column is `name`. Reading `company_name` here raised
             # AttributeError for any ticker actually present in the universe
@@ -207,6 +220,7 @@ def get_balance_sheet(
                 and_(
                     Fundamental.ticker == ticker.upper(),
                     Fundamental.period_end <= as_of,
+                    Fundamental.filing_date <= as_of,
                 )
             )
             .order_by(Fundamental.period_end.desc(), Fundamental.filing_date.desc())

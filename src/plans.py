@@ -38,6 +38,10 @@ MATRIX: dict[str, dict[str, Any]] = {
     "provenance": {"free": False, "starter": False, "pro": False, "business": True, "enterprise": True},
     # HTTPS endpoints that receive signed alert POSTs.
     "webhooks": {"free": 0, "starter": 0, "pro": 0, "business": 5, "enterprise": 25},
+    # `as_of=`: the figures exactly as they were public on a past date.
+    "point_in_time": {"free": False, "starter": False, "pro": True, "business": True, "enterprise": True},
+    # Days of the exceptions feed (failed checks + restatements, every company).
+    "exceptions_feed": {"free": 0, "starter": 0, "pro": 90, "business": None, "enterprise": None},
 }
 
 FEATURE_LABELS: dict[str, str] = {
@@ -47,6 +51,8 @@ FEATURE_LABELS: dict[str, str] = {
     "bulk_verify": "bulk verification",
     "provenance": "filing links on every figure",
     "webhooks": "webhooks",
+    "point_in_time": "point-in-time as_of queries",
+    "exceptions_feed": "the exceptions and restatements feed",
 }
 
 

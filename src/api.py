@@ -3337,8 +3337,49 @@ def api_user_status(account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     return JSONResponse(accounts.status_payload(account))
 
 
+def _as_of_for(account: Any, as_of: dt.date | None) -> dt.date | None:
+    """A validated `as_of`, or None for "today". Pro and above.
+
+    A date in the future is refused rather than read as today: a backtest
+    that passes tomorrow has a bug, and answering it hides the bug.
+    """
+    if as_of is None:
+        return None
+    from src import plans
+
+    plans.require(account.tier, "point_in_time")
+    if as_of > dt.date.today():
+        raise HTTPException(422, "as_of cannot be in the future.")
+    return as_of
+
+
+def _earliest_filing() -> dt.date | None:
+    from sqlalchemy import func, select
+
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as session:
+        return session.execute(select(func.min(Fundamental.filing_date))).scalar()
+
+
+def _nothing_known(symbol: str, as_of: dt.date) -> HTTPException:
+    """404 for an as_of before any loaded filing, saying where data starts."""
+    first = _earliest_filing()
+    note = f" The database holds filings from {first.isoformat()} on." if first else ""
+    return HTTPException(
+        404, f"Nothing filed for {symbol} on or before {as_of.isoformat()}.{note}"
+    )
+
+
 @app.get("/api/company/{ticker}")
-def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_company(
+    ticker: str,
+    as_of: dt.date | None = Query(
+        None, description="YYYY-MM-DD. The balance sheet exactly as it was "
+        "public that day: only filings made by then. Pro and above."),
+    account=Depends(_ACCOUNT_DEP),
+) -> JSONResponse:
     """One company's filed balance sheet, as JSON. Costs one metered call.
 
     The limit is enforced before the read and the call is recorded after it
@@ -3349,6 +3390,7 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     from src import accounts
     from src.company.balancesheet import get_balance_sheet
 
+    as_of = _as_of_for(account, as_of)
     accounts.enforce_monthly_limit(account)
 
     symbol = _clean_ticker(ticker)
@@ -3357,13 +3399,15 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
             status_code=422, detail="That does not look like a ticker symbol."
         )
     try:
-        sheet = get_balance_sheet(symbol)
+        sheet = get_balance_sheet(symbol, as_of=as_of)
     except Exception as exc:  # noqa: BLE001 - an API error must still say why
         log.exception("api_company_failed", ticker=symbol, error=str(exc))
         raise HTTPException(
             status_code=500, detail=f"Something went wrong reading it: {exc}"
         ) from exc
     if sheet is None:
+        if as_of is not None:
+            raise _nothing_known(symbol, as_of)
         raise HTTPException(
             status_code=404,
             detail=(
@@ -3374,6 +3418,8 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
 
     accounts.record_call(account, "/api/company")
     payload = jsonable_encoder(asdict(sheet))
+    if as_of is not None:
+        payload["as_of"] = as_of.isoformat()
     payload["source"] = "SEC Financial Statement Data Sets (as reported)"
     from src import plans
 
@@ -3389,6 +3435,9 @@ def api_company_history(
     ticker: str,
     years: int | None = Query(None, ge=1, le=30,
                               description="How far back. Capped by your plan."),
+    as_of: dt.date | None = Query(
+        None, description="YYYY-MM-DD. History as it was public that day. "
+        "Pro and above."),
     account=Depends(_ACCOUNT_OR_SESSION),
 ) -> JSONResponse:
     """Every loaded balance sheet for a company, newest first. One metered call.
@@ -3400,6 +3449,7 @@ def api_company_history(
     from src import accounts, plans
     from src.company.history import history
 
+    as_of = _as_of_for(account, as_of)
     accounts.enforce_monthly_limit(account)
     cap = plans.allowance(account.tier, "history_years")
     wanted = years if years is not None else cap
@@ -3407,8 +3457,10 @@ def api_company_history(
     symbol = _clean_ticker(ticker)
     if not _is_ticker_shaped(symbol):
         raise HTTPException(422, "That does not look like a ticker symbol.")
-    out = history(symbol, allowed)
+    out = history(symbol, allowed, as_of)
     if out is None:
+        if as_of is not None:
+            raise _nothing_known(symbol, as_of)
         raise HTTPException(404, f"No filed balance sheets for {symbol}.")
     accounts.record_call(account, "/api/company/history")
     out["years_allowed"] = cap

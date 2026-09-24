@@ -42,7 +42,9 @@ HEADLINE = (
 SAME_QUARTER_DAYS = 10
 
 
-def _periods(ticker: str, since: dt.date | None) -> tuple[list[dt.date], dt.date | None]:
+def _periods(
+    ticker: str, since: dt.date | None, as_of: dt.date | None = None
+) -> tuple[list[dt.date], dt.date | None]:
     """Periods with a total-assets figure, newest first, and the oldest held.
 
     Near-duplicate period ends (see SAME_QUARTER_DAYS) collapse to the one
@@ -53,15 +55,16 @@ def _periods(ticker: str, since: dt.date | None) -> tuple[list[dt.date], dt.date
     from src.storage.models import Fundamental
 
     with session_scope() as session:
+        known = Fundamental.filing_date <= (as_of or dt.date.today())
         with_assets = set(session.execute(
             select(Fundamental.period_end)
             .where(and_(Fundamental.ticker == ticker,
-                        Fundamental.metric == "total_assets"))
+                        Fundamental.metric == "total_assets", known))
             .distinct()
         ).scalars().all())
         counts = dict(session.execute(
             select(Fundamental.period_end, func.count(func.distinct(Fundamental.metric)))
-            .where(Fundamental.ticker == ticker)
+            .where(and_(Fundamental.ticker == ticker, known))
             .group_by(Fundamental.period_end)
         ).all())
     held: list[dt.date] = []
@@ -77,31 +80,38 @@ def _periods(ticker: str, since: dt.date | None) -> tuple[list[dt.date], dt.date
     return held[:MAX_PERIODS], oldest
 
 
-def history(ticker: str, years: int | None) -> dict[str, Any] | None:
+def history(
+    ticker: str, years: int | None, as_of: dt.date | None = None
+) -> dict[str, Any] | None:
     """Every loaded balance sheet for `ticker` in the last `years` (None = all).
 
     `available_from` is the oldest period the database holds for this company
     regardless of the caller's plan, so "you asked for ten years and there are
     three" reads as exactly that rather than as a silent short answer.
+
+    `as_of` answers as of that date: only filings made by then, and `years`
+    counted back from it rather than from today.
     """
     from src.company.balancesheet import get_balance_sheet
     from src.company.lookup import canonical_ticker
 
     symbol = canonical_ticker(ticker).upper()
+    anchor = as_of or dt.date.today()
     since = (
-        dt.date.today() - dt.timedelta(days=int(years * 365.25))
+        anchor - dt.timedelta(days=int(years * 365.25))
         if years else None
     )
-    periods, oldest = _periods(symbol, since)
+    periods, oldest = _periods(symbol, since, as_of)
     if oldest is None:
         return None
     sheets = []
     for p in periods:
-        sheet = get_balance_sheet(symbol, period_end=p)
+        sheet = get_balance_sheet(symbol, as_of=anchor, period_end=p)
         if sheet is not None:
             sheets.append(asdict(sheet))
     return {
         "ticker": symbol,
+        "as_of": as_of.isoformat() if as_of else None,
         "years_requested": years,
         "periods": len(sheets),
         "available_from": oldest.isoformat(),
