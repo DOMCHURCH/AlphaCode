@@ -401,6 +401,34 @@ async def _run_subscriptions(status: dict[str, Any]) -> Outcome:
     return Outcome(status="ok", rows=n, detail=f"warned about {n}")
 
 
+def watch_alerts_status(session: Any, today: dt.date) -> dict[str, Any]:
+    """Has a watched company filed since its watchers were last told?"""
+    from src.config.settings import get_settings
+
+    if not get_settings().agentmail_api_key:
+        return {"due": False, "detail": "email is not configured"}
+    try:
+        from src import watchlist
+
+        due = watchlist.pending()
+    except Exception as exc:  # noqa: BLE001 - a status read must not throw
+        return {"due": False, "detail": f"check failed: {str(exc)[:80]}"}
+    if not due:
+        return {"due": False, "detail": "no new filings on any watchlist"}
+    users = len({d["user_id"] for d in due})
+    return {"due": True, "detail": f"{len(due)} new filing(s) for {users} account(s)"}
+
+
+async def _run_watch_alerts(_status: dict[str, Any]) -> Outcome:
+    from src import watchlist
+
+    out = await asyncio.to_thread(watchlist.run_alerts)
+    detail = f"sent {out['sent']}, skipped {out['skipped']}, failed {out['failed']}"
+    if out["failed"] and not out["sent"]:
+        return Outcome(status="error", rows=0, detail=detail)
+    return Outcome(status="ok", rows=out["sent"], detail=detail)
+
+
 def names_status(session: Any, today: dt.date) -> dict[str, Any]:
     """Are company names loaded, and are they from a recent SEC list?
 
@@ -511,6 +539,17 @@ JOBS: tuple[Job, ...] = (
         description=(
             "company names from SEC's own ticker list -- what makes searching "
             "\"Walmart\" rather than \"WMT\" work at all"
+        ),
+    ),
+    Job(
+        name="watch_alerts",
+        status=watch_alerts_status,
+        run=_run_watch_alerts,
+        min_hours=lambda s: 1.0,
+        wait_hours=lambda s: 1.0,
+        description=(
+            "email watchlist owners when a company they watch files -- "
+            "reconciliation, what moved, and anything restated"
         ),
     ),
     Job(

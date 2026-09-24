@@ -139,3 +139,95 @@ def test_mcp_lists_the_new_tools(client):
                     headers={"Accept": "application/json, text/event-stream"})
     names = {t["name"] for t in r.json()["result"]["tools"]}
     assert {"get_balance_sheet_history", "get_balance_sheet_changes"} <= names
+
+
+# ---------------------------------------------------------------------------
+# Stage B: watchlist + new-filing alerts
+# ---------------------------------------------------------------------------
+
+def _file_new_period(assets=1100.0, restate_prev=None):
+    """A new 10-Q lands for TST, optionally restating the previous period."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    p, filed = TODAY - dt.timedelta(days=5), TODAY - dt.timedelta(days=1)
+    with session_scope() as s:
+        for m, v in (("total_assets", assets), ("total_liabilities", assets * .6),
+                     ("total_equity", assets * .4)):
+            s.add(Fundamental(ticker="TST", metric=m, value=v, period_end=p,
+                              fiscal_period="Q", filing_date=filed, source="sec"))
+        if restate_prev is not None:
+            s.add(Fundamental(ticker="TST", metric="total_liabilities",
+                              value=restate_prev, period_end=_q(0.2),
+                              fiscal_period="Q", filing_date=filed, source="sec"))
+
+
+def test_free_cannot_watch(client):
+    h = _key(client, "w0@example.com")
+    r = client.post("/api/watchlist", json={"ticker": "TST"}, headers=h)
+    assert r.status_code == 403 and r.json()["detail"]["required_plan"] == "Starter"
+
+
+def test_starter_watches_up_to_three(client):
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as s:
+        for t in ("AAA", "BBB", "CCC"):
+            s.add(UniverseSnapshot(as_of_date=TODAY, ticker=t, name=t))
+            s.add(Fundamental(ticker=t, metric="total_assets", value=1.0,
+                              period_end=_q(0.3), fiscal_period="Q",
+                              filing_date=_q(0.2), source="sec"))
+    h = _key(client, "w1@example.com", "starter")
+    for t in ("TST", "AAA", "BBB"):
+        assert client.post("/api/watchlist", json={"ticker": t}, headers=h).status_code == 200
+    # Idempotent: watching again is not a fourth.
+    assert client.post("/api/watchlist", json={"ticker": "TST"}, headers=h).json()["added"] is False
+    r = client.post("/api/watchlist", json={"ticker": "CCC"}, headers=h)
+    assert r.status_code == 403 and r.json()["detail"]["error"] == "watchlist_full"
+    assert client.post("/api/watchlist", json={"ticker": "NOPE"}, headers=h).status_code == 404
+    assert client.delete("/api/watchlist/AAA", headers=h).json()["removed"] is True
+    assert len(client.get("/api/watchlist", headers=h).json()["items"]) == 2
+
+
+def test_a_new_watch_does_not_alert_on_old_filings(client):
+    from src import watchlist
+
+    h = _key(client, "w2@example.com", "pro")
+    client.post("/api/watchlist", json={"ticker": "TST"}, headers=h)
+    assert watchlist.pending() == []
+
+
+def test_a_new_filing_is_mailed_once_with_the_restatement(client, monkeypatch):
+    from src import mailer, watchlist
+
+    sent = []
+    monkeypatch.setattr(mailer, "_send",
+                        lambda to, *, subject, text, event: sent.append((to, subject, text)) or True)
+    h = _key(client, "w3@example.com", "pro")
+    client.post("/api/watchlist", json={"ticker": "TST"}, headers=h)
+    _file_new_period(restate_prev=620.0)
+    assert len(watchlist.pending()) == 1
+    assert watchlist.run_alerts()["sent"] == 1
+    (to, subject, text), = sent
+    assert to == "w3@example.com" and "TST" in subject
+    assert "Reconciles" in text
+    assert "Restated: total_liabilities" in text and "600 -> 620" in text
+    # Told once: the next run has nothing to say.
+    assert watchlist.pending() == []
+    assert watchlist.run_alerts()["sent"] == 1 - 1
+
+
+def test_a_lapsed_watcher_is_advanced_silently(client, monkeypatch):
+    from src import accounts, mailer, watchlist
+
+    sent = []
+    monkeypatch.setattr(mailer, "_send",
+                        lambda to, *, subject, text, event: sent.append(to) or True)
+    h = _key(client, "w4@example.com", "starter")
+    client.post("/api/watchlist", json={"ticker": "TST"}, headers=h)
+    accounts.apply_admin_action("w4@example.com", "revoke_pro")
+    _file_new_period()
+    out = watchlist.run_alerts()
+    assert out["skipped"] == 1 and sent == []
+    assert watchlist.pending() == []

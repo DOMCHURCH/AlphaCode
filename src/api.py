@@ -3396,6 +3396,39 @@ def api_company_changes(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONRespo
     return JSONResponse(jsonable_encoder(out))
 
 
+class WatchRequest(BaseModel):
+    ticker: str
+
+
+@app.get("/api/watchlist")
+def api_watchlist(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """Your watched companies and your plan's limit. Free (not metered)."""
+    from src import plans, watchlist
+
+    return JSONResponse({
+        "limit": plans.allowance(account.tier, "watchlist"),
+        "items": watchlist.items(account),
+    })
+
+
+@app.post("/api/watchlist")
+def api_watchlist_add(body: WatchRequest, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """Watch a company: you get an email when it files. Starter and above."""
+    from src import watchlist
+
+    symbol = _clean_ticker(body.ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(422, "That does not look like a ticker symbol.")
+    return JSONResponse(watchlist.add(account, symbol))
+
+
+@app.delete("/api/watchlist/{ticker}")
+def api_watchlist_remove(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    from src import watchlist
+
+    return JSONResponse({"removed": watchlist.remove(account, _clean_ticker(ticker))})
+
+
 @app.get("/api/plans")
 def api_plans() -> JSONResponse:
     """What each plan includes. Public, unmetered: it is the price list."""
@@ -4563,6 +4596,9 @@ _KEYED_ENDPOINTS: tuple[str, ...] = (
     "GET /api/company/{ticker}/history  (depth by plan)",
     "GET /api/company/{ticker}/changes  (Starter and above)",
     "GET /api/plans  (public: what each plan includes)",
+    "GET /api/watchlist",
+    "POST /api/watchlist  (Starter and above)",
+    "DELETE /api/watchlist/{ticker}",
     "GET /api/demo/{ticker}  (no key, metered per address)",
     "GET /api/user/status",
     "GET /api/download-dataset",

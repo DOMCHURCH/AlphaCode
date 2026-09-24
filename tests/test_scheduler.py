@@ -396,6 +396,8 @@ def test_report_describes_every_job_before_anything_has_run(db):
         # by ticker work. Due on an empty database like every other data
         # job, because zero names IS name search being off.
         "names",
+        # Watchlist alerts (2026-09-23).
+        "watch_alerts",
         # The renewal warning is reported like any other job, so
         # /admin shows whether it is due, off, or failing.
         "subscriptions",

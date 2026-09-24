@@ -1074,13 +1074,16 @@ def test_status_and_admin_report_the_auto_updater(client):
             # by ticker work. Due on an empty database like every other data
             # job, because zero names IS name search being off.
             "names",
+            # Watchlist alerts (2026-09-23): not due on an empty database.
+            "watch_alerts",
             # The renewal warning is reported like any other job, so
             # /admin shows whether it is due, off, or failing.
             "subscriptions",
         ]
         assert "enabled" in auto and "tick_minutes" in auto
         # An empty test database is behind on every DATA job, and says so.
-        data_jobs = [j for j in auto["jobs"] if j["name"] != "subscriptions"]
+        data_jobs = [j for j in auto["jobs"]
+                     if j["name"] not in ("subscriptions", "watch_alerts")]
         assert all(j["due"] is True for j in data_jobs)
         # The renewal warning is the exception, and correctly so: an empty
         # database has no subscriptions to warn about. It reports itself as not

@@ -452,6 +452,28 @@ class SigninOffer(Base):
     promo_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
+class WatchItem(Base):
+    """One company on one account's watchlist (Starter 3, Pro 50, Business 500).
+
+    `last_seen_filing` is the newest filing the owner has been told about --
+    set to the CURRENT newest filing when the watch is created, so the first
+    alert is for the first NEW filing, not a backlog.
+    """
+
+    __tablename__ = "watch_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
+    ticker: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    created_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
+    last_seen_filing: Mapped[dt.date | None] = mapped_column(Date, nullable=True)
+    last_alert_at: Mapped[dt.datetime | None] = mapped_column(DateTime, nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "ticker", name="uq_watch_user_ticker"),
+    )
+
+
 class SigninPromptAnswer(Base):
     """What one ADDRESS last said to the sign-in panel. One row per ip_hash.
 

@@ -119,6 +119,12 @@ def render_api(
      "What moved since the previous period, figure by figure, and every "
      "figure a later filing restated: the original value, the revised one, "
      "and which filings said each.")}
+{_ep("POST", "/api/watchlist", "X-API-Key required · Starter and above · free",
+     "Watch a company: body <code>{&quot;ticker&quot;: &quot;AAPL&quot;}</code>. When it files, you get "
+     "one email saying whether the new balance sheet reconciles, what moved, and "
+     "anything restated. Starter watches 3, Pro 50, Business 500. "
+     "<code>GET /api/watchlist</code> lists them, "
+     "<code>DELETE /api/watchlist/{ticker}</code> removes one.")}
 {_ep("GET", "/api/plans", "Public",
      "What each plan includes, as data: call quotas, history depth, "
      "watchlist size and the rest.")}
