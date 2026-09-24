@@ -406,7 +406,8 @@ def test_product_schema_has_every_required_field(client):
         assert offer["@type"] == "Offer"
         for field in ("name", "price", "priceCurrency", "availability", "url"):
             assert offer.get(field) not in (None, ""), f"Offer {offer.get('name')} missing {field}"
-        assert offer["priceCurrency"] == "USD"
+        # Stripe charges in CAD (account default; every live Price is CAD).
+        assert offer["priceCurrency"] == "CAD"
         # A digital good has no shipping and no returns. Asserting either would
         # be marking up something untrue to satisfy a checklist.
         assert "shippingDetails" not in offer

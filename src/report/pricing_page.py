@@ -517,7 +517,7 @@ def render_pricing(
       <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why most SEC filings APIs
       are wrong one time in five</a>. Every one of them is
       what Stripe charges; nothing is quoted here that the checkout does not
-      agree with.</p>
+      agree with. <strong>All prices are in Canadian dollars (CAD).</strong></p>
     {cards}
     <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
