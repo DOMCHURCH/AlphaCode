@@ -113,7 +113,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
       <p class="plan-line" data-line>Live, up-to-date data</p>
       <ul class="plan-bullets">
         <li>Data updates daily, so you always get the latest filings</li>
-        <li>10 years of history, and what changed</li>
+        <li>Full history, and what changed</li>
         <li>Email alerts on the companies you follow</li>
       </ul>
       <a class="plan-cta" href="/dashboard#billing" data-plan="pro" data-name="Pro"
@@ -172,7 +172,8 @@ def _starter_card() -> str:
         "starter", line="Follow a few companies",
         year_line="The same Starter plan, paid yearly",
         bullets=(
-            f"{plans.allowance('starter', 'history_years')} years of history",
+            # Not "5 years": the database holds about three (2026-09-24).
+            "Multi-year history",
             "See what changed, including restatements",
             f"Alerts on {plans.allowance('starter', 'watchlist')} companies",
         ),
@@ -187,7 +188,7 @@ def _business_card() -> str:
         "business", line="For products built on the data",
         year_line="The same Business plan, paid yearly",
         bullets=(
-            "Everything in Pro, with full history",
+            "Everything in Pro",
             "Webhooks into your own systems",
             "A link to the SEC filing behind every figure",
         ),

@@ -24,7 +24,7 @@
   var KEY_STORE = "toscale.api_key";
   var TAB_STORE = "toscale.tab";
   var CFG = window.TO_SCALE || {};
-  var TABS = ["search", "api", "account", "billing"];
+  var TABS = ["search", "data", "alerts", "api", "account", "billing"];
   /* The ticker in the worked examples. Must match `api_tab.TICKER`: the
      server ships the placeholder version of both snippets and this script
      replaces them, so a disagreement shows as the example silently
@@ -77,6 +77,8 @@
   function api(path, opts) {
     opts = opts || {};
     var headers = opts.headers || {};
+    // Lets a signed-in session (no key in this browser) use the plan features.
+    headers["X-BP-Dashboard"] = "1";
     var key = getKey();
     if (key) headers["X-API-Key"] = key;
     if (opts.body) headers["Content-Type"] = "application/json";
@@ -351,6 +353,8 @@
        Stripe's portal, not in a second checkout. */
     setDisabled(["buy-pro", "buy-pro-annual"], pro);
     setDisabled(["buy-data"], !!s.has_paid_download);
+    /* features.js (Data and Alerts tabs) reads the tier from this. */
+    try { document.dispatchEvent(new CustomEvent("bp:status", { detail: s })); } catch (e) { /* old browser */ }
 
     /* Only for accounts Stripe actually holds a customer for. Everyone else
        would get a 409, and a button that fails for most of the people who can
@@ -870,6 +874,8 @@
   }
 
   // ---- wiring ---------------------------------------------------------------
+
+  window.BP_startCheckout = function (plan, label) { return startCheckout(plan, label); };
 
   document.addEventListener("DOMContentLoaded", function () {
     $("reg-form").addEventListener("submit", register);

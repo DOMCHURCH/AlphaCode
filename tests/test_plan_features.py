@@ -463,3 +463,80 @@ def test_starter_and_business_cards_are_hidden_until_their_price_is_set(client, 
     assert 'data-plan-year="business_annual"' in cards
     assert 'data-plan-year="starter_annual"' not in cards
     assert "$19" in cards and "$99" in cards
+
+
+def test_a_quarter_reported_under_two_dates_is_one_period(client):
+    """SEC's bulk datasets round period ends to the month end; frames do not.
+    Apple's 2026-03-28 quarter then also exists as 2026-03-31 -- one period."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    real = _q(0.2) - dt.timedelta(days=3)
+    with session_scope() as s:
+        for m, v in (("total_assets", 1000.0), ("total_liabilities", 600.0),
+                     ("total_equity", 400.0), ("cash", 50.0)):
+            s.add(Fundamental(ticker="TST", metric=m, value=v, period_end=real,
+                              fiscal_period="Q", filing_date=_q(0.1), source="sec"))
+    h = _key(client, "dup@example.com", "starter")
+    ends = [b["period_end"] for b in
+            client.get("/api/company/TST/history", headers=h).json()["balance_sheets"]]
+    assert len(ends) == 4, ends
+    assert real.isoformat() in ends  # the fuller of the two wins
+
+
+# ---------------------------------------------------------------------------
+# Dashboard: every plan feature is reachable there, by session or key
+# ---------------------------------------------------------------------------
+
+DASH = {"X-BP-Dashboard": "1"}
+
+
+def _session(client, email, tier=None):
+    r = client.post("/api/auth/register-password",
+                    json={"email": email, "password": "correct horse battery",
+                          "accept_terms": True})
+    assert r.status_code == 201, r.text
+    if tier:
+        from src import accounts
+
+        accounts.apply_admin_action(email, f"grant_{tier}")
+
+
+def test_the_dashboard_has_data_and_alerts_tabs(client):
+    html = client.get("/dashboard").text
+    for marker in ('data-tab="data"', 'data-tab="alerts"', 'id="panel-data"',
+                   'id="panel-alerts"', "window.BP_PLANS", "/static/features.js",
+                   'data-lock="changes"', 'data-lock="bulk_verify"',
+                   'data-lock="watchlist"', 'data-lock="webhooks"'):
+        assert marker in html, marker
+    assert client.get("/static/features.js").status_code == 200
+
+
+def test_a_signed_in_session_uses_the_features_from_the_dashboard(client):
+    _session(client, "sess@example.com", "starter")
+    r = client.post("/api/watchlist", json={"ticker": "TST"}, headers=DASH)
+    assert r.status_code == 200, r.text
+    assert client.get("/api/company/TST/changes", headers=DASH).status_code == 200
+    assert client.get("/api/user/status", headers=DASH).json()["tier"] == "starter"
+
+
+def test_a_session_without_the_dashboard_header_is_not_enough(client):
+    """A link or form on another site can carry the cookie but not the header."""
+    _session(client, "sess2@example.com", "pro")
+    assert client.get("/api/company/TST/history").status_code == 401
+    assert client.post("/api/verify", json={"tickers": ["TST"]}).status_code == 401
+
+
+def test_the_billing_tab_sells_starter_and_business_once_priced(client, monkeypatch):
+    from src.config.settings import get_settings
+
+    assert 'data-buy-plan="starter"' not in client.get("/dashboard").text
+    for k, v in (("STRIPE_PRICE_STARTER", "p_s"), ("STRIPE_PRICE_STARTER_ANNUAL", "p_sy"),
+                 ("STRIPE_PRICE_BUSINESS", "p_b")):
+        monkeypatch.setenv(k, v)
+    get_settings.cache_clear()
+    from src.report.dashboard_features import render_buy_cards
+
+    cards = render_buy_cards()
+    assert 'data-buy-plan="starter"' in cards and 'data-buy-plan="starter_annual"' in cards
+    assert 'data-buy-plan="business"' in cards and 'business_annual' not in cards

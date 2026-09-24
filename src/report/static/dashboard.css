@@ -516,3 +516,13 @@
 .bill-lead .bill-opt{padding:10px 18px;font-size:13px}
 /* The in-card copy stays for no-JS, but the lead one is the visible control. */
 .bill-toggle.in-card{display:none}
+
+/* Data and Alerts tabs (plan features, 2026-09-24). */
+.feat-h{margin:26px 0 8px;font-size:15px;font-weight:600}
+.feat-h small{font-weight:400;color:var(--ink2);margin-left:6px}
+.locknote{margin-top:0}
+#verify-q{width:100%;box-sizing:border-box;min-height:64px;padding:10px 12px;
+  font:inherit;border-radius:var(--r2);border:1px solid var(--edge-soft, rgba(255,255,255,.12));
+  background:transparent;color:inherit;margin:6px 0 10px;resize:vertical}
+#hist-out,#chg-out,#verify-out{margin-top:10px}
+#watch-list li,#hook-list li{margin:6px 0}

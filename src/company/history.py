@@ -35,18 +35,42 @@ HEADLINE = (
 )
 
 
+# Two period ends this close together are one quarter reported twice. SEC's
+# bulk datasets round `ddate` to the month end (Apple's 2026-03-28 quarter
+# arrives as 2026-03-31) while the XBRL frames carry the real date, so the
+# same balance sheet otherwise shows up as two periods three days apart.
+SAME_QUARTER_DAYS = 10
+
+
 def _periods(ticker: str, since: dt.date | None) -> tuple[list[dt.date], dt.date | None]:
-    """Periods with a total-assets figure, newest first, and the oldest held."""
+    """Periods with a total-assets figure, newest first, and the oldest held.
+
+    Near-duplicate period ends (see SAME_QUARTER_DAYS) collapse to the one
+    with the most figures behind it.
+    """
+    from sqlalchemy import func
+
     from src.storage.models import Fundamental
 
     with session_scope() as session:
-        rows = session.execute(
+        with_assets = set(session.execute(
             select(Fundamental.period_end)
             .where(and_(Fundamental.ticker == ticker,
                         Fundamental.metric == "total_assets"))
             .distinct()
-        ).scalars().all()
-    held = sorted(set(rows), reverse=True)
+        ).scalars().all())
+        counts = dict(session.execute(
+            select(Fundamental.period_end, func.count(func.distinct(Fundamental.metric)))
+            .where(Fundamental.ticker == ticker)
+            .group_by(Fundamental.period_end)
+        ).all())
+    held: list[dt.date] = []
+    for p in sorted(with_assets, reverse=True):
+        if held and (held[-1] - p).days <= SAME_QUARTER_DAYS:
+            if counts.get(p, 0) > counts.get(held[-1], 0):
+                held[-1] = p
+            continue
+        held.append(p)
     oldest = held[-1] if held else None
     if since is not None:
         held = [p for p in held if p >= since]

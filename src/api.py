@@ -2292,6 +2292,35 @@ def search(request: Request, q: str = Query("", max_length=64)) -> Response:
 # `Depends(...)` is evaluated when the decorator runs, so the dependency has to
 # be a real function object here and not a name looked up later.
 from src.accounts import get_current_user as _ACCOUNT_DEP  # noqa: E402
+
+
+# The dashboard's own marker. A custom header cannot be attached by another
+# site without a CORS preflight this app never grants, so requiring it is what
+# keeps a signed-in session from being spent by a link or form elsewhere.
+DASHBOARD_HEADER = "X-BP-Dashboard"
+
+
+def _ACCOUNT_OR_SESSION(
+    request: Request,
+    x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+):
+    """The caller by API key, or -- from the dashboard -- by login session.
+
+    A person who signed in with an emailed link has a session but may hold no
+    key in this browser (keys are shown once), and the plan features on the
+    dashboard must still work for them. Keys keep working exactly as before.
+    """
+    from src import accounts, auth
+
+    if x_api_key:
+        return accounts.get_current_user(x_api_key)
+    if request.headers.get(DASHBOARD_HEADER) == "1":
+        email = auth.session_email(request)
+        if email:
+            account = accounts.by_email(email)
+            if account is not None:
+                return account
+    return accounts.get_current_user(None)
 from src.accounts import get_current_user_flexible as _DOWNLOAD_DEP  # noqa: E402
 
 
@@ -3300,7 +3329,7 @@ def admin_subscriptions(
 
 
 @app.get("/api/user/status")
-def api_user_status(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_user_status(account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Your own tier, entitlement and usage. Does not spend a call --
     a meter you cannot read without moving it is not a meter."""
     from src import accounts
@@ -3360,7 +3389,7 @@ def api_company_history(
     ticker: str,
     years: int | None = Query(None, ge=1, le=30,
                               description="How far back. Capped by your plan."),
-    account=Depends(_ACCOUNT_DEP),
+    account=Depends(_ACCOUNT_OR_SESSION),
 ) -> JSONResponse:
     """Every loaded balance sheet for a company, newest first. One metered call.
 
@@ -3394,7 +3423,7 @@ def api_company_history(
 
 
 @app.get("/api/company/{ticker}/changes")
-def api_company_changes(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_company_changes(ticker: str, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """What moved since the previous period, and what a later filing restated.
 
     Starter and above. One metered call.
@@ -3414,12 +3443,12 @@ def api_company_changes(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONRespo
     return JSONResponse(jsonable_encoder(out))
 
 
-class VerifyRequest(BaseModel):
+class BulkVerifyRequest(BaseModel):
     tickers: list[str]
 
 
 @app.post("/api/verify")
-def api_verify(body: VerifyRequest, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_bulk_verify(body: BulkVerifyRequest, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Check many balance sheets in one request. Pro (50) and Business (500).
 
     Each ticker is one metered call, and the whole batch is refused up front
@@ -3482,7 +3511,7 @@ class WebhookRequest(BaseModel):
 
 
 @app.get("/api/webhooks")
-def api_webhooks(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_webhooks(account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     from src import plans, webhooks
 
     return JSONResponse({"limit": plans.allowance(account.tier, "webhooks"),
@@ -3490,7 +3519,7 @@ def api_webhooks(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
 
 
 @app.post("/api/webhooks", status_code=201)
-def api_webhooks_create(body: WebhookRequest, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_webhooks_create(body: WebhookRequest, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Register an HTTPS endpoint for signed watchlist alerts. Business plan.
 
     The signing secret is in this response and nowhere else, ever.
@@ -3501,14 +3530,14 @@ def api_webhooks_create(body: WebhookRequest, account=Depends(_ACCOUNT_DEP)) -> 
 
 
 @app.delete("/api/webhooks/{endpoint_id}")
-def api_webhooks_delete(endpoint_id: int, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_webhooks_delete(endpoint_id: int, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     from src import webhooks
 
     return JSONResponse({"removed": webhooks.delete(account, endpoint_id)})
 
 
 @app.post("/api/webhooks/{endpoint_id}/test")
-def api_webhooks_test(endpoint_id: int, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_webhooks_test(endpoint_id: int, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Send a signed `ping` event now, so an integration can be checked."""
     from src import webhooks
 
@@ -3520,7 +3549,7 @@ class WatchRequest(BaseModel):
 
 
 @app.get("/api/watchlist")
-def api_watchlist(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_watchlist(account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Your watched companies and your plan's limit. Free (not metered)."""
     from src import plans, watchlist
 
@@ -3531,7 +3560,7 @@ def api_watchlist(account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
 
 
 @app.post("/api/watchlist")
-def api_watchlist_add(body: WatchRequest, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_watchlist_add(body: WatchRequest, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Watch a company: you get an email when it files. Starter and above."""
     from src import watchlist
 
@@ -3542,7 +3571,7 @@ def api_watchlist_add(body: WatchRequest, account=Depends(_ACCOUNT_DEP)) -> JSON
 
 
 @app.delete("/api/watchlist/{ticker}")
-def api_watchlist_remove(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+def api_watchlist_remove(ticker: str, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     from src import watchlist
 
     return JSONResponse({"removed": watchlist.remove(account, _clean_ticker(ticker))})

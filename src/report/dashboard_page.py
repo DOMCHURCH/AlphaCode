@@ -110,6 +110,13 @@ def render_dashboard(
     # concrete rather than a disclaimer.
     as_of_clause = f", as of {escape(dataset_as_of)}" if dataset_as_of else ""
     api_tab = render_api_tab()
+    from src.report.dashboard_features import (
+        plans_json, render_buy_cards, render_feature_panels,
+    )
+
+    feature_panels = render_feature_panels()
+    tier_buy = render_buy_cards()
+    plans_literal = plans_json()
     quick = "".join(
         f'<a href="/company/{t}">{t} <small>{escape(k)}</small></a>'
         for t, k in _QUICK
@@ -175,6 +182,8 @@ def render_dashboard(
   <!-- Everything below appears once there is a session or a key. -->
   <div class="tabs keyed" id="tabs" hidden role="tablist" aria-label="Dashboard">
     <button type="button" class="tab" role="tab" data-tab="search">Search</button>
+    <button type="button" class="tab" role="tab" data-tab="data">Data</button>
+    <button type="button" class="tab" role="tab" data-tab="alerts">Alerts</button>
     <button type="button" class="tab" role="tab" data-tab="api">API</button>
     <button type="button" class="tab" role="tab" data-tab="account">Account</button>
     <button type="button" class="tab" role="tab" data-tab="billing">Billing</button>
@@ -196,6 +205,8 @@ def render_dashboard(
     <p class="tryline">Or start with one of these</p>
     <div class="sugg">{quick}</div>
   </section>
+
+{feature_panels}
 
 {api_tab}
 
@@ -234,7 +245,7 @@ def render_dashboard(
         <span class="tsub" id="a-pw-sub"></span>
       </div>
       <div class="tile">
-        <span class="tlabel">Pro expires</span>
+        <span class="tlabel">Plan renews or ends</span>
         <b class="tval sm" id="a-expires">—</b>
         <span class="tsub" id="a-expires-sub"></span>
       </div>
@@ -349,6 +360,7 @@ def render_dashboard(
         <button type="button" class="btn" id="buy-data">Buy full dataset</button>
       </div>
     </div>
+    {tier_buy}
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site. Payment history will
       appear here once there is any.</p>
@@ -396,7 +408,9 @@ def render_dashboard(
   }};
 </script>
 <script src="/static/nav.js?v={asset_version()}" defer></script>
-<script src="/static/dashboard.js?v={asset_version()}" defer></script>"""
+<script>window.BP_PLANS = {plans_literal};</script>
+<script src="/static/dashboard.js?v={asset_version()}" defer></script>
+<script src="/static/features.js?v={asset_version()}" defer></script>"""
 
     return shell(
         "BalanceProof — API access", body,
