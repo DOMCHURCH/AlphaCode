@@ -177,34 +177,42 @@
    With no JS the card stays as rendered: the monthly plan, with a working
    button. The fallback is a sale, not a dead card. */
 (function () {
-  var card = document.querySelector(".pro-plan");
+  /* Every card with a billing period (Pro, and Starter/Business once they are
+     sold) follows the same toggle. A card with no yearly Price keeps its
+     monthly price and button, so the toggle never produces a dead checkout. */
   var lead = document.querySelector(".bill-lead");
-  if (!card) return;
-  var cta = card.querySelector(".plan-cta");
-  var price = card.querySelector("[data-price]");
-  var per = card.querySelector("[data-per]");
-  var line = card.querySelector("[data-line]");
-  if (!cta || !price || !per || !line) return;
+  var cards = [].slice.call(document.querySelectorAll(".period-plan")).map(function (card) {
+    var cta = card.querySelector(".plan-cta");
+    var line = card.querySelector("[data-line]");
+    return {
+      cta: cta, line: line,
+      price: card.querySelector("[data-price]"),
+      per: card.querySelector("[data-per]"),
+      monthLine: line ? line.innerHTML : "",
+      yearLine: cta ? (cta.getAttribute("data-line-year") || (line ? line.innerHTML : "")) : "",
+      name: cta ? (cta.getAttribute("data-name") || "Pro") : "Pro"
+    };
+  }).filter(function (c) { return c.cta && c.price && c.per && c.line; });
+  if (!cards.length) return;
 
-  var monthLine = line.innerHTML;
-  var yearLine = cta.getAttribute("data-line-year") || monthLine;
-
-  (lead || card).querySelectorAll(".bill-opt").forEach(function (b) {
+  var opts = [].slice.call(document.querySelectorAll(".bill-opt"));
+  opts.forEach(function (b) {
     b.addEventListener("click", function (ev) {
-      /* The options are real links to the billing panel so the annual plan is
-         buyable with no JavaScript. With JS we would rather swap in place. */
       ev.preventDefault();
       var year = b.getAttribute("data-period") === "year";
-      (lead || card).querySelectorAll(".bill-opt").forEach(function (o) {
-        var on = o === b;
+      opts.forEach(function (o) {
+        var on = (o.getAttribute("data-period") === "year") === year;
         o.classList.toggle("on", on);
         o.setAttribute("aria-pressed", on ? "true" : "false");
       });
-      price.textContent = cta.getAttribute(year ? "data-price-year" : "data-price-month");
-      per.textContent = year ? "/year" : "/month";
-      line.innerHTML = year ? yearLine : monthLine;
-      cta.textContent = year ? "Start Pro annually" : "Start Pro";
-      cta.setAttribute("data-plan", cta.getAttribute(year ? "data-plan-year" : "data-plan-month"));
+      cards.forEach(function (c) {
+        var y = year && c.cta.getAttribute("data-plan-year");
+        c.price.textContent = c.cta.getAttribute(y ? "data-price-year" : "data-price-month");
+        c.per.textContent = y ? "/year" : "/month";
+        c.line.innerHTML = y ? c.yearLine : c.monthLine;
+        c.cta.textContent = y ? "Start " + c.name + " annually" : "Start " + c.name;
+        c.cta.setAttribute("data-plan", c.cta.getAttribute(y ? "data-plan-year" : "data-plan-month"));
+      });
     });
   });
 })();

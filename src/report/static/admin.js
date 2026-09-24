@@ -132,7 +132,7 @@ async function loadCustomers() {
         const when = u.created_at
           ? new Date(u.created_at).toLocaleDateString() : "—";
         const badge = u.has_paid_download ? "dataset"
-          : (["starter", "pro", "business"].indexOf(u.tier) >= 0 ? u.tier : "free");
+          : (["starter", "pro", "business", "enterprise"].indexOf(u.tier) >= 0 ? u.tier : "free");
         return '<div class="row"><span class="k">' + esc(u.email) +
           '</span><span class="v">' + esc(badge) + " · " + esc(when) +
           "</span></div>";

@@ -2305,6 +2305,12 @@ class GrantRequest(BaseModel):
     action: str
 
 
+class EnterpriseRequest(BaseModel):
+    email: str
+    enabled: bool = True
+    monthly_calls: int | None = Field(default=None, ge=1, le=10_000_000)
+
+
 def _stamp_terms_quietly(email: str) -> None:
     from src import auth
 
@@ -3720,6 +3726,23 @@ def api_download_dataset(account=Depends(_DOWNLOAD_DEP)) -> StreamingResponse:
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@app.post("/admin/enterprise", dependencies=[Depends(require_admin)])
+def admin_enterprise(body: EnterpriseRequest) -> JSONResponse:
+    """Put an account on an Enterprise contract, or take it off one.
+
+    Enterprise = Business features that do not expire, the dataset included,
+    higher caps (see /api/plans) and an optional custom monthly quota. Billed
+    by invoice under a contract, so nothing here touches Stripe.
+    """
+    from src import accounts
+
+    acct = accounts.set_enterprise(body.email, enabled=body.enabled,
+                                   monthly_calls=body.monthly_calls)
+    return JSONResponse({"email": acct.email, "tier": acct.tier,
+                         "calls_limit": acct.call_limit,
+                         "has_paid_download": acct.has_paid_download})
 
 
 @app.post("/admin/grant-access")

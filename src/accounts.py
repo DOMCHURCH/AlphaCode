@@ -125,6 +125,8 @@ class Account:
     seed_source: str = ""
     seed_label: str = ""
     seed_limit: int = 0
+    # Enterprise contract quota; 0 means "the tier's default".
+    custom_limit: int = 0
 
     @property
     def is_seeded(self) -> bool:
@@ -147,7 +149,9 @@ class Account:
         HERE is what keeps the rest of the change to one branch: everything
         that meters, reports or refuses already reads this property.
         """
-        return self.seed_limit if self.is_seeded else tier_limit(self.tier)
+        if self.is_seeded:
+            return self.seed_limit
+        return self.custom_limit or tier_limit(self.tier)
 
     @property
     def days_remaining(self) -> int | None:
@@ -164,6 +168,7 @@ def tier_limit(tier: str) -> int:
         "starter": s.starter_tier_monthly_calls,
         "pro": s.pro_tier_monthly_calls,
         "business": s.business_tier_monthly_calls,
+        "enterprise": s.business_tier_monthly_calls,
     }.get(tier, s.free_tier_monthly_calls)
 
 
@@ -239,6 +244,9 @@ def effective_tier(row: ApiUser, now: dt.datetime | None = None) -> str:
 
 def _snapshot(row: ApiUser) -> Account:
     live = effective_tier(row)
+    # Enterprise is Business under a contract; the flag is what says so.
+    if live == "business" and row.enterprise:
+        live = "enterprise"
     return Account(
         id=row.id,
         email=row.email,
@@ -252,6 +260,7 @@ def _snapshot(row: ApiUser) -> Account:
         payment_failure_count=int(row.payment_failure_count or 0),
         api_access_paused=bool(row.api_access_paused),
         has_billing=bool(row.stripe_customer_id),
+        custom_limit=int(row.custom_monthly_calls or 0),
     )
 
 
@@ -511,6 +520,42 @@ def set_pro_plan(email: str, plan: str) -> None:
         if row is None:
             return
         row.pro_plan = plan[:16] or None
+
+
+def set_enterprise(email: str, *, enabled: bool, monthly_calls: int | None) -> Account:
+    """Put an account on (or take it off) an Enterprise contract.
+
+    On: Business access that does not expire (the contract, not Stripe,
+    governs it), the full dataset included, and an optional custom quota.
+    Off: the flag and quota are cleared and the account is back on Free --
+    a contract ending is the operator's call, made here, on purpose.
+    """
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(404, f"No account for {address}. They must register first.")
+        now = dt.datetime.now(dt.UTC)
+        if enabled:
+            row.subscription_tier = "business"
+            row.pro_expires_at = None
+            row.enterprise = True
+            row.custom_monthly_calls = monthly_calls or None
+            row.has_paid_download = True
+        else:
+            row.enterprise = False
+            row.custom_monthly_calls = None
+            row.subscription_tier = "free"
+            row.pro_expires_at = now - dt.timedelta(days=1)
+        row.updated_at = now
+        session.flush()
+        snap = _snapshot(row)
+    _write_admin_action(email=address, action="enterprise_on" if enabled else "enterprise_off",
+                        ok=True, ip_hash=None,
+                        detail=f"monthly_calls={monthly_calls or 'default'}")
+    return snap
 
 
 def stored_tier(email: str) -> str:

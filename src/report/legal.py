@@ -160,16 +160,19 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
     </ul>
 
     <h2>6. Paid plans and refunds</h2>
-    <p>Pro is a monthly allowance. The full-dataset download is a one-time
-      purchase of a file. Payment is taken by
+    <p>Starter, Pro and Business are subscriptions, billed monthly or yearly,
+      each with its own monthly API allowance and features as listed on the
+      <a href="/pricing">pricing page</a> and at <code>/api/plans</code>.
+      Enterprise is agreed and invoiced separately under its own terms. The
+      full-dataset download is a one-time purchase of a file. Payment is taken by
       <a href="https://stripe.com" rel="noopener">Stripe</a> on Stripe's own
       checkout page. <strong>No card details are entered on this site or held
       by us</strong> — we receive confirmation that a payment succeeded and the
       email address it was made with, and nothing else.</p>
-    <p><strong>Pro has a 14-day refund window.</strong> If you ask {who}
-      within 14 days of a Pro payment, monthly or annual, that payment is
-      refunded in full, no reason needed. A refund ends Pro access and the
-      account returns to the free allowance. Payments older than 14 days are
+    <p><strong>Paid plans have a 14-day refund window.</strong> If you ask {who}
+      within 14 days of a Starter, Pro or Business payment, monthly or annual,
+      that payment is refunded in full, no reason needed. A refund ends the
+      plan's access and the account returns to the free allowance. Payments older than 14 days are
       not refunded, though cancelling stops the next one.</p>
     <p><strong>Introductory offer.</strong> A visitor may be offered a discount
       on the first month of monthly Pro. It is shown at most once per internet
@@ -185,7 +188,7 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
       has been downloaded, because a file cannot be returned. If something goes
       wrong on our side, with either product, contact {who} and we will make
       it right.</p>
-    <p>Pro renews monthly through Stripe until it is cancelled. To cancel,
+    <p>Paid plans renew through Stripe, monthly or yearly, until cancelled. To cancel,
       email {who} — self-serve cancellation is not built yet. Access continues
       to the end of the period already paid for; when it lapses your account
       returns to the free allowance — your key keeps working, nothing is

@@ -391,3 +391,75 @@ def test_a_watch_alert_reaches_the_webhook_even_when_email_fails(client, public_
     body = json.loads(calls[-1]["body"])
     assert body["event"] == "watchlist.filed" and body["data"]["filings"][0]["ticker"] == "TST"
     assert watchlist.pending() == []
+
+
+# ---------------------------------------------------------------------------
+# Enterprise: Business under a contract, custom quota, higher caps
+# ---------------------------------------------------------------------------
+
+ADMIN = {"X-Admin-Secret": "plans-admin-secret"}
+
+
+def test_enterprise_is_set_by_the_operator_and_differs_from_business(client, monkeypatch):
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("ADMIN_SECRET", "plans-admin-secret")
+    get_settings.cache_clear()
+    h = _key(client, "ent@example.com")
+    r = client.post("/admin/enterprise", json={"email": "ent@example.com",
+                                               "monthly_calls": 250000}, headers=ADMIN)
+    assert r.status_code == 200, r.text
+    assert r.json()["tier"] == "enterprise" and r.json()["calls_limit"] == 250000
+    st = client.get("/api/user/status", headers=h).json()
+    assert st["tier"] == "enterprise" and st["calls_limit"] == 250000
+    assert st["has_paid_download"] is True
+    # Unlimited watchlist and 25 webhooks, where Business stops at 500 and 5.
+    from src import plans
+
+    assert plans.allowance("enterprise", "watchlist") is None
+    assert plans.allowance("enterprise", "webhooks") == 25
+    assert client.get("/api/watchlist", headers=h).json()["limit"] is None
+    # Changes and provenance, as on Business.
+    assert client.get("/api/company/TST/changes", headers=h).status_code == 200
+    # Ending the contract returns the account to Free.
+    client.post("/admin/enterprise", json={"email": "ent@example.com", "enabled": False},
+                headers=ADMIN)
+    assert client.get("/api/user/status", headers=h).json()["tier"] == "free"
+
+
+def test_enterprise_needs_the_admin_secret(client):
+    r = client.post("/admin/enterprise", json={"email": "x@example.com"})
+    assert r.status_code in (401, 403, 503)
+
+
+def test_the_public_plan_list_has_five_columns(client):
+    row = client.get("/api/plans").json()["features"][0]
+    assert set(row) >= {"free", "starter", "pro", "business", "enterprise"}
+
+
+# ---------------------------------------------------------------------------
+# Pricing cards: a plan is on the page only once it can be bought
+# ---------------------------------------------------------------------------
+
+
+
+def test_starter_and_business_cards_are_hidden_until_their_price_is_set(client, monkeypatch):
+    from src.config.settings import get_settings
+
+    html = client.get("/pricing").text
+    assert 'data-plan="starter"' not in html and 'data-plan="business"' not in html
+    monkeypatch.setenv("STRIPE_PRICE_STARTER", "price_starter_x")
+    monkeypatch.setenv("STRIPE_PRICE_BUSINESS", "price_business_x")
+    monkeypatch.setenv("STRIPE_PRICE_BUSINESS_ANNUAL", "price_business_year_x")
+    get_settings.cache_clear()
+    from src.report.pricing_page import plan_cards
+
+    cards = plan_cards(free_limit=1000, pro_limit=10000, pro_price="$49",
+                       pro_annual_price="$490", annual_saving="$98",
+                       dataset_price="$79.99", dataset_rows="1M", dataset_as_of="today")
+    assert 'data-plan="starter"' in cards and 'data-plan="business"' in cards
+    assert "plans plans-6" in cards
+    # Business has a yearly Price, Starter does not: only Business offers it.
+    assert 'data-plan-year="business_annual"' in cards
+    assert 'data-plan-year="starter_annual"' not in cards
+    assert "$19" in cards and "$99" in cards

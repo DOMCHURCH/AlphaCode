@@ -1770,7 +1770,7 @@ def reconcile_paid_sessions(days: int = 30, limit: int = 100) -> dict[str, Any]:
                     "session": _id_of(obj), "plan": plan, "email": email,
                     "why": "paid for the dataset, has_paid_download is false",
                 })
-            elif plan in ("pro", "pro_annual") and account.tier != "pro":
+            elif plan in PLAN_TIER and account.tier not in (PLAN_TIER[plan], "enterprise"):
                 # `Account.tier` is the tier IN FORCE, so a subscription that
                 # was granted and has since legitimately run out reads "free"
                 # here. That is not a lost payment, and reporting it as one
@@ -1780,7 +1780,7 @@ def reconcile_paid_sessions(days: int = 30, limit: int = 100) -> dict[str, Any]:
                 if account.pro_expires_at is None:
                     unfulfilled.append({
                         "session": _id_of(obj), "plan": plan, "email": email,
-                        "why": "paid for Pro, no Pro grant was ever applied",
+                        "why": f"paid for {plan}, no grant was ever applied",
                     })
     except Exception as exc:  # noqa: BLE001 - an operator tool must report, not 500
         log.warning("reconcile_failed", error=str(exc)[:200])

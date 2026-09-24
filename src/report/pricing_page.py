@@ -99,7 +99,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
     """
     saving = escape(annual_saving)
     return f"""
-    <div class="plan pro-plan">
+    <div class="plan pro-plan period-plan">
       <span class="plan-name">Pro</span>
       <div class="bill-toggle in-card" role="group" aria-label="Billing period">
         <a class="bill-opt on" href="/dashboard#billing" data-period="month"
@@ -112,17 +112,86 @@ def _pro_card(pro_price: str, pro_annual_price: str,
         data-per>/month</small></p>
       <p class="plan-line" data-line>Live, up-to-date data</p>
       <ul class="plan-bullets">
-        <li>Programmatic access: query any company anytime</li>
-        <li>{compact(pro_limit)} API calls per month</li>
         <li>Data updates daily, so you always get the latest filings</li>
-        <li>Best for: algorithmic trading, dashboards, ongoing research</li>
+        <li>10 years of history, and what changed</li>
+        <li>Email alerts on the companies you follow</li>
       </ul>
-      <a class="plan-cta" href="/dashboard#billing" data-plan="pro"
+      <a class="plan-cta" href="/dashboard#billing" data-plan="pro" data-name="Pro"
         data-plan-month="pro" data-plan-year="pro_annual"
         data-price-month="{escape(pro_price)}" data-price-year="{escape(pro_annual_price)}"
         data-line-year="The same Pro access, paid yearly. Save {saving}"
         >Start Pro</a>
     </div>"""
+
+
+def _tier_card(tier: str, *, line: str, year_line: str,
+               bullets: tuple[str, ...]) -> str:
+    """Starter or Business -- rendered ONLY once its Stripe Price is set.
+
+    Unset means `billing.price_for(tier)` is empty and checkout would 503, so
+    the card is simply absent: setting STRIPE_PRICE_STARTER on Railway is what
+    makes the Starter card appear. The yearly option is offered only when the
+    annual Price is set too; otherwise the card stays monthly under the toggle.
+    """
+    from src import billing
+    from src.config.settings import get_settings, price_label
+
+    if not billing.price_for(tier):
+        return ""
+    s = get_settings()
+    month = price_label(getattr(s, f"{tier}_price"))
+    year = price_label(getattr(s, f"{tier}_annual_price"))
+    saved = max(0, getattr(s, f"{tier}_price") * 12 - getattr(s, f"{tier}_annual_price"))
+    if saved:
+        year_line = f"{year_line}. Save {price_label(saved)}"
+    has_year = bool(billing.price_for(f"{tier}_annual"))
+    name = tier.capitalize()
+    items = "".join(f"<li>{escape(b)}</li>" for b in bullets)
+    year_attrs = (
+        f' data-plan-year="{tier}_annual" data-price-year="{escape(year)}"'
+        f' data-line-year="{escape(year_line)}"' if has_year else ""
+    )
+    return f"""
+    <div class="plan period-plan">
+      <span class="plan-name">{name}</span>
+      <p class="plan-price"><span data-price>{escape(month)}</span><small
+        data-per>/month</small></p>
+      <p class="plan-line" data-line>{escape(line)}</p>
+      <ul class="plan-bullets">{items}</ul>
+      <a class="plan-cta" href="/dashboard#billing" data-plan="{tier}" data-name="{name}"
+        data-plan-month="{tier}" data-price-month="{escape(month)}"{year_attrs}
+        >Start {name}</a>
+    </div>"""
+
+
+def _starter_card() -> str:
+    from src import plans
+    from src.accounts import tier_limit
+
+    return _tier_card(
+        "starter", line="Follow a few companies",
+        year_line="The same Starter plan, paid yearly",
+        bullets=(
+            f"{plans.allowance('starter', 'history_years')} years of history",
+            "See what changed, including restatements",
+            f"Alerts on {plans.allowance('starter', 'watchlist')} companies",
+        ),
+    )
+
+
+def _business_card() -> str:
+    from src import plans
+    from src.accounts import tier_limit
+
+    return _tier_card(
+        "business", line="For products built on the data",
+        year_line="The same Business plan, paid yearly",
+        bullets=(
+            "Everything in Pro, with full history",
+            "Webhooks into your own systems",
+            "A link to the SEC filing behind every figure",
+        ),
+    )
 
 
 def plan_cards(
@@ -158,6 +227,14 @@ def plan_cards(
 
     from src.report.nav import SUPPORT_EMAIL
 
+    # Present only once their Stripe Prices are configured; see _tier_card.
+    starter = _starter_card()
+    business = _business_card()
+    grid = "plans plans-6" if (starter or business) else "plans"
+    # Built as plain strings so their position can follow the layout: with
+    # four cards the dataset sits second (as it always has); with six, the
+    # subscriptions read left to right by price and the dataset goes last.
+
     def card(
         name: str,
         price: str,
@@ -182,6 +259,34 @@ def plan_cards(
       <a class="plan-cta" href="{href}"{attr}>{escape(cta)}</a>
     </div>"""
 
+    enterprise = card(
+        "Enterprise", "Let's talk", "",
+        "Custom volume and terms",
+        (
+            "Everything in Business, plus the dataset",
+            "A call quota set to what you use",
+            "Invoicing and a signed agreement",
+        ),
+        "Email us",
+    ).replace('href="/dashboard"',
+              'href="mailto:' + SUPPORT_EMAIL + '?subject=Enterprise%20enquiry"')
+    dataset = card(
+        "Full dataset", dataset_price, " once",
+        f"Static snapshot of all company data as of {dataset_as_of}",
+        (
+            "One-time download. No updates.",
+            f"{dataset_rows} rows as one CSV file",
+            "The snapshot never changes",
+        ),
+        "Buy the dataset", True, "dataset",
+    )
+    dataset_first, dataset_last = ("", dataset) if grid.endswith("6") else (dataset, "")
+    from src.accounts import tier_limit
+
+    shown = ["free"] + (["starter"] if starter else []) + ["pro"] + (["business"] if business else [])
+    allowances = ", ".join(f"{t.capitalize()} {compact(tier_limit(t) if t != 'free' else free_limit)}"
+                           for t in shown)
+
     return f"""
     <div class="bill-lead">
       <span class="bill-lead-label">Billing period</span>
@@ -193,42 +298,25 @@ def plan_cards(
           <small>save {escape(annual_saving)}</small></a>
       </div>
     </div>
-    <div class="plans">
+    <div class="{grid}">
       {card(
         "Free", "$0", "", "Unlimited: look up as many companies as you like",
         (
-            "Every company, every balance sheet, no key and no account",
-            "The live demo runs the real endpoint, not a canned sample",
-            f"{free_limit:,} keyed API calls a month if you want JSON in bulk",
-            "Best for: reading the site, and evaluating the API",
+            "Every balance sheet, no account needed",
+            f"{free_limit:,} keyed API calls a month",
+            "Works with Claude and other AI tools",
         ),
         "Get a free API key",
     )}
-      {card(
-        "Full dataset", dataset_price, " once",
-        f"Static snapshot of all company data as of {dataset_as_of}",
-        (
-            "One-time download. No updates.",
-            f"{dataset_rows} rows as one CSV file",
-            "Best for: one-time analysis, research, Excel work",
-            "The snapshot never changes",
-        ),
-        "Buy the dataset", True, "dataset",
-    )}
+      {dataset_first}
+      {starter}
       {_pro_card(pro_price, pro_annual_price, annual_saving, pro_limit)}
-      {card(
-        "Enterprise", "Let's talk", "",
-        "Higher volume, an SLA, or terms your procurement team needs",
-        (
-            "Volume above the Pro tier, priced to what you actually use",
-            "Invoicing, a signed agreement, and security review",
-            "Bulk history and custom extracts",
-            "Best for: teams whose finance department will not pay by card",
-        ),
-        "Email us",
-    ).replace('href="/dashboard"',
-              'href="mailto:' + SUPPORT_EMAIL + '?subject=Enterprise%20enquiry"')}
-    </div>"""
+      {business}
+      {dataset_last}
+      {enterprise}
+    </div>
+    <p class="plan-note plan-allowances">API calls a month: {allowances}.
+      <a href="/api/plans">Every plan side by side</a></p>"""
 
 
 # ---------------------------------------------------------------------------

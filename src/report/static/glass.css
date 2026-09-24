@@ -301,6 +301,10 @@ body { background: var(--bg); color: var(--ink); }
 }
 @media (min-width: 1000px) {
   .plans { grid-template-columns: repeat(4, 1fr); }
+  /* Starter and Business on sale: six cards, two rows of three. */
+  .plans.plans-6 { grid-template-columns: repeat(3, 1fr); }
+  .plans.plans-6 .plan:nth-child(-n+3) { border-bottom: 1px solid var(--edge-soft); }
+  .plans.plans-6 .plan:nth-child(3n) { border-right: 0; }
   .plan { border-bottom: 0; border-right: 1px solid var(--edge-soft); }
   .plan:nth-child(2n) { border-right: 1px solid var(--edge-soft); }
   .plan:last-child { border-right: 0; }

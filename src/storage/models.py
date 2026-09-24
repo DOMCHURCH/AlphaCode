@@ -757,6 +757,13 @@ class ApiUser(Base):
     # billing cadence. `customer.subscription.updated` writes it so an upgrade
     # made in Stripe is visible here.
     pro_plan: Mapped[str | None] = mapped_column(String(16))
+    # Enterprise (2026-09-23): a Business account under a contract. Not a
+    # tier string -- subscription_tier is VARCHAR(8) -- but a flag the
+    # snapshot reads to present the live tier as "enterprise", plus an
+    # optional per-account monthly quota. Both nullable so the additive
+    # column sync can add them to the live table.
+    enterprise: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
+    custom_monthly_calls: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # Consecutive failed renewal invoices. Reset to zero by any successful
     # payment, so this counts a RUN of failures rather than a lifetime total --
     # a customer who fails once, fixes their card and fails again a year later

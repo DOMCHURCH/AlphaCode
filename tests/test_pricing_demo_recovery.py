@@ -92,7 +92,9 @@ def test_the_home_page_prices_come_from_settings_not_the_copy(client):
     html = client.get("/").text
     assert "$29" in html and "$49" in html and "$0" in html
     assert "7 keyed API calls a month" in html
-    assert "5,000 API calls per month" in html
+    # The quotas left the cards on 2026-09-23 (owner: "less data full") and
+    # live in one allowance line under them -- still read from settings.
+    assert "Pro 5,000" in html
     assert "10 API calls" not in html
 
 

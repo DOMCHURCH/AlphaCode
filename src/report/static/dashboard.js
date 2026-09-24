@@ -237,9 +237,12 @@
 
   /* Four tiers since 2026-09-23. "Paid" is any of the last three; the
      single-Pro assumptions below all mean "paid" and now say so. */
-  var TIER_NAMES = { free: "Free", starter: "Starter", pro: "Pro", business: "Business" };
+  var TIER_NAMES = { free: "Free", starter: "Starter", pro: "Pro", business: "Business",
+                     enterprise: "Enterprise" };
   function tierName(t) { return TIER_NAMES[t] || "Free"; }
-  function isPaid(t) { return t === "starter" || t === "pro" || t === "business"; }
+  function isPaid(t) {
+    return t === "starter" || t === "pro" || t === "business" || t === "enterprise";
+  }
 
   function renderWhoami(s) {
     if (!session) { show($("whoami"), false); show($("signed-out"), true); return; }

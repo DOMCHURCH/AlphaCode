@@ -31,7 +31,8 @@ _LINKS = (
 
 
 
-_TIER_NAMES = {"free": "Free", "starter": "Starter", "pro": "Pro", "business": "Business"}
+_TIER_NAMES = {"free": "Free", "starter": "Starter", "pro": "Pro", "business": "Business",
+               "enterprise": "Enterprise"}
 
 def render_nav(
     *,

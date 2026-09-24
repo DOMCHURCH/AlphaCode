@@ -274,6 +274,12 @@ class Settings(BaseSettings):
     # as "$490" rather than "$490.00".
     dataset_price_usd: float = Field(default=79.99, ge=0, alias="DATASET_PRICE_USD")
     pro_price_usd: int = Field(default=49, ge=0, alias="PRO_PRICE_USD")
+    # Starter and Business as printed on the cards. CAD, like every price here
+    # despite the legacy `_usd` names above. Must match the Stripe Prices.
+    starter_price: int = Field(default=19, ge=0, alias="STARTER_PRICE")
+    starter_annual_price: int = Field(default=190, ge=0, alias="STARTER_ANNUAL_PRICE")
+    business_price: int = Field(default=99, ge=0, alias="BUSINESS_PRICE")
+    business_annual_price: int = Field(default=990, ge=0, alias="BUSINESS_ANNUAL_PRICE")
     # A year of Pro, bought in one go. Quoted next to the monthly price with the
     # saving worked out from these two numbers rather than typed, so changing
     # either one cannot leave a "save $98" that is no longer true.

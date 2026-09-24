@@ -18,25 +18,26 @@ from typing import Any
 
 from fastapi import HTTPException
 
-TIER_ORDER: tuple[str, ...] = ("free", "starter", "pro", "business")
+TIER_ORDER: tuple[str, ...] = ("free", "starter", "pro", "business", "enterprise")
 TIER_NAMES: dict[str, str] = {
     "free": "Free", "starter": "Starter", "pro": "Pro", "business": "Business",
+    "enterprise": "Enterprise",
 }
 
 # None means "no limit beyond what the database holds".
 MATRIX: dict[str, dict[str, Any]] = {
     # How far back /history reaches, in years.
-    "history_years": {"free": 1, "starter": 5, "pro": 10, "business": None},
+    "history_years": {"free": 1, "starter": 5, "pro": 10, "business": None, "enterprise": None},
     # "What changed": period-over-period deltas and restatements.
-    "changes": {"free": False, "starter": True, "pro": True, "business": True},
+    "changes": {"free": False, "starter": True, "pro": True, "business": True, "enterprise": True},
     # Companies an account can watch for new-filing alerts.
-    "watchlist": {"free": 0, "starter": 3, "pro": 50, "business": 500},
+    "watchlist": {"free": 0, "starter": 3, "pro": 50, "business": 500, "enterprise": None},
     # Tickers per POST /api/verify call (each ticker is one metered call).
-    "bulk_verify": {"free": 0, "starter": 0, "pro": 50, "business": 500},
+    "bulk_verify": {"free": 0, "starter": 0, "pro": 50, "business": 500, "enterprise": 5000},
     # Filing links (accession, form, SEC URL) on every figure returned.
-    "provenance": {"free": False, "starter": False, "pro": False, "business": True},
+    "provenance": {"free": False, "starter": False, "pro": False, "business": True, "enterprise": True},
     # HTTPS endpoints that receive signed alert POSTs.
-    "webhooks": {"free": 0, "starter": 0, "pro": 0, "business": 5},
+    "webhooks": {"free": 0, "starter": 0, "pro": 0, "business": 5, "enterprise": 25},
 }
 
 FEATURE_LABELS: dict[str, str] = {
