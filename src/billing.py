@@ -683,7 +683,7 @@ def create_checkout_session(
         # Fulfilment still happens on the webhook and nowhere else. This grants
         # nothing; it only proves who is at the door.
         "success_url": (
-            f"{origin}/dashboard?checkout=success"
+            f"{origin}/dashboard?checkout=success&plan={wanted}"
             "&session_id={CHECKOUT_SESSION_ID}"
         ),
         "cancel_url": f"{origin}/pricing",

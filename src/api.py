@@ -4288,7 +4288,13 @@ def dashboard(
         # Always redirect, verified or not. Landing signed-out on a clean URL
         # is a recoverable state; leaving a payment credential in the address
         # bar is not, and an id that did not verify is one somebody typed.
-        response = RedirectResponse("/dashboard?checkout=success", status_code=303)
+        # The plan survives the clean-up (the dashboard's confirmation reads
+        # it); only a known plan name is echoed back, never raw input.
+        from src.billing import PLANS as _PLANS
+
+        bought = request.query_params.get("plan", "")
+        tail = f"&plan={bought}" if bought in _PLANS else ""
+        response = RedirectResponse(f"/dashboard?checkout=success{tail}", status_code=303)
         # `auth.is_enabled()` first, and never let this branch raise. A
         # deployment with no SESSION_SECRET cannot sign anybody in -- and a 503
         # on the return trip from a payment is the exact failure this whole

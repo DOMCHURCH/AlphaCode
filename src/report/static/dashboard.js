@@ -824,7 +824,7 @@
         announce(
           r.data.has_paid_download && before.slice(-1) !== "d"
             ? "Payment received — the full dataset is unlocked. Download it below."
-            : "Payment received — Pro is active. You have " +
+            : "Payment received — " + tierName(r.data.tier) + " is active. You have " +
               r.data.calls_limit.toLocaleString() + " API calls a month."
         );
         return;
@@ -843,6 +843,16 @@
 
   function watchForCheckout(s) {
     if (location.search.indexOf("checkout=success") === -1) return;
+    /* Stripe's webhook often lands before this page does, so the plan can be
+       active at first render. Waiting for it to CHANGE then waits forever and
+       ends on "not confirmed" -- which is what the owner saw on 2026-09-24
+       after a purchase that had gone through. Already paid means done. */
+    var bought = (location.search.match(/[?&]plan=([a-z_]+)/) || [])[1] || "";
+    if (bought !== "dataset" && isPaid(s.tier)) {
+      announce("Payment received — " + tierName(s.tier) + " is active. You have " +
+        s.calls_limit.toLocaleString() + " API calls a month.");
+      return;
+    }
     var now = s.tier + "|" + (s.has_paid_download ? "d" : "-");
     announce("Payment received. Unlocking your account…");
     setTimeout(function () { awaitGrant(now, WAIT_TRIES); }, WAIT_MS);
