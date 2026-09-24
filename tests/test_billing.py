@@ -1353,3 +1353,42 @@ def test_cancelling_starter_returns_to_free(client, stripe_calls, tier_prices):
                             "data": {"object": {"id": "sub_1", "customer": "cus_1"}}})
     assert r.status_code == 200
     assert status(client, key)["tier"] == "free"
+
+
+def test_a_customer_stripe_does_not_know_is_forgotten_not_retried(
+    client, stripe_calls, monkeypatch
+):
+    """2026-09-24: the owner's account held cus_simulated_... from a test, and
+    every press of Manage subscription said "try again shortly" forever."""
+    import stripe
+
+    sign_in(client)
+    post_event(client, checkout_event(event_id="evt_buy_stale", plan="pro"))
+
+    def _gone(**params):
+        raise stripe.error.InvalidRequestError(
+            "No such customer: 'cus_simulated_x'", "customer")
+
+    monkeypatch.setattr(stripe.billing_portal.Session, "create", staticmethod(_gone))
+    r = client.post("/api/billing/portal")
+    assert r.status_code == 409 and "nothing to manage" in r.json()["detail"]
+    # The id is gone, so the next press is the ordinary never-paid answer.
+    from src import billing
+
+    assert billing._customer_id_of(BUYER) == ""
+
+
+def test_an_unconfigured_portal_says_so(client, stripe_calls, monkeypatch):
+    import stripe
+
+    sign_in(client)
+    post_event(client, checkout_event(event_id="evt_buy_cfg", plan="pro"))
+
+    def _nocfg(**params):
+        raise stripe.error.InvalidRequestError(
+            "No configuration provided and your live mode default configuration "
+            "has not been created.", None)
+
+    monkeypatch.setattr(stripe.billing_portal.Session, "create", staticmethod(_nocfg))
+    r = client.post("/api/billing/portal")
+    assert r.status_code == 503 and "not set up" in r.json()["detail"]

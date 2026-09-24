@@ -500,7 +500,27 @@ def create_portal_session(*, email: str, origin: str) -> dict[str, str]:
             return_url=f"{origin}/dashboard#billing",
         )
     except Exception as exc:  # noqa: BLE001 - the reader needs a reason, not a 500
-        log.warning("stripe_portal_failed", email=email, error=_why(exc))
+        why = _why(exc)
+        log.warning("stripe_portal_failed", email=email, error=why)
+        if "No such customer" in why:
+            # The stored id is not a customer this Stripe account has -- a test
+            # or simulated purchase left it behind (2026-09-24: the owner's
+            # account held cus_simulated_...). Retrying can never work, so the
+            # id is dropped and the account reads as never having paid, which
+            # is the truth; the next real checkout stores the real id.
+            _forget_customer(email)
+            raise HTTPException(
+                status_code=409,
+                detail=("There is no Stripe billing on this account yet, so "
+                        "there is nothing to manage. Buy a plan and it will "
+                        "appear here."),
+            ) from None
+        if "configuration" in why.lower():
+            raise HTTPException(
+                status_code=503,
+                detail=("The billing portal is not set up yet. Email us to "
+                        "change or cancel your plan in the meantime."),
+            ) from None
         raise HTTPException(
             status_code=502,
             detail="Stripe would not open the billing portal. Try again shortly.",
@@ -514,6 +534,19 @@ def create_portal_session(*, email: str, origin: str) -> dict[str, str]:
         )
     log.info("stripe_portal_opened", email=email)
     return {"url": url}
+
+
+def _forget_customer(email: str) -> None:
+    """Drop a stored Stripe customer/subscription id that Stripe does not know."""
+    from src import accounts
+
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == accounts.normalise_email(email))
+        ).scalar_one_or_none()
+        if row is not None:
+            row.stripe_customer_id = None
+            row.stripe_subscription_id = None
 
 
 def _customer_id_of(email: str) -> str:
