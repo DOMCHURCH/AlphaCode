@@ -254,6 +254,14 @@ class Settings(BaseSettings):
     pro_tier_monthly_calls: int = Field(
         default=10_000, ge=0, alias="PRO_TIER_MONTHLY_CALLS"
     )
+    # Starter and Business, added 2026-09-23. Same shape as Pro: a ceiling,
+    # not a promise of "unlimited".
+    starter_tier_monthly_calls: int = Field(
+        default=5_000, ge=0, alias="STARTER_TIER_MONTHLY_CALLS"
+    )
+    business_tier_monthly_calls: int = Field(
+        default=50_000, ge=0, alias="BUSINESS_TIER_MONTHLY_CALLS"
+    )
     # Prices, in dollars, quoted on every page that sells something. Settings
     # rather than literals in the copy so the page and the payment instructions
     # can never drift apart.
@@ -407,6 +415,18 @@ class Settings(BaseSettings):
     stripe_price_pro_annual: str = Field(
         default="", alias="STRIPE_PRICE_PRO_ANNUAL"
     )
+    # Starter and Business Prices. Optional for the same reason as the annual
+    # Pro one: absent from `billing.missing_config()`, so an unset one only
+    # makes THAT plan's checkout refuse (503) and never takes Pro down. Unset
+    # is also the sell-gate: a plan cannot be bought until its Price is set.
+    stripe_price_starter: str = Field(default="", alias="STRIPE_PRICE_STARTER")
+    stripe_price_starter_annual: str = Field(
+        default="", alias="STRIPE_PRICE_STARTER_ANNUAL"
+    )
+    stripe_price_business: str = Field(default="", alias="STRIPE_PRICE_BUSINESS")
+    stripe_price_business_annual: str = Field(
+        default="", alias="STRIPE_PRICE_BUSINESS_ANNUAL"
+    )
     # The Stripe COUPON id offered, once per address ever, to a reader who says
     # no to the sign-in panel. Empty turns the offer off entirely: the panel
     # simply closes on "no". There is deliberately no public code: a claim
@@ -475,6 +495,10 @@ class Settings(BaseSettings):
         "stripe_price_dataset",
         "stripe_price_pro",
         "stripe_price_pro_annual",
+        "stripe_price_starter",
+        "stripe_price_starter_annual",
+        "stripe_price_business",
+        "stripe_price_business_annual",
     )
     @classmethod
     def _clean_secret(cls, v: str) -> str:

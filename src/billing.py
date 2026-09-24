@@ -59,8 +59,22 @@ log = structlog.get_logger(__name__)
 # What can be bought, and the grant each purchase turns into. The action names
 # are `accounts.VALID_ACTIONS` -- deliberately, so a plan that does not map to a
 # real grant fails here rather than at the moment money has already moved.
-PLANS: tuple[str, ...] = ("pro", "pro_annual", "dataset")
+PLANS: tuple[str, ...] = (
+    "pro", "pro_annual", "dataset",
+    "starter", "starter_annual", "business", "business_annual",
+)
+# The paid tier each subscription plan puts an account on. Monthly and annual
+# of one tier are the same access; the cadence is `pro_plan`'s business.
+PLAN_TIER: dict[str, str] = {
+    "starter": "starter", "starter_annual": "starter",
+    "pro": "pro", "pro_annual": "pro",
+    "business": "business", "business_annual": "business",
+}
 _ACTION: dict[str, str] = {
+    "starter": "grant_starter",
+    "starter_annual": "grant_starter",
+    "business": "grant_business",
+    "business_annual": "grant_business",
     "pro": "grant_pro",
     # The annual plan is the SAME grant. Nothing downstream of the payment
     # knows about billing periods -- there is one Pro tier, and how long it was
@@ -74,6 +88,10 @@ _ACTION: dict[str, str] = {
 # fallback when an event carries no plan metadata (a Payment Link made in the
 # Stripe dashboard, for instance).
 _MODE: dict[str, str] = {
+    "starter": "subscription",
+    "starter_annual": "subscription",
+    "business": "subscription",
+    "business_annual": "subscription",
     "pro": "subscription",
     "pro_annual": "subscription",
     "dataset": "payment",
@@ -313,6 +331,10 @@ def price_for(plan: str) -> str:
         "pro": s.stripe_price_pro,
         "pro_annual": s.stripe_price_pro_annual,
         "dataset": s.stripe_price_dataset,
+        "starter": s.stripe_price_starter,
+        "starter_annual": s.stripe_price_starter_annual,
+        "business": s.stripe_price_business,
+        "business_annual": s.stripe_price_business_annual,
     }.get(plan, "")
 
 
@@ -869,7 +891,8 @@ def period_days(plan: str) -> int | None:
     annual purchase granted the monthly period expires on day 32 having been
     paid for a year, and the account looks exactly like a lapsed monthly one.
     """
-    if plan != "pro_annual":
+    # Every annual plan buys the same length; only the tier differs.
+    if not plan.endswith("_annual"):
         return None
     return get_settings().pro_annual_period_days
 
@@ -995,7 +1018,32 @@ def _renew(obj: Any) -> dict[str, Any]:
         # too little access is an email to an operator with a grant switch,
         # too much is a year given away. Loud, because it should not happen.
         log.warning("stripe_renewal_period_unknown", subscription=subscription or "-")
-    return _grant(email, "pro", days=days)
+    # Extend the tier they are PAYING for. This used to grant "pro" outright,
+    # which was right while Pro was the only subscription and would turn every
+    # Starter renewal into a free upgrade. The stored column first (a late
+    # renewal still holds its tier there), then the invoice's own price.
+    return _grant(email, _renewal_plan(email, obj), days=days)
+
+
+def _renewal_plan(email: str, invoice: Any) -> str:
+    """The monthly plan name whose grant a renewal of this account repeats."""
+    from src import accounts
+
+    tier = accounts.stored_tier(email)
+    if tier in PLAN_TIER.values():
+        return tier
+    lines = _field(_field(invoice, "lines") or {}, "data") or []
+    if lines:
+        line = lines[0]
+        price = _id_of(_field(line, "price"))
+        if not price:
+            details = _field(_field(line, "pricing") or {}, "price_details") or {}
+            price = _id_of(_field(details, "price"))
+        tier, _cadence = _tier_of_price(price)
+        if tier:
+            return tier
+    log.warning("stripe_renewal_tier_unknown", email=email)
+    return "pro"
 
 
 def _subscription_id_of(email: str) -> str:
@@ -1207,12 +1255,24 @@ def _plan_of_price(price_id: str) -> str:
     inferred from the price's interval, so a price that is not ours answers ""
     instead of being filed under a plan we do not sell.
     """
+    return _tier_of_price(price_id)[1]
+
+
+def _tier_of_price(price_id: str) -> tuple[str, str]:
+    """(tier, "monthly" | "annual") for a configured Price id, else ("", "")."""
+    if not price_id:
+        return "", ""
     s = get_settings()
-    if price_id and price_id == s.stripe_price_pro_annual:
-        return "annual"
-    if price_id and price_id == s.stripe_price_pro:
-        return "monthly"
-    return ""
+    for plan, configured in (
+        ("pro", s.stripe_price_pro), ("pro_annual", s.stripe_price_pro_annual),
+        ("starter", s.stripe_price_starter),
+        ("starter_annual", s.stripe_price_starter_annual),
+        ("business", s.stripe_price_business),
+        ("business_annual", s.stripe_price_business_annual),
+    ):
+        if configured and price_id == configured:
+            return PLAN_TIER[plan], ("annual" if plan.endswith("_annual") else "monthly")
+    return "", ""
 
 
 def _period_end_of(subscription_obj: Any) -> dt.datetime | None:
@@ -1325,7 +1385,7 @@ def _subscription_updated(obj: Any) -> dict[str, Any]:
         # would revoke twice and race with it.
         return {"status": "ignored", "subscription_status": status}
 
-    plan = _plan_of_price(_price_id_of(obj))
+    tier, plan = _tier_of_price(_price_id_of(obj))
     period_end = _period_end_of(obj)
     changed: list[str] = []
 
@@ -1334,6 +1394,11 @@ def _subscription_updated(obj: Any) -> dict[str, Any]:
     if plan:
         accounts.set_pro_plan(email, plan)
         changed.append("plan")
+    # An upgrade or downgrade between tiers made in Stripe's portal. Only on a
+    # live subscription: `_cancel` owns the way back to free.
+    if tier and status in ("active", "trialing", "past_due") \
+            and accounts.set_paid_tier(email, tier):
+        changed.append("tier")
     if period_end is not None and accounts.set_pro_expiry(email, period_end):
         changed.append("expiry")
 

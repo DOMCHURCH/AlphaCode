@@ -40,13 +40,24 @@ from src.storage.models import AdminAction, ApiUser, UsageLog, current_month
 
 log = structlog.get_logger(__name__)
 
-Tier = Literal["free", "pro"]
+Tier = Literal["free", "starter", "pro", "business"]
+# Every tier somebody pays for. `pro_expires_at`, `pro_plan` and the reminder
+# and dunning machinery are shared by all three -- the column names predate
+# the second and third paid tier and are kept because they leak into the
+# status JSON the dashboard reads. `revoke_pro` means "back to free" from any.
+PAID_TIERS: tuple[str, ...] = ("starter", "pro", "business")
 AdminActionName = Literal[
-    "grant_download", "grant_pro", "revoke_download", "revoke_pro"
+    "grant_download", "grant_pro", "revoke_download", "revoke_pro",
+    "grant_starter", "grant_business",
 ]
 VALID_ACTIONS: tuple[str, ...] = (
     "grant_download", "grant_pro", "revoke_download", "revoke_pro",
+    "grant_starter", "grant_business",
 )
+# Which tier each grant action puts an account on.
+_GRANT_TIER: dict[str, str] = {
+    "grant_starter": "starter", "grant_pro": "pro", "grant_business": "business",
+}
 
 # Deliberately permissive. This is not identity verification -- nobody is
 # emailed to confirm anything -- it is a check that the string is shaped like an
@@ -149,7 +160,11 @@ class Account:
 
 def tier_limit(tier: str) -> int:
     s = get_settings()
-    return s.pro_tier_monthly_calls if tier == "pro" else s.free_tier_monthly_calls
+    return {
+        "starter": s.starter_tier_monthly_calls,
+        "pro": s.pro_tier_monthly_calls,
+        "business": s.business_tier_monthly_calls,
+    }.get(tier, s.free_tier_monthly_calls)
 
 
 def normalise_email(email: str) -> str:
@@ -214,11 +229,12 @@ def effective_tier(row: ApiUser, now: dt.datetime | None = None) -> str:
     has NULL, and the other interpretation would have demoted all of them the
     moment this deployed. It also gives comped accounts a natural spelling.
     """
-    if row.subscription_tier != "pro":
+    tier = row.subscription_tier
+    if tier not in PAID_TIERS:
         return "free"
     if row.pro_expires_at is None:
-        return "pro"
-    return "pro" if _aware(row.pro_expires_at) > (now or dt.datetime.now(dt.UTC)) else "free"
+        return tier
+    return tier if _aware(row.pro_expires_at) > (now or dt.datetime.now(dt.UTC)) else "free"
 
 
 def _snapshot(row: ApiUser) -> Account:
@@ -230,7 +246,7 @@ def _snapshot(row: ApiUser) -> Account:
         tier=live,
         has_paid_download=bool(row.has_paid_download),
         pro_expires_at=row.pro_expires_at,
-        lapsed=row.subscription_tier == "pro" and live == "free",
+        lapsed=row.subscription_tier in PAID_TIERS and live == "free",
         has_password=bool(row.password_hash),
         pro_plan=str(row.pro_plan or ""),
         payment_failure_count=int(row.payment_failure_count or 0),
@@ -495,6 +511,42 @@ def set_pro_plan(email: str, plan: str) -> None:
         if row is None:
             return
         row.pro_plan = plan[:16] or None
+
+
+def stored_tier(email: str) -> str:
+    """The tier the COLUMN holds, expiry ignored; "" if there is no account.
+
+    Not `effective_tier`: a renewal that lands a day after the period ran out
+    still has to extend the tier they were paying for, and by then the live
+    tier already reads "free".
+    """
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        return str(row.subscription_tier or "") if row is not None else ""
+
+
+def set_paid_tier(email: str, tier: str) -> bool:
+    """Move a paying account to another paid tier, expiry untouched.
+
+    For `customer.subscription.updated`: a Starter subscriber who upgrades to
+    Business in Stripe's portal keeps the period Stripe says they have (that
+    handler assigns the expiry separately) but must get Business access now.
+    True if the tier changed.
+    """
+    if tier not in PAID_TIERS:
+        return False
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None or row.subscription_tier == tier:
+            return False
+        row.subscription_tier = tier
+        return True
 
 
 def revocation_date(api_key: str) -> str | None:
@@ -860,16 +912,22 @@ def apply_admin_action(
             user.has_paid_download = True
         elif action == "revoke_download":
             user.has_paid_download = False
-        elif action == "grant_pro":
+        elif action in _GRANT_TIER:
             # EXTEND, never reset. A customer who renews three days early would
             # otherwise lose those three days -- the one billing bug a paying
             # customer notices and remembers. max() makes an early renewal add
             # to what is left and a late one start from today.
+            #
+            # ...but only within one tier. Days left on Starter are not days of
+            # Business, so a change of tier starts the new period from today.
+            new_tier = _GRANT_TIER[action]
             period = dt.timedelta(days=days or get_settings().pro_period_days)
             current = (
-                _aware(user.pro_expires_at) if user.pro_expires_at else _now
+                _aware(user.pro_expires_at)
+                if user.pro_expires_at and user.subscription_tier == new_tier
+                else _now
             )
-            user.subscription_tier = "pro"
+            user.subscription_tier = new_tier
             user.pro_expires_at = max(current, _now) + period
             # A fresh period deserves a fresh warning.
             user.pro_reminder_sent_at = None
@@ -956,7 +1014,7 @@ def subscriptions() -> list[dict]:
     with session_scope() as session:
         rows = list(
             session.execute(
-                select(ApiUser).where(ApiUser.subscription_tier == "pro")
+                select(ApiUser).where(ApiUser.subscription_tier.in_(PAID_TIERS))
             ).scalars()
         )
     out = []
@@ -991,7 +1049,7 @@ def expiring_soon(within_days: int) -> list[dict]:
         rows = list(
             session.execute(
                 select(ApiUser)
-                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.subscription_tier.in_(PAID_TIERS))
                 .where(ApiUser.pro_expires_at.is_not(None))
                 .where(ApiUser.pro_reminder_sent_at.is_(None))
             ).scalars()
@@ -1084,7 +1142,7 @@ def customer_stats(recent: int = 10) -> dict[str, object]:
             session.execute(
                 select(func.count())
                 .select_from(ApiUser)
-                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.subscription_tier.in_(PAID_TIERS))
                 .where(
                     (ApiUser.pro_expires_at.is_(None))
                     | (ApiUser.pro_expires_at > now)
@@ -1095,7 +1153,7 @@ def customer_stats(recent: int = 10) -> dict[str, object]:
             session.execute(
                 select(func.count())
                 .select_from(ApiUser)
-                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.subscription_tier.in_(PAID_TIERS))
                 .where(ApiUser.pro_expires_at.is_not(None))
                 .where(ApiUser.pro_expires_at <= now)
             ).scalar_one()
@@ -1107,7 +1165,7 @@ def customer_stats(recent: int = 10) -> dict[str, object]:
             session.execute(
                 select(func.count())
                 .select_from(ApiUser)
-                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.subscription_tier.in_(PAID_TIERS))
                 .where(ApiUser.pro_expires_at > now + dt.timedelta(days=180))
             ).scalar_one()
         )
@@ -1115,7 +1173,7 @@ def customer_stats(recent: int = 10) -> dict[str, object]:
             session.execute(
                 select(func.count())
                 .select_from(ApiUser)
-                .where(ApiUser.subscription_tier == "pro")
+                .where(ApiUser.subscription_tier.in_(PAID_TIERS))
                 .where(ApiUser.pro_expires_at.is_(None))
             ).scalar_one()
         )

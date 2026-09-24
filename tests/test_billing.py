@@ -1271,3 +1271,85 @@ def test_the_reconciler_grants_nothing(client, monkeypatch):
     billing.reconcile_paid_sessions(days=30)
 
     assert accounts.by_email(email) is None, "the reconciler created an account"
+
+
+# ---------------------------------------------------------------------------
+# Starter and Business (2026-09-23). The traps these pin: a renewal granting
+# Pro regardless of what was bought, and a portal upgrade leaving the tier.
+# ---------------------------------------------------------------------------
+
+PRICE_STARTER = "price_1UJ0MSBLo93QIBx5o7sXkNmY"
+PRICE_BUSINESS = "price_1UJ0MoBLo93QIBx5HbcUhczS"
+
+
+@pytest.fixture()
+def tier_prices(monkeypatch):
+    from src.config.settings import get_settings
+
+    monkeypatch.setenv("STRIPE_PRICE_STARTER", PRICE_STARTER)
+    monkeypatch.setenv("STRIPE_PRICE_BUSINESS", PRICE_BUSINESS)
+    monkeypatch.setenv("STARTER_TIER_MONTHLY_CALLS", "700")
+    monkeypatch.setenv("BUSINESS_TIER_MONTHLY_CALLS", "90000")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def _sub_checkout(plan, event_id="evt_tier"):
+    ev = checkout_event(event_id=event_id, plan=plan, mode="subscription")
+    ev["data"]["object"]["subscription"] = "sub_1"
+    return ev
+
+
+def _sub_updated(price, *, status_="active", event_id="evt_upd"):
+    end = int((dt.datetime.now(dt.UTC) + dt.timedelta(days=30)).timestamp())
+    return {"id": event_id, "type": "customer.subscription.updated", "data": {"object": {
+        "id": "sub_1", "customer": "cus_1", "status": status_,
+        "items": {"data": [{"price": {"id": price}}]}, "current_period_end": end,
+    }}}
+
+
+def test_a_starter_checkout_grants_starter_and_its_quota(client, stripe_calls, tier_prices):
+    key = register(client)
+    assert post_event(client, _sub_checkout("starter")).status_code == 200
+    body = status(client, key)
+    assert body["tier"] == "starter"
+    assert body["calls_limit"] == 700
+
+
+def test_a_starter_renewal_extends_starter_not_pro(client, stripe_calls, tier_prices):
+    key = register(client)
+    post_event(client, _sub_checkout("starter"))
+    first = status(client, key)["expires_at"]
+    r = post_event(client, invoice_event(event_id="evt_starter_renew"))
+    assert r.status_code == 200 and r.json()["status"] == "granted"
+    body = status(client, key)
+    assert body["tier"] == "starter", "a Starter renewal must not upgrade to Pro"
+    assert body["expires_at"] > first
+
+
+def test_a_portal_upgrade_to_business_switches_the_tier(client, stripe_calls, tier_prices):
+    key = register(client)
+    post_event(client, _sub_checkout("starter"))
+    r = post_event(client, _sub_updated(PRICE_BUSINESS))
+    assert r.status_code == 200 and "tier" in r.json()["changed"]
+    body = status(client, key)
+    assert body["tier"] == "business" and body["calls_limit"] == 90000
+
+
+def test_a_business_checkout_is_503_until_its_price_is_set(client, stripe_calls):
+    sign_in(client)
+    r = client.post("/api/billing/checkout", json={"plan": "business", "email": BUYER})
+    assert r.status_code == 503
+    # ...and Pro is untouched by the new plans being unconfigured.
+    r = client.post("/api/billing/checkout", json={"plan": "pro", "email": BUYER})
+    assert r.status_code == 200, r.text
+
+
+def test_cancelling_starter_returns_to_free(client, stripe_calls, tier_prices):
+    key = register(client)
+    post_event(client, _sub_checkout("starter"))
+    r = post_event(client, {"id": "evt_del", "type": "customer.subscription.deleted",
+                            "data": {"object": {"id": "sub_1", "customer": "cus_1"}}})
+    assert r.status_code == 200
+    assert status(client, key)["tier"] == "free"

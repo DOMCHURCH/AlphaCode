@@ -638,7 +638,8 @@ def _plan_note(metered: Any) -> str:
     if left > limit * 0.2:
         return ""
     tail = ""
-    if metered.account.tier != "pro":
+    # Pointing at Pro only makes sense from below it.
+    if metered.account.tier in ("free", "starter"):
         from src.config.settings import get_settings
 
         tail = (

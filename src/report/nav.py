@@ -30,6 +30,9 @@ _LINKS = (
 )
 
 
+
+_TIER_NAMES = {"free": "Free", "starter": "Starter", "pro": "Pro", "business": "Business"}
+
 def render_nav(
     *,
     active: str = "",
@@ -80,7 +83,7 @@ def render_nav(
         # server therefore cannot know who they are.
         right = f"""<span class="whoami" id="whoami">
       <span class="who-email" id="who-email">{escape(email)}</span>
-      <span class="badge" id="who-plan">{"Pro" if tier == "pro" else "Free"}</span>
+      <span class="badge" id="who-plan">{_TIER_NAMES.get(tier, "Free")}</span>
       <form class="logout" method="post" action="/logout">
         <button type="submit" class="linkish" id="logout-btn">Log out</button>
       </form>

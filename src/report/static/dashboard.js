@@ -235,17 +235,23 @@
     show($("signed-out"), true);
   }
 
+  /* Four tiers since 2026-09-23. "Paid" is any of the last three; the
+     single-Pro assumptions below all mean "paid" and now say so. */
+  var TIER_NAMES = { free: "Free", starter: "Starter", pro: "Pro", business: "Business" };
+  function tierName(t) { return TIER_NAMES[t] || "Free"; }
+  function isPaid(t) { return t === "starter" || t === "pro" || t === "business"; }
+
   function renderWhoami(s) {
     if (!session) { show($("whoami"), false); show($("signed-out"), true); return; }
     $("who-email").textContent = s.email;
-    $("who-plan").textContent = s.tier === "pro" ? "Pro" : "Free";
+    $("who-plan").textContent = tierName(s.tier);
     show($("whoami"), true);
     show($("signed-out"), false);
   }
 
   function renderStatus(s) {
-    var pro = s.tier === "pro";
-    var planName = pro ? "Pro" : "Free";
+    var pro = isPaid(s.tier);
+    var planName = tierName(s.tier);
 
     $("s-tier").textContent = s.lapsed ? "Free (expired)" : planName;
     $("s-tier-sub").textContent = s.calls_limit
@@ -272,9 +278,8 @@
     // here too. Without this that reader is shown "YOUR_KEY" next to a working
     // quota, which reads as the key not having been accepted.
     fillExamples(getKey());
-    $("plan-summary").textContent = pro
-      ? "Pro — " + s.calls_limit.toLocaleString() + " calls a month"
-      : "Free — " + s.calls_limit.toLocaleString() + " calls a month";
+    $("plan-summary").textContent =
+      planName + " — " + s.calls_limit.toLocaleString() + " calls a month";
 
     $("a-email").textContent = s.email;
     $("a-pw").textContent = s.has_password ? "Set" : "Not set";
@@ -285,11 +290,11 @@
       var when = new Date(s.expires_at);
       $("a-expires").textContent = when.toLocaleDateString();
       $("a-expires-sub").textContent = s.lapsed
-        ? "expired — renew to restore Pro"
+        ? "expired — renew to restore your plan"
         : (s.days_remaining + " days left");
     } else {
       $("a-expires").textContent = pro ? "Never" : "—";
-      $("a-expires-sub").textContent = pro ? "comped account" : "not on Pro";
+      $("a-expires-sub").textContent = pro ? "comped account" : "not on a paid plan";
     }
     // Setting a first password needs no old one; changing needs the current.
     if (session) {
@@ -764,13 +769,13 @@
 
     var was = before.split("|");
     var msg = "";
-    if (was[0] !== s.tier && s.tier === "pro") {
-      msg = "Pro unlocked. You now have " +
+    if (was[0] !== s.tier && isPaid(s.tier)) {
+      msg = tierName(s.tier) + " unlocked. You now have " +
         s.calls_limit.toLocaleString() + " API calls a month.";
     } else if (was[1] !== "d" && s.has_paid_download) {
       msg = "Full dataset unlocked. Download it from the API tab.";
-    } else if (was[0] === "pro" && s.tier === "free") {
-      msg = "Your Pro subscription has ended. You are back on the free tier — " +
+    } else if (isPaid(was[0]) && s.tier === "free") {
+      msg = "Your " + tierName(was[0]) + " subscription has ended. You are back on the free tier — " +
         "your key still works.";
     }
     if (!msg) return;
