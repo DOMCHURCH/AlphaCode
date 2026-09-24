@@ -110,6 +110,18 @@ def render_api(
      "The balance sheet as filed: every line item, its period end, and the "
      "filing it came from. The same numbers the drawing on "
      "<code>/company/{ticker}</code> is built from.")}
+{_ep("GET", "/api/company/{ticker}/history?years=N",
+     "X-API-Key required · counts as one call",
+     "Every filed balance sheet over past periods, newest first. How far back "
+     "depends on your plan: Free 1 year, Starter 5, Pro 10, Business all that "
+     "is loaded. The response says how far back the data actually goes.")}
+{_ep("GET", "/api/company/{ticker}/changes", "X-API-Key required · Starter and above · one call",
+     "What moved since the previous period, figure by figure, and every "
+     "figure a later filing restated: the original value, the revised one, "
+     "and which filings said each.")}
+{_ep("GET", "/api/plans", "Public",
+     "What each plan includes, as data: call quotas, history depth, "
+     "watchlist size and the rest.")}
 {_ep("GET", "/api/demo/{ticker}",
      (f"No key · {demo_calls_per_hour}/hour per address"
       if demo_calls_per_hour else "No key · rate limited"),

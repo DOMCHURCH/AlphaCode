@@ -3343,6 +3343,73 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     return JSONResponse(payload)
 
 
+@app.get("/api/company/{ticker}/history")
+def api_company_history(
+    ticker: str,
+    years: int | None = Query(None, ge=1, le=30,
+                              description="How far back. Capped by your plan."),
+    account=Depends(_ACCOUNT_DEP),
+) -> JSONResponse:
+    """Every loaded balance sheet for a company, newest first. One metered call.
+
+    Depth is capped by plan (Free 1 year, Starter 5, Pro 10, Business all).
+    Asking for more than the plan allows is answered with the plan's depth and
+    says so in `years_allowed`, rather than refused: the reader still gets data.
+    """
+    from src import accounts, plans
+    from src.company.history import history
+
+    accounts.enforce_monthly_limit(account)
+    cap = plans.allowance(account.tier, "history_years")
+    wanted = years if years is not None else cap
+    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(422, "That does not look like a ticker symbol.")
+    out = history(symbol, allowed)
+    if out is None:
+        raise HTTPException(404, f"No filed balance sheets for {symbol}.")
+    accounts.record_call(account, "/api/company/history")
+    out["years_allowed"] = cap
+    out["plan"] = account.tier
+    return JSONResponse(jsonable_encoder(out))
+
+
+@app.get("/api/company/{ticker}/changes")
+def api_company_changes(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """What moved since the previous period, and what a later filing restated.
+
+    Starter and above. One metered call.
+    """
+    from src import accounts, plans
+    from src.company.history import changes
+
+    plans.require(account.tier, "changes")
+    accounts.enforce_monthly_limit(account)
+    symbol = _clean_ticker(ticker)
+    if not _is_ticker_shaped(symbol):
+        raise HTTPException(422, "That does not look like a ticker symbol.")
+    out = changes(symbol)
+    if out is None:
+        raise HTTPException(404, f"No filed balance sheets for {symbol}.")
+    accounts.record_call(account, "/api/company/changes")
+    return JSONResponse(jsonable_encoder(out))
+
+
+@app.get("/api/plans")
+def api_plans() -> JSONResponse:
+    """What each plan includes. Public, unmetered: it is the price list."""
+    from src import plans
+    from src.accounts import tier_limit
+
+    return JSONResponse({
+        "monthly_calls": {t: tier_limit(t) for t in plans.TIER_ORDER},
+        "features": plans.public_matrix(),
+        "enterprise": "Business features with a custom quota, invoicing and "
+                      "terms by contract: https://balanceproof.dev/pricing",
+    })
+
+
 @app.get("/api/demo/{ticker}")
 def api_demo(ticker: str, request: Request) -> JSONResponse:
     """The home page's live demo: one company, no key required, 100 an hour.
@@ -4493,6 +4560,9 @@ _KEYED_ENDPOINTS: tuple[str, ...] = (
     "GET  /api/auth/me  (session)",
     "GET  /admin/subscriptions  (admin secret)",
     "GET /api/company/{ticker}",
+    "GET /api/company/{ticker}/history  (depth by plan)",
+    "GET /api/company/{ticker}/changes  (Starter and above)",
+    "GET /api/plans  (public: what each plan includes)",
     "GET /api/demo/{ticker}  (no key, metered per address)",
     "GET /api/user/status",
     "GET /api/download-dataset",

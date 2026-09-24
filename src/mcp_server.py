@@ -87,7 +87,7 @@ import uuid
 from dataclasses import asdict
 from typing import Any
 
-from fastapi import APIRouter, Request, Response
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.encoders import jsonable_encoder
 from fastapi.responses import JSONResponse
 
@@ -213,6 +213,40 @@ TOOLS: list[dict[str, Any]] = [
                 },
             },
             "required": ["email", "accept_terms"],
+        },
+    },
+    {
+        "name": "get_balance_sheet_history",
+        "description": (
+            "Every filed balance sheet for one US public company over past "
+            "periods, newest first, so trends can be read. Depth depends on the "
+            "caller's plan (Free 1 year, Starter 5, Pro 10, Business all); the "
+            "result says how far back the data actually goes."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Ticker symbol, e.g. AAPL."},
+                "years": {"type": "integer", "description": "How many years back. Optional."},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "get_balance_sheet_changes",
+        "description": (
+            "What changed on a company's balance sheet: each headline figure "
+            "versus the previous period, and any figure a later filing RESTATED "
+            "(original value, revised value, which filings). Use when the user "
+            "asks what moved, or whether past numbers were revised. Starter "
+            "plan and above."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Ticker symbol, e.g. AAPL."},
+            },
+            "required": ["ticker"],
         },
     },
     {
@@ -592,7 +626,74 @@ def _tool_get_api_key(args: dict[str, Any], _m: Any) -> tuple[str, Any]:
     )
 
 
+def _tier_of(m: _Metered) -> str:
+    """Anonymous (demo) callers get Free's allowances."""
+    return "free" if m.anonymous else str(m.account.tier)
+
+
+def _tool_get_history(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
+    from src import plans
+    from src.company.history import history
+
+    ticker = _clean(str(args.get("ticker") or ""))
+    if not ticker:
+        return "No ticker given.", None
+    cap = plans.allowance(_tier_of(m), "history_years")
+    try:
+        wanted = int(args["years"]) if args.get("years") else cap
+    except (TypeError, ValueError):
+        wanted = cap
+    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    out = history(ticker, allowed)
+    if out is None:
+        return f"No filed balance sheets for {ticker}.", None
+    m.spend(ticker)
+    out["years_allowed"] = cap
+    payload = jsonable_encoder(out)
+    note = "" if cap is None else (
+        f" Your plan reaches back {cap} year{'s' if cap != 1 else ''}; "
+        "more history is on higher plans at https://balanceproof.dev/pricing."
+    )
+    return (
+        f"{out['periods']} balance sheet(s) for {ticker}; the database holds "
+        f"periods back to {out['available_from']}.{note}",
+        payload,
+    )
+
+
+def _tool_get_changes(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
+    from src import plans
+    from src.company.history import changes
+
+    ticker = _clean(str(args.get("ticker") or ""))
+    if not ticker:
+        return "No ticker given.", None
+    try:
+        plans.require(_tier_of(m), "changes")
+    except HTTPException as exc:
+        d = exc.detail if isinstance(exc.detail, dict) else {}
+        return (
+            f"'What changed' needs the {d.get('required_plan', 'Starter')} plan "
+            f"or above (this caller is on {d.get('your_plan', 'Free')}). "
+            "Upgrade at https://balanceproof.dev/pricing.",
+            None,
+        )
+    out = changes(ticker)
+    if out is None:
+        return f"No filed balance sheets for {ticker}.", None
+    m.spend(ticker)
+    n = len(out["restatements"])
+    return (
+        f"{ticker}: period ending {out['period_end']} compared with "
+        f"{out['previous_period_end'] or 'no earlier period'}; "
+        f"{n} restated figure{'s' if n != 1 else ''} in the last three years.",
+        jsonable_encoder(out),
+    )
+
+
 _TOOL_IMPLS = {
+    "get_balance_sheet_history": _tool_get_history,
+    "get_balance_sheet_changes": _tool_get_changes,
     "search_companies": _tool_search_companies,
     "get_balance_sheet": _tool_get_balance_sheet,
     "check_balance_sheet": _tool_check_balance_sheet,
