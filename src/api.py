@@ -3340,6 +3340,12 @@ def api_company(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
     accounts.record_call(account, "/api/company")
     payload = jsonable_encoder(asdict(sheet))
     payload["source"] = "SEC Financial Statement Data Sets (as reported)"
+    from src import plans
+
+    if plans.allowance(account.tier, "provenance"):
+        from src.company.provenance import attach
+
+        attach(payload, sheet.ticker)
     return JSONResponse(payload)
 
 
@@ -3372,7 +3378,13 @@ def api_company_history(
     accounts.record_call(account, "/api/company/history")
     out["years_allowed"] = cap
     out["plan"] = account.tier
-    return JSONResponse(jsonable_encoder(out))
+    out = jsonable_encoder(out)
+    if plans.allowance(account.tier, "provenance"):
+        from src.company.provenance import attach
+
+        for sheet in out["balance_sheets"]:
+            attach(sheet, out["ticker"])
+    return JSONResponse(out)
 
 
 @app.get("/api/company/{ticker}/changes")
@@ -3394,6 +3406,69 @@ def api_company_changes(ticker: str, account=Depends(_ACCOUNT_DEP)) -> JSONRespo
         raise HTTPException(404, f"No filed balance sheets for {symbol}.")
     accounts.record_call(account, "/api/company/changes")
     return JSONResponse(jsonable_encoder(out))
+
+
+class VerifyRequest(BaseModel):
+    tickers: list[str]
+
+
+@app.post("/api/verify")
+def api_verify(body: VerifyRequest, account=Depends(_ACCOUNT_DEP)) -> JSONResponse:
+    """Check many balance sheets in one request. Pro (50) and Business (500).
+
+    Each ticker is one metered call, and the whole batch is refused up front
+    if the month's remaining allowance cannot cover it -- a half-run batch is
+    harder to reason about than a clear 429. Unknown tickers are reported
+    and not billed.
+    """
+    from src import accounts, plans
+    from src.company.view1 import build_view1
+
+    cap = plans.require(account.tier, "bulk_verify")
+    tickers = list(dict.fromkeys(_clean_ticker(t) for t in body.tickers if t))
+    if not tickers:
+        raise HTTPException(422, "Send at least one ticker.")
+    if cap is not None and len(tickers) > cap:
+        raise HTTPException(422, f"At most {cap} tickers per request on your plan.")
+    used = accounts.enforce_monthly_limit(account)
+    limit = account.call_limit
+    if limit and used + len(tickers) > limit:
+        raise HTTPException(429, (
+            f"This batch needs {len(tickers)} calls and {max(0, limit - used)} "
+            "are left this month."))
+    provenance = plans.allowance(account.tier, "provenance")
+    results = []
+    for t in tickers:
+        if not _is_ticker_shaped(t):
+            results.append({"ticker": t, "found": False, "error": "not a ticker"})
+            continue
+        view = build_view1(t)
+        if view is None:
+            results.append({"ticker": t, "found": False})
+            continue
+        accounts.record_call(account, "/api/verify")
+        row = {
+            "ticker": t, "found": True,
+            "company_name": view.company_name,
+            "period_end": view.period_end,
+            "reconciles": view.balances,
+            "imbalance_pct": round(view.imbalance_pct, 4),
+            "identity_basis": view.identity_basis or "as_filed",
+            "missing_components": list(view.missing_components or []),
+        }
+        if provenance:
+            from src.company.provenance import for_filing
+
+            row["provenance"] = for_filing(t, getattr(view, "filing_date", None))
+        results.append(row)
+    checked = [r for r in results if r["found"]]
+    return JSONResponse(jsonable_encoder({
+        "checked": len(checked),
+        "reconcile": sum(1 for r in checked if r["reconciles"]),
+        "do_not_reconcile": sum(1 for r in checked if not r["reconciles"]),
+        "not_found": len(results) - len(checked),
+        "results": results,
+    }))
 
 
 class WatchRequest(BaseModel):
@@ -4596,6 +4671,7 @@ _KEYED_ENDPOINTS: tuple[str, ...] = (
     "GET /api/company/{ticker}/history  (depth by plan)",
     "GET /api/company/{ticker}/changes  (Starter and above)",
     "GET /api/plans  (public: what each plan includes)",
+    "POST /api/verify  (Pro and above; one call per ticker)",
     "GET /api/watchlist",
     "POST /api/watchlist  (Starter and above)",
     "DELETE /api/watchlist/{ticker}",

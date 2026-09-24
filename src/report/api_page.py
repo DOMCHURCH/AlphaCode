@@ -119,6 +119,12 @@ def render_api(
      "What moved since the previous period, figure by figure, and every "
      "figure a later filing restated: the original value, the revised one, "
      "and which filings said each.")}
+{_ep("POST", "/api/verify", "X-API-Key required · Pro (50 per request) and Business (500) · one call per ticker",
+     "Check many balance sheets at once: body <code>{&quot;tickers&quot;: [&quot;AAPL&quot;, &quot;JPM&quot;]}</code>. "
+     "For each: whether Assets = Liabilities + Equity holds, the gap as a "
+     "percentage of assets, and why it balances when it needed the minority "
+     "interest. On Business, every result and every balance sheet also carries "
+     "<code>provenance</code>: the filing it came from, with a link to it on SEC.gov.")}
 {_ep("POST", "/api/watchlist", "X-API-Key required · Starter and above · free",
      "Watch a company: body <code>{&quot;ticker&quot;: &quot;AAPL&quot;}</code>. When it files, you get "
      "one email saying whether the new balance sheet reconciles, what moved, and "

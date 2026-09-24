@@ -231,3 +231,62 @@ def test_a_lapsed_watcher_is_advanced_silently(client, monkeypatch):
     out = watchlist.run_alerts()
     assert out["skipped"] == 1 and sent == []
     assert watchlist.pending() == []
+
+
+# ---------------------------------------------------------------------------
+# Stage C: bulk verify (Pro+) and filing provenance (Business)
+# ---------------------------------------------------------------------------
+
+def _seed_filing_event():
+    from src.storage.db import session_scope
+    from src.storage.models import FilingEvent
+
+    with session_scope() as s:
+        s.add(FilingEvent(ticker="TST", cik="0000123456", form="10-Q",
+                          filing_date=_q(0.2) + dt.timedelta(days=40),
+                          accession="0000123456-26-000001", primary_doc="tst-10q.htm"))
+
+
+def test_bulk_verify_needs_pro(client):
+    h = _key(client, "v0@example.com", "starter")
+    r = client.post("/api/verify", json={"tickers": ["TST"]}, headers=h)
+    assert r.status_code == 403 and r.json()["detail"]["required_plan"] == "Pro"
+
+
+def test_bulk_verify_bills_found_tickers_only(client):
+    h = _key(client, "v1@example.com", "pro")
+    before = client.get("/api/user/status", headers=h).json()["calls_used_this_month"]
+    body = client.post("/api/verify", json={"tickers": ["TST", "NOPE", "tst"]}, headers=h).json()
+    assert body["checked"] == 1 and body["not_found"] == 1
+    assert body["results"][0]["reconciles"] is True
+    assert "provenance" not in body["results"][0]
+    after = client.get("/api/user/status", headers=h).json()["calls_used_this_month"]
+    assert after - before == 1
+
+
+def test_bulk_verify_caps_the_batch_and_the_quota(client, monkeypatch):
+    from src.config.settings import get_settings
+
+    h = _key(client, "v2@example.com", "pro")
+    r = client.post("/api/verify", json={"tickers": [f"T{i}" for i in range(51)]}, headers=h)
+    assert r.status_code == 422
+    monkeypatch.setenv("PRO_TIER_MONTHLY_CALLS", "2")
+    get_settings.cache_clear()
+    r = client.post("/api/verify", json={"tickers": ["TST", "AA", "BB"]}, headers=h)
+    assert r.status_code == 429
+
+
+def test_business_gets_filing_links_and_pro_does_not(client):
+    _seed_filing_event()
+    pro = _key(client, "p1@example.com", "pro")
+    biz = _key(client, "b1@example.com", "business")
+    assert "provenance" not in client.get("/api/company/TST", headers=pro).json()
+    prov = client.get("/api/company/TST", headers=biz).json()["provenance"]
+    assert prov["matched"] is True and prov["form"] == "10-Q"
+    assert prov["sec_url"].endswith("/tst-10q.htm")
+    row = client.post("/api/verify", json={"tickers": ["TST"]}, headers=biz).json()["results"][0]
+    assert row["provenance"]["accession"] == "0000123456-26-000001"
+    hist = client.get("/api/company/TST/history", headers=biz).json()["balance_sheets"]
+    assert hist[0]["provenance"]["matched"] is True
+    # An older period with no matching filing event says so instead of guessing.
+    assert hist[-1]["provenance"]["matched"] is False
