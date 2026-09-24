@@ -536,6 +536,27 @@ def create_portal_session(*, email: str, origin: str) -> dict[str, str]:
     return {"url": url}
 
 
+def cancel_subscription_now(subscription_id: str) -> bool:
+    """Cancel a Stripe subscription immediately (account deletion). True if done.
+
+    Immediate, not at period end: the person asked for the account to be gone,
+    and a subscription left running would bill an account that no longer
+    exists. An id Stripe does not know counts as done.
+    """
+    stripe = _sdk()
+    if stripe is None or not subscription_id:
+        return not subscription_id
+    try:
+        stripe.Subscription.cancel(subscription_id)
+        return True
+    except Exception as exc:  # noqa: BLE001
+        why = _why(exc)
+        if "No such subscription" in why or "canceled" in why:
+            return True
+        log.warning("stripe_cancel_on_delete_failed", error=why)
+        return False
+
+
 def _forget_customer(email: str) -> None:
     """Drop a stored Stripe customer/subscription id that Stripe does not know."""
     from src import accounts

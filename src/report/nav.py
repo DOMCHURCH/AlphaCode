@@ -198,6 +198,9 @@ def render_signin_prompt(
         </div>
       </form>
       <p class="sp-note" id="sp-note" role="status" aria-live="polite" hidden></p>
+      <label class="sp-terms"><input type="checkbox" id="sp-terms">
+        I agree to the <a href="/terms">Terms of Service</a> and
+        <a href="/privacy">Privacy Policy</a></label>
       <p class="sp-fine">No card and no password: we email you a sign-in link.
         Reading the site stays free either way.</p>
       <div class="sp-foot">

@@ -250,11 +250,19 @@
           say("That does not look like an email address.");
           return;
         }
+        /* A first sign-in IS a signup, and the server refuses to create the
+           account from the emailed link without acceptance -- without this box
+           the popup's link failed for every new reader (2026-09-24). */
+        var terms = $("sp-terms");
+        if (terms && !terms.checked) {
+          say("Please agree to the Terms of Service and Privacy Policy first.");
+          return;
+        }
         if (send) { send.disabled = true; send.textContent = "Sending…"; }
         window.fetch("/api/auth/magic-link", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email: address })
+          body: JSON.stringify({ email: address, accept_terms: !!(terms && terms.checked) })
         }).then(function (r) {
           return r.json().catch(function () { return {}; }).then(function (body) {
             /* The endpoint answers the same way whatever the address, so there

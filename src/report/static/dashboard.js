@@ -430,7 +430,7 @@
     var box = $("accept-terms");
     api("/api/auth/register", {
       method: "POST",
-      body: { email: email, accept_terms: !box || box.checked }
+      body: { email: email, accept_terms: !!(box && box.checked) }
     })
       .then(function (r) {
         btn.disabled = false;
@@ -890,6 +890,30 @@
 
   window.BP_startCheckout = function (plan, label, el) { return startCheckout(plan, label, el); };
 
+  function deleteAccount(ev) {
+    ev.preventDefault();
+    var typed = ($("delete-email").value || "").trim();
+    if (!typed) return;
+    var btn = $("delete-btn");
+    btn.disabled = true;
+    note($("delete-note"), "Deleting…");
+    api("/api/account/delete", { method: "POST", body: { confirm_email: typed } })
+      .then(function (r) {
+        if (r.ok) {
+          setKey("");
+          note($("delete-note"), "Your account has been deleted.", "good");
+          setTimeout(function () { window.location.href = "/"; }, 1500);
+          return;
+        }
+        btn.disabled = false;
+        note($("delete-note"), detailOf(r.data, "Could not delete the account."), "bad");
+      })
+      .catch(function () {
+        btn.disabled = false;
+        note($("delete-note"), "Could not reach the server.", "bad");
+      });
+  }
+
   document.addEventListener("DOMContentLoaded", function () {
     $("reg-form").addEventListener("submit", register);
     $("paste-key").addEventListener("click", pasteKey);
@@ -928,6 +952,7 @@
     });
 
     $("setpw-form").addEventListener("submit", savePassword);
+    $("delete-form").addEventListener("submit", deleteAccount);
     $("banner-close").addEventListener("click", function () {
       show($("grant-banner"), false);
     });

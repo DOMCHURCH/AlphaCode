@@ -281,6 +281,22 @@ def render_dashboard(
       <button type="button" class="linkish" id="forget-key">Forget this key on
         this device</button>
     </p>
+
+    <details class="danger-zone" id="delete-box">
+      <summary>Delete account</summary>
+      <p class="plan-note">This deletes your account, your API key, your usage
+        history, watchlist and webhooks. Any subscription is cancelled
+        immediately. It cannot be undone. Stripe keeps its own receipts for
+        payments already made.</p>
+      <form id="delete-form" autocomplete="off">
+        <label class="slabel" for="delete-email">Type your email to confirm</label>
+        <div class="sfield">
+          <input id="delete-email" type="email" placeholder="you@company.com" maxlength="254">
+          <button type="submit" class="btn" id="delete-btn">Delete my account</button>
+        </div>
+      </form>
+      <p class="formnote" id="delete-note" role="status" aria-live="polite"></p>
+    </details>
   </section>
 
   <section class="sec keyed panel" id="panel-billing" data-panel="billing" hidden>

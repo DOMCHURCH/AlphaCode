@@ -1098,3 +1098,8 @@ main .company-filings {
   .peer-list a { grid-template-columns: 6ch minmax(0, 1fr) auto; gap: 10px; }
 }
 .chead .cta-note { margin: 10px 0 0; padding: 0; }
+
+/* Sign-in popup: terms consent (2026-09-24). */
+.sp-terms { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 2px;
+  font-size: 13px; color: var(--ink2); line-height: 1.4; }
+.sp-terms input { margin-top: 2px; }

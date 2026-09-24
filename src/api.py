@@ -3506,6 +3506,32 @@ def api_bulk_verify(body: BulkVerifyRequest, account=Depends(_ACCOUNT_OR_SESSION
     }))
 
 
+class DeleteAccountRequest(BaseModel):
+    confirm_email: str
+
+
+@app.post("/api/account/delete")
+def api_account_delete(
+    body: DeleteAccountRequest, account=Depends(_ACCOUNT_OR_SESSION)
+) -> JSONResponse:
+    """Delete your own account. Type the account's email to confirm.
+
+    Cancels any subscription immediately, then erases the account and what
+    hangs off it (see accounts.delete_account). The session cookie is cleared
+    on the way out.
+    """
+    from src import accounts, auth
+
+    if accounts.normalise_email(body.confirm_email) != accounts.normalise_email(account.email):
+        raise HTTPException(422, "Type this account's email address to confirm.")
+    if getattr(account, "is_seeded", False):
+        raise HTTPException(400, "A seeded key has no account to delete.")
+    out = accounts.delete_account(account.email)
+    resp = JSONResponse(out)
+    auth.clear_session(resp)
+    return resp
+
+
 class WebhookRequest(BaseModel):
     url: str
 
@@ -4768,6 +4794,7 @@ _KEYED_ENDPOINTS: tuple[str, ...] = (
     "GET /api/company/{ticker}/changes  (Starter and above)",
     "GET /api/plans  (public: what each plan includes)",
     "POST /api/verify  (Pro and above; one call per ticker)",
+    "POST /api/account/delete  (confirm_email; cancels any subscription)",
     "GET /api/webhooks",
     "POST /api/webhooks  (Business; returns the signing secret once)",
     "DELETE /api/webhooks/{id}",

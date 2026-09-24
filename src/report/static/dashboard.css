@@ -534,3 +534,7 @@
 .btn.pick:disabled{opacity:.45;cursor:default}
 .pick-more{margin:10px 0 4px}
 .pick-more summary{cursor:pointer;color:var(--ink2);font-size:13.5px}
+
+/* Account tab: delete account (2026-09-24). */
+.danger-zone{margin-top:22px;border-top:1px solid var(--edge-soft, rgba(255,255,255,.12));padding-top:14px}
+.danger-zone summary{cursor:pointer;color:var(--ink2);font-size:13.5px}

@@ -558,6 +558,59 @@ def set_enterprise(email: str, *, enabled: bool, monthly_calls: int | None) -> A
     return snap
 
 
+def delete_account(email: str) -> dict:
+    """Erase an account and everything keyed to it. Self-serve (2026-09-24).
+
+    Order matters: the Stripe subscription is cancelled FIRST, and if Stripe
+    refuses, nothing is deleted -- deleting the row while the card keeps being
+    charged would leave a paying customer with no account to cancel from.
+
+    Removed: the account row (key digest, email, password hash, Stripe ids),
+    its usage log, watchlist, webhooks and their delivery log, and any unused
+    login links. Kept: one admin_actions line saying the deletion happened
+    (the audit trail the privacy page describes) and Stripe's own invoices,
+    which are Stripe's records and required for accounting.
+    """
+    from src import billing
+    from src.storage.models import (
+        MagicLink, UsageLog, WatchItem, WebhookDelivery, WebhookEndpoint,
+    )
+
+    address = normalise_email(email)
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == address)
+        ).scalar_one_or_none()
+        if row is None:
+            raise HTTPException(404, "No such account.")
+        user_id, sub = row.id, str(row.stripe_subscription_id or "")
+    if sub and not billing.cancel_subscription_now(sub):
+        raise HTTPException(502, (
+            "Stripe would not cancel your subscription, so nothing was deleted. "
+            "Try again shortly, or cancel it first under Manage subscription."))
+    with session_scope() as session:
+        hooks = [h.id for h in session.execute(
+            select(WebhookEndpoint).where(WebhookEndpoint.user_id == user_id)
+        ).scalars().all()]
+        if hooks:
+            session.query(WebhookDelivery).filter(
+                WebhookDelivery.endpoint_id.in_(hooks)).delete(synchronize_session=False)
+            session.query(WebhookEndpoint).filter(
+                WebhookEndpoint.id.in_(hooks)).delete(synchronize_session=False)
+        session.query(WatchItem).filter(WatchItem.user_id == user_id).delete(
+            synchronize_session=False)
+        session.query(UsageLog).filter(UsageLog.user_id == user_id).delete(
+            synchronize_session=False)
+        session.query(MagicLink).filter(MagicLink.email == address).delete(
+            synchronize_session=False)
+        session.query(ApiUser).filter(ApiUser.id == user_id).delete(
+            synchronize_session=False)
+    _write_admin_action(email=address, action="account_deleted", ok=True,
+                        detail="self-serve" + ("; subscription cancelled" if sub else ""))
+    log.info("account_deleted", email=address, had_subscription=bool(sub))
+    return {"deleted": True, "subscription_cancelled": bool(sub)}
+
+
 def stored_tier(email: str) -> str:
     """The tier the COLUMN holds, expiry ignored; "" if there is no account.
 

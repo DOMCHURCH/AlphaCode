@@ -189,7 +189,8 @@ def render_terms(*, nav: str = "", contact: str = "") -> str:
       wrong on our side, with either product, contact {who} and we will make
       it right.</p>
     <p>Paid plans renew through Stripe, monthly or yearly, until cancelled. To cancel,
-      email {who} — self-serve cancellation is not built yet. Access continues
+      use Manage subscription on the Billing tab of your dashboard, which
+      opens Stripe's own page, or email {who}. Access continues
       to the end of the period already paid for; when it lapses your account
       returns to the free allowance — your key keeps working, nothing is
       deleted. A one-time dataset purchase does not renew.</p>
@@ -353,9 +354,12 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
         your dashboard. Ask {who} for anything beyond that.</li>
       <li><strong>Correction</strong> — email {who} to change the address on an
         account.</li>
-      <li><strong>Deletion</strong> — email {who} and we will delete the
-        account, its key and its usage logs. Aggregate figures that are not
-        linked to you may remain.</li>
+      <li><strong>Deletion</strong> — delete your account yourself from the
+        Account tab of your dashboard, or email {who}. Deleting cancels any
+        subscription immediately and removes the account, its key, usage logs,
+        watchlist and webhooks. A record that a deletion happened is kept, and
+        Stripe keeps its receipts for payments already made. Aggregate figures
+        that are not linked to you may remain.</li>
     </ul>
     <p>If you are unhappy with how we have handled a request, you can complain
       to the Office of the Privacy Commissioner of Canada.</p>

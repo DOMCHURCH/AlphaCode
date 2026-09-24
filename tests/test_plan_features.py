@@ -540,3 +540,55 @@ def test_the_billing_tab_sells_starter_and_business_once_priced(client, monkeypa
     cards = render_buy_cards()
     assert 'data-buy-plan="starter"' in cards and 'data-buy-plan="starter_annual"' in cards
     assert 'data-buy-plan="business"' in cards and 'business_annual' not in cards
+
+
+# ---------------------------------------------------------------------------
+# Account deletion (2026-09-24)
+# ---------------------------------------------------------------------------
+
+def test_deleting_an_account_erases_it_and_what_hangs_off_it(client, public_dns, fake_http):
+    h = _key(client, "gone@example.com", "business")
+    client.post("/api/watchlist", json={"ticker": "TST"}, headers=h)
+    client.post("/api/webhooks", json={"url": "https://hooks.example.com/in"}, headers=h)
+    client.get("/api/company/TST/history", headers=h)
+    assert client.post("/api/account/delete", json={"confirm_email": "wrong@example.com"},
+                       headers=h).status_code == 422
+    r = client.post("/api/account/delete", json={"confirm_email": "GONE@example.com"}, headers=h)
+    assert r.status_code == 200 and r.json()["deleted"] is True
+    assert client.get("/api/user/status", headers=h).status_code == 401
+    from src.storage.db import session_scope
+    from src.storage.models import AdminAction, ApiUser, UsageLog, WatchItem, WebhookEndpoint
+
+    with session_scope() as s:
+        assert s.query(ApiUser).filter(ApiUser.email == "gone@example.com").count() == 0
+        assert s.query(WatchItem).count() == 0 and s.query(WebhookEndpoint).count() == 0
+        assert s.query(UsageLog).count() == 0
+        assert s.query(AdminAction).filter(AdminAction.action == "account_deleted").count() == 1
+
+
+def test_a_subscription_is_cancelled_before_the_account_goes(client, monkeypatch):
+    from src import billing
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    h = _key(client, "sub@example.com", "pro")
+    with session_scope() as s:
+        s.query(ApiUser).filter(ApiUser.email == "sub@example.com").update(
+            {"stripe_subscription_id": "sub_123"})
+    cancelled = []
+    monkeypatch.setattr(billing, "cancel_subscription_now", lambda sid: cancelled.append(sid) or False)
+    r = client.post("/api/account/delete", json={"confirm_email": "sub@example.com"}, headers=h)
+    assert r.status_code == 502 and cancelled == ["sub_123"]
+    assert client.get("/api/user/status", headers=h).status_code == 200  # nothing deleted
+    monkeypatch.setattr(billing, "cancel_subscription_now", lambda sid: True)
+    r = client.post("/api/account/delete", json={"confirm_email": "sub@example.com"}, headers=h)
+    assert r.json() == {"deleted": True, "subscription_cancelled": True}
+
+
+def test_every_signup_form_asks_for_both_documents(client):
+    for path in ("/dashboard", "/login", "/"):
+        html = client.get(path).text
+        if 'id="sp-terms"' in html or 'id="accept-terms"' in html:
+            assert 'href="/terms"' in html and 'href="/privacy"' in html, path
+    assert 'id="sp-terms"' in client.get("/").text
+    assert 'id="delete-form"' in client.get("/dashboard").text
