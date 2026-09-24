@@ -321,7 +321,7 @@
     if ((f = $("hook-form"))) f.addEventListener("submit", addHook);
     Array.prototype.forEach.call(document.querySelectorAll("[data-buy-plan]"), function (b) {
       b.addEventListener("click", function () {
-        if (window.BP_startCheckout) window.BP_startCheckout(b.getAttribute("data-buy-plan"), b.getAttribute("data-buy-name"));
+        if (window.BP_startCheckout) window.BP_startCheckout(b.getAttribute("data-buy-plan"), b.getAttribute("data-buy-name"), b);
       });
     });
   });

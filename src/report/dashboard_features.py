@@ -96,38 +96,25 @@ def render_feature_panels() -> str:
   </section>"""
 
 
-def render_buy_cards() -> str:
-    """Starter and Business buy cards, only for plans that are on sale."""
+def render_buy_cards(tiers: tuple[str, ...] = ("starter", "business")) -> str:
+    """Starter and/or Business as compact plan buttons, only if on sale."""
     from src import billing
     from src.config.settings import get_settings, price_label
 
     s = get_settings()
     out = []
-    for tier, line in (("starter", "History, what changed, and alerts on 3 companies."),
-                       ("business", "Everything in Pro, webhooks, and a link to the SEC filing behind every figure.")):
+    for tier in tiers:
         if not billing.price_for(tier):
             continue
         name = tier.capitalize()
         month = price_label(getattr(s, f"{tier}_price"))
-        out.append(f"""
-      <div class="buy">
-        <span class="plan-name">{name}</span>
-        <p class="plan-price">{escape(month)}<small>/month</small></p>
-        <p class="plan-line">{escape(line)}</p>
-        <button type="button" class="btn" data-buy-plan="{tier}" data-buy-name="{name}">Start {name}</button>
-      </div>""")
+        out.append(f'<button type="button" class="btn ghost pick" data-buy-plan="{tier}" '
+                   f'data-buy-name="{name}">{name} {escape(month)}/mo</button>')
         if billing.price_for(f"{tier}_annual"):
             year = price_label(getattr(s, f"{tier}_annual_price"))
-            out.append(f"""
-      <div class="buy">
-        <span class="plan-name">{name} annual</span>
-        <p class="plan-price">{escape(year)}<small>/year</small></p>
-        <p class="plan-line">The same {name} plan, paid yearly.</p>
-        <button type="button" class="btn" data-buy-plan="{tier}_annual" data-buy-name="{name} annual">Start {name} annually</button>
-      </div>""")
-    if not out:
-        return ""
-    return '<div class="buyrow buyrow-3" id="tier-buy">' + "".join(out) + "</div>"
+            out.append(f'<button type="button" class="btn ghost pick" data-buy-plan="{tier}_annual" '
+                       f'data-buy-name="{name} annual">{name} {escape(year)}/yr</button>')
+    return "".join(out)
 
 
 def plans_json() -> str:

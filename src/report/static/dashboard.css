@@ -526,3 +526,11 @@
   background:transparent;color:inherit;margin:6px 0 10px;resize:vertical}
 #hist-out,#chg-out,#verify-out{margin-top:10px}
 #watch-list li,#hook-list li{margin:6px 0}
+
+/* Billing tab, compact plan switcher (2026-09-24). */
+.plan-pick{margin:14px 0 6px}
+.pick-row{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+.btn.pick{padding:8px 14px;font-size:13.5px}
+.btn.pick:disabled{opacity:.45;cursor:default}
+.pick-more{margin:10px 0 4px}
+.pick-more summary{cursor:pointer;color:var(--ink2);font-size:13.5px}

@@ -115,7 +115,8 @@ def render_dashboard(
     )
 
     feature_panels = render_feature_panels()
-    tier_buy = render_buy_cards()
+    starter_pick = render_buy_cards(("starter",))
+    business_pick = render_buy_cards(("business",))
     plans_literal = plans_json()
     quick = "".join(
         f'<a href="/company/{t}">{t} <small>{escape(k)}</small></a>'
@@ -297,10 +298,22 @@ def render_dashboard(
       </div>
     </div>
 
-    <!-- The comparison that decides the purchase, restated where the buttons
-         are. A reader on this tab has already decided to spend money and is
-         now choosing WHICH -- and the two products differ in the one dimension
-         a price list cannot show: whether the data keeps arriving. -->
+    <!-- Compact on purpose (owner, 2026-09-24): people choose a plan on the
+         home and pricing pages; here they only need to switch or top up.
+         The dataset-vs-API table stays, folded, for the reader deciding which. -->
+    <div class="plan-pick">
+      <p class="plan-note">Change plan. Everything is compared on the
+        <a href="/pricing">pricing page</a>.</p>
+      <div class="pick-row">
+        {starter_pick}
+        <button type="button" class="btn ghost pick" id="buy-pro">Pro {pro_price}/mo</button>
+        <button type="button" class="btn ghost pick" id="buy-pro-annual">Pro {pro_annual_price}/yr</button>
+        {business_pick}
+        <button type="button" class="btn ghost pick" id="buy-data">Dataset {dataset_price} once</button>
+      </div>
+    </div>
+    <details class="pick-more">
+      <summary>Dataset or API?</summary>
     <div class="tablewrap">
       <table class="compare compare-3">
         <caption class="vh">The dataset and the API, compared</caption>
@@ -331,36 +344,9 @@ def render_dashboard(
         </tbody>
       </table>
     </div>
-    <p class="plan-note">Drawings and search are free and unlimited on every
-      tier, with or without a key. Free is {free_limit:,} API calls a month on
-      live data, which is the tier this account starts on.
-      <a href="/pricing">The full comparison and the FAQ</a> are on the pricing
-      page.</p>
-
-    <div class="buyrow buyrow-3">
-      <div class="buy">
-        <span class="plan-name">Pro</span>
-        <p class="plan-price">{pro_price}<small>/month</small></p>
-        <p class="plan-line">Live data, {_compact(pro_limit)} API calls a month.
-          Query any company at any time; updates daily.</p>
-        <button type="button" class="btn" id="buy-pro">Upgrade to Pro</button>
-      </div>
-      <div class="buy">
-        <span class="plan-name">Pro annual<span class="badge">Save {annual_saving}</span></span>
-        <p class="plan-price">{pro_annual_price}<small>/year</small></p>
-        <p class="plan-line">The same Pro access, paid yearly: two months free
-          against the monthly price.</p>
-        <button type="button" class="btn" id="buy-pro-annual">Start Pro annually</button>
-      </div>
-      <div class="buy">
-        <span class="plan-name">Full dataset</span>
-        <p class="plan-price">{dataset_price}<small> once</small></p>
-        <p class="plan-line">{facts}, as one CSV{as_of_clause}. A snapshot — it
-          does not update. <a href="/dataset">What is in it</a>.</p>
-        <button type="button" class="btn" id="buy-data">Buy full dataset</button>
-      </div>
-    </div>
-    {tier_buy}
+      <p class="plan-note">The dataset is {facts} as one CSV{as_of_clause}, and
+        does not update. <a href="/dataset">What is in it</a>.</p>
+    </details>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site. Payment history will
       appear here once there is any.</p>

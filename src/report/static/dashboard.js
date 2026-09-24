@@ -648,8 +648,11 @@
     ids.forEach(function (id) { var b = $(id); if (b) b.disabled = on; });
   }
 
-  function startCheckout(plan, what) {
-    var btn = $(BUY_BTN[plan]);
+  /* `el` is the button that was pressed. Starter and Business buttons are
+     not in BUY_BTN (they are rendered only when on sale), and without it a
+     press on one returned here silently -- the 2026-09-24 "nothing happens". */
+  function startCheckout(plan, what, el) {
+    var btn = el || $(BUY_BTN[plan]);
     if (!btn) return;
     btn.disabled = true;
     api("/api/billing/checkout", {
@@ -875,7 +878,7 @@
 
   // ---- wiring ---------------------------------------------------------------
 
-  window.BP_startCheckout = function (plan, label) { return startCheckout(plan, label); };
+  window.BP_startCheckout = function (plan, label, el) { return startCheckout(plan, label, el); };
 
   document.addEventListener("DOMContentLoaded", function () {
     $("reg-form").addEventListener("submit", register);
