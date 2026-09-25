@@ -109,12 +109,29 @@ def render_api(
 {_ep("GET", "/api/company/{ticker}", "X-API-Key required · counts as one call",
      "The balance sheet as filed: every line item, its period end, and the "
      "filing it came from. The same numbers the drawing on "
-     "<code>/company/{ticker}</code> is built from.")}
+     "<code>/company/{ticker}</code> is built from. Add "
+     "<code>?as_of=YYYY-MM-DD</code> (Pro and above) for the balance sheet "
+     "exactly as it was public that day: only filings made by then, the "
+     "original figure before a restatement and the revision after.")}
 {_ep("GET", "/api/company/{ticker}/history?years=N",
      "X-API-Key required · counts as one call",
      "Every filed balance sheet over past periods, newest first. How far back "
      "depends on your plan: Free 1 year, Starter 5, Pro 10, Business all that "
      "is loaded. The response says how far back the data actually goes.")}
+{_ep("GET", "/api/company/{ticker}/statements?period=annual|quarterly",
+     "X-API-Key required · counts as one call · as_of Pro and above",
+     "Income statement and cash flow per period, each checked: revenue minus "
+     "cost of revenue against gross profit, and operating + investing + "
+     "financing + FX against the change in cash, with the gap when it fails. "
+     "Q4, and Q2/Q3 cash flow, are worked out from the filed year and "
+     "year-to-date figures and named in <code>derived</code>. Depth as for "
+     "history.")}
+{_ep("GET", "/api/exceptions?since=&type=&ticker=&attribution=&format=json|csv",
+     "X-API-Key required · Pro (last 90 days) and Business (all) · one call",
+     "Every filing whose balance sheet fails the check, with whose problem it "
+     "is (<code>filer</code>, <code>extraction</code> or <code>unknown</code>), "
+     "and every figure a later filing restated, across all companies, newest "
+     "first. <code>format=csv</code> for a download.")}
 {_ep("GET", "/api/company/{ticker}/changes", "X-API-Key required · Starter and above · one call",
      "What moved since the previous period, figure by figure, and every "
      "figure a later filing restated: the original value, the revised one, "

@@ -2,8 +2,9 @@
 
 Everything a paid plan includes is usable here, not only through the API:
 
-- Data: balance sheet history (depth by plan), what changed / restatements
-  (Starter+), and bulk verification (Pro+).
+- Data: balance sheet history (depth by plan, `as_of` Pro+), income
+  statement and cash flow with checks, what changed / restatements
+  (Starter+), bulk verification (Pro+), and the exceptions feed (Pro+).
 - Alerts: the watchlist that drives the filing emails (Starter+), and
   webhooks (Business+).
 
@@ -37,9 +38,27 @@ def render_feature_panels() -> str:
           autocapitalize="characters" spellcheck="false">
         <button type="submit" class="btn" id="hist-btn">Show history</button>
       </div>
+      <div class="feat-body" data-feature="point_in_time">
+        <label class="slabel" for="hist-asof">As of (optional): the figures exactly as
+          they were public that day</label>
+        <input id="hist-asof" type="date">
+      </div>
     </form>
+    {_lock("point_in_time")}
     <p class="formnote" id="hist-note" role="status" aria-live="polite"></p>
     <div id="hist-out"></div>
+
+    <h3 class="feat-h">Income statement and cash flow</h3>
+    <p class="plan-note">Each period is checked: revenue minus cost of revenue
+      against gross profit, and the cash-flow sections against the change in
+      cash. A figure marked * is worked out from filed ones (Q4 is the year
+      minus nine months).</p>
+    <div class="pickrow" role="group" aria-label="Period">
+      <button type="button" class="btn ghost pick" data-st-period="annual" aria-pressed="true">Annual</button>
+      <button type="button" class="btn ghost pick" data-st-period="quarterly" aria-pressed="false">Quarterly</button>
+    </div>
+    <p class="formnote" id="st-note" role="status" aria-live="polite"></p>
+    <div id="st-out"></div>
 
     <h3 class="feat-h">What changed</h3>
     {_lock("changes")}
@@ -53,6 +72,26 @@ def render_feature_panels() -> str:
       <button type="submit" class="btn" id="verify-btn">Check them</button>
       <p class="formnote" id="verify-note" role="status" aria-live="polite"></p>
       <div id="verify-out"></div>
+    </form>
+
+    <h3 class="feat-h">Exceptions: failed checks and restatements, every company</h3>
+    {_lock("exceptions_feed")}
+    <form id="ex-form" class="feat-body" data-feature="exceptions_feed" autocomplete="off">
+      <p class="plan-note">Every filing whose balance sheet does not add up, with
+        whose problem it is, and every figure a later filing changed. Pro shows
+        the last 90 days; Business shows everything.</p>
+      <label class="slabel" for="ex-type">Show</label>
+      <select id="ex-type">
+        <option value="">Both</option>
+        <option value="failed_check">Failed checks</option>
+        <option value="restatement">Restatements</option>
+      </select>
+      <label class="slabel"><input type="checkbox" id="ex-filer"> Only problems in the
+        filing itself</label>
+      <button type="submit" class="btn" id="ex-btn">Load</button>
+      <button type="button" class="btn ghost" id="ex-csv">Download CSV</button>
+      <p class="formnote" id="ex-note" role="status" aria-live="polite"></p>
+      <div id="ex-out"></div>
     </form>
   </section>
 

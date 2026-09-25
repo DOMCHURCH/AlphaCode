@@ -82,6 +82,25 @@ def seed(db_url: str) -> None:
             s.add(f("BBB", "total_assets", a, p, filed))
             s.add(f("BBB", "total_liabilities", a * .5, p, filed))
             s.add(f("BBB", "total_equity", a * .5, p, filed))
+        # AAA income and cash flow: one fiscal year ending ~0.45y ago, in $M.
+        # The 10-K's change in cash is 20M off its parts, so a check fails.
+        M = 1e6
+        fye = q(0.45)
+        fy_filed = fye + dt.timedelta(days=45)
+        quarters = [(fye - dt.timedelta(days=int(91.3 * k)), fp) for k, fp in ((3, "Q1"), (2, "Q2"), (1, "Q3"))]
+        for (pq, fp), rev, ytd in zip(quarters, (100.0, 110.0, 120.0), (30.0, 65.0, 95.0)):
+            fq = pq + dt.timedelta(days=40)
+            for m, v in (("revenue", rev), ("cogs", rev * .6), ("gross_profit", rev * .4), ("net_income", rev * .1)):
+                s.add(Fundamental(ticker="AAA", metric=m, value=v * M, period_end=pq, fiscal_period=fp,
+                                  filing_date=fq, source="sec"))
+            m = "operating_cash_flow" if fp == "Q1" else "operating_cash_flow_ytd"
+            s.add(Fundamental(ticker="AAA", metric=m, value=ytd * M, period_end=pq, fiscal_period=fp,
+                              filing_date=fq, source="sec"))
+        for m, v in (("revenue", 460.0), ("cogs", 276.0), ("gross_profit", 184.0), ("net_income", 46.0),
+                     ("operating_cash_flow", 130.0), ("investing_cash_flow", -40.0),
+                     ("financing_cash_flow", -50.0), ("cash_change", 60.0), ("capex", 35.0)):
+            s.add(Fundamental(ticker="AAA", metric=m, value=v * M, period_end=fye, fiscal_period="FY",
+                              filing_date=fy_filed, source="sec"))
         p = q(0.25)
         s.add(f("CCC", "total_assets", 1000.0, p, p + dt.timedelta(days=30)))
         s.add(f("CCC", "total_liabilities", 500.0, p, p + dt.timedelta(days=30)))

@@ -3370,12 +3370,12 @@ def _earliest_filing() -> dt.date | None:
         return session.execute(select(func.min(Fundamental.filing_date))).scalar()
 
 
-def _nothing_known(symbol: str, as_of: dt.date) -> HTTPException:
+def _nothing_known(symbol: str, as_of: dt.date, what: str = "Nothing") -> HTTPException:
     """404 for an as_of before any loaded filing, saying where data starts."""
     first = _earliest_filing()
     note = f" The database holds filings from {first.isoformat()} on." if first else ""
     return HTTPException(
-        404, f"Nothing filed for {symbol} on or before {as_of.isoformat()}.{note}"
+        404, f"{what} filed for {symbol} on or before {as_of.isoformat()}.{note}"
     )
 
 
@@ -3512,7 +3512,7 @@ def api_company_statements(
     out = statements(symbol, period, allowed, as_of)
     if out is None:
         if as_of is not None:
-            raise _nothing_known(symbol, as_of)
+            raise _nothing_known(symbol, as_of, "No income statement or cash flow")
         raise HTTPException(404, f"No filed income statement or cash flow for {symbol}.")
     accounts.record_call(account, "/api/company/statements")
     out["years_allowed"] = cap

@@ -113,7 +113,9 @@ def _pro_card(pro_price: str, pro_annual_price: str,
       <p class="plan-line" data-line>Live, up-to-date data</p>
       <ul class="plan-bullets">
         <li>Data updates daily, so you always get the latest filings</li>
-        <li>Full history, and what changed</li>
+        <li>Income statement and cash flow, every period checked</li>
+        <li>Point-in-time: any date's figures as they were public, for backtests</li>
+        <li>Feed of failed checks and restatements, last 90 days</li>
         <li>Email alerts on the companies you follow</li>
       </ul>
       <a class="plan-cta" href="/dashboard#billing" data-plan="pro" data-name="Pro"
@@ -189,6 +191,7 @@ def _business_card() -> str:
         year_line="The same Business plan, paid yearly",
         bullets=(
             "Everything in Pro",
+            "The full feed of failed checks and restatements, as CSV",
             "Webhooks into your own systems",
             "A link to the SEC filing behind every figure",
         ),

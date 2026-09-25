@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "balanceproof"
+version = "0.1.0"
+description = "SEC fundamentals that prove they add up: checked balance sheets, income statements and cash flow, point-in-time."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = []
+keywords = ["sec", "edgar", "xbrl", "fundamentals", "balance sheet", "backtesting", "point-in-time"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Topic :: Office/Business :: Financial :: Investment",
+]
+
+[project.optional-dependencies]
+pandas = ["pandas>=1.5"]
+
+[project.urls]
+Homepage = "https://balanceproof.dev"
+Documentation = "https://balanceproof.dev/api"
+
+[tool.setuptools]
+packages = ["balanceproof"]

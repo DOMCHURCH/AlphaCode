@@ -250,6 +250,48 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "get_financial_statements",
+        "description": (
+            "Income statement and cash flow for one US public company, annual "
+            "or quarterly, newest first, each period checked: revenue - cost of "
+            "revenue = gross profit, and operating + investing + financing + FX "
+            "= change in cash (failures come with the gap). Q4 and Q2/Q3 cash "
+            "flow are derived from filed year and year-to-date figures and "
+            "listed in `derived`. `as_of` (Pro and above) returns only what was "
+            "public on that date, for backtests without lookahead."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "ticker": {"type": "string", "description": "Ticker symbol, e.g. AAPL."},
+                "period": {"type": "string", "enum": ["annual", "quarterly"]},
+                "years": {"type": "integer", "description": "How many years back. Optional."},
+                "as_of": {"type": "string", "description": "YYYY-MM-DD. Optional; Pro and above."},
+            },
+            "required": ["ticker"],
+        },
+    },
+    {
+        "name": "get_exceptions",
+        "description": (
+            "Filings that failed the balance-sheet check, with whose problem it "
+            "is (the filer's, or a line this dataset is missing), and figures a "
+            "later filing restated, across every company, newest first. Use for "
+            "'which companies restated recently' or 'which filings do not add "
+            "up'. Pro (last 90 days) and Business (all)."
+        ),
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "type": {"type": "string", "enum": ["failed_check", "restatement"]},
+                "ticker": {"type": "string", "description": "One company. Optional."},
+                "since": {"type": "string", "description": "YYYY-MM-DD filing date. Optional."},
+                "filer_only": {"type": "boolean",
+                               "description": "Only failed checks in the filing itself."},
+            },
+        },
+    },
+    {
         "name": "check_balance_sheet",
         "description": (
             "Verify that a company's filed balance sheet actually balances: "
@@ -691,7 +733,91 @@ def _tool_get_changes(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     )
 
 
+def _plan_refusal(exc: HTTPException, feature: str) -> str:
+    d = exc.detail if isinstance(exc.detail, dict) else {}
+    return (
+        f"{feature} needs the {d.get('required_plan', 'Pro')} plan or above "
+        f"(this caller is on {d.get('your_plan', 'Free')}). "
+        "Upgrade at https://balanceproof.dev/pricing."
+    )
+
+
+def _date_arg(value: Any) -> dt.date | None:
+    if not value:
+        return None
+    return dt.date.fromisoformat(str(value)[:10])
+
+
+def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
+    from src import plans
+    from src.company.statements import statements
+
+    ticker = _clean(str(args.get("ticker") or ""))
+    if not ticker:
+        return "No ticker given.", None
+    period = "quarterly" if args.get("period") == "quarterly" else "annual"
+    try:
+        as_of = _date_arg(args.get("as_of"))
+    except ValueError:
+        return "as_of must be a date, YYYY-MM-DD.", None
+    if as_of is not None:
+        try:
+            plans.require(_tier_of(m), "point_in_time")
+        except HTTPException as exc:
+            return _plan_refusal(exc, "as_of"), None
+        if as_of > dt.date.today():
+            return "as_of cannot be in the future.", None
+    cap = plans.allowance(_tier_of(m), "history_years")
+    try:
+        wanted = int(args["years"]) if args.get("years") else cap
+    except (TypeError, ValueError):
+        wanted = cap
+    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    out = statements(ticker, period, allowed, as_of)
+    if out is None:
+        return f"No filed income statement or cash flow for {ticker}.", None
+    m.spend(ticker)
+    sm = out["checks_summary"]
+    return (
+        f"{len(out['periods'])} {period} period(s) for {ticker}: {sm['passed']} of "
+        f"{sm['tested']} checks passed, {sm['failed']} failed.",
+        jsonable_encoder(out),
+    )
+
+
+def _tool_get_exceptions(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
+    from src import plans
+    from src.company import exceptions
+
+    try:
+        days = plans.require(_tier_of(m), "exceptions_feed")
+    except HTTPException as exc:
+        return _plan_refusal(exc, "The exceptions feed"), None
+    try:
+        since = _date_arg(args.get("since"))
+    except ValueError:
+        return "since must be a date, YYYY-MM-DD.", None
+    floor = dt.date.today() - dt.timedelta(days=days) if days else None
+    if floor is not None and (since is None or since < floor):
+        since = floor
+    kind = args.get("type") if args.get("type") in ("failed_check", "restatement") else None
+    attribution = None
+    if args.get("filer_only"):
+        kind, attribution = "failed_check", "filer"
+    ticker = _clean(str(args.get("ticker") or "")) or None
+    out = exceptions.feed(since=since, kind=kind, ticker=ticker,
+                          attribution=attribution, limit=100)
+    m.spend(ticker or "exceptions")
+    return (
+        f"{out['total']} event(s)" + (f" since {out['since']}" if out["since"] else "")
+        + f"; showing {len(out['events'])}.",
+        jsonable_encoder(out),
+    )
+
+
 _TOOL_IMPLS = {
+    "get_financial_statements": _tool_get_statements,
+    "get_exceptions": _tool_get_exceptions,
     "get_balance_sheet_history": _tool_get_history,
     "get_balance_sheet_changes": _tool_get_changes,
     "search_companies": _tool_search_companies,

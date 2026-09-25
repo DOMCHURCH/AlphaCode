@@ -140,11 +140,15 @@
     if (!t) return;
     note("hist-note", "Loading…");
     $("hist-out").textContent = ""; $("chg-out").textContent = "";
-    api("/api/company/" + encodeURIComponent(t) + "/history").then(function (r) {
+    current = t;
+    var q = asOfQuery();
+    showStatements();
+    api("/api/company/" + encodeURIComponent(t) + "/history" + q).then(function (r) {
       if (!r.ok) { note("hist-note", why(r, "Could not load that company."), "bad"); return; }
       var d = r.data;
       var reach = d.years_allowed == null ? "all the history we hold" : ("the last " + d.years_allowed + " year" + (d.years_allowed === 1 ? "" : "s"));
       note("hist-note", d.periods + " balance sheet" + (d.periods === 1 ? "" : "s") + " for " + d.ticker +
+        (d.as_of ? " as they were public on " + d.as_of : "") +
         " (" + reach + " on your plan; data goes back to " + d.available_from + ").", "good");
       var rows = d.balance_sheets.map(function (b) {
         var cells = [b.period_end, money(pick(b, "assets", "total_assets")),
@@ -160,14 +164,115 @@
       var heads = ["Period", "Assets", "Liabilities", "Equity"];
       if (d.balance_sheets[0] && d.balance_sheets[0].provenance) heads.push("SEC filing");
       $("hist-out").appendChild(table(heads, rows));
-      if (allowed("changes")) showChanges(t);
+      if (allowed("changes")) {
+        if (q) $("chg-out").appendChild(el("p", "What changed compares the two latest filings, so it ignores the date. Clear the date to see it.", "plan-note"));
+        else showChanges(t);
+      }
     }).catch(function () { note("hist-note", "Could not reach the server.", "bad"); });
+  }
+
+  // ---- as of, statements, exceptions ------------------------------------------
+
+  var current = "";
+  var period = "annual";
+
+  function asOfQuery() {
+    var n = $("hist-asof");
+    return n && n.value && allowed("point_in_time") ? "?as_of=" + encodeURIComponent(n.value) : "";
+  }
+
+  function checkCell(checks) {
+    var tested = checks.filter(function (c) { return c.status !== "not_testable"; });
+    if (!tested.length) return "not testable";
+    var bad = tested.filter(function (c) { return c.status === "failed"; });
+    if (!bad.length) return "passed " + tested.length + "/" + tested.length;
+    return bad.map(function (c) { return c.check.replace("_", " ") + " off by " + money(c.gap); }).join("; ");
+  }
+
+  function showStatements() {
+    var out = $("st-out");
+    if (!out || !current) return;
+    out.textContent = "";
+    note("st-note", "Loading…");
+    var q = asOfQuery();
+    api("/api/company/" + encodeURIComponent(current) + "/statements" + (q ? q + "&" : "?") +
+        "period=" + period).then(function (r) {
+      if (!r.ok) { note("st-note", why(r, "No income statement or cash flow for that company."), "bad"); return; }
+      var d = r.data, sm = d.checks_summary;
+      note("st-note", d.periods.length + " " + (period === "annual" ? "year" : "quarter") +
+        (d.periods.length === 1 ? "" : "s") + ": " + sm.passed + " of " + sm.tested + " checks passed" +
+        (sm.failed ? ", " + sm.failed + " failed" : "") + ".", sm.failed ? "bad" : "good");
+      function cell(p, section, m) {
+        var v = p[section][m];
+        return money(v) + (v != null && p.derived.indexOf(m) >= 0 ? "*" : "");
+      }
+      out.appendChild(table(["Period", "", "Revenue", "Gross profit", "Net income", "Operating cash", "Capex", "Checks"],
+        d.periods.map(function (p) {
+          return [p.period_end, p.fiscal_period, cell(p, "income_statement", "revenue"),
+            cell(p, "income_statement", "gross_profit"), cell(p, "income_statement", "net_income"),
+            cell(p, "cash_flow", "operating_cash_flow"), cell(p, "cash_flow", "capex"), checkCell(p.checks)];
+        })));
+    }).catch(function () { note("st-note", "Could not reach the server.", "bad"); });
+  }
+
+  function exQuery(fmt) {
+    var parts = [];
+    var ty = $("ex-type").value;
+    if (ty) parts.push("type=" + ty);
+    if ($("ex-filer").checked) parts.push("type=failed_check", "attribution=filer");
+    if (fmt) parts.push("format=" + fmt, "limit=5000");
+    else parts.push("limit=200");
+    return "/api/exceptions?" + parts.filter(function (x, i, a) { return a.indexOf(x) === i; }).join("&");
+  }
+
+  var EX_WHO = { filer: "in the filing", extraction: "our gap", unknown: "unclear" };
+
+  function loadExceptions(ev) {
+    if (ev) ev.preventDefault();
+    note("ex-note", "Loading…");
+    $("ex-out").textContent = "";
+    api(exQuery()).then(function (r) {
+      if (!r.ok) { note("ex-note", why(r, "Could not load the feed."), "bad"); return; }
+      var d = r.data;
+      note("ex-note", d.total + " event" + (d.total === 1 ? "" : "s") +
+        (d.since ? " since " + d.since : "") + (d.total > d.events.length ? "; showing the newest " + d.events.length +
+        ". Download the CSV for all of them." : "."), "good");
+      $("ex-out").appendChild(table(["Filed", "Company", "Period", "What", "Detail"], d.events.map(function (e) {
+        var a = el("a", e.ticker); a.href = "/company/" + encodeURIComponent(e.ticker);
+        if (e.type === "failed_check") {
+          return [e.date, a, e.period_end, "Does not balance (" + (EX_WHO[e.attribution] || e.attribution) + ")",
+            e.category.replace("_", " ") + (e.drift_pct == null ? "" : ", off by " + e.drift_pct.toFixed(2) + "%")];
+        }
+        var pct = e.change_pct == null ? "" : " (" + (e.change_pct > 0 ? "+" : "") + e.change_pct.toFixed(1) + "%)";
+        return [e.date, a, e.period_end, "Restated " + (LABELS[e.metric] || e.metric.replace(/_/g, " ")),
+          money(e.previous) + " → " + money(e.revised) + pct];
+      })));
+    }).catch(function () { note("ex-note", "Could not reach the server.", "bad"); });
+  }
+
+  function downloadExceptions() {
+    var headers = { "X-BP-Dashboard": "1" };
+    var k = key();
+    if (k) headers["X-API-Key"] = k;
+    note("ex-note", "Preparing the CSV…");
+    fetch(exQuery("csv"), { headers: headers, credentials: "same-origin" }).then(function (res) {
+      if (!res.ok) throw new Error(String(res.status));
+      return res.blob();
+    }).then(function (blob) {
+      var url = URL.createObjectURL(blob);
+      var a = el("a"); a.href = url; a.download = "balanceproof-exceptions.csv";
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(function () { URL.revokeObjectURL(url); }, 5000);
+      note("ex-note", "Downloaded.", "good");
+    }).catch(function () { note("ex-note", "Could not download the CSV.", "bad"); });
   }
 
   var LABELS = { total_assets: "Total assets", total_liabilities: "Total liabilities",
     shareholders_equity: "Equity", total_equity_incl_nci: "Equity incl. minority interest",
     cash: "Cash", current_assets: "Current assets", current_liabilities: "Current liabilities",
-    long_term_debt: "Long-term debt" };
+    long_term_debt: "Long-term debt", total_equity: "Equity", revenue: "Revenue", net_income: "Net income",
+    operating_income: "Operating income", operating_cash_flow: "Operating cash flow",
+    eps_diluted: "Diluted EPS" };
 
   function showChanges(t) {
     var out = $("chg-out");
@@ -319,6 +424,17 @@
     if ((f = $("verify-form"))) f.addEventListener("submit", verify);
     if ((f = $("watch-form"))) f.addEventListener("submit", addWatch);
     if ((f = $("hook-form"))) f.addEventListener("submit", addHook);
+    if ((f = $("ex-form"))) f.addEventListener("submit", loadExceptions);
+    if ((f = $("ex-csv"))) f.addEventListener("click", downloadExceptions);
+    Array.prototype.forEach.call(document.querySelectorAll("[data-st-period]"), function (b) {
+      b.addEventListener("click", function () {
+        period = b.getAttribute("data-st-period");
+        Array.prototype.forEach.call(document.querySelectorAll("[data-st-period]"), function (o) {
+          o.setAttribute("aria-pressed", o === b ? "true" : "false");
+        });
+        showStatements();
+      });
+    });
     Array.prototype.forEach.call(document.querySelectorAll("[data-buy-plan]"), function (b) {
       b.addEventListener("click", function () {
         if (window.BP_startCheckout) window.BP_startCheckout(b.getAttribute("data-buy-plan"), b.getAttribute("data-buy-name"), b);

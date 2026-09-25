@@ -234,18 +234,25 @@ def test_malformed_json_is_a_parse_error_not_a_500(client):
 # ---------------------------------------------------------------------------
 
 
-def test_tools_list_is_the_six_tools(client):
+def test_tools_list_is_the_eight_tools(client):
     """Kept as an exact list rather than a count. The order and the names are
     what a directory listing and a model's tool-choice both see, so a tool
     appearing or being renamed should be a decision, not a diff nobody
     noticed. History and changes were added on purpose on 2026-09-23 (paid
-    tiers, Stage A)."""
+    tiers, Stage A); statements and exceptions on 2026-09-24 (quant features)."""
     names = [t["name"] for t in rpc(client, "tools/list").json()["result"]["tools"]]
     assert names == [
         "search_companies", "get_balance_sheet", "get_api_key",
         "get_balance_sheet_history", "get_balance_sheet_changes",
+        "get_financial_statements", "get_exceptions",
         "check_balance_sheet",
     ]
+
+
+def test_exceptions_tool_names_the_plan_it_needs(client):
+    r = rpc(client, "tools/call", {"name": "get_exceptions", "arguments": {}})
+    text = r.json()["result"]["content"][0]["text"]
+    assert "Pro plan" in text
 
 
 def test_check_reports_a_filing_that_does_not_balance(client):
