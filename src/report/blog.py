@@ -361,7 +361,10 @@ hold in your head — it is the shape of the picture.</p>
 
 _POST_ACCOUNTING_IDENTITY = Post(
     slug="understanding-the-accounting-identity",
-    title="Understanding the Accounting Identity",
+    # Phrased as the question people type ("accounting identity meaning",
+    # "the balance sheet identity is"), and the post now answers it in its
+    # first sentence -- the definition was in paragraph three (2026-09-25).
+    title="What Is the Accounting Identity? Meaning and Example",
     # 54 characters. Search Console (2026-09-23) showed the post reached by
     # "accounting identity", "accounting identity meaning", "the balance sheet
     # identity is" and "balance sheet identity" -- 16 impressions, 0 clicks --
@@ -414,7 +417,13 @@ _POST_ACCOUNTING_IDENTITY = Post(
         ),
     ),
     body="""
-<p class="lede">The identity is not a rule companies are asked to obey. It is a
+<p class="lede"><b>The accounting identity, also called the balance sheet
+identity, is the equation Assets = Liabilities + Equity:</b> everything a
+company owns was paid for either with money it owes (liabilities) or with its
+owners' money (equity). A company with $100 of assets and $60 of debts has $40
+of equity.</p>
+
+<p>The identity is not a rule companies are asked to obey. It is a
 consequence of how the books are kept, which is exactly what makes it useful to
 somebody reading those books from outside.</p>
 
