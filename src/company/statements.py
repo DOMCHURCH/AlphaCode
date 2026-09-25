@@ -84,6 +84,48 @@ def _load(ticker: str, as_of: dt.date) -> dict[str, dict[str, dict[dt.date, tupl
     return out
 
 
+def _month_gap(a: int, b: int) -> int:
+    d = abs(a - b) % 12
+    return min(d, 12 - d)
+
+
+def _fix_mislabelled_years(data: dict[str, dict[str, dict[dt.date, tuple[float, dt.date]]]]) -> None:
+    """Move quarter figures stored as "FY" into the quarterly series, in place.
+
+    Rows loaded before 2026-09-24 carried the FILING's fiscal period, so the
+    quarterly-results note in a 10-K (three months, qtrs=1) was stored as
+    "FY" -- Tesla's Q1-Q3 2024 net income sat beside its 2024 year. Two tests
+    tell a year from a quarter without the filing:
+
+    * the fiscal year end: a real year ends in the month most of the filer's
+      years end in (give or take one, for 52/53-week years);
+    * size: a year's revenue is about four quarters, so an "FY" revenue under
+      twice the quarter before it is a quarter.
+    """
+    fy, q = data["FY"], data["Q"]
+    months: dict[int, int] = {}
+    for series in fy.values():
+        for d in series:
+            months[d.month] = months.get(d.month, 0) + 1
+    if not months:
+        return
+    fye = max(months, key=lambda mo: months[mo])
+    rev_q = q.get("revenue", {})
+    moved: set[dt.date] = set()
+    for series in fy.values():
+        for d in series:
+            if _month_gap(d.month, fye) > 1:
+                moved.add(d)
+    for d, (v, _filed) in fy.get("revenue", {}).items():
+        prev = _near(rev_q, d - dt.timedelta(days=QUARTER_DAYS))
+        if prev is not None and v > 0 and v < 2 * rev_q[prev][0]:
+            moved.add(d)
+    for metric, series in fy.items():
+        for d in [d for d in series if d in moved]:
+            v = series.pop(d)
+            q.setdefault(metric, {}).setdefault(d, v)
+
+
 def _cluster(dates: set[dt.date]) -> dict[dt.date, dt.date]:
     """Map each date to its period's representative (the latest of a cluster)."""
     rep: dict[dt.date, dt.date] = {}
@@ -279,6 +321,7 @@ def statements(ticker: str, period: str = "annual", years: int | None = None,
     if not any(data[k] for k in data):
         return None
     _normalise(data)
+    _fix_mislabelled_years(data)
     rows = _annual(data) if period == "annual" else _quarterly(data)
     if not rows:
         return None

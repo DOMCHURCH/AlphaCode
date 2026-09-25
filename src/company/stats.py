@@ -356,6 +356,90 @@ _breakdown: dict[str, Any] | None = None
 _breakdown_at: float = 0.0
 
 
+MEZZ_METRICS = (
+    "temporary_equity", "redeemable_preferred_stock",
+    "redeemable_noncontrolling_interest",
+    "minority_interest_operating_partnership",
+)
+IDENTITY_METRICS = (
+    "total_assets", "total_liabilities", "total_equity",
+    "total_equity_incl_nci", "minority_interest", "liabilities_and_equity",
+) + MEZZ_METRICS
+RECONCILED_CATEGORIES = ("balanced", "nci", "mezzanine", "nci+mezzanine")
+FLAG_CATEGORIES = ("rounding", "missing_tag", "broken", "unexplained")
+
+
+def classify_identity(m: dict[str, float]) -> tuple[str, float | None]:
+    """One filing's A = L + E outcome: (category, drift %).
+
+    The single definition of "reconciles" for the site: the home-page counts
+    (`_compute_breakdown`) and the exceptions feed both call this, so they
+    cannot disagree about which filing failed. `m` maps stored metric names
+    to the value shown for one (ticker, period). Category is one of
+    RECONCILED_CATEGORIES, FLAG_CATEGORIES, or "not_testable".
+    """
+    from src.company.view1 import IDENTITY_TOLERANCE, resolve_identity
+
+    assets = m.get("total_assets")
+    liab = m.get("total_liabilities")
+    equity = m.get("total_equity_incl_nci") or m.get("total_equity")
+    if not assets or assets <= 0:
+        return "not_testable", None
+    if liab is None or equity is None:
+        # THE STATED-TOTAL FALLBACK, and the reason this function and
+        # `universe_check.run_universe_check` count the same set.
+        #
+        # A filer who publishes total assets and their own stated
+        # right-hand-side total, but no separate liabilities or equity line,
+        # is testable -- and tested on BETTER evidence than the component
+        # path, because the stated total carries none of the ambiguity of
+        # choosing which equity tag to add. Requiring the components dropped
+        # ~686 such companies into "no identity to test", while the sentence
+        # a few inches up the same page counted them.
+        #
+        # Two of the four flag categories are unreachable from here, and that
+        # is the definitions talking rather than a simplification.
+        # `missing_tag` means the filer's own totals agree and a credit-side
+        # line did not reach us -- with no components there is nothing of
+        # ours that could have fallen short. `unexplained` means there is no
+        # stated total to referee against, which is the branch we are inside
+        # the negation of.
+        stated = m.get("liabilities_and_equity")
+        if not stated:
+            return "not_testable", None
+        own = abs(assets - stated) / assets * 100.0
+        if own <= IDENTITY_TOLERANCE * 100.0:
+            return "balanced", own
+        return ("rounding" if own < 1.0 else "broken"), own
+    # Both equity figures and the NCI go to `resolve_identity`, which picks by
+    # the identity rather than by tag name. The old rule preferred
+    # `total_equity_incl_nci` and switched the NCI off whenever it existed,
+    # which silently mis-read every filer who has the two tags swapped or who
+    # carries something else on that tag.
+    equity_alt = m.get("total_equity") if "total_equity_incl_nci" in m else None
+    nci = m.get("minority_interest")
+    mezz = next((m[k] for k in MEZZ_METRICS if m.get(k)), None)
+    # Components, for the filer who published two and no section total.
+    parts = (
+        ()
+        if m.get("temporary_equity")
+        else tuple(m.get(k) for k in MEZZ_METRICS if k != "temporary_equity")
+    )
+    balances, drift, basis, _equity_used = resolve_identity(
+        assets, liab, equity, nci, mezz,
+        equity_alt=equity_alt, mezzanine_parts=parts,
+    )
+    if balances:
+        return (basis or "balanced"), drift
+    if drift < 1.0:
+        return "rounding", drift
+    stated = m.get("liabilities_and_equity")
+    if stated:
+        own = abs(assets - stated) / assets * 100.0
+        return ("broken" if own > 0.5 else "missing_tag"), drift
+    return "unexplained", drift
+
+
 def _compute_breakdown() -> dict[str, Any] | None:
     """Every company's identity outcome, counted by category.
 
@@ -372,22 +456,10 @@ def _compute_breakdown() -> dict[str, Any] | None:
     """
     from sqlalchemy import func, select
 
-    from src.company.view1 import IDENTITY_TOLERANCE, resolve_identity
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
 
-    WANTED = (
-        "total_assets", "total_liabilities", "total_equity",
-        "total_equity_incl_nci", "minority_interest", "liabilities_and_equity",
-        "temporary_equity", "redeemable_preferred_stock",
-        "redeemable_noncontrolling_interest",
-        "minority_interest_operating_partnership",
-    )
-    MEZZ = (
-        "temporary_equity", "redeemable_preferred_stock",
-        "redeemable_noncontrolling_interest",
-        "minority_interest_operating_partnership",
-    )
+    WANTED = IDENTITY_METRICS
 
     try:
         with session_scope() as session:
@@ -450,92 +522,17 @@ def _compute_breakdown() -> dict[str, Any] | None:
     not_testable = 0
     for ticker in latest:
         m = {k: v for k, (_, v) in best.get(ticker, {}).items()}
-        assets = m.get("total_assets")
-        liab = m.get("total_liabilities")
-        equity = m.get("total_equity_incl_nci") or m.get("total_equity")
-        if not assets or assets <= 0:
+        category, _drift = classify_identity(m)
+        if category == "not_testable":
             not_testable += 1
             continue
-        if liab is None or equity is None:
-            # THE STATED-TOTAL FALLBACK, and the reason this function and
-            # `universe_check.run_universe_check` now count the same set.
-            #
-            # A filer who publishes total assets and their own stated
-            # right-hand-side total, but no separate liabilities or equity
-            # line, is testable -- and tested on BETTER evidence than the
-            # component path, because the stated total carries none of the
-            # ambiguity of choosing which equity tag to add. Requiring the
-            # components dropped ~686 such companies into "no identity to
-            # test", while the sentence a few inches up the same page counted
-            # them, and the home page published both numbers.
-            #
-            # Two of the four flag categories are unreachable from here, and
-            # that is the definitions talking rather than a simplification.
-            # `missing_tag` means the filer's own totals agree and a
-            # credit-side line did not reach us -- with no components there is
-            # nothing of ours that could have fallen short. `unexplained`
-            # means there is no stated total to referee against, which is the
-            # branch we are inside the negation of. What is left: it balances,
-            # it is presentation slack, or the filer's own two sides disagree.
-            stated = m.get("liabilities_and_equity")
-            if not stated:
-                not_testable += 1
-                continue
-            checked += 1
-            own = abs(assets - stated) / assets * 100.0
-            if own <= IDENTITY_TOLERANCE * 100.0:
-                _bump(ticker, "balanced")
-            elif own < 1.0:
-                _bump(ticker, "rounding")
-                _note_example(examples, "rounding", ticker)
-            else:
-                _bump(ticker, "broken")
-                _note_example(examples, "broken", ticker)
-            continue
         checked += 1
-        # Both equity figures and the NCI go to `resolve_identity`, which picks
-        # by the identity rather than by tag name. The old rule preferred
-        # `total_equity_incl_nci` and switched the NCI off whenever it existed,
-        # which silently mis-read every filer who has the two tags swapped or
-        # who carries something else on that tag.
-        equity_alt = (
-            m.get("total_equity") if "total_equity_incl_nci" in m else None
-        )
-        nci = m.get("minority_interest")
-        mezz = next((m[k] for k in MEZZ if m.get(k)), None)
-        # Components, for the filer who published two and no section total.
-        parts = (
-            ()
-            if m.get("temporary_equity")
-            else tuple(m.get(k) for k in MEZZ if k != "temporary_equity")
-        )
-        balances, drift, basis, _equity_used = resolve_identity(
-            assets, liab, equity, nci, mezz,
-            equity_alt=equity_alt, mezzanine_parts=parts,
-        )
-        if balances:
-            _bump(ticker, basis or "balanced")
-            continue
-        if drift < 1.0:
-            _bump(ticker, "rounding")
-            _note_example(examples, "rounding", ticker)
-            continue
-        stated = m.get("liabilities_and_equity")
-        if stated:
-            own = abs(assets - stated) / assets * 100.0
-            cat = "broken" if own > 0.5 else "missing_tag"
-            _bump(ticker, cat)
-            _note_example(examples, cat, ticker)
-        else:
-            _bump(ticker, "unexplained")
-            _note_example(examples, "unexplained", ticker)
+        _bump(ticker, category)
+        if category in FLAG_CATEGORIES:
+            _note_example(examples, category, ticker)
 
-    reconciled = sum(
-        counts[k] for k in ("balanced", "nci", "mezzanine", "nci+mezzanine")
-    )
-    flagged = sum(
-        counts[k] for k in ("rounding", "missing_tag", "broken", "unexplained")
-    )
+    reconciled = sum(counts[k] for k in RECONCILED_CATEGORIES)
+    flagged = sum(counts[k] for k in FLAG_CATEGORIES)
     return {
         "companies": len(latest),
         "checked": checked,

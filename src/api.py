@@ -63,6 +63,12 @@ _WARM_DELAY_S = 45.0
 _WARM_GAP_S = 5.0
 
 
+def _exceptions_warm() -> None:
+    from src.company.exceptions import all_events
+
+    all_events()
+
+
 async def _warm(app: FastAPI) -> None:
     """The three whole-universe walks, staggered instead of stampeding.
 
@@ -97,6 +103,7 @@ async def _warm(app: FastAPI) -> None:
         ("panels", warm_panels),
         ("identity", warm_identity),
         ("sitemap_drawable", _sitemap.refresh_drawable),
+        ("exceptions_feed", _exceptions_warm),
     ):
         try:
             await asyncio.to_thread(fn)
@@ -3531,6 +3538,49 @@ def api_company_changes(ticker: str, account=Depends(_ACCOUNT_OR_SESSION)) -> JS
     if out is None:
         raise HTTPException(404, f"No filed balance sheets for {symbol}.")
     accounts.record_call(account, "/api/company/changes")
+    return JSONResponse(jsonable_encoder(out))
+
+
+@app.get("/api/exceptions")
+def api_exceptions(
+    since: dt.date | None = Query(None, description="Filing date from, YYYY-MM-DD."),
+    until: dt.date | None = Query(None, description="Filing date to, YYYY-MM-DD."),
+    type: str | None = Query(None, pattern="^(failed_check|restatement)$",  # noqa: A002
+                             description="failed_check or restatement"),
+    ticker: str | None = Query(None, description="One company."),
+    attribution: str | None = Query(
+        None, pattern="^(filer|extraction|unknown)$",
+        description="Failed checks only: filer keeps irregularities in the filing itself."),
+    limit: int = Query(500, ge=1, le=5000),
+    offset: int = Query(0, ge=0),
+    format: str = Query("json", pattern="^(json|csv)$"),  # noqa: A002
+    account=Depends(_ACCOUNT_OR_SESSION),
+) -> Response:
+    """Every filing that failed its balance check, and every restatement.
+
+    Across all companies, newest first. Pro reads the last 90 days, Business
+    all of it. One metered call per request; `format=csv` returns the same
+    rows as a download.
+    """
+    from src import accounts, plans
+    from src.company import exceptions
+
+    days = plans.require(account.tier, "exceptions_feed")
+    accounts.enforce_monthly_limit(account)
+    floor = dt.date.today() - dt.timedelta(days=days) if days else None
+    if floor is not None and (since is None or since < floor):
+        since = floor
+    symbol = _clean_ticker(ticker) if ticker else None
+    out = exceptions.feed(since=since, until=until, kind=type, ticker=symbol,
+                          attribution=attribution, limit=limit, offset=offset)
+    accounts.record_call(account, "/api/exceptions")
+    out["days_allowed"] = days
+    out["plan"] = account.tier
+    if format == "csv":
+        return Response(
+            exceptions.to_csv(out["events"]), media_type="text/csv",
+            headers={"Content-Disposition": 'attachment; filename="balanceproof-exceptions.csv"'},
+        )
     return JSONResponse(jsonable_encoder(out))
 
 
