@@ -397,6 +397,20 @@ def _ask_html(ticker: str, available: bool) -> str:
   </section>"""
 
 
+def _snippet_money(v: float) -> str:
+    """Three significant figures: "-$1.23M", "$569K", "$4.42T".
+
+    `money` rounds millions to whole numbers, which is right under a drawing
+    and wrong in a search snippet that answers "what is X's net worth" --
+    -$1.23M printed as "-$1M" and $1.8M as "$2M".
+    """
+    a, sign = abs(v), "-" if v < 0 else ""
+    for unit, div in (("T", 1e12), ("B", 1e9), ("M", 1e6), ("K", 1e3)):
+        if a >= div:
+            return f"{sign}${a / div:.3g}{unit}"
+    return f"{sign}${a:,.0f}"
+
+
 def _company_meta(d: dict[str, Any]) -> str:
     """Description, canonical and social card for ONE company.
 
@@ -425,6 +439,17 @@ def _company_meta(d: dict[str, Any]) -> str:
         f" ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
         f"scale.{size} As filed. Verified against A = L + E."
     )
+    # What searchers actually type is "<company> net worth", "total assets",
+    # "liabilities" (Search Console, 2026-09-25: EMED ranked ~4 for "emed net
+    # worth" with 46 impressions and no clicks -- the snippet never said the
+    # number). When all three figures are known, the snippet leads with them.
+    liab, equity = d.get("total_liabilities"), d.get("total_equity")
+    if total and liab is not None and equity is not None:
+        rest = (
+            f" ({d['ticker']}) net worth {_snippet_money(equity)}: total assets "
+            f"{_snippet_money(total)}, liabilities {_snippet_money(liab)}, as filed "
+            f"{d['period_end']}. Checked: A = L + E."
+        )
     desc = fit_name(name, _DESC_LIMIT - len(rest)) + rest
     url = f"{SITE_ORIGIN}/company/{d['ticker']}"
     crumbs = breadcrumb_ld(
