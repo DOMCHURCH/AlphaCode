@@ -344,7 +344,7 @@ PAGES: tuple[Page, ...] = (
         rows=(
             Row("Built for", "Individual quants and small teams", "Enterprises, brokerages, banks", False),
             Row("Buying process", "Card, self-serve, thirty seconds", "Sales cycle, contract, procurement", False),
-            Row("Asset classes", "SEC balance sheets only", "Equities, FX, rates, ETFs, indices and more", False),
+            Row("Asset classes", "SEC fundamentals only: balance sheet, income, cash flow", "Equities, FX, rates, ETFs, indices and more", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
@@ -505,7 +505,7 @@ you already know.</p>
             "chosen. Only the third one is a reason to pick this."
         ),
         rows=(
-            Row("Scope", "SEC balance sheets only", "Broad platform, many feeds", False),
+            Row("Scope", "SEC fundamentals only: balance sheet, income, cash flow", "Broad platform, many feeds", False),
             Row("Pricing model", "Published, self-serve, card", "Quote-based, tiered — check their site"),
             Row("Selection method", "A = L + E, published", "Not publicly documented"),
             Row("Entry price", "Free, then $49/mo", "Check their site"),
@@ -774,7 +774,7 @@ decision on it; it is one <code>curl -I</code>.</p>
             "have different answers and only one of them is this site."
         ),
         rows=(
-            Row("If you need broader data", "Not the answer \u2014 this is SEC balance sheets only", "Stay. Breadth is what it is for", False),
+            Row("If you need broader data", "Not the answer \u2014 this is SEC fundamentals only", "Stay. Breadth is what it is for", False),
             Row("If a balance sheet did not reconcile", "This is the whole product", "Check their site for a published method"),
             Row("If you need to defend a figure", "Every row ties to a filing; exceptions named", "Check their site"),
             Row("If you need point-in-time", "As-reported, with filing dates", "Check their site"),
@@ -1179,7 +1179,7 @@ right answers.</p>
             "may be the wrong frame."
         ),
         rows=(
-            Row("If you need market data", "Not the answer \u2014 this is SEC balance sheets only", "Stay, or follow the redirect", False),
+            Row("If you need market data", "Not the answer \u2014 this is SEC fundamentals only", "Stay, or follow the redirect", False),
             Row("If you need fundamentals", "This is the whole product", "It was an add-on \u2014 check what the destination site offers now"),
             Row("If a balance sheet did not reconcile", "This is what the service is for", "Check their site for a published method"),
             Row("Migration cost", "Low \u2014 add alongside, do not replace", "n/a"),

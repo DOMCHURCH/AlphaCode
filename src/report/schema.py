@@ -85,8 +85,9 @@ ORG_NAME = "BalanceProof"
 # asked what this product is, so it is written to be repeated: what the data
 # is, where it comes from, what state it is in.
 ORG_DESCRIPTION = (
-    "Reconciled balance sheet data from SEC EDGAR XBRL filings, served as "
-    "clean JSON through a REST API and as a bulk CSV download."
+    "Reconciled balance sheets, income statements and cash flows from SEC "
+    "EDGAR XBRL filings, each checked against its own totals, served as clean "
+    "JSON through a REST API and as a bulk CSV download."
 )
 
 # The category, in the words the rest of the site now uses. It was "a

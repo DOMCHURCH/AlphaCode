@@ -160,8 +160,11 @@ def _compute() -> list[dict[str, Any]]:
     return events
 
 
-def _rebuild() -> list[dict[str, Any]]:
+def _rebuild(fresh_since: float | None = None) -> list[dict[str, Any]]:
     with _lock:
+        # Someone else built it while this caller waited for the lock.
+        if fresh_since is not None and _cache["events"] is not None and _cache["at"] > fresh_since:
+            return _cache["events"]
         started = time.monotonic()
         events = _compute()
         _cache.update(at=time.monotonic(), events=events)
@@ -179,7 +182,7 @@ def all_events(max_age_s: float = FEED_TTL_S) -> list[dict[str, Any]]:
     """
     events = _cache["events"]
     if events is None:
-        return _rebuild()
+        return _rebuild(fresh_since=_cache["at"])
     if time.monotonic() - _cache["at"] >= max_age_s and not _lock.locked():
         threading.Thread(target=_rebuild, name="exceptions-feed", daemon=True).start()
     return events
