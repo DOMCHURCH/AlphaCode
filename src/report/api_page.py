@@ -103,6 +103,24 @@ def render_api(
       The old key stops working the moment you press it.</p>
   </section>
 
+  <section class="sec" id="python">
+    <div class="sec-head"><h2>Python</h2></div>
+    <p class="sec-sub">The official client wraps every endpoint below. It needs
+      nothing beyond the standard library; pandas is only for
+      <code>panel()</code>, which returns one row per company and period,
+      ready for a backtest.</p>
+    <pre class="code api-code"><code>pip install "balanceproof[pandas]"
+
+import balanceproof as bp
+client = bp.Client("YOUR_KEY")          # or set BALANCEPROOF_API_KEY
+client.statements("AAPL", period="quarterly")
+client.balance_sheet("AAPL", as_of="2025-03-01")      # Pro and above
+df = client.panel(["AAPL", "MSFT"], ["revenue", "net_income"])</code></pre>
+    <p class="plan-note">On <a href="https://pypi.org/project/balanceproof/"
+      rel="noopener">PyPI</a>. A call your plan does not include raises
+      <code>balanceproof.PlanRequired</code>, naming the plan that does.</p>
+  </section>
+
   <section class="sec">
     <div class="sec-head"><h2>Endpoints</h2></div>
     <div class="eps">

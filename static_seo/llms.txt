@@ -20,6 +20,7 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 - Point-in-time: add `as_of=YYYY-MM-DD` to the company, history and statements endpoints (Pro and above) to get only what had been filed by that date, so a backtest sees the original figure before a restatement and the revision after.
 - Exceptions feed: `GET /api/exceptions` lists every filing whose balance sheet fails the check, labelled by whose problem it is (the filer's, or a line the dataset is missing), and every figure a later filing restated, across all companies (Pro: 90 days; Business: all, also as CSV).
 - [OpenAPI specification](https://balanceproof.dev/api.json): Machine-readable OpenAPI document for the same API.
+- [Python client](https://pypi.org/project/balanceproof/): `pip install balanceproof`. Wraps every endpoint; `panel()` returns a pandas DataFrame, one row per company and period.
 - [Service status](https://balanceproof.dev/status): Current data freshness and the state of the ingestion jobs.
 
 ## Company data

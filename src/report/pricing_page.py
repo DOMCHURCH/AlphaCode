@@ -248,6 +248,7 @@ def plan_matrix_table() -> str:
         ("Webhooks into your systems",
          lambda t: cell(t, "webhooks", lambda v: f"{v} endpoints")),
         ("MCP server for Claude, ChatGPT and Cursor", lambda t: yes),
+        ("Python client (<code>pip install balanceproof</code>)", lambda t: yes),
     ]
     head = "".join(f'<th scope="col">{plans.TIER_NAMES[t]}</th>' for t in tiers)
     body = "".join(
