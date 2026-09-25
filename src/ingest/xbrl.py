@@ -313,6 +313,10 @@ CONCEPTS: tuple[Concept, ...] = (
     Concept(
         "fx_effect_on_cash",
         ("EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents",
+         # Amazon, Microsoft and Tesla file this one instead (checked in the
+         # 2025q2 dataset); without it their FX read as zero and the
+         # cash-flow check failed by exactly the FX line.
+         "EffectOfExchangeRateOnCashCashEquivalentsRestrictedCashAndRestrictedCashEquivalentsIncludingDisposalGroupAndDiscontinuedOperations",
          "EffectOfExchangeRateOnCashAndCashEquivalents"),
         DURATION,
     ),
