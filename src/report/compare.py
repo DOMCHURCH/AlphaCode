@@ -396,12 +396,15 @@ PAGES: tuple[Page, ...] = (
         rows=(
             Row("Resolves duplicate XBRL tags", "Yes — A = L + E", "Ask. Most do not document it"),
             Row("As-reported, not restated", "Yes, with filing dates", "Ask — many silently serve restated"),
-            Row("Point-in-time queries", "Yes — as-of respects filing dates", "Ask"),
+            Row("Point-in-time queries", "Yes — <code>as_of=</code> returns only what was filed by that date", "Ask"),
+            Row("Income statement and cash flow, checked", "Yes — gross profit and the cash-flow identity, per period", "Rare"),
+            Row("Feed of restatements and failed checks", "Yes — every company, as JSON or CSV", "Not offered"),
+            Row("Python client", "<code>pip install balanceproof</code>, pandas panel", "Varies"),
             Row("Publishes an accuracy figure", "No — the method is published instead", "Rare"),
             Row("Free tier without a call", "Yes", "Varies"),
             Row("Coverage", "{COVERAGE}", "Ask — and ask whether it is SEC-only"),
             Row("Latency", LATENCY, "Ask, and measure it yourself"),
-            Row("Price", "Free · $49/mo · $490/yr · $79.99 one-off", "Often quote-based"),
+            Row("Price", "Free · $19 · $49 · $99 a month (CAD) · $79.99 one-off", "Often quote-based"),
             Row("Bulk download", "$79.99, one CSV", "Varies"),
         ),
         choose_us=(
@@ -477,8 +480,11 @@ handed a silently adjusted number.</p>
 <p>One reconciled dataset: {COVERAGE_PROSE}, every one checked
 against A = L + E before it is stored.
 Every valid filing reconciles against that test, and the exceptions are
-flagged rather than hidden. Free tier with no card, $49 a month for
-""" + "10,000" + """ calls, or $79.99 once for the whole thing as a CSV.</p>
+flagged rather than hidden. The income statement and cash flow come checked
+the same way, point-in-time with <code>as_of</code>, and every restatement and
+failed check across all companies is one feed. Free tier with no card, plans
+from $19 a month (CAD), or $79.99 once for the whole thing as a CSV. From
+Python: <code>pip install balanceproof</code>.</p>
 
 <p>I built it because I wanted this data for something else and could not find
 a source I trusted enough to build on. I am 17. That is a real thing to weigh:
@@ -1326,6 +1332,9 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
             Row("Handles redeemable equity", "Yes, as its own block", "Test it on a SPAC or a biotech"),
             Row("As-reported, not restated", "Yes, with filing dates", "Ask \u2014 many serve restated silently"),
             Row("Names the filings it cannot read", "Yes, by ticker, with the reason", "Rare"),
+            Row("Point-in-time (as_of) for backtests", "Yes — only what was filed by that date", "Ask"),
+            Row("Income statement and cash flow, checked", "Yes, every period", "Rare"),
+            Row("Python client", "<code>pip install balanceproof</code>", "Varies"),
             Row("Coverage", "{COVERAGE}", "Ask \u2014 and ask whether it is SEC-only"),
             Row("Free tier without a sales call", "Yes", "Varies"),
         ),

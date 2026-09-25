@@ -119,6 +119,10 @@ df = client.panel(["AAPL", "MSFT"], ["revenue", "net_income"])</code></pre>
     <p class="plan-note">On <a href="https://pypi.org/project/balanceproof/"
       rel="noopener">PyPI</a>. A call your plan does not include raises
       <code>balanceproof.PlanRequired</code>, naming the plan that does.</p>
+    <p class="plan-note">Choosing between providers? The four tests worth
+      running on any of them, this one included:
+      <a href="/best/sec-filings-api-for-quants">SEC filings API for quants</a>
+      and <a href="/best/balance-sheet-api">balance sheet API</a>.</p>
   </section>
 
   <section class="sec">
