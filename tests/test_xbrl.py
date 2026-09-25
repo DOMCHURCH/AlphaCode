@@ -818,3 +818,15 @@ def test_twelve_months_inside_a_10q_is_dropped():
     rows, report = xbrl.extract_facts(_df(Q3_SUB, SUB_COLS), num, CIK_MAP)
     assert [r["value"] for r in rows] == [1000.0]
     assert report.dropped_window_mismatch == 1
+
+
+def test_a_mid_year_quarter_inside_a_10k_is_not_q4():
+    """The quarterly-results note in a 10-K carries Q1-Q3 too. Only the
+    quarter ending on the fiscal year end is Q4; the rest are plain quarters."""
+    num = _df([
+        _num(tag="Revenues", qtrs="1", value="210", ddate="20250331"),
+        _num(tag="Revenues", qtrs="1", value="250", ddate="20241231"),
+    ], NUM_COLS)
+    rows, _ = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    got = {(str(r["period_end"]), r["fiscal_period"]) for r in rows}
+    assert got == {("2025-03-31", "Q"), ("2024-12-31", "Q4")}

@@ -619,7 +619,8 @@ def extract_facts(
     if facts.empty:
         return [], report
 
-    sub_meta = sub.set_index("adsh")[["cik", "filed", "fp"]]
+    meta_cols = ["cik", "filed", "fp"] + (["period"] if "period" in sub.columns else [])
+    sub_meta = sub.set_index("adsh")[meta_cols]
 
     # (ticker, metric, period_end, filing_date) -> (alias_rank, row)
     best: dict[tuple[Any, ...], tuple[int, dict[str, Any]]] = {}
@@ -693,9 +694,16 @@ def extract_facts(
 
         fiscal_period = str(meta["fp"] or "").strip()[:8] or None
         if concept.kind == DURATION and qtrs == "1" and fiscal_period == "FY":
-            # Three months inside a 10-K is the fourth quarter. Labelled so,
-            # or it would read as the year.
-            fiscal_period = "Q4"
+            # Three months inside a 10-K: the fourth quarter when it ends on a
+            # fiscal year end (this year's or the comparative's), otherwise a
+            # line of the quarterly-results note -- a quarter, not the year.
+            # Labelled either way, or it would read as the year.
+            fye = coerce_date(meta["period"]) if "period" in meta.index else None
+            ends_a_year = fye is not None and (
+                period_end.month == fye.month and abs(period_end.day - fye.day) <= 7
+                or abs((period_end - fye).days) <= 7
+            )
+            fiscal_period = "Q4" if ends_a_year else "Q"
             report.relabelled_q4 += 1
         elif concept.kind == DURATION and qtrs == "4" and fiscal_period in QUARTER_FPS:
             # Twelve months inside a 10-Q is a trailing-year aside, not a
