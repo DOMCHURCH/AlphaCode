@@ -113,7 +113,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
       <p class="plan-line" data-line>Live, up-to-date data</p>
       <ul class="plan-bullets">
         <li>Data updates daily, so you always get the latest filings</li>
-        <li>Income statement and cash flow, every period checked</li>
+        <li>Check up to 50 companies in one request</li>
         <li>Point-in-time: any date's figures as they were public, for backtests</li>
         <li>Feed of failed checks and restatements, last 90 days</li>
         <li>Email alerts on the companies you follow</li>
@@ -196,6 +196,72 @@ def _business_card() -> str:
             "A link to the SEC filing behind every figure",
         ),
     )
+
+
+def plan_matrix_table() -> str:
+    """What each plan includes, row by row, read from `plans.MATRIX`.
+
+    The cards carry three or four bullets each, so most of what a developer
+    buys (history depth, bulk checks, as_of, the exceptions feed, webhooks)
+    was on the API page and nowhere on this one. Built from the same matrix
+    every gate enforces and the same quota settings, so the table cannot
+    promise a cell the server refuses. Starter and Business columns appear
+    only while their cards do.
+    """
+    from src import billing, plans
+    from src.accounts import tier_limit
+
+    tiers = [t for t in ("free", "starter", "pro", "business", "enterprise")
+             if t not in ("starter", "business") or billing.price_for(t)]
+    yes = '<span class="yes" aria-label="yes">&#10003;</span>'
+    no = '<span class="no" aria-label="no">&#8212;</span>'
+
+    def cell(t: str, feature: str, fmt) -> str:
+        v = plans.allowance(t, feature)
+        if v is False or v == 0:
+            return no
+        return fmt(v)
+
+    def years(v):
+        return "All loaded" if v is None else f"{v} year{'s' if v != 1 else ''}"
+
+    rows = [
+        ("API calls a month",
+         lambda t: "Custom" if t == "enterprise" else f"{tier_limit(t):,}"),
+        ("Balance sheet, income statement and cash flow, every period checked",
+         lambda t: yes),
+        ("History depth", lambda t: cell(t, "history_years", years)),
+        ("What changed, and restatements per company",
+         lambda t: cell(t, "changes", lambda v: yes)),
+        ("Point-in-time <code>as_of</code> for backtests",
+         lambda t: cell(t, "point_in_time", lambda v: yes)),
+        ("Feed of failed checks and restatements, every company",
+         lambda t: cell(t, "exceptions_feed",
+                        lambda v: "All, plus CSV" if v is None else f"Last {v} days")),
+        ("Email alerts when a followed company files",
+         lambda t: cell(t, "watchlist",
+                        lambda v: "Unlimited" if v is None else f"{v} companies")),
+        ("Check many companies in one request",
+         lambda t: cell(t, "bulk_verify", lambda v: f"{v:,} per request")),
+        ("SEC filing link on every figure",
+         lambda t: cell(t, "provenance", lambda v: yes)),
+        ("Webhooks into your systems",
+         lambda t: cell(t, "webhooks", lambda v: f"{v} endpoints")),
+        ("MCP server for Claude, ChatGPT and Cursor", lambda t: yes),
+    ]
+    head = "".join(f'<th scope="col">{plans.TIER_NAMES[t]}</th>' for t in tiers)
+    body = "".join(
+        f'<tr><th scope="row">{label}</th>' + "".join(f"<td>{fn(t)}</td>" for t in tiers) + "</tr>"
+        for label, fn in rows
+    )
+    return f"""
+    <div class="tablewrap">
+      <table class="compare plan-matrix">
+        <caption class="vh">What each plan includes</caption>
+        <thead><tr><th scope="col">Included</th>{head}</tr></thead>
+        <tbody>{body}</tbody>
+      </table>
+    </div>"""
 
 
 def plan_price_list() -> str:
@@ -337,6 +403,7 @@ def plan_cards(
         "Free", "$0", "", "Unlimited: look up as many companies as you like",
         (
             "Every balance sheet, no account needed",
+            "Income statement and cash flow, every period checked",
             f"{free_limit:,} keyed API calls a month",
             "Works with Claude and other AI tools",
         ),
@@ -642,6 +709,8 @@ def render_pricing(
       agree with. <strong>All prices are in Canadian dollars (CAD).</strong></p>
     {cards}
     <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
+    <h3 class="feat-h" id="compare-plans">Every plan, feature by feature</h3>
+    {plan_matrix_table()}
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site.</p>
     <p class="plan-note">A question before you buy, or a problem after?

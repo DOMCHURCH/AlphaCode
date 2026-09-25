@@ -1103,3 +1103,18 @@ main .company-filings {
 .sp-terms { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 2px;
   font-size: 13px; color: var(--ink2); line-height: 1.4; }
 .sp-terms input { margin-top: 2px; }
+
+/* A code sample scrolls inside its own box. Without this the curl example on
+   /pricing pushed the whole page 32px past a 390px phone (2026-09-24). */
+pre.code { max-width: 100%; overflow-x: auto; }
+
+/* Decorative glows (the hero's pseudo-elements) bled 16-32px past a phone's
+   edge and gave every page a sideways scroll. `clip`, not `hidden`: hidden
+   makes body a scroll container and breaks the sticky nav. */
+html, body { overflow-x: clip; }
+
+/* The plan matrix on /pricing: values never break mid-phrase ("1 / year"),
+   and on a phone the feature column keeps a readable width while the plan
+   columns scroll sideways inside .tablewrap. */
+.plan-matrix td { white-space: nowrap; }
+.plan-matrix th[scope="row"] { min-width: 11rem; }
