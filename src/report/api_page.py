@@ -153,7 +153,8 @@ df = client.panel(["AAPL", "MSFT"], ["revenue", "net_income"])</code></pre>
      "Every filing whose balance sheet fails the check, with whose problem it "
      "is (<code>filer</code>, <code>extraction</code> or <code>unknown</code>), "
      "and every figure a later filing restated, across all companies, newest "
-     "first. <code>format=csv</code> for a download.")}
+     "first. <code>format=csv</code> for a download. The last 90 days are free "
+     "to browse at <a href=\"/restatements\">/restatements</a>.")}
 {_ep("GET", "/api/company/{ticker}/changes", "X-API-Key required · Starter and above · one call",
      "What moved since the previous period, figure by figure, and every "
      "figure a later filing restated: the original value, the revised one, "

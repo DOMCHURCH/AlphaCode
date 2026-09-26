@@ -225,6 +225,9 @@ def build(base_url: str) -> str:
     # is the snapshot date, which moves when a quarter lands.
     parts.append(_url(f"{base}/pricing", legal_date, "monthly", "0.8"))
     parts.append(_url(f"{base}/dataset", newest, "monthly", "0.7"))
+    # Rebuilt from the exceptions feed as filings load, so it moves when the
+    # data does.
+    parts.append(_url(f"{base}/restatements", newest, "daily", "0.7"))
     # The public explanation of the accuracy figure. Prose, so it moves
     # when somebody rewrites it rather than when a filing lands.
     parts.append(_url(f"{base}/about", legal_date, "monthly", "0.7"))

@@ -11,6 +11,8 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 - [BalanceProof — home](https://balanceproof.dev/): Product overview, the reconciliation method, and ticker search.
 - [About BalanceProof](https://balanceproof.dev/about): What the product is, who builds it, the reconciliation method, and what it deliberately does not do.
 - [Pricing](https://balanceproof.dev/pricing): Free tier; Starter $19/month or $190/year; Pro $49/month or $490/year; Business $99/month or $990/year; Enterprise priced on request; the full dataset as a one-time $79.99 download. All prices in CAD.
+- [Restatements in SEC filings](https://balanceproof.dev/restatements): Figures US public companies revised in a later 10-K or 10-Q in the last 90 days, with the value before and after and the filing dates, plus filings whose own totals disagree. Updated as filings load.
+- [Point-in-time fundamentals](https://balanceproof.dev/blog/point-in-time-fundamentals-sec-edgar): Five ways SEC data leaks the future into a backtest, with real filings.
 - [Full dataset download](https://balanceproof.dev/dataset): What the bulk CSV contains, its column schema, and how it is priced.
 
 ## API

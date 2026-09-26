@@ -122,3 +122,14 @@ def test_filters_and_csv(client):
     rows = list(csv.DictReader(io.StringIO(r.text)))
     assert {row["ticker"] for row in rows} == {"BRKN", "OLDB"}
     assert rows[0]["attribution"] == "filer"
+
+
+def test_the_restatements_page_is_public_and_links_each_company(client):
+    r = client.get("/restatements")
+    assert r.status_code == 200
+    assert '<a href="/company/RSTD">' in r.text
+    assert "50M" in r.text and "45M" in r.text      # was -> now
+    assert '<link rel="canonical"' in r.text
+    # Only filer-side failed checks: BRKN (recent, broken) is listed.
+    assert '/company/BRKN' in r.text
+    assert "/restatements" in client.get("/sitemap.xml").text

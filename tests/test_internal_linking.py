@@ -187,7 +187,7 @@ def test_every_internal_link_added_here_resolves(client):
     # test working: add the ticker, do not drop the link.
     for ticker in ("JPM", "BAC", "GS", "WFC", "MSFT", "AAL", "WMT", "FCX",
                    "AAPL", "BLK", "KKR", "KO", "AMZN", "LCID",
-                   "META", "XYZ"):
+                   "META", "XYZ", "TSLA", "SYK"):
         seed(ticker, sector="Financial Services" if ticker == "JPM" else None)
 
     pages = ["/company/JPM", "/blog"]

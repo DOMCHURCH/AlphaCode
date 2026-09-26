@@ -1780,7 +1780,138 @@ number. <a href="/pricing">The free tier</a> covers the full universe.</p>
 )
 
 
+_POST_POINT_IN_TIME = Post(
+    slug="point-in-time-fundamentals-sec-edgar",
+    title="Point-in-Time Fundamentals from SEC EDGAR: Five Ways a Backtest Sees the Future",
+    # 55 characters. The queries this is written for: "point in time
+    # fundamentals", "lookahead bias fundamentals", "sec edgar backtest".
+    seo_title="Point-in-Time Fundamentals from SEC EDGAR (No Lookahead)",
+    description=(
+        "Five ways SEC fundamentals leak the future into a backtest: filing "
+        "lag, restatements, the missing Q4, year-to-date cash flow, and "
+        "colliding periods."
+    ),
+    summary=(
+        "A backtest on fundamentals is only honest if every figure is the one "
+        "that was public that day. Five ways EDGAR data breaks that, each with "
+        "a real filing, and how to query around them."
+    ),
+    published="2026-09-25",
+    updated="2026-09-25",
+    minutes=8,
+    faq=(
+        (
+            "What is point-in-time fundamental data?",
+            "Point-in-time data returns each figure as it was known on a given "
+            "date: only filings made by then, the original number before a "
+            "restatement and the revised one after. It is what a backtest needs "
+            "to avoid trading on information that was not public yet.",
+        ),
+        (
+            "What is lookahead bias in a fundamentals backtest?",
+            "Lookahead bias is using a figure before it was available: dating "
+            "a quarter's numbers by the quarter end instead of the filing date, "
+            "or using a restated value for a date before the restatement was "
+            "filed. It makes a strategy look better than it could have been.",
+        ),
+        (
+            "Do companies restate figures in SEC filings?",
+            "Yes. A later 10-Q or 10-K can revise a period an earlier filing "
+            "reported, and the SEC data keeps both. Tesla's first-quarter 2025 "
+            "10-Q revised its Q1 2024 net income from $1,129 million to $1,390 "
+            "million.",
+        ),
+    ),
+    body="""
+<p class="lede">A backtest on fundamentals is only as honest as its dates. Every
+figure has to be the one that was public on the day the strategy would have
+traded, and SEC EDGAR data breaks that in five separate ways. Each one below is
+a real filing, and the last one is a mistake this site made until this week.</p>
+
+<h2>1. The period end is not the day you knew</h2>
+
+<p>A quarter's numbers become public when the 10-Q is filed, weeks after the
+quarter closes. Tesla's quarter ended 31 March 2025; its 10-Q was filed on 23
+April 2025. A backtest that dates those figures to 31 March trades on them for
+three weeks before anyone could have. Key every figure by its
+<b>filing date</b>, not its period end.</p>
+
+<h2>2. Restatements rewrite history</h2>
+
+<p>Tesla's first-quarter 2025 10-Q reported net income for the first quarter of
+2024 as <b>$1,390 million</b>. Its first-quarter 2024 10-Q had said
+<b>$1,129 million</b>. The filing tags the difference itself: a
+<code>Restatement=ScenarioPreviouslyReported</code> value of $1,129M and a
+<code>RestatementAdjustment</code> of $261M. Both numbers are correct. Which one
+belongs in a backtest depends on the date: before 23 April 2025 the market knew
+$1,129M, after it $1,390M.</p>
+
+<p>A source that serves only the latest figure gives the backtest the revision a
+year early. The fix is to keep every filing's value and pick the latest one
+<b>filed on or before</b> the backtest's date.</p>
+
+<h2>3. The fourth quarter is never filed</h2>
+
+<p>A 10-K reports the fiscal year, not its last quarter, and there is no 10-Q
+for Q4. Apple's fiscal 2025 revenue was $416.16 billion; its three 10-Qs
+reported $124.30B, $95.36B and $94.04B. The fourth quarter is the difference:
+<b>$102.47B</b>, which is the figure Apple announced. Any quarterly series has
+to derive Q4 this way, and should say that it did.</p>
+
+<h2>4. Cash flow in a 10-Q is year-to-date</h2>
+
+<p>Income statements in a 10-Q show the three months. Cash-flow statements
+usually do not: the second-quarter 10-Q shows six months and the third shows
+nine. Read the nine-month figure as a quarter and operating cash flow triples.
+The quarter is the nine months minus the six.</p>
+
+<h2>5. A year and its fourth quarter end on the same day</h2>
+
+<p>This is the one we got wrong. On 26 June 2026 Stryker filed an 8-K recasting
+its financial statements. It tags fiscal 2024 revenue of <b>$22,595 million</b>
+and fourth-quarter 2024 revenue of <b>$6,436 million</b>. Both periods end on
+31 December 2024. An 8-K carries no fiscal-period label, so a pipeline keyed on
+(company, figure, period end) sees two values for one key. Ours kept the
+first in the file, the quarter, and our restatements feed reported that
+Stryker had cut its 2024 revenue by 71%. It had not.</p>
+
+<p>The fix is to read periodic reports only (10-K, 10-Q and their foreign
+equivalents, which always say which period they cover) and to key durations by
+their length as well as their end date. Registration statements and 8-Ks are
+also where pro forma figures and acquired companies' statements live, which is
+another reason not to read them as the filer's own results.</p>
+
+<h2>Querying around all five</h2>
+
+<p>BalanceProof applies all of the above: every figure carries its filing date,
+<code>as_of</code> returns only what was filed by that day, Q4 and quarterly
+cash flow are derived and labelled as derived, and each period is checked
+against its own totals.</p>
+
+<pre class="code"><code>curl -H "X-API-Key: YOUR_KEY" \\
+  "https://balanceproof.dev/api/company/TSLA/statements?period=quarterly&amp;as_of=2025-04-01"</code></pre>
+
+<p>From Python:</p>
+
+<pre class="code"><code>pip install "balanceproof[pandas]"
+
+import balanceproof as bp
+client = bp.Client("YOUR_KEY")
+df = client.panel(["AAPL", "MSFT", "TSLA"], ["revenue", "net_income"],
+                  period="quarterly", as_of="2025-04-01")
+df = df[df.derived.str.len() == 0]      # filed figures only, if you prefer</code></pre>
+
+<p>Point-in-time queries are on the <a href="/pricing">Pro plan</a>; the rest is
+on the free tier. Every restatement across all companies is in one
+<a href="/api">feed</a>, and each company page shows its own:
+<a href="/company/TSLA">Tesla</a>, <a href="/company/AAPL">Apple</a>,
+<a href="/company/SYK">Stryker</a>.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_POINT_IN_TIME,
     _POST_SUBMISSIONS_API,
     _POST_TOTAL_LIABILITIES,
     _POST_FIVE_FAILURES,
@@ -1889,6 +2020,11 @@ def _fill_scale(prose: str) -> str:
 # is that the post is genuinely about what JPM's balance sheet looks like, and
 # nothing computable knows that.
 _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
+    "point-in-time-fundamentals-sec-edgar": (
+        ("TSLA", "Q1 2024 net income, restated in its Q1 2025 10-Q"),
+        ("AAPL", "a fourth quarter that exists only by subtraction"),
+        ("SYK", "a year and its fourth quarter on the same day"),
+    ),
     "sec-xbrl-data-wrong-one-in-five": (
         ("JPM", "the filing this post opens with — 23 tags for one figure"),
         ("BAC", "the same segment problem, a different bank"),

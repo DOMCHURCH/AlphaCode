@@ -63,6 +63,12 @@ _WARM_DELAY_S = 45.0
 _WARM_GAP_S = 5.0
 
 
+def _indexnow_warm() -> None:
+    from src.indexnow import warm
+
+    warm()
+
+
 def _exceptions_warm() -> None:
     from src.company.exceptions import all_events
 
@@ -104,6 +110,7 @@ async def _warm(app: FastAPI) -> None:
         ("identity", warm_identity),
         ("sitemap_drawable", _sitemap.refresh_drawable),
         ("exceptions_feed", _exceptions_warm),
+        ("indexnow", _indexnow_warm),
     ):
         try:
             await asyncio.to_thread(fn)
@@ -4275,6 +4282,14 @@ def pricing(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/restatements", response_class=HTMLResponse)
+def restatements_page(request: Request) -> HTMLResponse:
+    """What companies revised in their filings, last 90 days. Free, crawlable."""
+    from src.report.restatements_page import render_restatements
+
+    return HTMLResponse(_versioned(render_restatements(nav=_nav_for(request, ""))))
+
+
 @app.get("/dataset", response_class=HTMLResponse)
 def dataset_page(request: Request) -> HTMLResponse:
     """What is in the CSV, when it was generated, and that it never updates.
@@ -4707,6 +4722,14 @@ def blog_post(request: Request, slug: str) -> HTMLResponse:
             _versioned(render_index(nav=_nav_for(request, "blog"))), status_code=404
         )
     return HTMLResponse(_versioned(render_post(post, nav=_nav_for(request, "blog"))))
+
+
+@app.get("/dfc0c31c31ef1379d643f51717009850.txt", include_in_schema=False)
+def indexnow_key() -> Response:
+    """IndexNow ownership proof: the key, served at /<key>.txt (src/indexnow.py)."""
+    from src.indexnow import KEY
+
+    return Response(content=KEY, media_type="text/plain")
 
 
 @app.get("/llms.txt", include_in_schema=False)
