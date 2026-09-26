@@ -1341,6 +1341,77 @@ def canonical_of(tickers: Iterable[str]) -> str:
     return min(tickers, key=lambda t: (("." in t or "-" in t), len(t), t))
 
 
+def non_report_keys(sub: "Any", cik_map: dict[str, str]) -> set[tuple[str, "dt.date"]]:
+    """(ticker, filing date) pairs filed ONLY through non-report forms.
+
+    A company that filed an 8-K and nothing else on a given day has no
+    periodic report dated that day, so every `fundamentals` row it has on
+    that filing date came from the 8-K (or S-4, S-1, 6-K ...). A day that also
+    carries a 10-Q/10-K is left alone: the row cannot be attributed, and the
+    periodic report is the likelier source.
+    """
+    from src.ingest.xbrl import REPORT_FORMS, coerce_date
+
+    own: set[tuple[str, Any]] = set()
+    other: set[tuple[str, Any]] = set()
+    for cik, form, filed in zip(sub["cik"].astype(str), sub["form"], sub["filed"]):
+        ticker = cik_map.get(cik.lstrip("0") or "0") or cik_map.get(cik)
+        day = coerce_date(filed)
+        if not ticker or day is None:
+            continue
+        (own if form in REPORT_FORMS else other).add((ticker, day))
+    return other - own
+
+
+async def purge_non_report_rows(quarters: int = 8, dry_run: bool = True) -> dict[str, Any]:
+    """Delete fundamentals rows that came from 8-K/S-4/S-1/6-K... filings.
+
+    Loads before 2026-09-25 read every form in the SEC datasets. Those forms
+    carry no fiscal period, so a quarter could be stored as its year
+    (Stryker's recast 8-K: Q4 2024 revenue $6.4B kept as FY2024, against
+    $22.6B), and S-4/S-1 filings can carry another entity's or pro forma
+    figures. The extractor now reads periodic reports only; this removes
+    what earlier loads stored. `dry_run` counts without deleting.
+    """
+    from sqlalchemy import and_, delete, func, or_, select
+
+    from src.ingest.sec_cache import fetch_dataset
+    from src.storage.models import Fundamental
+
+    cik_map = await _cik_to_ticker()
+    keys: set[tuple[str, Any]] = set()
+    per_quarter: dict[str, int] = {}
+    for year, q in sec_datasets.recent_quarters(dt.date.today(), quarters):
+        try:
+            z = await fetch_dataset(year, q)
+        except Exception as exc:  # noqa: BLE001 - an unpublished quarter is fine
+            per_quarter[f"{year}q{q}"] = -1
+            log.info("purge_quarter_unavailable", quarter=f"{year}q{q}", error=str(exc)[:120])
+            continue
+        sub = sec_datasets._read_member(z, "sub.txt", ["adsh", "cik", "form", "filed"])
+        found = non_report_keys(sub, cik_map)
+        per_quarter[f"{year}q{q}"] = len(found)
+        keys |= found
+    matched = 0
+    deleted = 0
+    batch = sorted(keys)
+    with session_scope() as session:
+        for i in range(0, len(batch), 500):
+            chunk = batch[i: i + 500]
+            cond = or_(*[and_(Fundamental.ticker == t, Fundamental.filing_date == d)
+                         for t, d in chunk])
+            cond = and_(Fundamental.source == "sec", cond)
+            matched += int(session.execute(
+                select(func.count()).select_from(Fundamental).where(cond)).scalar() or 0)
+            if not dry_run:
+                deleted += session.execute(delete(Fundamental).where(cond)).rowcount or 0
+    log.info("purge_non_report_rows", dry_run=dry_run, keys=len(keys),
+             matched=matched, deleted=deleted)
+    return {"dry_run": dry_run, "filing_days": len(keys), "rows_matched": matched,
+            "rows_deleted": deleted, "per_quarter": per_quarter,
+            "examples": [f"{t} {d}" for t, d in batch[:15]]}
+
+
 async def _cik_to_ticker() -> dict[str, str]:
     """{cik (leading zeros stripped) -> the ONE ticker its rows are stored under}.
 

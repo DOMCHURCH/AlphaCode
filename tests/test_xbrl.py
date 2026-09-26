@@ -830,3 +830,18 @@ def test_a_mid_year_quarter_inside_a_10k_is_not_q4():
     rows, _ = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
     got = {(str(r["period_end"]), r["fiscal_period"]) for r in rows}
     assert got == {("2025-03-31", "Q"), ("2024-12-31", "Q4")}
+
+
+def test_an_8k_is_not_the_companys_own_report():
+    """Stryker's recast 8-K has no fiscal period, so its Q4 and full-year
+    revenue collided and the quarter was stored as the year. Only periodic
+    reports (10-K/10-Q/20-F/40-F and amendments) are read."""
+    sub = JPM_SUB + [{"adsh": "k8", "cik": "0000019617", "name": "JPMORGAN CHASE & CO",
+                      "form": "8-K", "period": "20251231", "filed": "20260626", "fp": ""}]
+    num = _df([
+        _num(tag="Assets", qtrs="0", value=str(JPM_ASSETS)),
+        _num(adsh="k8", tag="Assets", qtrs="0", value="6400000000"),
+    ], NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(sub, SUB_COLS), num, CIK_MAP)
+    assert [r["value"] for r in rows] == [JPM_ASSETS]
+    assert report.dropped_non_report_filings == 1

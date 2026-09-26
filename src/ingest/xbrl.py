@@ -74,6 +74,24 @@ YTD_KEPT_METRICS = frozenset({
     "depreciation_amortization", "stock_compensation",
 })
 YTD_SUFFIX = "_ytd"
+# The filings whose figures are the company's own periodic statements. Other
+# forms that carry XBRL are read wrongly or are not a period's results:
+#
+# * they have no fiscal period (`fp` is blank), so a year and its fourth
+#   quarter -- both ending on the same day -- collide on one key and the
+#   first in the file wins. Stryker's 26 Jun 2026 8-K (a recast of its own
+#   statements) tags FY2024 revenue $22,595M and Q4 2024 revenue $6,436M, both
+#   ending 2024-12-31; the quarter was stored as the year, and the feed
+#   reported a 71% "restatement" that never happened.
+# * S-4/F-4 can carry an acquired company's statements, S-1/F-1 pro formas,
+#   an 11-K the employee savings plan.
+#
+# In 2026q2 about 5% of kept rows came from such forms. The frames sweep
+# already read periodic forms only.
+REPORT_FORMS = frozenset({
+    "10-K", "10-Q", "10-K/A", "10-Q/A", "10-KT", "10-QT", "10-KT/A", "10-QT/A",
+    "20-F", "20-F/A", "40-F", "40-F/A",
+})
 # Fiscal periods of a quarterly report; a 10-K is "FY".
 QUARTER_FPS = frozenset({"Q1", "Q2", "Q3", "Q4"})
 
@@ -403,6 +421,9 @@ class ExtractionReport:
     dropped_window_mismatch: int = 0
     # One-quarter facts in a 10-K, stored with fiscal period "Q4".
     relabelled_q4: int = 0
+    # Filings skipped because they are not the company's own periodic report
+    # (8-K, S-1, S-4, 6-K, 11-K ...); see REPORT_FORMS.
+    dropped_non_report_filings: int = 0
     # qtrs value -> count, over consolidated duration facts only. This is the
     # empirical answer to "what do filers actually report", read off the file.
     duration_qtrs_seen: dict[str, int] = field(default_factory=dict)
@@ -456,6 +477,7 @@ class ExtractionReport:
             "kept_ytd": self.kept_ytd,
             "dropped_window_mismatch": self.dropped_window_mismatch,
             "relabelled_q4": self.relabelled_q4,
+            "dropped_non_report_filings": self.dropped_non_report_filings,
             "duration_qtrs_seen": dict(sorted(self.duration_qtrs_seen.items())),
             "dropped_non_usd": self.dropped_non_usd,
             "dropped_unparseable": self.dropped_unparseable,
@@ -623,6 +645,12 @@ def extract_facts(
     if facts.empty:
         return [], report
 
+    not_own: set[Any] = set()
+    if "form" in sub.columns:
+        own = sub["form"].isin(REPORT_FORMS)
+        report.dropped_non_report_filings = int((~own).sum())
+        not_own = set(sub.loc[~own, "adsh"])
+        sub = sub[own]
     meta_cols = ["cik", "filed", "fp"] + (["period"] if "period" in sub.columns else [])
     sub_meta = sub.set_index("adsh")[meta_cols]
 
@@ -667,6 +695,8 @@ def extract_facts(
             continue
 
         adsh = getattr(r, "adsh", None)
+        if adsh in not_own:
+            continue
         if adsh not in sub_meta.index:
             report.dropped_no_ticker += 1
             continue

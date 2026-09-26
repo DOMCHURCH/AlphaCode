@@ -1717,6 +1717,35 @@ def admin_balance_sheet(
 
 
 @app.post(
+    "/admin/purge-non-report-rows",
+    dependencies=[Depends(require_admin)],
+)
+async def admin_purge_non_report_rows(
+    quarters: int = Query(8, ge=1, le=20),
+    dry_run: bool = Query(True, description="false actually deletes."),
+) -> JSONResponse:
+    """Remove fundamentals rows that came from 8-K, S-4, S-1, 6-K... filings.
+
+    Dry run by default: says how many rows would go, with examples. Run it
+    again with dry_run=false to delete. Only (company, filing day) pairs with
+    no 10-K/10-Q/20-F/40-F that day are touched.
+    """
+    from src.backfill import purge_non_report_rows
+
+    if _backfill_lock.locked():
+        raise HTTPException(409, "A backfill or reload is running; try when it finishes.")
+    async with _backfill_lock:
+        out = await purge_non_report_rows(quarters=quarters, dry_run=dry_run)
+    if not dry_run:
+        from src.company import exceptions
+        from src.company.stats import clear_page_caches
+
+        exceptions.reset_cache()
+        clear_page_caches()
+    return JSONResponse(jsonable_encoder(out))
+
+
+@app.post(
     "/admin/reload-fundamentals",
     response_model=RunResponse,
     dependencies=[Depends(require_admin)],
