@@ -162,16 +162,16 @@ you should get it as one.</p>
 
 
 _HONESTY = """
-<h2>What I am not going to pretend</h2>
+<h2>What we are not going to pretend</h2>
 
-<p>I am not going to put {rival}'s prices in a table on my own website. They change,
-this page would not, and you would be reading a number I had no way to verify
+<p>We are not going to put {rival}'s prices in a table on our own website. They change,
+this page would not, and you would be reading a number we had no way to verify
 at the moment you read it. Go and look at their pricing page. It is the only copy
 that is current.</p>
 
-<p>I am also not going to tell you their data is bad. I have not audited it and
-I am not in a position to. What I can tell you is what <em>this</em> service
-does and how to check it, which is the part I am actually responsible
+<p>We are also not going to tell you their data is bad. We have not audited it and
+we are not in a position to. What we can tell you is what <em>this</em> service
+does and how to check it, which is the part we are actually responsible
 for.</p>
 
 <p>The check that settles it costs you nothing either way: take a company where
@@ -270,7 +270,7 @@ PAGES: tuple[Page, ...] = (
             "from EDGAR. If a company does not file with the SEC, it does not "
             "exist to this API.",
             "<b>You need a vendor with an enterprise contract, an SLA and a "
-            "support desk.</b> I am one person. That is a real difference and "
+            "support desk.</b> We are a small, independent company. That is a real difference and "
             "you should weigh it honestly.",
             "<b>You need decades of history across many asset classes.</b>",
         ),
@@ -316,11 +316,11 @@ PAGES: tuple[Page, ...] = (
         ),
         choose_them=(
             "<b>You need the filing itself.</b> Full text, exhibits, the "
-            "original document. That is their product and it is not mine.",
+            "original document. That is their product and it is not ours.",
             "<b>You need forms other than periodic financials.</b> 8-K, 13F, "
             "Form 4, S-1: none of that is here.",
             "<b>You want to do your own extraction.</b> If you have an opinion "
-            "about which tag is right, you want raw access, not my opinion.",
+            "about which tag is right, you want raw access, not our opinion.",
             "<b>You need real-time filing alerts.</b>",
         ),
         body=_METHOD + _TRANSPARENCY + _HONESTY.format(rival="sec-api.io"),
@@ -350,7 +350,7 @@ PAGES: tuple[Page, ...] = (
             Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
             Row("Coverage", "{COVERAGE}", "Global, many asset classes", False),
             Row("Latency", LATENCY, "Real-time market data — a different problem", False),
-            Row("SLA", "None. One person.", "Contractual, with support", False),
+            Row("SLA", "None. A small, independent company.", "Contractual, with support", False),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Enterprise quote — check their site"),
             Row("Time to first call", "Minutes", "Weeks, typically", False),
         ),
@@ -389,8 +389,8 @@ PAGES: tuple[Page, ...] = (
         rival="the alternatives",
         kind="best",
         lede=(
-            "I am not going to rank other people's products. I am going to "
-            "give you the four tests I wish somebody had given me, so you can "
+            "We are not going to rank other people's products. We are going to "
+            "give you the four tests we wish somebody had given us, so you can "
             "rank them yourself, including against this one."
         ),
         rows=(
@@ -440,7 +440,7 @@ format is machine-readable, and there are a dozen APIs. So the natural
 assumption is that they all return the same numbers and you are choosing on
 price and ergonomics.</p>
 
-<p>They do not return the same numbers. I checked.</p>
+<p>They do not return the same numbers. We checked.</p>
 
 <p>The reason is the duplicate-tag problem. XBRL lets a filer attach dimensions
 to a fact: this figure, but for this segment, this subsidiary, this geography.
@@ -486,8 +486,8 @@ failed check across all companies is one feed. Free tier with no card, plans
 from $19 a month (CAD), or $79.99 once for the whole thing as a CSV. From
 Python: <code>pip install balanceproof</code>.</p>
 
-<p>I built it because I wanted this data for something else and could not find
-a source I trusted enough to build on. I am 17. That is a real thing to weigh:
+<p>We built it because we wanted this data for something else and could not find
+a source we trusted enough to build on. We are a small, independent company. That is a real thing to weigh:
 there is no SLA and no support desk, and if that matters to you, buy from
 somebody who can sign a contract. What there is instead is a method written
 down in public and a free tier so you can check it yourself against a filing
@@ -555,8 +555,8 @@ better. Fewer endpoints, less surface, simpler mental model, and the thing you
 wanted is the thing on the front page.</p>
 
 <p><strong>If it is method</strong>, and you found a number that disagreed
-with a filing and want to know why, that is the reason I built this, and it is the
-one where I can give you a real answer.</p>
+with a filing and want to know why, that is the reason we built this, and it is the
+one where we can give you a real answer.</p>
 """ + _METHOD + _TRANSPARENCY + """
 <h2>What to demand from any replacement</h2>
 

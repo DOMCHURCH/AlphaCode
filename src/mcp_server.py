@@ -629,8 +629,8 @@ def _tool_get_api_key(args: dict[str, Any], _m: Any) -> tuple[str, Any]:
     email = str(args.get("email") or "").strip()
     if args.get("accept_terms") is not True:
         return (
-            "I cannot create a key until you have agreed to the terms at "
-            "https://balanceproof.dev/terms. Say so and I will try again.",
+            "We cannot create a key until you have agreed to the terms at "
+            "https://balanceproof.dev/terms. Say so and we will try again.",
             None,
         )
 

@@ -22,9 +22,9 @@ from src.report.home_page import product_definition, shell
 _BODY = """
   <article>
     <h2>Who builds it</h2>
-    <p>BalanceProof is built solo by Dominique Church, 17, in Ottawa. It
-      started as a tool for a personal project and became a public API because
-      every free SEC data source I tried disagreed with the filing
+    <p>BalanceProof is built in Ottawa, Canada, by founder Dominique Church.
+      It started as a tool for a personal project and became a public API
+      because every free SEC data source we tried disagreed with the filing
       somewhere.</p>
 
     <h2>The method</h2>
@@ -90,7 +90,7 @@ def render_about(*, nav: str = "") -> str:
         # for the attribution, as it was before.
         description=(
             f"{PRODUCT_CLAUSE}, reconciled against the accounting identity. "
-            "Built solo by Dominique Church in Ottawa."
+            "Founded by Dominique Church in Ottawa."
         ),
         canonical="/about",
         ld=breadcrumb_ld([("Home", "/"), ("About", "/about")]) + aboutpage_ld(),

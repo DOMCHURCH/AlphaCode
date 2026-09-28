@@ -997,7 +997,7 @@ def _how_it_works(stats: dict) -> str:
       one time in five</a> ·
       <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
       considering for quant work</a>, written to be useful even where it does
-      not conclude in my favour.</p>
+      not conclude in our favour.</p>
   </section>"""
 
 
@@ -1034,7 +1034,7 @@ def render_home(
     # The page keeps what it always said; the shared part is added around it.
     footer = render_footer(
         'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
-        ' rel="noopener">SEC Financial Statement Data Sets</a>. Built by '
+        ' rel="noopener">SEC Financial Statement Data Sets</a>. Founded by '
         'Dominique Church.'
         # `nofollow`, and on the home page ONLY. It used to sit on every
         # company page too -- 6,167 crawlable links to a URL robots.txt

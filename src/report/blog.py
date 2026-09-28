@@ -88,8 +88,8 @@ _POST_XBRL_ACCURACY = Post(
     updated="2026-09-09",
     minutes=7,
     body="""
-<p class="lede">I pulled JPMorgan's 10-Q expecting one number for total assets.
-I got twenty-three.</p>
+<p class="lede">We pulled JPMorgan's 10-Q expecting one number for total assets.
+We got twenty-three.</p>
 
 <p>Not twenty-three <em>values</em> — twenty-three <em>tags</em>, all of them
 called <code>Assets</code>, all of them in the same filing, all of them
@@ -97,7 +97,7 @@ technically correct. One for the consolidated bank. One for the investment
 bank. One for consumer banking. One for each subsidiary that has to be broken
 out. And exactly one of them is the number you actually want.</p>
 
-<p>If your code does what mine did the first time — take the first
+<p>If your code does what ours did the first time — take the first
 <code>Assets</code> fact and move on — you get a segment. Sometimes a small
 one. And nothing anywhere tells you that you got the wrong one, because you
 didn't. You got <em>a</em> right one.</p>
@@ -115,7 +115,7 @@ way as all the others. It is just the one with <em>no</em> dimensions on it.
 So the correct figure is defined by an absence, and an absence is the easiest
 thing in the world for a parser to fail to notice.</p>
 
-<p>I went and measured how often this bites. Across the companies I had loaded
+<p>We went and measured how often this bites. Across the companies we had loaded
 at the time, taking a naive first-match approach agreed with the consolidated
 figure roughly <strong>four times in five</strong>. The fifth is
 wrong. Not slightly wrong — wrong by whatever the largest segment happens to
@@ -201,12 +201,12 @@ that this filing does not balance — not the closest match. A number that is
 wrong by a factor is worse than no number, because you will never audit the
 one you were given.</p>
 
-<h2>What I built</h2>
+<h2>What we built</h2>
 
-<p>I'm 17. I started this because I wanted balance sheet data for something
-else entirely and I could not find a source I trusted enough to build on. Every
-free one I tried disagreed with the filing somewhere, and the paid ones wanted
-enterprise money to tell me what the SEC publishes for free.</p>
+<p>We started this because we wanted balance sheet data for something
+else entirely and could not find a source we trusted enough to build on. Every
+free one we tried disagreed with the filing somewhere, and the paid ones wanted
+enterprise money to tell us what the SEC publishes for free.</p>
 
 <p>So <a href="/">BalanceProof</a> is the reconciler, running over every filing,
 with the result behind an API. Every figure is checked against A = L + E before
@@ -239,8 +239,8 @@ all — the drawings are free and always will be. Get a key from the
 <a href="/pricing">pricing page</a>. If you would rather have the whole thing
 as one file, the <a href="/dataset">full dataset</a> is a one-time download.</p>
 
-<p>And if you find a figure that disagrees with the filing, tell me. That is
-the one bug report I actually want.</p>
+<p>And if you find a figure that disagrees with the filing, tell us. That is
+the one bug report we actually want.</p>
 """,
 )
 
@@ -541,18 +541,18 @@ _POST_EDGAR_PIPELINE = Post(
     updated="2026-09-12",
     minutes=8,
     body="""
-<p class="lede">SEC EDGAR banned my IP three times while I was building BalanceProof.
+<p class="lede">SEC EDGAR banned our IP three times while we were building BalanceProof.
 Not rate-limited. Banned.</p>
 
 <p>Each one arrived the same way: a run that had been going fine for twenty
 minutes started returning 403 on every request, including the ones that had
 worked a second earlier. No <code>Retry-After</code>, no JSON error body, no
-429. Just a wall of HTML telling me my access had been suspended, and a ten
+429. Just a wall of HTML telling us our access had been suspended, and a ten
 minute wait before anything worked again.</p>
 
-<p>All three had different causes, and none of them were "I was going too
+<p>All three had different causes, and none of them were "we were going too
 fast". Here is what actually breaks a pipeline against EDGAR, in the order it
-broke mine.</p>
+broke ours.</p>
 
 <h2>The limit is 10 requests per second, and it is not the hard part</h2>
 
@@ -571,7 +571,7 @@ to say and surprisingly hard to actually guarantee.</p>
 <p>SEC requires a descriptive <code>User-Agent</code> carrying a real contact
 address. This is not advisory. A request that arrives with
 <code>python-requests/2.31.0</code> on it gets a 403, and the 403 looks
-exactly like the rate limit 403, which is how I spent an afternoon tuning a
+exactly like the rate limit 403, which is how we spent an afternoon tuning a
 delay that was never the problem.</p>
 
 <pre class="code"><code class="language-python"># The header is the difference between a working client and a 403.
@@ -594,7 +594,7 @@ a 403 you will debug at some point, probably at the least convenient moment.</p>
 
 <h2>Ban two: time.sleep(0.1) is not a rate limiter</h2>
 
-<p>This is the line almost everyone writes first, including me:</p>
+<p>This is the line almost everyone writes first, including us:</p>
 
 <pre class="code"><code class="language-python">for cik in ciks:
     fetch(cik)
@@ -648,7 +648,7 @@ async def acquire(source):
             return
         await asyncio.sleep(wait)</code></pre>
 
-<p>Two things I would do differently if I were starting again. Give
+<p>Two things we would do differently if we were starting again. Give
 <code>acquire</code> a maximum wait and raise past it, so a misconfigured
 bucket stalls one stage instead of hanging the whole run. And fall back to a
 process local bucket when Redis is unreachable, so local development does not
@@ -672,7 +672,7 @@ rel="noopener">Financial Statement Data Sets</a>: one ZIP per quarter holding
 numeric XBRL fact filed that quarter), tab separated, joined on the accession
 number. That is one download instead of one request per company per concept.
 For seeding history it is not a marginal improvement, it is a different order
-of magnitude, and it is how I load fundamentals now.</p>
+of magnitude, and it is how we load fundamentals now.</p>
 
 <pre class="code"><code class="language-bash"># One file. Every numeric fact filed in that quarter, every filer.
 curl -H "User-Agent: You you@example.com" -O \\
@@ -696,10 +696,10 @@ goal: the limiter is a seatbelt, not an engine.</p>
 
 <h2>Ban three was not a rate limit at all</h2>
 
-<p>The third one taught me the thing I did not expect. I had the limiter
+<p>The third one taught us the thing we did not expect. We had the limiter
 working, the bulk seed loading, the feed running. And the numbers were wrong.</p>
 
-<p>I pulled JPMorgan's balance sheet and got a total assets figure that was
+<p>We pulled JPMorgan's balance sheet and got a total assets figure that was
 too small by a lot. Not corrupted, not truncated. Just a different real
 number.</p>
 
@@ -744,9 +744,9 @@ were handed.</p>
 <p>Build it if the pipeline is the point, or if you need something specific
 enough that no general dataset will carry it. Everything above is a weekend of
 work plus however long it takes to discover the parts nobody writes down,
-which for me was about three bans and a month of wrong numbers.</p>
+which for us was about three bans and a month of wrong numbers.</p>
 
-<p>Do not build it if you want balance sheets. I did, and the result is
+<p>Do not build it if you want balance sheets. We did, and the result is
 <a href="/">BalanceProof</a>: the reconciler above running over every filing, with
 the result behind an API. Every figure is checked against A = L + E before it
 is stored, and the filings that genuinely do not balance are flagged as such
@@ -758,7 +758,7 @@ what is still failing, with live counts rather than a claim. The
 <a href="/pricing">pricing page</a> has the tiers, and the free one needs no
 card. If you are comparing options,
 <a href="/best/sec-filings-api-for-quants">the SEC filings APIs worth
-considering for quant work</a> covers the alternatives, mine included.</p>
+considering for quant work</a> covers the alternatives, ours included.</p>
 
 <p>Either way, run the reconciliation. If you build your own pipeline and it
 does not check that assets equal liabilities plus equity, you do not have a
@@ -785,7 +785,7 @@ _POST_DUPLICATE_TAGS = Post(
     updated="2026-09-12",
     minutes=6,
     body="""
-<p class="lede">The first filing that broke my parser was American Airlines.
+<p class="lede">The first filing that broke our parser was American Airlines.
 The code returned total equity as a positive number. The actual figure is
 negative, and has been for years.</p>
 
@@ -835,15 +835,15 @@ The companies with the most segments are also the companies people most want
 data on, so the error rate on the filings you care about is higher than the
 error rate across the filer universe.</p>
 
-<p>I am not going to put a percentage on it. Any figure I could quote would
-depend on which companies were in the sample, which quarters, and how I
+<p>We are not going to put a percentage on it. Any figure we could quote would
+depend on which companies were in the sample, which quarters, and how we
 counted a partial match, and a number with those caveats stripped off becomes
 a marketing claim rather than a measurement. The failure mode is the point:
 picking by position picks a segment, and picking a segment is silent.</p>
 
 <h2>A five minute test you can run on your own data</h2>
 
-<p>You do not have to take my word for any of this. Pick a company you already
+<p>You do not have to take our word for any of this. Pick a company you already
 hold figures for and ask SEC directly. The companyfacts endpoint returns every
 XBRL fact a filer has ever reported, with dimensions intact:</p>
 
@@ -916,7 +916,7 @@ closest match, and it is the wrong one. A figure that is wrong by a segment is
 worse than a missing figure, because a gap gets investigated and a plausible
 number does not.</p>
 
-<p>So I do not hide the failures, I name them. A filing that does not
+<p>So we do not hide the failures, we name them. A filing that does not
 reconcile is drawn on the site with a red warning saying so, rather than
 quietly adjusted until it agrees. If a company filed something that does not
 add up, that is a fact about the company and it should reach you as one. The
@@ -924,11 +924,11 @@ same goes for missing components: if a filer does not break out receivables,
 you get a labelled remainder rather than a zero, because a zero is a claim and
 "they did not say" is not.</p>
 
-<p>This is also why I publish the method and not a rate. The
+<p>This is also why we publish the method and not a rate. The
 <a href="/methodology">methodology page</a> shows what is checked, how, and
 what is currently failing, with live counts read off the database rather than
 a figure written down once. A single accuracy percentage is the easiest thing
-in the world to quote and the hardest to verify, and I would rather hand you
+in the world to quote and the hardest to verify, and we would rather hand you
 something you can check.</p>
 
 <h2>What to do with this</h2>
@@ -947,8 +947,8 @@ up any company on the site with no key and no account. The
 that differs from a general-purpose financial data feed, and
 <a href="/pricing">pricing</a> has the tiers.</p>
 
-<p>And if you find a figure that disagrees with the filing, tell me. That is
-the bug report I actually want.</p>
+<p>And if you find a figure that disagrees with the filing, tell us. That is
+the bug report we actually want.</p>
 """,
 )
 
@@ -957,11 +957,11 @@ the bug report I actually want.</p>
 # the order here is the editorial decision rather than a detail of the loop.
 _POST_WHAT_I_GOT_WRONG = Post(
     slug="what-i-got-wrong-about-sec-filings",
-    title="What I Got Wrong About SEC Filings",
-    seo_title="What I Got Wrong About SEC Filings and XBRL Data",
+    title="What We Got Wrong About SEC Filings",
+    seo_title="What We Got Wrong About SEC Filings and XBRL Data",
     description=(
-        "I deleted 1,231,927 rows because a reload script deleted before it "
-        "downloaded. What that taught me about checking SEC XBRL data."
+        "We deleted 1,231,927 rows because a reload script deleted before it "
+        "downloaded. What that taught us about checking SEC XBRL data."
     ),
     summary=(
         "A reload script that deleted before downloading, an SEC rate limit, "
@@ -973,7 +973,7 @@ _POST_WHAT_I_GOT_WRONG = Post(
     updated="2026-09-14",
     minutes=6,
     body="""
-<p class="lede">I deleted 1,231,927 rows of production data at 2 AM. Here is how.</p>
+<p class="lede">We deleted 1,231,927 rows of production data at 2 AM. Here is how.</p>
 
 <p>The reload script had one job. Replace the fundamentals table with a fresh
 copy of the last seven quarters of SEC Financial Statement Data Sets. It had
@@ -999,7 +999,7 @@ look like at the end. There was no step that said: this table should have
 roughly a million rows in it, and if it has zero, something went wrong. So a
 total data loss and a successful run produced the same output.</p>
 
-<p>That is the shape of almost every financial data failure I have run into
+<p>That is the shape of almost every financial data failure we have run into
 since. It is not a crash. A crash is a gift. A crash tells you where to look
 and stops the bad value from reaching anyone. The failures that cost you are
 the ones where a wrong number and a right number are the same data type, the
@@ -1007,7 +1007,7 @@ same order of magnitude, and arrive through the same code path.</p>
 
 <h2>The fix that stuck</h2>
 
-<p>The rule I came out with is narrow and has not needed revising. Never
+<p>The rule we came out with is narrow and has not needed revising. Never
 delete anything until the replacement is already on disk.</p>
 
 <p>The reload now runs in three phases. Download every quarter to a local
@@ -1039,8 +1039,8 @@ same transaction as the write.</p>
     return before, written</code></pre>
 
 <p>The <code>if written == 0</code> check is the line that would have saved
-me. It is four lines of code and it encodes the thing the original script
-never said out loud: I know what the end state should look like, and I will
+us. It is four lines of code and it encodes the thing the original script
+never said out loud: we know what the end state should look like, and we will
 refuse to commit one that is obviously wrong.</p>
 
 <p>The transaction boundary is doing the other half of the work. If parsing
@@ -1060,10 +1060,10 @@ face of the balance sheet.</p>
 
 <p>So the reload does not get to declare success on its own either. Every
 filing gets checked against the accounting identity. Assets equals liabilities
-plus equity. That identity is not a heuristic or a tolerance I picked. It is
-the definition of a balance sheet, and it holds on data I did not produce,
-which is exactly what makes it useful as a test. If the figures I extracted do
-not satisfy it, then at least one of them is wrong, and I do not need to know
+plus equity. That identity is not a heuristic or a tolerance we picked. It is
+the definition of a balance sheet, and it holds on data we did not produce,
+which is exactly what makes it useful as a test. If the figures we extracted do
+not satisfy it, then at least one of them is wrong, and we do not need to know
 which one to know that.</p>
 
 <p>When a filing does not balance, it gets published with the reason it does
@@ -1078,7 +1078,7 @@ the identity. 215 are flagged with the reason they do not. 0 are hidden. The
 remainder are filings that do not report enough of a balance sheet to check,
 and those say so on the page rather than being counted as passes.</p>
 
-<p>I publish counts and not a percentage, deliberately. A percentage invites
+<p>We publish counts and not a percentage, deliberately. A percentage invites
 you to read one number and stop. The counts make you ask what is in each
 bucket, which is the question that actually tells you whether the data is fit
 for what you are doing with it. You can see the whole thing on any company
@@ -1088,7 +1088,7 @@ people picture.</p>
 
 <h2>What to ask whoever sells you filings data</h2>
 
-<p>If you are buying SEC data from anyone, including me, there is one question
+<p>If you are buying SEC data from anyone, including us, there is one question
 worth more than the rest. Ask which filings fail their checks, and ask to see
 the list.</p>
 
@@ -1163,10 +1163,10 @@ last one.</p>
 substitute.</strong> A near-enough figure in place of an unread one is wrong,
 plausible, and erases the evidence that anything was unread.</p>
 
-<p>BlackRock is the ordinary example in my data: a redeemable noncontrolling
-interest in a form my mapping still does not reach, so liabilities plus equity
+<p>BlackRock is the ordinary example in our data: a redeemable noncontrolling
+interest in a form our mapping still does not reach, so liabilities plus equity
 falls short and the filing is flagged rather than filled in. Note that the line
-I am failing to read is itself a mezzanine line. The category is about whose
+we are failing to read is itself a mezzanine line. The category is about whose
 fault a gap is, not about which row it sits on.</p>
 
 <h2>2. Noncontrolling interests</h2>
@@ -1193,7 +1193,7 @@ a pass. The filing was never wrong.</p>
 <code>StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest</code>
 carries the minority interest inside it, and a filing that publishes it
 balances plainly. So the category only fires where a filer reports parent
-equity and the NCI as two lines with no combined total, which in the universe I
+equity and the NCI as two lines with no combined total, which in the universe we
 cover is rare enough to count on one hand. It is nearly empty because the
 common case is settled a step earlier.</p>
 
@@ -1303,7 +1303,7 @@ every large bank, and one calibrated on a large bank waves through a genuine
 error at a small company. Half a percent of assets absorbs presentation
 rounding at any size.</p>
 
-<p>I am not naming a current member. The category holds a handful of filings
+<p>We are not naming a current member. The category holds a handful of filings
 and turns over with every ingest, so a ticker printed here would be stale
 before you checked it.</p>
 
@@ -1335,10 +1335,10 @@ Business development companies and commodity trusts land here most often.</p>
 <p><strong>Flag the filing. Say what is wrong. Do not adjust.</strong></p>
 
 <p>Then the honest part. Across three separate measurements of every testable
-filing I hold, the count of genuinely broken filings has been zero each time.
+filing we hold, the count of genuinely broken filings has been zero each time.
 Zero is the right answer for audited public companies, and worth stating
 precisely because it is the outcome most worth measuring: every gap that looked
-like a filer's error turned out to be a term I was not reading. So I have no
+like a filer's error turned out to be a term we were not reading. So we have no
 real example to show you, and inventing one would undo the point of the
 category.</p>
 
@@ -1404,10 +1404,10 @@ the filer's stated right-hand side where published, and the two extra terms.
 The function above is the whole of it.</p>
 
 <p>Then look at what does not fit. A filing whose failure is none of these five
-is the interesting result, and worth more to me than another confirmation of
-the categories I have. These five are the residue of what has broken so far,
+is the interesting result, and worth more to us than another confirmation of
+the categories we have. These five are the residue of what has broken so far,
 which is exactly the kind of list that stays incomplete without anybody
-noticing. Send me the ticker and the period and I will look.</p>
+noticing. Send us the ticker and the period and we will look.</p>
 """,
 )
 
@@ -1737,7 +1737,7 @@ finding about the company. If you mixed them, you have destroyed the evidence
 and produced a figure you cannot defend to anyone who asks where it came
 from.</p>
 
-<p>This is the same discipline that applies to the individual claim lines. I set
+<p>This is the same discipline that applies to the individual claim lines. We set
 out the five mechanisms that make a filing fail the identity check, and what the
 correct response is to each, in <a href="/blog/five-ways-a-balance-sheet-fails">The
 Five Ways a Balance Sheet Fails the Identity Check</a>.</p>
@@ -1953,13 +1953,13 @@ def render_index(*, nav: str = "") -> str:
 <main class="wrap" id="main">
   <header class="hero">
     <h1 class="htitle">SEC XBRL Data Notes</h1>
-    <p class="hlede">What I learned building a reconciler over every SEC
-      filing: the parts that surprised me, written down while they were still
+    <p class="hlede">What we learned building a reconciler over every SEC
+      filing: the parts that surprised us, written down while they were still
       surprising.</p>
   </header>
   <section class="sec">
     <p class="sec-sub">These are working notes rather than articles: each one
-      starts from something that broke while I was building
+      starts from something that broke while we were building
       <a href="/">BalanceProof</a> and works out why. Most of them are about XBRL,
       because XBRL is where the surprises are. A filing can report the same
       figure twenty-three times, all of them correct, and hand you the wrong

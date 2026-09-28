@@ -163,9 +163,10 @@ FORBIDDEN_WORDS: tuple[str, ...] = (
 )
 
 # Matched with spaces around them so "however" does not fire on "how ever" and
-# "us" does not fire inside "thus". The posts are written in the first person
-# singular: this is one author, and a corporate "we" here is a fiction.
-FORBIDDEN_PRONOUNS: tuple[str, ...] = (" we ", " our ", " ours ", " us ")
+# "me" does not fire inside "some". The posts are written in the first person
+# plural, as the company: a stray "I" or "my" is a draft that slipped back into
+# a personal voice the rest of the site no longer uses.
+FORBIDDEN_PRONOUNS: tuple[str, ...] = (" I ", " I'm ", " I've ", " my ", " me ", " mine ")
 
 # The style rules apply to posts written under them. They are NOT run over the
 # back catalogue, for one concrete reason: "why-bank-balance-sheets-are-
@@ -223,14 +224,14 @@ def test_no_post_uses_a_forbidden_word(client, slug):
 
 
 @pytest.mark.parametrize("slug", STYLED_SLUGS)
-def test_no_post_writes_in_the_first_person_plural(client, slug):
-    """One author. "We" is a company voice a one-person project has not
-    earned, and it is the tell that a draft was not written by the person
-    whose name is on it.
+def test_no_post_writes_in_the_first_person_singular(client, slug):
+    """One voice. The site speaks as the company ("we"), and a post that
+    drifts back into "I" reads as a different author from every page around
+    it.
 
-    Case-SENSITIVE, and that is not a detail: lowercasing first makes "a large
-    US bank" match the pronoun "us", so the check would fire on the country
-    and teach everyone to ignore it.
+    Case-SENSITIVE, with a capitalised second pass for sentence starts ("My",
+    "Me"). Space-delimited, so a shell flag like `-I` inside a code sample
+    does not read as the pronoun.
     """
     from src.report.blog import BY_SLUG
 
