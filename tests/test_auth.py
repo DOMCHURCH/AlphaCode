@@ -585,3 +585,42 @@ def test_the_homepage_shows_the_disclaimer(client):
     html = client.get("/").text
     assert "Not financial advice" in html
     assert 'class="disclaim"' in html
+
+
+def test_one_caller_cannot_spend_the_global_signup_budget(client, monkeypatch):
+    """The per-caller window trips before the global one, so a loop from one
+    address is stopped without locking out everybody else's sign-ups."""
+    from src import api
+
+    monkeypatch.setattr(api, "_register_ip_gate", api._KeyedRateGate(2, window_s=3600.0))
+    monkeypatch.setattr(api, "_email_ip_gate", api._KeyedRateGate(1, window_s=3600.0))
+    for i in range(2):
+        r = client.post(
+            "/api/auth/register",
+            json={"email": f"loop{i}@example.com", "accept_terms": True},
+        )
+        assert r.status_code == 201, r.text
+    r = client.post(
+        "/api/auth/register", json={"email": "loop9@example.com", "accept_terms": True}
+    )
+    assert r.status_code == 429
+    assert "Retry-After" in r.headers
+
+    assert client.post("/api/auth/magic-link", json={"email": "a@example.com"}).status_code == 200
+    assert client.post("/api/auth/magic-link", json={"email": "b@example.com"}).status_code == 429
+
+
+def test_admin_secret_guessing_is_throttled_per_caller(client, monkeypatch):
+    """Ten wrong secrets, then 429 -- even for the right one, until the window
+    passes. A correct secret before that is never slowed."""
+    monkeypatch.setenv("ADMIN_SECRET", "right-secret-for-this-test-only")
+    from src.config.settings import get_settings
+
+    get_settings.cache_clear()
+    ok = {"X-Admin-Secret": "right-secret-for-this-test-only"}
+    assert client.get("/api/admin/stats", headers=ok).status_code == 200
+    for _ in range(10):
+        r = client.get("/api/admin/stats", headers={"X-Admin-Secret": "guess"})
+        assert r.status_code == 403
+    assert client.get("/api/admin/stats", headers={"X-Admin-Secret": "guess"}).status_code == 429
+    assert client.get("/api/admin/stats", headers=ok).status_code == 429

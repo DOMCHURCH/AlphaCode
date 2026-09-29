@@ -484,6 +484,28 @@ async def redirect_trailing_slash(request: Request, call_next):
     return await call_next(request)
 
 
+# Private surfaces: the operator console, the signed-in pages, the sign-in
+# flow and every JSON endpoint. A header rather than only a <meta>, because
+# most of these answer JSON, which has nowhere to put a meta tag, and because
+# `/admin` is a static template that is easy to forget. It is not a lock --
+# the secret and the session are -- only an instruction not to list them.
+#
+# `/api/` with the slash: `/api` itself is the public API reference page.
+_NOINDEX_PREFIXES = (
+    "/admin", "/api/", "/auth/", "/dashboard", "/login", "/logout",
+    "/status", "/reconcile", "/backfill", "/download",
+)
+
+
+@app.middleware("http")
+async def noindex_private_paths(request: Request, call_next):
+    """`X-Robots-Tag: noindex, nofollow` on everything that is not a page."""
+    response = await call_next(request)
+    if request.url.path.startswith(_NOINDEX_PREFIXES):
+        response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return response
+
+
 # Every route is declared `@app.get`, which registers GET and nothing else, so
 # a HEAD arrived as a PARTIAL match and Starlette answered 405 -- on every URL
 # on the site. Bing probes with HEAD, so do link checkers, so do several
@@ -714,6 +736,23 @@ _seed_admin_gate = _KeyedRateGate(10, window_s=60.0)
 # genuinely different networks and compare. Do NOT spoof the header -- that
 # tests Railway's edge, not this code.
 _demo_ip_gate = _KeyedRateGate(100, window_s=3600.0)
+
+# Per caller, in FRONT of the global windows on the open auth POSTs. The
+# global caps bound total abuse, but on their own one script spends the whole
+# hour's budget and every real visitor after it gets a 429 -- twenty
+# registrations or thirty login links, from one address, and nobody else can
+# sign up until the window rolls. These keep one caller to a human's share.
+# Keyed the way `_demo_ip_gate` is (see the note above on how Railway sets
+# X-Forwarded-For); behind any other proxy, re-check that before trusting it.
+_register_ip_gate = _KeyedRateGate(
+    get_settings().register_ip_rate_per_hour, window_s=3600.0
+)
+_email_ip_gate = _KeyedRateGate(
+    get_settings().email_ip_rate_per_hour, window_s=3600.0
+)
+_login_ip_gate = _KeyedRateGate(
+    get_settings().login_ip_rate_per_hour, window_s=3600.0
+)
 
 
 def _enforce_keyed_rate(
@@ -2421,7 +2460,7 @@ def _caller_ip_hash(request: Request) -> str:
 
 
 @app.post("/api/auth/register", status_code=201)
-def api_register(body: RegisterRequest) -> JSONResponse:
+def api_register(body: RegisterRequest, request: Request) -> JSONResponse:
     """One email in, one API key out. Free tier, no payment, no confirmation.
 
     An address that already has a key gets 409 and NOT the key. Handing it back
@@ -2432,6 +2471,7 @@ def api_register(body: RegisterRequest) -> JSONResponse:
 
     # Before the write, and before the validity check, so a loop cannot probe
     # this endpoint for free by sending addresses it knows will be rejected.
+    _enforce_keyed_rate(_register_ip_gate, _caller_ip_hash(request), "registration")
     _enforce_rate(_register_gate, "registration")
 
     _require_terms(body.accept_terms)
@@ -2475,7 +2515,9 @@ class ResendRequest(BaseModel):
 
 
 @app.post("/api/auth/resend-key")
-def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
+def api_resend_key(
+    body: ResendRequest, tasks: BackgroundTasks, request: Request
+) -> JSONResponse:
     """Mail a sign-in link to somebody who has lost their key.
 
     It used to mail the key. It cannot any more, and that is not a
@@ -2499,6 +2541,7 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
     """
     from src import accounts, auth, demo, mailer
 
+    _enforce_keyed_rate(_email_ip_gate, _caller_ip_hash(request), "key recovery")
     _enforce_rate(_resend_gate, "key recovery")
 
     address = accounts.normalise_email(body.email)
@@ -2860,7 +2903,9 @@ def api_signin_prompt_answer(body: PromptAnswerRequest, request: Request) -> JSO
 
 
 @app.post("/api/auth/magic-link")
-def api_magic_link(body: MagicLinkRequest, tasks: BackgroundTasks) -> JSONResponse:
+def api_magic_link(
+    body: MagicLinkRequest, tasks: BackgroundTasks, request: Request
+) -> JSONResponse:
     """Email a one-time login link. Same reply whatever the address.
 
     Issued for addresses that have never registered too -- verifying the link
@@ -2871,6 +2916,7 @@ def api_magic_link(body: MagicLinkRequest, tasks: BackgroundTasks) -> JSONRespon
 
     if not auth.is_enabled():
         raise auth.LoginDisabled()
+    _enforce_keyed_rate(_email_ip_gate, _caller_ip_hash(request), "login links")
     _enforce_rate(_magic_link_gate, "login links")
 
     address = accounts.normalise_email(body.email)
@@ -3027,7 +3073,7 @@ def _uniform_login_failure() -> HTTPException:
 
 
 @app.post("/api/auth/login")
-def api_password_login(body: PasswordLogin) -> JSONResponse:
+def api_password_login(body: PasswordLogin, request: Request) -> JSONResponse:
     """Sign in with a password. Same cookie a magic link would have set."""
     from src import auth
 
@@ -3037,6 +3083,7 @@ def api_password_login(body: PasswordLogin) -> JSONResponse:
     # Global first, per-address second. The per-address cap is the anti-stuffing
     # control and does not bind somebody who varies the address; this one bounds
     # how much bcrypt a stranger can buy from the container in an hour.
+    _enforce_keyed_rate(_login_ip_gate, _caller_ip_hash(request), "sign-ins")
     _enforce_rate(_login_gate, "sign-ins")
     email = body.email.strip()
     if auth.login_attempts_remaining(email) <= 0:
@@ -3067,7 +3114,7 @@ def accounts_norm(email: str) -> str:
 
 
 @app.post("/api/auth/register-password", status_code=201)
-def api_register_password(body: PasswordLogin) -> JSONResponse:
+def api_register_password(body: PasswordLogin, request: Request) -> JSONResponse:
     """Create an account with a password and sign in immediately.
 
     409 on an existing address, for the same reason /register gives one: this
@@ -3079,6 +3126,7 @@ def api_register_password(body: PasswordLogin) -> JSONResponse:
 
     if not auth.is_enabled():
         raise auth.LoginDisabled()
+    _enforce_keyed_rate(_register_ip_gate, _caller_ip_hash(request), "registration")
     _enforce_rate(_register_gate, "registration")
 
     address = accounts.normalise_email(body.email)
@@ -3158,7 +3206,9 @@ def api_change_password(body: PasswordChange, request: Request) -> JSONResponse:
 
 
 @app.post("/api/auth/forgot-password")
-def api_forgot_password(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
+def api_forgot_password(
+    body: ResendRequest, tasks: BackgroundTasks, request: Request
+) -> JSONResponse:
     """Forgotten passwords are recovered with a magic link, not a reset token.
 
     Deliberately the same machinery as signing in: one token type, one expiry,
@@ -3167,7 +3217,7 @@ def api_forgot_password(body: ResendRequest, tasks: BackgroundTasks) -> JSONResp
     be secured all over again.
     """
     return api_magic_link(
-        MagicLinkRequest(email=body.email, accept_terms=True), tasks
+        MagicLinkRequest(email=body.email, accept_terms=True), tasks, request
     )
 
 

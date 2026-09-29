@@ -7,6 +7,7 @@ to hydrate, no half-loaded state.
 
 from __future__ import annotations
 
+import datetime as dt
 import re
 from html import escape
 
@@ -435,9 +436,15 @@ def _company_meta(d: dict[str, Any]) -> str:
     #
     # The name is built LAST, against whatever the rest of the sentence left,
     # so the bound holds however wide the figure prints.
+    # The closing claim is only made when it is true: a filing that does not
+    # balance says so rather than carrying a "Checked" it failed.
+    check = (
+        "Checked: A = L + E." if d.get("balances", True)
+        else "Does not balance as filed."
+    )
     rest = (
         f" ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
-        f"scale.{size} As filed. Verified against A = L + E."
+        f"scale.{size} As filed. {check}"
     )
     # What searchers actually type is "<company> net worth", "total assets",
     # "liabilities" (Search Console, 2026-09-25: EMED ranked ~4 for "emed net
@@ -448,7 +455,7 @@ def _company_meta(d: dict[str, Any]) -> str:
         rest = (
             f" ({d['ticker']}) net worth {_snippet_money(equity)}: total assets "
             f"{_snippet_money(total)}, liabilities {_snippet_money(liab)}, as filed "
-            f"{d['period_end']}. Checked: A = L + E."
+            f"{d['period_end']}. {check}"
         )
     desc = fit_name(name, _DESC_LIMIT - len(rest)) + rest
     url = f"{SITE_ORIGIN}/company/{d['ticker']}"
@@ -533,6 +540,57 @@ def fit_name(name: str, budget: int) -> str:
     if not cut or len(cut) >= budget:
         cut = out[:budget - 1].rstrip(" ,.&-")
     return cut + "\u2026"
+
+
+# The company page's own budget. Longer than the site's 60 on purpose: the
+# figures searched for ("total assets", "liabilities", "equity") are worth
+# more than the brand suffix, and a search engine that cuts the tail still
+# indexes it. The ladder below spends it in order of value.
+_COMPANY_TITLE_LIMIT = 70
+
+
+def company_title(name: str | None, ticker: str, period_end: Any = None) -> str:
+    """`{Name} ({T}) Balance Sheet: Total Assets, Liabilities & Equity, {Mon YYYY}`.
+
+    The longest form that fits `_COMPANY_TITLE_LIMIT` with the name uncut
+    (legal form and state marker still dropped, as `fit_name` does). A long
+    name steps down to the shorter forms before it is ever truncated; only
+    past the last one is it cut, on a word boundary.
+
+    The period is the month and year of the balance-sheet date, not "Q2":
+    filers' fiscal quarters are not calendar quarters, and a 10-K's period is
+    a year end.
+
+    No name on file: the ticker once, not "AAPL (AAPL)". No period: dropped.
+    """
+    ticker = str(ticker or "").strip()
+    when = ""
+    if period_end:
+        try:
+            date = (period_end if isinstance(period_end, dt.date)
+                    else dt.date.fromisoformat(str(period_end)[:10]))
+            when = f", {date:%b %Y}"
+        except ValueError:
+            when = ""
+    ladder = (
+        f" Balance Sheet: Total Assets, Liabilities & Equity{when}",
+        f" Balance Sheet: Assets, Liabilities & Equity{when}",
+        f" Balance Sheet{when}",
+    )
+    raw = (name or "").strip()
+    if not raw or fit_name(raw, 999).upper() == ticker.upper():
+        for tail in ladder:
+            if len(ticker) + len(tail) <= _COMPANY_TITLE_LIMIT:
+                return ticker + tail
+        return ticker + ladder[-1]
+    tag = f" ({ticker})"
+    for tail in ladder:
+        budget = _COMPANY_TITLE_LIMIT - len(tag) - len(tail)
+        short = fit_name(raw, budget)
+        if len(short) <= budget and not short.endswith("\u2026"):
+            return short + tag + tail
+    tail = ladder[-1]
+    return fit_name(raw, _COMPANY_TITLE_LIMIT - len(tag) - len(tail)) + tag + tail
 
 
 def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
@@ -750,7 +808,7 @@ def render_company_page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(title_name(d["company_name"] or d["ticker"], str(d["ticker"])))} ({escape(d["ticker"])}) Balance Sheet — BalanceProof</title>
+<title>{escape(company_title(d["company_name"], str(d["ticker"]), d["period_end"]))}</title>
 {_company_meta(d)}
 {_robots_meta(view)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">

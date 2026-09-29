@@ -479,6 +479,18 @@ class Settings(BaseSettings):
     # over millions of rows, so the thing to stop is a tight loop rather than a
     # daily budget. Ten is far above a human refreshing a status page and
     # immediately below a script. 0 disables, like the others.
+    # Per CALLER, checked before the global windows above, so one script cannot
+    # spend the whole hour's budget and 429 every real visitor behind it.
+    # Read once at startup. 0 disables, like the others.
+    register_ip_rate_per_hour: int = Field(
+        default=3, ge=0, alias="REGISTER_IP_RATE_PER_HOUR"
+    )
+    email_ip_rate_per_hour: int = Field(
+        default=5, ge=0, alias="EMAIL_IP_RATE_PER_HOUR"
+    )
+    login_ip_rate_per_hour: int = Field(
+        default=30, ge=0, alias="LOGIN_IP_RATE_PER_HOUR"
+    )
     status_rate_per_min: int = Field(
         default=10, ge=0, alias="STATUS_RATE_PER_MIN"
     )

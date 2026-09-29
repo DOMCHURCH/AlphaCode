@@ -27,6 +27,7 @@ import datetime as dt
 import hashlib
 import re
 import secrets
+import time
 from dataclasses import dataclass
 from typing import Literal
 
@@ -914,6 +915,27 @@ def require_paid_download(account: Account) -> None:
 # Admin: the manual grant switch
 # ---------------------------------------------------------------------------
 
+# Wrong admin secrets per source, in process memory. Only FAILURES count, so
+# the operator typing the right secret is never slowed; a caller guessing gets
+# ten tries per fifteen minutes and then a 429 before any comparison is made.
+_ADMIN_FAIL_LIMIT = 10
+_ADMIN_FAIL_WINDOW_S = 900.0
+_admin_failures: dict[str, list[float]] = {}
+
+
+def _admin_failures_recent(key: str, now: float) -> int:
+    hits = [t for t in _admin_failures.get(key, []) if now - t < _ADMIN_FAIL_WINDOW_S]
+    if hits:
+        _admin_failures[key] = hits
+    else:
+        _admin_failures.pop(key, None)
+    return len(hits)
+
+
+def reset_admin_failures() -> None:
+    _admin_failures.clear()
+
+
 def verify_admin_secret(supplied: str | None, ip_hash: str | None = None) -> None:
     """Gate for the grant endpoint. Fails CLOSED when unconfigured.
 
@@ -933,6 +955,15 @@ def verify_admin_secret(supplied: str | None, ip_hash: str | None = None) -> Non
                 "(ADMIN_SECRET is unset), so nothing can be granted."
             ),
         )
+    key = ip_hash or "-"
+    now = time.monotonic()
+    if _admin_failures_recent(key, now) >= _ADMIN_FAIL_LIMIT:
+        log.warning("admin_secret_throttled", ip_hash=ip_hash)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many wrong admin secrets. Try again later.",
+            headers={"Retry-After": str(int(_ADMIN_FAIL_WINDOW_S))},
+        )
     # `compare_digest` on str raises TypeError the moment either side is not
     # ASCII, so a non-ASCII header used to be a 500 rather than a 403 -- an
     # unhandled crash on the authentication path, reachable by anybody. Compare
@@ -944,6 +975,9 @@ def verify_admin_secret(supplied: str | None, ip_hash: str | None = None) -> Non
     except (UnicodeError, TypeError):
         ok = False
     if not ok:
+        if len(_admin_failures) > 10_000:
+            _admin_failures.clear()
+        _admin_failures.setdefault(key, []).append(now)
         _write_admin_action(
             email="-", action="auth", ok=False,
             ip_hash=ip_hash, detail="bad or missing X-Admin-Secret",

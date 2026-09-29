@@ -140,6 +140,10 @@ def render_signin_prompt(
     each of them is sixteen chances to add it to fifteen. It is
     `position: fixed`, so where it sits in the document does not matter.
 
+    NOT A MODAL. It is a card in the corner (a short bottom sheet on a
+    phone) with no backdrop: the page behind it stays readable, scrollable and
+    clickable, and focus is left where the reader had it.
+
     THE MARKUP IS THE SAME FOR EVERY READER. Whether it is shown is decided in
     the browser by `nav.js` from `/api/signin-prompt`, because these pages come
     out of a process-wide cache -- a panel rendered visible for one visitor
@@ -154,23 +158,17 @@ def render_signin_prompt(
     """
     if signed_in or not login_enabled or active in {"login", "dashboard"}:
         return ""
-    from src.config.settings import get_settings, price_label
+    from src.config.settings import get_settings
 
     s = get_settings()
     calls = f"{s.free_tier_monthly_calls:,}"
-    pro = escape(price_label(s.pro_price_usd))
-    half = escape(price_label(
-        round(s.pro_price_usd * (100 - s.signin_offer_percent) / 100, 2)
-    ))
-    # Two views in one sheet. `sp-ask` is the offer of a free account;
-    # `sp-deal` is shown once, in its place, when a reader says no -- and only
-    # if `/api/signin-prompt` reports an offer, since the code and its label
-    # are read at runtime (these pages are cached, a code rendered into them
-    # would outlive a change to it). The mini drawing is the site's own mark:
-    # owns on the left, owed and owned on the right, in the data colours.
+    # One view: the offer of a free account. "Not now", the X and Escape all
+    # close it and it stays closed -- no discount step in between. The mini
+    # drawing is the site's own mark: owns on the left, owed and owned on the
+    # right, in the data colours.
     return f"""
 <div class="sp-wrap" id="signin-prompt" hidden>
-  <div class="sp-sheet" role="dialog" aria-modal="true"
+  <div class="sp-sheet" role="dialog" aria-modal="false"
     aria-labelledby="sp-title" aria-describedby="sp-lede">
     <button type="button" class="sp-x" id="sp-close" aria-label="Close">
       <span aria-hidden="true">&times;</span>
@@ -206,24 +204,6 @@ def render_signin_prompt(
       <div class="sp-foot">
         <span>Have an account? <a href="/login">Sign in</a></span>
         <button type="button" class="sp-no" id="sp-no">Not now</button>
-      </div>
-    </div>
-
-    <div class="sp-view" id="sp-deal" hidden>
-      <p class="sp-eyebrow">Before you go</p>
-      <h2 id="sp-deal-title">{escape(s.signin_offer_label)}</h2>
-      <p class="sp-lede">Pro is 10,000 calls a month for building on the
-        data: dashboards, screens, anything that has to stay current.</p>
-      <p class="sp-price"><s>{pro}</s> <b>{half}</b> <span>first month,
-        then {pro}/month. Cancel any time, 14-day refund.</span></p>
-      <a class="btn sp-claim" id="sp-claim"
-        href="/login?next=%2Fdashboard%3Fplan%3Dpro%23billing">Claim the
-        discount</a>
-      <p class="sp-fine">This offer is only on this page and is shown once.
-        Leave and it is gone. Claim it and it is applied for you at checkout
-        for the next hour.</p>
-      <div class="sp-foot"><span></span>
-        <button type="button" class="sp-no" id="sp-no-deal">No thanks</button>
       </div>
     </div>
   </div>

@@ -31,6 +31,10 @@ export const SERVER_ENV: Record<string, string> = {
   LOGIN_RATE_PER_HOUR: '1000',
   MAGIC_LINK_RATE_PER_HOUR: '1000',
   RESEND_RATE_PER_HOUR: '1000',
+  // Per-caller limits: the whole suite is one address.
+  REGISTER_IP_RATE_PER_HOUR: '0',
+  EMAIL_IP_RATE_PER_HOUR: '0',
+  LOGIN_IP_RATE_PER_HOUR: '0',
   // Off on purpose. With no key the mailer reports itself unconfigured and
   // never reaches the network, so a test run cannot send mail to anybody.
   AGENTMAIL_API_KEY: '',

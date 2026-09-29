@@ -114,11 +114,12 @@ def test_a_stale_showing_cannot_be_claimed(client):
     assert client.post("/api/signin-offer/claim").status_code == 410
 
 
-def test_the_panel_prints_the_discounted_price_from_the_percent(client):
+def test_the_panel_has_no_discount_step(client):
+    """"Not now" closes the panel. There is no second "Before you go" view."""
     html = client.get("/").text
-    sheet = html.split('id="signin-prompt"', 1)[1]
-    assert 'id="sp-deal"' in sheet and 'id="sp-no"' in sheet
-    assert "<s>$49</s> <b>$24.50</b>" in sheet
+    sheet = html.split('id="signin-prompt"', 1)[1].split("</nav>", 1)[0]
+    assert 'id="sp-no"' in sheet
+    assert 'id="sp-deal"' not in sheet and "Before you go" not in sheet
 
 
 # --- checkout ----------------------------------------------------------------

@@ -91,14 +91,16 @@
 
   function closePrompt() {
     if (!_prompt || _prompt.hidden) return;
+    /* Focus goes back only if the reader had moved it into the card; the
+       card never took it, so there is otherwise nothing to give back. */
+    var inside = _prompt.contains(document.activeElement);
     _prompt.hidden = true;
-    document.removeEventListener("keydown", onPromptKey, true);
-    if (_opener && _opener.focus) _opener.focus();
+    if (inside && _opener && _opener.focus) _opener.focus();
   }
 
-  /* Escape and the backdrop are both "no", the same as the X. A dialog with
-     one way out is a trap, and this one is an offer -- it should be easier to
-     leave than to accept. */
+  /* Escape is "no", the same as the X and "Not now". The card is not a
+     modal, so there is no backdrop to click and no focus trap: the page
+     behind it stays usable the whole time. */
   function dismissPrompt(state) {
     /* Guarded because Escape stays wired to the document after the panel
        closes. Without this, every later Escape rewrites the watermark -- and
@@ -106,17 +108,8 @@
        hundred away, so a reader who likes pressing Escape would never be
        asked again. */
     if (!_prompt || _prompt.hidden) return;
-    /* The first "no" is answered with the discount -- once per address,
-       ever, which the server decides (it reserves the showing before it is
-       drawn). The second "no", from the discount view, is the real no. */
-    if (state.offer && !_dealShown) {
-      _dealShown = true;
-      post("/api/signin-offer/show").then(function (r) { return r.json(); })
-        .then(function (j) { if (j && j.show) showDeal(state); else finalNo(state); })
-        .catch(function () { finalNo(state); });
-      return;
-    }
-    if (_dealOpen && !_claimed) forfeit();
+    /* One "no" is the answer. No second step, no counter-offer: it closes,
+       and it is remembered here and on the server. */
     finalNo(state);
   }
 
@@ -124,26 +117,6 @@
     writeStore(STORE_KEY, String(state.count + state.interval));
     answer("no", state.count);
     closePrompt();
-  }
-
-  var _dealShown = false;
-  var _dealOpen = false;
-  var _claimed = false;
-
-  function post(url) {
-    return window.fetch(url, {
-      method: "POST", credentials: "same-origin", keepalive: true
-    });
-  }
-
-  /* Leaving the page without claiming ends the offer for good. */
-  function forfeit() {
-    if (_claimed) return;
-    _dealOpen = false;
-    try {
-      if (navigator.sendBeacon) { navigator.sendBeacon("/api/signin-offer/forfeit"); return; }
-    } catch (e) { /* fall through */ }
-    try { post("/api/signin-offer/forfeit").catch(function () {}); } catch (e) {}
   }
 
   /* The address's answer, kept on the server as well as here, so a "no" on a
@@ -160,56 +133,9 @@
     } catch (e) { /* no fetch, no memory */ }
   }
 
-  function showDeal(state) {
-    var ask = $("sp-ask");
-    var deal = $("sp-deal");
-    var claim = $("sp-claim");
-    var sheet = _prompt.querySelector(".sp-sheet");
-    if (!ask || !deal) { finalNo(state); return; }
-    ask.hidden = true;
-    deal.hidden = false;
-    _dealOpen = true;
-    window.addEventListener("pagehide", function () { if (_dealOpen) forfeit(); });
-    if (sheet) sheet.setAttribute("aria-labelledby", "sp-deal-title");
-    if (claim) {
-      claim.focus();
-      claim.addEventListener("click", function (ev) {
-        /* The server sets the claim cookie and starts the clock; only then
-           follow the link. If the claim is refused the reader still goes to
-           sign in, at full price, rather than being stuck on a dead button. */
-        ev.preventDefault();
-        var href = claim.getAttribute("href");
-        _claimed = true;
-        writeStore(STORE_KEY, "yes");
-        answer("yes", state.count);
-        post("/api/signin-offer/claim")
-          .catch(function () {})
-          .then(function () { window.location.href = href; });
-      });
-    }
-  }
-
-  function onPromptKey(ev) {
-    if (ev.key !== "Tab") return;
-    /* Only what is on screen: the sheet holds two views and the hidden one's
-       controls are still in the DOM. */
-    var f = Array.prototype.filter.call(_prompt.querySelectorAll(
-      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-    ), function (el) { return el.offsetParent !== null; });
-    if (!f.length) return;
-    var lo = f[0];
-    var hi = f[f.length - 1];
-    if (ev.shiftKey && (document.activeElement === lo || !_prompt.contains(document.activeElement))) {
-      ev.preventDefault(); hi.focus();
-    } else if (!ev.shiftKey && document.activeElement === hi) {
-      ev.preventDefault(); lo.focus();
-    }
-  }
-
   function showPrompt(state) {
     _opener = document.activeElement;
     _prompt.hidden = false;
-    document.addEventListener("keydown", onPromptKey, true);
 
     var close = $("sp-close");
     var note = $("sp-note");
@@ -217,20 +143,15 @@
     var email = $("sp-email");
     var send = $("sp-send");
 
-    /* The sheet is aria-modal, so assistive technology is now being told the
-       rest of the page does not exist. Leaving focus out there would strand a
-       screen-reader user in content their reader has just hidden. Focus goes
-       to the CLOSE button rather than the email field: the first thing offered
-       should be the way out, and landing in a text input reads as a demand. */
-    if (close) close.focus();
+    /* Focus is NOT moved. The card is not modal, and pulling focus out of
+       the article a reader is in the middle of -- or scrolling a phone to an
+       input -- is the interruption this change exists to remove. The card is
+       announced politely instead (role=dialog, aria-modal=false). */
 
     if (close) close.addEventListener("click", function () { dismissPrompt(state); });
-    ["sp-no", "sp-no-deal"].forEach(function (id) {
+    ["sp-no"].forEach(function (id) {
       var b = $(id);
       if (b) b.addEventListener("click", function () { dismissPrompt(state); });
-    });
-    _prompt.addEventListener("click", function (ev) {
-      if (ev.target === _prompt) dismissPrompt(state);
     });
     document.addEventListener("keydown", function (ev) {
       if (ev.key === "Escape" && !_prompt.hidden) dismissPrompt(state);

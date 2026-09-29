@@ -823,17 +823,19 @@ footer {
 
    It sits above the nav (z-index 200, matching the dashboard's paywall sheet)
    because a dialog under the bar that opened it is a dialog you cannot reach. */
+/* A card in the corner, not a modal: no backdrop, nothing behind it dimmed
+   or blocked, and the page keeps scrolling and taking clicks. The wrapper
+   passes pointer events through; only the card itself takes them. */
 .sp-wrap {
   position: fixed;
-  inset: 0;
+  right: 16px;
+  bottom: 16px;
   z-index: 200;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
-  background: rgba(10, 12, 24, .55);
+  width: min(420px, calc(100vw - 32px));
+  pointer-events: none;
   animation: sp-in .18s ease-out;
 }
+.sp-wrap[hidden] { display: none; }
 /* The same panel as `.trust` and `.plans` -- lit edge, lift, the site's panel
    fill -- so it reads as one more card from this site and not as a stock
    modal dropped on top of it. Opaque (e2e/signin-prompt.mjs asserts it) and
@@ -842,8 +844,15 @@ footer {
    that is only up for a few seconds. */
 .sp-sheet {
   position: relative;
+  pointer-events: auto;
   width: 100%;
   max-width: 440px;
+  /* Never taller than the screen: whatever does not fit scrolls inside the
+     card, so the X and "Not now" can always be reached. */
+  max-height: calc(100vh - 32px);
+  max-height: calc(100dvh - 32px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: rgb(20, 22, 34);
   border: 1px solid var(--edge);
   border-radius: var(--r2);
@@ -1103,6 +1112,26 @@ main .company-filings {
 .sp-terms { display: flex; gap: 8px; align-items: flex-start; margin: 10px 0 2px;
   font-size: 13px; color: var(--ink2); line-height: 1.4; }
 .sp-terms input { margin-top: 2px; }
+
+/* Phones, and any short screen (a phone on its side): a short sheet along
+   the bottom edge, capped at 45% of the screen so the article stays readable
+   above it. The decorative mark and the perk list go -- the heading and the
+   field say what is on offer. */
+@media (max-width: 560px), (max-height: 500px) {
+  .sp-wrap { left: 0; right: 0; bottom: 0; width: auto; }
+  .sp-sheet {
+    max-width: none;
+    max-height: 45vh;
+    max-height: 45dvh;
+    padding: 16px 16px 12px;
+    border-radius: var(--r2) var(--r2) 0 0;
+    border-bottom: 0;
+  }
+  .sp-mark, .sp-perks, .sp-fine { display: none; }
+  .sp-sheet h2 { font-size: 19px; margin-bottom: 6px; }
+  .sp-lede { margin-bottom: 10px; font-size: 14px; }
+  .sp-x { top: 4px; right: 4px; }
+}
 
 /* A code sample scrolls inside its own box. Without this the curl example on
    /pricing pushed the whole page 32px past a 390px phone (2026-09-24). */

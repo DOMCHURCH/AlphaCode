@@ -564,28 +564,30 @@ def test_the_home_page_carries_a_quotable_definition(client):
     assert 'href="/about"' in body, "one visible route to the About page"
 
 
-def test_admin_is_reachable_from_the_front_door_and_nowhere_else(client):
-    """It is not part of the product, so it is a footnote rather than a nav
-    item -- but it has to be reachable from the UI.
+def test_admin_is_linked_from_no_public_page(client):
+    """The operator console is not part of the product and is not advertised.
 
-    ONE footnote, on the home page. It used to sit on every company page as
-    well: 6,167 crawlable links to a URL robots.txt disallows, from the page
-    type search traffic actually lands on. `nofollow`, because a crawler
-    following it learns nothing and the link is for a person who knows what
-    they are looking for.
+    It used to be a footnote on the home page (and before that on all 6,167
+    company pages). The operator knows the URL; a public link only tells every
+    reader and crawler where the console is.
     """
     _seed("JPM", _drawable(), sector="Financials")
 
     home = client.get("/").text
     company = client.get("/company/JPM").text
 
-    foot = home.split("<footer>", 1)[1]
-    assert 'href="/admin"' in foot, "no way to admin from the home page"
-    assert 'rel="nofollow"' in foot
+    assert 'href="/admin"' not in home, "an admin link on the home page"
+    assert 'href="/admin"' not in company, "an admin link on a company page"
 
-    assert 'href="/admin"' not in company, "an admin link on every company page"
-    # And not in the nav, where it would compete with the product.
-    assert 'href="/admin"' not in home.split("<nav>", 1)[1].split("</nav>", 1)[0]
+
+def test_private_paths_carry_noindex_header(client):
+    """X-Robots-Tag on private paths; none on public pages or the /api docs."""
+    for path in ("/admin", "/dashboard", "/login", "/api/signin-prompt"):
+        r = client.get(path)
+        assert r.headers.get("x-robots-tag") == "noindex, nofollow", path
+    assert '<meta name="robots" content="noindex, nofollow">' in client.get("/admin").text
+    for path in ("/", "/api", "/pricing"):
+        assert "x-robots-tag" not in client.get(path).headers, path
 
 
 def test_the_landing_page_states_its_scale_above_the_fold(client):

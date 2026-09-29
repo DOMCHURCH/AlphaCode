@@ -10,6 +10,11 @@ import pytest
 os.environ.setdefault("DATABASE_URL", "sqlite:///:memory:")
 os.environ.setdefault("ENV", "dev")
 os.environ.setdefault("SEC_USER_AGENT", "AlphaFunnel Test test@example.com")
+# Per-caller auth limits off: every TestClient request comes from one address,
+# and many tests register more accounts than one person would in an hour.
+os.environ.setdefault("REGISTER_IP_RATE_PER_HOUR", "0")
+os.environ.setdefault("EMAIL_IP_RATE_PER_HOUR", "0")
+os.environ.setdefault("LOGIN_IP_RATE_PER_HOUR", "0")
 
 from sqlalchemy import create_engine  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
@@ -39,6 +44,9 @@ def _clean_identity_cache():
         reset_identity_cache()
         reset_counts_cache()
         reset_panels_cache()
+        from src.accounts import reset_admin_failures
+
+        reset_admin_failures()
         # `/status` is capped at ten a minute and the gate is module state, so
         # without this the budget is shared by the WHOLE SESSION: the eleventh
         # test to read /status gets a 429 and reports it as a missing key.

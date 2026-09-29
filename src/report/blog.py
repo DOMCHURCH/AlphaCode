@@ -1595,15 +1595,16 @@ usually find out about after they ship.</p>
 
 _POST_SUBMISSIONS_API = Post(
     slug="sec-submissions-api-reconciliation",
-    title="The SEC Submissions API: What It Returns, and What It Cannot Reconcile",
-    # 56 characters. The query this answers was already reaching the site
+    title="SEC EDGAR Submissions API vs Company Facts: How to Join Them",
+    # 60 characters. The query this answers was already reaching the site
     # ("sec edgar submissions api filing reconciliation", position 41) with no
-    # page that was about it.
-    seo_title="The SEC Submissions API Cannot Reconcile a Balance Sheet",
+    # page that was about it; "vs Company Facts" names the other endpoint the
+    # reader is choosing between.
+    seo_title="SEC EDGAR Submissions API vs Company Facts: How to Join Them",
     description=(
-        "The EDGAR submissions endpoint lists filings but holds no figures. "
-        "How to join it to company facts on the right key, and why amendments "
-        "break it."
+        "EDGAR submissions lists filings but holds no figures. Python code "
+        "to join it to company facts by period and accession number, and why "
+        "amendments break it."
     ),
     summary=(
         "Submissions is an index of documents and company facts is a bag of "

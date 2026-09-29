@@ -644,7 +644,34 @@ def test_the_page_title_fits_and_the_heading_does_not_change(db):
     import re as _re
 
     title = _re.search(r"<title>(.*?)</title>", html).group(1)
-    assert len(title) <= 60, f"{len(title)}: {title}"
-    assert title.startswith("HORNBECK OFFSHORE\u2026 (HLX)")
+    assert len(title) <= 70, f"{len(title)}: {title}"
+    # The legal form goes; the name is not cut while a shorter form fits.
+    assert title.startswith("HORNBECK OFFSHORE SERVICES (HLX) Balance Sheet")
     # The heading is untouched.
     assert "<h1 class=\"cname\">HORNBECK OFFSHORE SERVICES, INC.</h1>" in html
+
+
+def test_company_title_ladder():
+    """Longest form that fits 70 with the name uncut; ticker once when there
+    is no name; the period dropped when unknown."""
+    import datetime as dt
+
+    from src.report.company_page import company_title
+
+    june = dt.date(2026, 6, 30)
+    assert company_title("Apple Inc.", "AAPL", june) == (
+        "Apple (AAPL) Balance Sheet: Assets, Liabilities & Equity, Jun 2026"
+    )
+    assert company_title("HP Inc.", "HP", june) == (
+        "HP Balance Sheet: Total Assets, Liabilities & Equity, Jun 2026"
+    )
+    assert company_title("JPMORGAN CHASE & CO", "JPM", june) == (
+        "JPMORGAN CHASE (JPM) Balance Sheet, Jun 2026"
+    )
+    assert company_title(None, "AVB", june).startswith("AVB Balance Sheet")
+    assert "(AVB)" not in company_title("AVB", "AVB", june)
+    assert company_title("Apple Inc.", "AAPL", None).endswith("Liabilities & Equity")
+    long = "PERUSAHAAN PERSEROAN PERSERO PT TELEKOMUNIKASI INDONESIA TBK"
+    t = company_title(long, "TLK", june)
+    assert len(t) <= 70 and t.endswith("(TLK) Balance Sheet, Jun 2026")
+    assert "\u2026" in t
