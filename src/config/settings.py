@@ -336,6 +336,11 @@ class Settings(BaseSettings):
     # Optional. Pins the mailbox to send from; with this unset the service
     # creates one under a stable client_id and reuses it across restarts.
     agentmail_inbox_id: str = Field(default="", alias="AGENTMAIL_INBOX_ID")
+    # Resend sends from our own domain (DKIM-signed for balanceproof.dev), so the
+    # sender reads "BalanceProof" and not a shared agentmail.to inbox. When this
+    # is set it wins; AgentMail stays as the fallback until it is removed.
+    resend_api_key: str = Field(default="", alias="RESEND_API_KEY")
+    mail_from: str = Field(default="BalanceProof <login@balanceproof.dev>", alias="MAIL_FROM")
     # A registered address is a target: without a ceiling, "resend my key"
     # is a free email cannon pointed at whoever signed up.
     resend_rate_per_hour: int = Field(
@@ -496,6 +501,7 @@ class Settings(BaseSettings):
         "demo_api_key",
         "admin_secret",
         "agentmail_api_key",
+        "resend_api_key",
         "stripe_secret_key",
         "stripe_webhook_secret",
         "stripe_price_dataset",

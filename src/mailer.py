@@ -49,7 +49,38 @@ _inbox_id: str | None = None
 
 
 def is_configured() -> bool:
-    return bool(get_settings().agentmail_api_key)
+    s = get_settings()
+    return bool(s.resend_api_key or s.agentmail_api_key)
+
+
+_RESEND_URL = "https://api.resend.com/emails"
+
+
+def _resend_send(to: str, *, subject: str, text: str, reply_to: str | None = REPLY_TO) -> bool | None:
+    """Send through Resend. None when Resend is not configured (use AgentMail),
+    otherwise True/False for accepted/failed. Never raises."""
+    s = get_settings()
+    if not s.resend_api_key:
+        return None
+    import httpx
+
+    body = {"from": s.mail_from, "to": [to], "subject": subject, "text": text}
+    if reply_to:
+        body["reply_to"] = reply_to
+    try:
+        r = httpx.post(
+            _RESEND_URL,
+            json=body,
+            headers={"Authorization": f"Bearer {s.resend_api_key}"},
+            timeout=_TIMEOUT_S,
+        )
+    except Exception as exc:  # noqa: BLE001 - a failed send is a log line
+        log.warning("resend_send_failed", to=to, error=type(exc).__name__)
+        return False
+    if r.status_code >= 300:
+        log.warning("resend_send_failed", to=to, status=r.status_code, error=r.text[:300])
+        return False
+    return True
 
 
 def reset_inbox_cache() -> None:
@@ -223,6 +254,12 @@ def _send(email: str, *, subject: str, text: str, event: str) -> bool:
     nobody to report to, and a failed send must not surface as an unhandled
     exception in a worker thread.
     """
+    sent = _resend_send(email, subject=subject, text=text)
+    if sent is not None:
+        if sent:
+            log.info(event, to=email, via="resend")
+        return sent
+
     client = _client()
     if client is None:
         log.info("agentmail_unconfigured", to=email)
@@ -284,6 +321,19 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
     a stranger's address into the login box causes mail to that stranger, and
     they are owed an explanation rather than a bare link.
     """
+    body = (
+        "Click here to log in to BalanceProof:\n\n"
+        f"    {url}\n\n"
+        f"This link expires in {ttl_minutes} minutes and can be used once.\n\n"
+        "If you didn't request this, you can safely ignore this email -- no "
+        "account was created and nothing has changed.\n"
+    )
+    sent = _resend_send(email, subject="Log in to BalanceProof", text=body)
+    if sent is not None:
+        if sent:
+            log.info("agentmail_link_sent", to=email, via="resend")
+        return sent
+
     client = _client()
     if client is None:
         log.info("agentmail_unconfigured", to=email)
@@ -293,13 +343,6 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
         log.warning("agentmail_no_inbox", to=email)
         return False
 
-    body = (
-        "Click here to log in to BalanceProof:\n\n"
-        f"    {url}\n\n"
-        f"This link expires in {ttl_minutes} minutes and can be used once.\n\n"
-        "If you didn't request this, you can safely ignore this email -- no "
-        "account was created and nothing has changed.\n"
-    )
     try:
         client.inboxes.messages.send(
             inbox_id,

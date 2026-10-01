@@ -325,7 +325,7 @@ def test_the_mail_body_carries_a_link_and_not_a_key(monkeypatch):
     # The mail that used to go out had a live credential in it, in plain text,
     # in an inbox, forever. It cannot now: there is no key to put in it.
     assert "X-API-Key" not in sent["text"]
-    assert sent["reply_to"] == "owner@example.com"
+    assert sent["reply_to"] == "support@balanceproof.dev"  # never the owner's personal inbox
     get_settings.cache_clear()
     mailer.reset_inbox_cache()
 
