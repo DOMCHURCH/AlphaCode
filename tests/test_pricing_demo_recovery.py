@@ -266,7 +266,7 @@ def test_recovery_says_so_when_email_is_not_configured(client):
     r = client.post("/api/auth/resend-key", json={"email": "lost@example.com", "accept_terms": True})
     assert r.status_code == 503
     assert r.json()["sent"] is False
-    assert "owner@example.com" in r.json()["detail"]
+    assert "support@balanceproof.dev" in r.json()["detail"]
 
 
 def test_one_address_cannot_be_mailed_repeatedly(client, monkeypatch):

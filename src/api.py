@@ -2503,7 +2503,7 @@ def api_resend_key(body: ResendRequest, tasks: BackgroundTasks) -> JSONResponse:
 
     address = accounts.normalise_email(body.email)
     s = get_settings()
-    where = s.admin_email or "the site owner"
+    where = "support@balanceproof.dev"  # public address, never ADMIN_EMAIL (personal inbox)
 
     # Two different outages with two different explanations. Both end in 503
     # and both say who to contact, but "we cannot send email" and "this
@@ -2878,11 +2878,11 @@ def api_magic_link(body: MagicLinkRequest, tasks: BackgroundTasks) -> JSONRespon
         {"message": "If that email exists, a magic link has been sent"}
     )
     if not mailer.is_configured():
-        where = get_settings().admin_email or "the site owner"
+        # Public support address, never ADMIN_EMAIL (the owner's personal inbox).
         return JSONResponse(
             status_code=503,
             content={
-                "message": f"Email is not configured. Contact {where} to sign in."
+                "message": f"Email is not configured. Contact {mailer.REPLY_TO} to sign in."
             },
         )
     # The shared demo account is not a person and has no inbox. Barring it here

@@ -219,7 +219,7 @@ def test_the_download_is_402_until_it_is_paid_for(client):
     r = client.get("/api/download-dataset", headers={"X-API-Key": key})
     assert r.status_code == 402
     # The refusal has to say how to fix it, and to whom.
-    assert "owner@example.com" in r.json()["detail"]
+    assert "support@balanceproof.dev" in r.json()["detail"]
 
 
 def test_granting_the_download_opens_it_and_revoking_shuts_it(client):

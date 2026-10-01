@@ -890,7 +890,7 @@ def require_paid_download(account: Account) -> None:
     from src.config.settings import price_label
 
     s = get_settings()
-    where = s.admin_email or "the site owner"
+    where = "support@balanceproof.dev"  # public address, never ADMIN_EMAIL (personal inbox)
     # `price_label`, never an f-string on the number: the dataset is $79.99 and
     # a bare interpolation of a rounded value quotes a price Stripe does not
     # charge -- in a 402 whose whole job is to say what it costs.

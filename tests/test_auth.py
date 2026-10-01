@@ -314,7 +314,7 @@ def test_login_says_so_when_email_is_not_configured(client, monkeypatch):
     get_settings.cache_clear()
     r = client.post("/api/auth/magic-link", json={"email": "user@example.com", "accept_terms": True})
     assert r.status_code == 503
-    assert "owner@example.com" in r.json()["message"]
+    assert "support@balanceproof.dev" in r.json()["message"]
 
 
 # ---------------------------------------------------------------------------
