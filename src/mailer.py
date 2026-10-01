@@ -38,6 +38,11 @@ _TIMEOUT_S = 10.0
 # resolve to one inbox rather than one per boot.
 _INBOX_CLIENT_ID = "to-scale-key-recovery"
 
+# Where a user's reply to any of our emails goes. A public support address on our
+# own domain (Railway forwards it to the owner), never the owner's personal
+# inbox: every user who replied to a sign-in email used to see that address.
+REPLY_TO = "support@balanceproof.dev"
+
 # Resolved lazily and kept, because resolving costs a round trip and the answer
 # does not change while the process lives.
 _inbox_id: str | None = None
@@ -235,7 +240,7 @@ def _send(email: str, *, subject: str, text: str, event: str) -> bool:
             to=email,
             subject=subject,
             text=text,
-            reply_to=s.admin_email or None,
+            reply_to=REPLY_TO,
         )
     except Exception as exc:  # noqa: BLE001 - a failed send is a log line, not a crash
         log.warning("agentmail_send_failed", to=email, error=_why(exc))
@@ -301,7 +306,7 @@ def send_magic_link(email: str, url: str, ttl_minutes: int = 15) -> bool:
             to=email,
             subject="Log in to BalanceProof",
             text=body,
-            reply_to=get_settings().admin_email or None,
+            reply_to=REPLY_TO,
         )
     except Exception as exc:  # noqa: BLE001 - a failed send is a log line
         log.warning("agentmail_link_failed", to=email, error=_why(exc))
