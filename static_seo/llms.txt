@@ -13,6 +13,8 @@ The problem this product exists to solve: a single 10-K can tag "Total Assets" d
 - [Pricing](https://balanceproof.dev/pricing): Free tier; Starter $19/month or $190/year; Pro $49/month or $490/year; Business $99/month or $990/year; Enterprise priced on request; the full dataset as a one-time $79.99 download. All prices in CAD.
 - [Restatements in SEC filings](https://balanceproof.dev/restatements): Figures US public companies revised in a later 10-K or 10-Q in the last 90 days, with the value before and after and the filing dates, plus filings whose own totals disagree. Updated as filings load.
 - [Point-in-time fundamentals](https://balanceproof.dev/blog/point-in-time-fundamentals-sec-edgar): Five ways SEC data leaks the future into a backtest, with real filings.
+- [SEC balance sheet data for all companies](https://balanceproof.dev/blog/sec-balance-sheet-data-all-companies): The Frames API, the Financial Statement Data Sets and companyfacts.zip compared on real pulls, including how often raw tags satisfy Assets = Liabilities + Equity.
+- [SEC companyfacts: fy, fp and frame](https://balanceproof.dev/blog/sec-companyfacts-fy-fp-frame): What the fiscal year, fiscal period and frame fields label, with Apple, Walmart and Nike facts, and a rule for one annual value per fiscal year.
 - [Full dataset download](https://balanceproof.dev/dataset): What the bulk CSV contains, its column schema, and how it is priced.
 
 ## API

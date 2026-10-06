@@ -1910,7 +1910,560 @@ on the free tier. Every restatement across all companies is in one
 )
 
 
+_POST_BULK_BALANCE_SHEETS = Post(
+    slug="sec-balance-sheet-data-all-companies",
+    title=(
+        "Balance Sheets for Every SEC Filer: Frames API, Financial Statement "
+        "Data Sets or companyfacts.zip?"
+    ),
+    # The queries this is written for: "sec financial statement data sets vs
+    # frames api", "download balance sheet data all companies sec", "sec
+    # bulk balance sheet data". Every figure in the body was measured on
+    # 2026-10-06 against the live SEC endpoints; the two scripts are in the
+    # post so a reader can reproduce them.
+    seo_title="SEC Balance Sheet Data, All Companies: Frames vs Data Sets",
+    description=(
+        "Three free SEC routes to every company's balance sheet, compared on "
+        "real pulls: what each returns, what it gets wrong, and how often raw "
+        "tags fail A = L + E."
+    ),
+    summary=(
+        "The SEC publishes no file of every company's balance sheet. It "
+        "publishes three things you can build one from. We pulled them and "
+        "tested the result: which value each gives you, and how often the raw "
+        "tags satisfy Assets = Liabilities + Equity."
+    ),
+    published="2026-10-06",
+    updated="2026-10-06",
+    minutes=9,
+    faq=(
+        (
+            "Does the SEC publish every company's balance sheet in one file?",
+            "No. It publishes three things to build one from: the XBRL Frames "
+            "API (one tag for one period across all filers), the quarterly "
+            "Financial Statement Data Sets (the numbers on the face "
+            "statements of that quarter's filings), and companyfacts.zip "
+            "(every fact of every filer, rebuilt nightly, about 1.4 GB). None "
+            "of them is a table of balance sheets, and none carries a ticker.",
+        ),
+        (
+            "Which SEC bulk source has the figure as originally filed?",
+            "The Financial Statement Data Sets report each filing's figures "
+            "as filed, and companyfacts keeps every filing's value with its "
+            "filing date. The Frames API returns one fact per company, the "
+            "last one filed that fits the period, so a restated figure "
+            "replaces the original.",
+        ),
+        (
+            "Why does Assets not equal Liabilities plus StockholdersEquity "
+            "in XBRL data?",
+            "StockholdersEquity is the parent's equity only. Noncontrolling "
+            "interests and mezzanine equity sit outside it, and some filers "
+            "do not tag a Liabilities total at all. In our pull of 5,147 "
+            "filers with all three tags, 1,241 failed on the raw tags, while "
+            "the filer's own LiabilitiesAndStockholdersEquity matched "
+            "assets for all 6,029 that reported it.",
+        ),
+    ),
+    body="""
+<p class="lede">The SEC does not publish a file of every company's balance
+sheet. It publishes three free things you can build one from, and each fails
+in a different way. We pulled the Frames API and the latest Data Set on
+6 October 2026, read the size of the third, and tested what came out.</p>
+
+<h2>The three routes</h2>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Route</th><th scope="col">One download gives you</th>
+        <th scope="col">Which value you get</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Frames API</td><td>one tag, one period, every filer, as JSON</td>
+        <td>the last filed value that fits the period</td></tr>
+      <tr><td>Financial Statement Data Sets</td>
+        <td>the numbers on the face statements of a quarter's filings. The 2026q1 file is 85 MB zipped, 559 MB unzipped</td>
+        <td>what each filing reported, once per filing</td></tr>
+      <tr><td>companyfacts.zip</td>
+        <td>every fact of every filer, 1.41 GB, rebuilt nightly</td>
+        <td>all of them, from every filing</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>The SEC describes the first as returning "one fact for each reporting
+entity that is last filed that most closely fits the calendrical period
+requested", and the second as "without change from the 'as filed' financial
+reports". Those two sentences are most of the difference. The rest of this
+page is what they cost you in practice.</p>
+
+<h2>Frames: one request, but the value is the latest, not the filed one</h2>
+
+<p>A frame is the fastest way to a cross-section. One request per tag gives
+you every filer that reported it for a period, as <code>{cik, entityName,
+end, val, accn}</code>:</p>
+
+<pre class="code"><code class="language-python">import requests
+
+# the SEC requires a real contact address in the User-Agent
+H = {"User-Agent": "Your Name you@example.com"}
+
+def frame(tag, period="CY2025Q4I"):
+    base = "https://data.sec.gov/api/xbrl/frames/us-gaap"
+    url = f"{base}/{tag}/USD/{period}.json"
+    rows = requests.get(url, headers=H, timeout=60).json()["data"]
+    return {r["cik"]: r["val"] for r in rows}
+
+A = frame("Assets")
+print(len(A))   # 6157 filers on 6 October 2026</code></pre>
+
+<p>What it gives you is the value from the last filing that mentioned the
+period. Nike's balance sheet at 31 May 2013 is a worked example. Its 10-K,
+filed 23 July 2013, reported total assets of
+<strong>$17,584 million</strong>. The frame for that date,
+<code>CY2013Q2I</code>, returns <strong>$17,545 million</strong>, which is the
+figure in the 10-K filed a year later. Both are Nike's numbers. Only one was
+public in July 2013, and a screen or backtest built on frames cannot tell you
+which. The Frames API has no way to ask for the earlier value.</p>
+
+<h2>Frames: a frame is not a single date</h2>
+
+<p>Asking for <code>CY2025Q4I</code> returned 6,157 filers that reported
+Assets. They did not all report it for the same day:</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Balance sheet date</th><th scope="col">Filers</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>2025-12-31</td><td>5,490</td></tr>
+      <tr><td>2026-01-31</td><td>253</td></tr>
+      <tr><td>2025-11-30</td><td>137</td></tr>
+      <tr><td>2025-12-27</td><td>73</td></tr>
+      <tr><td>2025-12-28</td><td>58</td></tr>
+      <tr><td>2026-01-03 and other dates</td><td>146</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>The SEC's own documentation says to "be mindful different reporting start
+and end dates for facts contained in a frame". The retailers with a January
+year-end and the 52-week filers ending on a Saturday land in the same frame
+as December filers. Keep the <code>end</code> field and treat it as the
+balance sheet date, never the frame label.</p>
+
+<h2>Add the tags up and a quarter of them fail</h2>
+
+<p>The reason to pull Assets, Liabilities and equity together is to check one
+against the others. Run that on the raw tags and it fails more often than
+anything about a filer's arithmetic would explain:</p>
+
+<pre class="code"><code class="language-python">L  = frame("Liabilities")
+E  = frame("StockholdersEquity")
+EN = frame("StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+LE = frame("LiabilitiesAndStockholdersEquity")
+
+# within half a percent of assets
+def close(x, y, tol=0.005):
+    return abs(x - y) &lt;= tol * max(abs(x), 1)
+
+naive = [c for c in A if c in L and c in E]
+print(sum(close(A[c], L[c] + E[c]) for c in naive), "of", len(naive))
+
+better = [c for c in A if c in L and (c in EN or c in E)]
+print(sum(close(A[c], L[c] + EN.get(c, E.get(c, 0))) for c in better), "of", len(better))
+
+stated = [c for c in A if c in LE]
+print(sum(close(A[c], LE[c]) for c in stated), "of", len(stated))</code></pre>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Test on the raw tags (CY2025Q4I)</th>
+        <th scope="col">Pass</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Assets = Liabilities + StockholdersEquity</td>
+        <td>3,906 of 5,147, about three in four</td></tr>
+      <tr><td>same, using the equity tag that includes noncontrolling interests where the filer has one</td>
+        <td>4,693 of 5,364, about seven in eight</td></tr>
+      <tr><td>Assets = LiabilitiesAndStockholdersEquity, the filer's own stated total</td>
+        <td>6,029 of 6,029, every one</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>The third line is the one to look at. Every filer that stated its own
+total agreed with its own assets, to within half a percent, so the filings are fine and the sum is the
+problem. <code>StockholdersEquity</code> is the parent's equity only. Of the
+1,241 filers that failed the first test, 614 were fixed by switching to the
+equity tag that includes noncontrolling interests. (The second test also
+admits 217 filers that tag only the inclusive figure, which is why its
+population is larger.) 671 filers still fail it. Two more tags, minority
+interest where there is no inclusive tag and temporary equity (which is
+mezzanine), account for 306 of those. For the other 365 we did not find a
+cause among the tags we tested.</p>
+
+<p>It is not rounding. At a tolerance of zero 4,517 pass; at five percent of
+assets, 4,874. 490 still fail. And 638 of the 6,157 filers have no
+<code>Liabilities</code> fact at all, because their balance sheet never prints
+the subtotal (<a href="/blog/total-liabilities-from-sec-edgar">that
+problem has its own note</a>). The practical rule: when a filer states
+<code>LiabilitiesAndStockholdersEquity</code>, use it as the referee, and
+do not assume a failure means a bad filing. The
+<a href="/blog/five-ways-a-balance-sheet-fails">five reasons a balance sheet
+fails the check</a> are all in that residue.</p>
+
+<h2>Data Sets: as filed, with many rows per company</h2>
+
+<p>The Financial Statement Data Sets are the opposite trade. Nothing is
+replaced: the 2026q1 file holds 6,169 submissions (4,262 10-Ks, 972 10-Qs,
+372 20-Fs, 112 40-Fs, and S-1s, 6-Ks and other forms) and 3,690,955 numeric
+rows. The SEC says the sets are "as filed" and also that it "cannot
+guarantee the accuracy of the data sets", which is worth reading as written.</p>
+
+<p>For consolidated Assets in US dollars at 31 December 2025 the file has
+5,027 rows, from 4,948 filers. The gap between those numbers, and what you
+have to filter before the count is right:</p>
+
+<ul>
+  <li><strong>72 filers appear in more than one filing</strong> for that
+    date (a 10-K and a later 10-K/A, for instance). You choose.</li>
+  <li><strong>177 are tagged on the IFRS taxonomy</strong> (116 20-Fs, 50
+    40-Fs, 11 6-Ks). A request to the us-gaap Frames endpoint cannot see
+    them.</li>
+  <li><strong>62 come from forms that are not periodic reports</strong>
+    (S-1, POS AM, 6-K and similar).</li>
+  <li><strong>Dimensional rows have to be dropped first.</strong> Only rows
+    with empty <code>segments</code> and <code>coreg</code> are the
+    consolidated figure. JPMorgan's FY2025 10-K has 23 Assets rows at
+    one date and the first one in the file is EMEA's, $641.19 billion, not the
+    bank's $4,424.9 billion (<a href="/blog/sec-xbrl-duplicate-tags">the
+    long version</a>).</li>
+</ul>
+
+<h2>companyfacts.zip: everything, and the choosing is yours</h2>
+
+<p>The bulk file is 1.41 GB, was rebuilt at 04:23 GMT on the day we
+measured, and contains every fact from every filing, comparatives and
+restatements included. Nothing is wrong with it. It simply hands you the
+selection problem: Apple's total assets at 28 September 2024 appear under
+five different filings, and the field labels are not what they look like
+(<a href="/blog/sec-companyfacts-fy-fp-frame">how to pick the right value</a>).
+The per-company alternative is one request per filer: 6,157 of them is 10.3
+minutes at the SEC's limit of ten requests a second, before you have
+parsed any of it.</p>
+
+<p>None of the three carries a ticker. They are keyed by CIK, so you need the
+SEC's ticker file as well, and it lists current tickers only.</p>
+
+<h2>Which one to use</h2>
+
+<ul>
+  <li><strong>A screen as of the latest filings.</strong> Frames, with the
+    stated total as the referee. Keep <code>end</code>, and accept that
+    restated values replace originals.</li>
+  <li><strong>A backtest, or anything that needs the original number and the
+    day it was filed.</strong> The Data Sets (filing date is in
+    <code>sub.txt</code>), or companyfacts with its <code>accn</code> and
+    <code>filed</code> fields. Not frames.</li>
+  <li><strong>Every period for every company, and you want to own the
+    logic.</strong> companyfacts.zip, with a selection rule written and
+    tested before you trust a number.</li>
+</ul>
+
+<h2>If you would rather not build this</h2>
+
+<p>BalanceProof is built on the Financial Statement Data Sets, as reported,
+and runs the check above on every filing: the filer's stated total is the
+referee, noncontrolling interests and four kinds of mezzanine equity are read
+when the filing uses them, and a filing that still does not reconcile is
+flagged with the reason instead of adjusted
+(<a href="/methodology">how the check works</a>). It covers 6,000+ US
+companies' periodic reports, not every filer. Every company page is free to
+read, the <a href="/api">API</a> gives a free key 1,000 calls a month, and the
+<a href="/dataset">full dataset</a> is one as-reported CSV of 2.1 million
+rows with a <code>restated</code> flag, $79.99 once, a snapshot that does not
+update.</p>
+""",
+)
+
+
+_POST_COMPANYFACTS_FIELDS = Post(
+    slug="sec-companyfacts-fy-fp-frame",
+    title=(
+        "SEC companyfacts: Why fy == 2024 Returns the Wrong Balance Sheet, "
+        "and What to Filter On"
+    ),
+    # The queries this is written for: "sec companyfacts fy fp frame", "sec
+    # edgar companyfacts annual balance sheet", "companyfacts fiscal year
+    # filter". Every table is a real fact from data.sec.gov/api/xbrl/
+    # companyfacts, pulled 2026-10-06 (Apple, Walmart, Nike).
+    seo_title="SEC companyfacts: fy, fp and frame Explained for Annual Data",
+    description=(
+        "fy and fp label the filing, not the period; frame marks the last "
+        "filing to repeat it. Real Apple, Walmart and Nike facts and a rule "
+        "that picks the year."
+    ),
+    summary=(
+        "Filter companyfacts on fy and fp and you get the wrong year, or two "
+        "years. What the fields label, what frame points at, and a short, "
+        "tested rule for one annual balance sheet value per fiscal year."
+    ),
+    published="2026-10-06",
+    updated="2026-10-06",
+    minutes=8,
+    faq=(
+        (
+            "What do fy and fp mean in SEC companyfacts?",
+            "They label the filing that reported the fact: its fiscal year "
+            "and fiscal period. A 10-K for fiscal 2024 contains the prior "
+            "year's balance sheet as well, so both carry fy 2024 and fp FY. "
+            "They do not say which period the value describes; the end date "
+            "does.",
+        ),
+        (
+            "What is the frame field in companyfacts?",
+            "It marks the one fact the Frames API serves for a calendar-aligned "
+            "period: the last filed fact that fits it. It appears on one fact "
+            "per period and moves to a newer filing when one repeats the "
+            "period, so it is neither a fiscal label nor the original value.",
+        ),
+        (
+            "How do I get one annual balance sheet value per fiscal year?",
+            "Group the 10-K facts by accession number, take the latest end "
+            "date in each filing as that year's balance sheet date, and keep "
+            "the earliest filing per date if you want the figure as "
+            "originally reported. Do not filter on fy and fp alone.",
+        ),
+    ),
+    body="""
+<p class="lede">Ask SEC companyfacts for Apple's total assets with
+<code>fy == 2024</code> and <code>fp == "FY"</code> and two numbers come back.
+The first one is not fiscal 2024's.</p>
+
+<h2>What came back</h2>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">end</th><th scope="col">val</th>
+        <th scope="col">form</th><th scope="col">fy</th>
+        <th scope="col">fp</th><th scope="col">filed</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>2023-09-30</td><td>352,583,000,000</td><td>10-K</td>
+        <td>2024</td><td>FY</td><td>2024-11-01</td></tr>
+      <tr><td>2024-09-28</td><td>364,980,000,000</td><td>10-K</td>
+        <td>2024</td><td>FY</td><td>2024-11-01</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p><code>fy</code> and <code>fp</code> describe the <em>filing</em>, not the
+period the number is about. Apple's fiscal 2024 10-K contains two balance
+sheets, this year's and last year's, so two facts carry its label. Code that
+takes the first match (<code>next(...)</code>, <code>[0]</code>,
+<code>drop_duplicates</code>) gets fiscal 2023. We checked the last eight
+fiscal years of Apple, Walmart and Nike: the first match was the wrong year
+24 times out of 24. Taking the last match was right 24 of 24, but only
+because the facts arrive sorted by end date, which is not a documented
+promise.</p>
+
+<h2>One balance sheet date, five filings</h2>
+
+<p>The same figure also appears in later filings as a comparative. Apple's
+balance sheet at 28 September 2024, $364,980 million, is in five of them:</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">form</th><th scope="col">fy</th>
+        <th scope="col">fp</th><th scope="col">filed</th>
+        <th scope="col">frame</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>10-K</td><td>2024</td><td>FY</td><td>2024-11-01</td><td>none</td></tr>
+      <tr><td>10-Q</td><td>2025</td><td>Q1</td><td>2025-01-31</td><td>none</td></tr>
+      <tr><td>10-Q</td><td>2025</td><td>Q2</td><td>2025-05-02</td><td>none</td></tr>
+      <tr><td>10-Q</td><td>2025</td><td>Q3</td><td>2025-08-01</td><td>none</td></tr>
+      <tr><td>10-K</td><td>2025</td><td>FY</td><td>2025-10-31</td><td>CY2024Q3I</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>So a filter on <code>fy == 2025 and fp == "Q1"</code> returns this
+number as well as the quarter you wanted (28 December 2024, $344,085
+million). A quarter's filing always carries the prior fiscal year-end next to
+it.</p>
+
+<h2>frame is the Frames API's pick, not a fiscal label</h2>
+
+<p>The <code>frame</code> column above is the part that surprises people.
+It is not a label for the period. It marks <em>one</em> fact per period, the
+one the Frames API serves, and the SEC defines that as the last filed fact
+that fits. It sits on the newest filing to repeat the date, and moves when a
+newer one does:</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Balance sheet date</th><th scope="col">frame</th>
+        <th scope="col">carried by the fact in</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Apple, 2024-09-28</td><td>CY2024Q3I</td>
+        <td>the fiscal 2025 10-K, filed 2025-10-31</td></tr>
+      <tr><td>Walmart, 2026-01-31</td><td>CY2025Q4I</td>
+        <td>its fiscal 2027 Q2 10-Q, filed 2026-08-28</td></tr>
+      <tr><td>Nike, 2013-05-31</td><td>CY2013Q2I</td>
+        <td>the fiscal 2014 10-K, filed 2014-07-25</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>Apple's fiscal year ends in late September, so its year-end balance sheet
+is calendar "Q3". Walmart's fiscal 2026 ends on 31 January 2026 and the frame
+calls it calendar "Q4" of 2025. Nike's May year-end is "Q2". None of that is
+a bug, and none of it is the fiscal year. Do not use <code>frame</code> to
+label a fiscal year, and do not read it as "the original".</p>
+
+<h2>The same date can have different numbers</h2>
+
+<p>Nike's balance sheet at 31 May 2013 appears in five filings with three
+different totals:</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">form</th><th scope="col">fy / fp</th>
+        <th scope="col">filed</th><th scope="col">Assets at 2013-05-31</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>10-K</td><td>2013 FY</td><td>2013-07-23</td><td>$17,584M</td></tr>
+      <tr><td>10-Q</td><td>2014 Q1</td><td>2013-10-07</td><td>$17,584M</td></tr>
+      <tr><td>10-Q</td><td>2014 Q2</td><td>2014-01-07</td><td>$17,584M</td></tr>
+      <tr><td>10-Q</td><td>2014 Q3</td><td>2014-04-07</td><td>$17,680M</td></tr>
+      <tr><td>10-K</td><td>2014 FY</td><td>2014-07-25</td><td>$17,545M</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>We have not traced why each filing's figure differs. The point is that
+companyfacts keeps all five, so a rule has to choose. "As reported" is the
+earliest filing; "latest" is what the Frames API serves. A backtest needs the
+first, and
+<a href="/blog/point-in-time-fundamentals-sec-edgar">the dates problem is
+bigger than it looks</a>.</p>
+
+<h2>A rule that picks one value per fiscal year</h2>
+
+<p>Do not trust the labels; use what the filing itself says. A 10-K's balance
+sheet date is the latest date among its own balance sheet facts, so group by
+accession number and take that:</p>
+
+<pre class="code"><code class="language-python">import collections
+
+def annual_balance(facts, tag="Assets", forms=("10-K", "10-K/A", "10-KT")):
+    rows = facts["facts"]["us-gaap"][tag]["units"]["USD"]
+    by_filing = collections.defaultdict(list)
+    for f in rows:
+        if f["form"] in forms:
+            by_filing[f["accn"]].append(f)
+
+    out = {}
+    for accn, fs in by_filing.items():
+        # this filing's own balance sheet date
+        period_end = max(f["end"] for f in fs)
+        fact = next(f for f in fs if f["end"] == period_end)
+        keep = out.get(period_end)
+        # earliest filing = as reported
+        if keep is None or fact["filed"] &lt; keep["filed"]:
+            out[period_end] = {"end": period_end, "val": fact["val"],
+                               "filed": fact["filed"], "accn": accn}
+    return sorted(out.values(), key=lambda r: r["end"])</code></pre>
+
+<p>Flip the <code>&lt;</code> to <code>&gt;</code> for the latest value
+instead. We ran it on Apple, Walmart and Nike, 17 fiscal year-ends each. The
+last four for Apple:</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Fiscal year end</th><th scope="col">Total assets</th>
+        <th scope="col">10-K filed</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>2022-09-24</td><td>$352,755M</td><td>2022-10-28</td></tr>
+      <tr><td>2023-09-30</td><td>$352,583M</td><td>2023-11-03</td></tr>
+      <tr><td>2024-09-28</td><td>$364,980M</td><td>2024-11-01</td></tr>
+      <tr><td>2025-09-27</td><td>$359,241M</td><td>2025-10-31</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>It is not tested on filers that change their year-end, and a transition
+report (10-KT) is included in the forms list without having been exercised.
+Check those before relying on them.</p>
+
+<h2>Income and cash flow are worse</h2>
+
+<p>A balance sheet fact is a point in time. Income and cash-flow facts cover a
+span, and a 10-K reports three. Apple's fiscal 2025 revenue under
+<code>fy == 2025</code> and <code>fp == "FY"</code>:</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">start</th><th scope="col">end</th>
+        <th scope="col">days</th><th scope="col">Revenue</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>2022-09-25</td><td>2023-09-30</td><td>370</td><td>$383,285M</td></tr>
+      <tr><td>2023-10-01</td><td>2024-09-28</td><td>363</td><td>$391,035M</td></tr>
+      <tr><td>2024-09-29</td><td>2025-09-27</td><td>363</td><td>$416,161M</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>Three years carry the same label, and the 53-week year is 370 days, so
+"about 365" is not a rule. Match the span to the filing's period end:
+<code>end == period_end</code> and a duration of roughly a year. Quarterly
+cash flow has its own trap, because a 10-Q reports it year to date; that and
+the missing fourth quarter are covered in the
+<a href="/blog/point-in-time-fundamentals-sec-edgar">point-in-time note</a>.</p>
+
+<h2>When you would rather not do the selecting</h2>
+
+<p>BalanceProof returns each figure with the period it describes and the day
+it was filed, so there is nothing to disentangle. The keyless demo shows the
+shape, and <code>total_assets</code> and <code>liabilities_and_equity</code>
+come back side by side, because the filer's stated total is the referee:</p>
+
+<pre class="code"><code>curl https://balanceproof.dev/api/demo/AAPL
+
+"period_end": "2026-06-27",
+"filing_date": "2026-07-31",
+"total_assets": {"value": 383266000000.0, "restated": false, ...},
+"liabilities_and_equity": {"value": 383266000000.0, ...}</code></pre>
+
+<p>That is Apple's 10-Q for the quarter ended 27 June 2026, as of this
+writing; it moves when Apple files. A free key reads any of the 6,000+
+companies and one year of history, longer series are on paid plans, and
+<code>as_of</code> returns what had been filed by a past date (Pro and above).
+The figures are as reported, with a <code>restated</code> flag when a later
+filing changed one. If you are building across all companies at once, the
+<a href="/blog/sec-balance-sheet-data-all-companies">comparison of the SEC's
+bulk routes</a> is the companion to this.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_BULK_BALANCE_SHEETS,
+    _POST_COMPANYFACTS_FIELDS,
     _POST_POINT_IN_TIME,
     _POST_SUBMISSIONS_API,
     _POST_TOTAL_LIABILITIES,
@@ -2058,6 +2611,15 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
         ("KO", "no Liabilities tag at all — the post opens on this filing"),
         ("AMZN", "the same absence, a different balance sheet"),
         ("AAPL", "publishes the subtotal, for the contrast"),
+    ),
+    "sec-balance-sheet-data-all-companies": (
+        ("NKE", "May 2013 assets: $17,584M as filed, $17,545M in the Frames API"),
+        ("JPM", "23 Assets rows in one Data Sets filing, one of them consolidated"),
+    ),
+    "sec-companyfacts-fy-fp-frame": (
+        ("AAPL", "one balance sheet date under five filings, frame on the last"),
+        ("WMT", "a January year-end that the frame calls calendar Q4"),
+        ("NKE", "three different totals for one date, kept by companyfacts"),
     ),
     "sec-submissions-api-reconciliation": (
         ("KO", "a 10-Q and its 10-Q/A, one period, two filing dates"),
