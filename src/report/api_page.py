@@ -153,12 +153,14 @@ df = client.panel(["AAPL", "MSFT"], ["revenue", "net_income"])</code></pre>
      "Every filing whose balance sheet fails the check, with whose problem it "
      "is (<code>filer</code>, <code>extraction</code> or <code>unknown</code>), "
      "and every figure a later filing restated, across all companies, newest "
-     "first. <code>format=csv</code> for a download. The last 90 days are free "
+     "first. A restatement is the same XBRL tag reported again at a new value; "
+     "a switch between tags that measure different things is not one. "
+     "<code>format=csv</code> for a download. The last 90 days are free "
      "to browse at <a href='/restatements'>/restatements</a>.")}
 {_ep("GET", "/api/company/{ticker}/changes", "X-API-Key required · Starter and above · one call",
      "What moved since the previous period, figure by figure, and every "
-     "figure a later filing restated: the original value, the revised one, "
-     "and which filings said each.")}
+     "figure a later filing restated (same XBRL tag, new value): the original "
+     "value, the revised one, and which filings said each.")}
 {_ep("POST", "/api/verify", "X-API-Key required · Pro (50 per request) and Business (500) · one call per ticker",
      "Check many balance sheets at once: body <code>{&quot;tickers&quot;: [&quot;AAPL&quot;, &quot;JPM&quot;]}</code>. "
      "For each: whether Assets = Liabilities + Equity holds, the gap as a "

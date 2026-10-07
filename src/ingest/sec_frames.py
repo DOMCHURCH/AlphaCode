@@ -250,14 +250,17 @@ async def fetch_frame(
 
 
 def rows_from_frame(
-    data: list[dict[str, Any]], metric: str, tag_rank: int = 0
+    data: list[dict[str, Any]], metric: str, tag_rank: int = 0,
+    source_tag: str | None = None,
 ) -> list[dict[str, Any]]:
     """A frame payload -> raw (cik, accn, period_end, value) rows for one metric.
 
     `tag_rank` is the alias's position in its concept's tag tuple. It rides
     along on every row so that a filer reporting two aliases of one concept
     can be collapsed to the preferred tag later, no matter what order the
-    concurrent fetches happened to finish in.
+    concurrent fetches happened to finish in. `source_tag` is the XBRL tag the
+    frame was fetched for; it is stored so restatement detection compares the
+    same concept (see `xbrl.comparison_tag`).
     """
     out: list[dict[str, Any]] = []
     for r in data:
@@ -277,6 +280,7 @@ def rows_from_frame(
             "metric": metric,
             "value": value,
             "tag_rank": tag_rank,
+            **({"source_tag": source_tag} if source_tag else {}),
         })
     return out
 
@@ -312,6 +316,7 @@ def join_filing_dates(
             "source": "sec",
             "restated": False,
             "tag_rank": r.get("tag_rank", 0),
+            **({"source_tag": r["source_tag"]} if r.get("source_tag") else {}),
         })
     return kept, dropped
 
@@ -415,7 +420,7 @@ async def sweep_quarter(
             frames_missing += 1
             return
         frames_found += 1
-        raw.extend(rows_from_frame(data, metric, rank))
+        raw.extend(rows_from_frame(data, metric, rank, tag))
 
     await asyncio.gather(*(one(*req) for req in requests))
 

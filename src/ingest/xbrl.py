@@ -372,6 +372,30 @@ _TAG_RANK: dict[str, int] = {
     tag: i for c in CONCEPTS for i, tag in enumerate(c.tags)
 }
 
+# Metrics with exactly one source tag: their concept is known without a stored tag.
+SINGLE_TAG_METRICS: dict[str, str] = {c.metric: c.tags[0] for c in CONCEPTS if len(c.tags) == 1}
+
+
+def comparison_tag(metric: str, source_tag: str | None) -> str | None:
+    """The XBRL concept a stored value may be compared against across filings.
+
+    A restatement is a later filing reporting the SAME concept for the same
+    period at a different value. A metric with several alias tags is fed by
+    whichever one a filing happens to use, and those tags are not
+    interchangeable: long_term_debt reads `LongTermDebtNoncurrent` (excludes the
+    current portion) in one filing and `LongTermDebt` (includes it) in another,
+    and revenue reads `Revenues` (total) or `RevenueFromContractWithCustomer...`
+    (a subset). Comparing across them reports a change of definition as a
+    revision (Conagra 2011-05-29 long-term debt: $2,870.3M noncurrent in the
+    10-K, $3,200M total in the 10-Qs).
+
+    A single-tag metric has only one concept, so legacy rows without a stored
+    tag still compare. A multi-tag metric with no stored tag has an unknown
+    concept and returns None: it is not compared until it is reloaded.
+    """
+    return SINGLE_TAG_METRICS.get(metric) or source_tag or None
+
+
 # Components that are part of total assets. Each must be <= total assets.
 _ASSET_COMPONENTS = (
     "cash",
@@ -787,6 +811,7 @@ def extract_facts(
                 "filing_date": filing_date,
                 "source": "sec",
                 "restated": False,
+                "source_tag": r.tag,
             },
         )
 

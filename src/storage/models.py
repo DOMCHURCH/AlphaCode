@@ -136,6 +136,14 @@ class Fundamental(Base):
     filing_date: Mapped[dt.date] = mapped_column(Date, nullable=False, index=True)
     source: Mapped[str] = mapped_column(String(16), nullable=False, default="sec")
     restated: Mapped[bool] = mapped_column(Boolean, default=False)
+    # The XBRL concept (us-gaap tag) this value was read from. Several metrics
+    # are fed by more than one tag, in preference order, and those tags can mean
+    # different things (long_term_debt: LongTermDebtNoncurrent excludes the
+    # current portion, LongTermDebt includes it). A restatement is the SAME
+    # concept reported again at a different value, so the detectors compare
+    # within a tag. NULL on rows loaded before this column existed; see
+    # `xbrl.comparison_tag`.
+    source_tag: Mapped[str | None] = mapped_column(String(128))
     ingested_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
     __table_args__ = (

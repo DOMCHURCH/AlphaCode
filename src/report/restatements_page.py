@@ -147,9 +147,11 @@ def render_restatements(*, nav: str = "") -> str:
     <div class="sec-head"><h2>Revised in the last {WINDOW_DAYS} days</h2></div>
     <p class="sec-sub">{len(restated):,} figures at {n_companies:,} companies
       changed by {MATERIAL_PCT:.0f}% or more from what an earlier filing said
-      for the same period.{more} "Was" is the figure as previously filed,
-      "now" the revision; a backtest dated before the revision should use the
-      first. <a href="/blog/point-in-time-fundamentals-sec-edgar">Why that
+      for the same period and the same XBRL tag.{more} "Was" is the figure as
+      previously filed, "now" the revision; a backtest dated before the
+      revision should use the first. Two different tags are never compared:
+      long-term debt with and without its current portion, for example, are
+      different figures, not a revision. <a href="/blog/point-in-time-fundamentals-sec-edgar">Why that
       matters</a>.</p>
     {table}
   </section>

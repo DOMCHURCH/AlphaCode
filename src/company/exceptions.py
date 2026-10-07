@@ -9,7 +9,8 @@ loaded period, dated by the filing that produced them:
   counts with, so the feed and the headline number cannot disagree).
 * `restatement` -- a later filing that changed a figure an earlier one reported
   for the same period. Equal re-reports (every 10-K repeats last year as a
-  comparative) are not restatements.
+  comparative) are not restatements, and neither is a switch between two XBRL
+  tags that measure different things (`xbrl.comparison_tag`).
 
 Built from the whole table, so it is computed once and cached in process
 rather than per request; FEED_TTL_S bounds how stale it gets. A new filing
@@ -70,9 +71,10 @@ def _compute() -> list[dict[str, Any]]:
     latest value per (ticker, period, metric) for the identity, and only the
     rows whose value differs from the filing before them for restatements.
     """
-    from sqlalchemy import and_, func, select
+    from sqlalchemy import and_, case, func, literal_column, select
 
     from src.company.stats import FLAG_CATEGORIES, IDENTITY_METRICS, classify_identity
+    from src.ingest.xbrl import SINGLE_TAG_METRICS
     from src.storage.db import session_scope
     from src.storage.models import Fundamental as F
 
@@ -85,7 +87,21 @@ def _compute() -> list[dict[str, Any]]:
         .where(F.metric.in_(IDENTITY_METRICS))
         .subquery()
     )
-    window = dict(partition_by=(F.ticker, F.metric, F.period_end), order_by=F.filing_date)
+    # A restatement is the same XBRL concept reported again at a new value, so
+    # filings are compared within one concept (`xbrl.comparison_tag`, in SQL):
+    # a single-tag metric is its own concept, a multi-tag one uses the tag its
+    # row was read from. Rows with no known concept are left out of `moves`.
+    # The tag names are our own constants, inlined (not bound) so every window
+    # below renders identical SQL and Postgres shares one sort between them.
+    assert all(t.isalnum() for t in SINGLE_TAG_METRICS.values())
+    concept = case(
+        *[(F.metric == m, literal_column(f"'{t}'"))
+          for m, t in SINGLE_TAG_METRICS.items() if m in TRACKED],
+        else_=F.source_tag,
+    )
+    window = dict(
+        partition_by=(F.ticker, F.metric, F.period_end, concept), order_by=F.filing_date
+    )
     moves = (
         select(
             F.ticker, F.metric, F.period_end, F.filing_date, F.value,
@@ -94,7 +110,7 @@ def _compute() -> list[dict[str, Any]]:
             func.first_value(F.value).over(**window).label("first"),
             func.first_value(F.filing_date).over(**window).label("first_filed"),
         )
-        .where(F.metric.in_(TRACKED))
+        .where(and_(F.metric.in_(TRACKED), concept.is_not(None)))
         .subquery()
     )
     with session_scope() as session:

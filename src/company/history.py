@@ -140,11 +140,12 @@ def _delta(new: float | None, old: float | None) -> dict[str, Any]:
 def restatements(ticker: str, years: int = 3) -> list[dict[str, Any]]:
     """Figures a later filing changed for a period an earlier filing reported.
 
-    One entry per (metric, period) whose value differs between its first and
-    latest filing. Equal re-reports -- every 10-K repeats last year's balance
-    sheet as a comparative -- are not restatements and are left out.
+    One entry per (metric, period, XBRL concept) whose value differs between its
+    first and latest filing. Equal re-reports -- every 10-K repeats last year's
+    balance sheet as a comparative -- are not restatements and are left out.
     """
     from src.company.balancesheet import BALANCE_SHEET_CONCEPTS
+    from src.ingest.xbrl import comparison_tag
     from src.storage.models import Fundamental
 
     metrics = set(BALANCE_SHEET_CONCEPTS.values())
@@ -157,15 +158,18 @@ def restatements(ticker: str, years: int = 3) -> list[dict[str, Any]]:
                         Fundamental.metric.in_(metrics)))
             .order_by(Fundamental.filing_date.asc())
         ).scalars().all()
-        grouped: dict[tuple[str, dt.date], list[Any]] = {}
+        # Filings are compared within one XBRL concept: a switch between two tags
+        # that measure different things is not a revision (see comparison_tag).
+        grouped: dict[tuple[str, dt.date, str], list[Any]] = {}
         for r in rows:
-            if r.value is None:
+            concept = comparison_tag(r.metric, r.source_tag)
+            if r.value is None or concept is None:
                 continue
-            grouped.setdefault((r.metric, r.period_end), []).append(
+            grouped.setdefault((r.metric, r.period_end, concept), []).append(
                 (r.filing_date, float(r.value))
             )
     out = []
-    for (metric, period), seen in grouped.items():
+    for (metric, period, _concept), seen in grouped.items():
         first_date, first = seen[0]
         last_date, last = seen[-1]
         if first_date == last_date or abs(last - first) <= max(1.0, abs(first) * 1e-9):

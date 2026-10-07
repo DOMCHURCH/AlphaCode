@@ -44,9 +44,10 @@ def _seed():
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
 
-    def fact(ticker, metric, value, period, filed):
+    def fact(ticker, metric, value, period, filed, tag=None):
         return Fundamental(ticker=ticker, metric=metric, value=value, period_end=period,
-                           fiscal_period="Q2", filing_date=filed, source="sec")
+                           fiscal_period="Q2", filing_date=filed, source="sec",
+                           source_tag=tag)
 
     p_recent = RECENT - dt.timedelta(days=40)
     p_old = OLD - dt.timedelta(days=40)
@@ -66,9 +67,10 @@ def _seed():
                    fact("OLDB", "total_liabilities", 50e6, p_old, OLD),
                    fact("OLDB", "total_equity", 30e6, p_old, OLD),
                    fact("OLDB", "liabilities_and_equity", 80e6, p_old, OLD)])
-        # RSTD: revenue restated from 50m to 45m by a later filing.
-        s.add_all([fact("RSTD", "revenue", 50e6, p_old, OLD),
-                   fact("RSTD", "revenue", 45e6, p_old, RECENT),
+        # RSTD: revenue restated from 50m to 45m by a later filing. Revenue has several
+        # source tags, so both rows carry the one they were read from (same concept).
+        s.add_all([fact("RSTD", "revenue", 50e6, p_old, OLD, "Revenues"),
+                   fact("RSTD", "revenue", 45e6, p_old, RECENT, "Revenues"),
                    # An equal re-report is not a restatement.
                    fact("RSTD", "net_income", 5e6, p_old, OLD),
                    fact("RSTD", "net_income", 5e6, p_old, RECENT)])
