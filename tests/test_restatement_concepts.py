@@ -215,3 +215,18 @@ def test_frames_loader_carries_the_tag_through_to_the_row():
     kept, _ = join_filing_dates(raw, idx, {"23217": "CAG"})
     (row,) = collapse_alias_rows(kept)
     assert row["source_tag"] == TOTAL and "tag_rank" not in row
+
+
+def test_every_concept_tag_fits_the_source_tag_column():
+    """SQLite ignores varchar lengths, so this is the only place a too-narrow column
+    is caught: the production reload failed on a 130-character tag in a 128 column."""
+    from src.ingest.xbrl import CONCEPTS
+    from src.storage.models import Fundamental
+
+    width = Fundamental.__table__.c.source_tag.type.length
+    longest = max((len(t), t) for c in CONCEPTS for t in c.tags)
+    assert longest[0] <= width, f"{longest[1]} is {longest[0]} chars, column is {width}"
+    # and the live column is widened to match on a database created at the old size
+    from src.storage.db import _WIDENED_COLUMNS
+
+    assert ("fundamentals", "source_tag", width) in _WIDENED_COLUMNS

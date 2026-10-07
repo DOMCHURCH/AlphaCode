@@ -143,7 +143,7 @@ class Fundamental(Base):
     # concept reported again at a different value, so the detectors compare
     # within a tag. NULL on rows loaded before this column existed; see
     # `xbrl.comparison_tag`.
-    source_tag: Mapped[str | None] = mapped_column(String(128))
+    source_tag: Mapped[str | None] = mapped_column(String(256))
     ingested_at: Mapped[dt.datetime] = mapped_column(DateTime, default=_utcnow)
 
     __table_args__ = (

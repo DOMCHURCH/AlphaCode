@@ -124,6 +124,10 @@ def _sync_added_columns(engine: Engine) -> None:
 _WIDENED_COLUMNS: tuple[tuple[str, str, int], ...] = (
     # DEMO_API_KEY is operator-chosen and a long one would not fit in 64.
     ("api_users", "api_key", 128),
+    # source_tag first shipped at 128, and the longest tag we read
+    # (EffectOfExchangeRate...IncludingDisposalGroupAndDiscontinuedOperations)
+    # is 130, which failed the production reload with StringDataRightTruncation.
+    ("fundamentals", "source_tag", 256),
 )
 
 
