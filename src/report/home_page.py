@@ -1173,20 +1173,19 @@ def render_home(
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
 <script src="/static/countup.js?v={asset_version()}" defer></script>"""
-    # Read live rather than written down. This line said "1.7M data points"
-    # while /dataset -- which counts the same table -- said "1.8M rows".
-    from src.dataset import facts_label
+    # The company count is read live rather than written down: this line once
+    # said "1.7M data points" while /dataset, which counts the same table, said 1.8M.
     from src.report.schema import organization_ld, software_ld
 
-    facts = facts_label()
-    scale = f" {companies_label()} companies, {facts} data points." if facts else ""
+    n_companies = companies_label()
+    scale = f" {n_companies} companies, no card." if n_companies else " No card."
 
     return _shell(
-        "BalanceProof — Reconciled SEC Balance Sheet API",
+        "SEC EDGAR Balance Sheet API, Checked — BalanceProof",
         body,
         description=(
-            "Balance sheets from SEC EDGAR, every one checked against "
-            f"A = L + E. Exceptions flagged with the reason.{scale}"
+            "A free SEC EDGAR balance sheet API that checks every filing "
+            f"against A = L + E and shows the reason when one fails.{scale}"
         ),
         canonical="/",
         ld=organization_ld() + software_ld(),

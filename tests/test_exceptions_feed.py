@@ -134,4 +134,6 @@ def test_the_restatements_page_is_public_and_links_each_company(client):
     assert '<link rel="canonical"' in r.text
     # Only filer-side failed checks: BRKN (recent, broken) is listed.
     assert '/company/BRKN' in r.text
-    assert "/restatements" in client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    assert "/restatements" in sitemap_flat(client)

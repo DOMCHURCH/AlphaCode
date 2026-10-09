@@ -224,6 +224,45 @@ def _choose(page: Page) -> str:
   </section>"""
 
 
+def _faq_pairs(page: Page) -> list[tuple[str, str]]:
+    """Three questions per head-to-head or alternatives page, answered from the
+    page's own table and "when to choose" lists. The visible block and the
+    FAQPage JSON-LD are both built from THIS list, so the markup cannot say
+    anything the page does not. `best` pages are guides, not comparisons."""
+    if page.kind == "best" or not page.rows:
+        return []
+    first = page.rows[0]
+    pairs = [(
+        f"What is the difference between BalanceProof and {page.rival}?",
+        f"BalanceProof: {_plain(first.ours)}. {page.rival}: {_plain(first.theirs)}.",
+    )]
+    if page.choose_them:
+        pairs.append((
+            f"When should I choose {page.rival} instead of BalanceProof?",
+            " ".join(_plain(t) for t in page.choose_them[:3]),
+        ))
+    if page.choose_us:
+        pairs.append((
+            f"When should I choose BalanceProof instead of {page.rival}?",
+            " ".join(_plain(t) for t in page.choose_us[:3]),
+        ))
+    return pairs
+
+
+def _faq(page: Page) -> str:
+    pairs = _faq_pairs(page)
+    if not pairs:
+        return ""
+    items = "".join(
+        f"<h3>{escape(q)}</h3><p>{escape(a)}</p>" for q, a in pairs
+    )
+    return f"""
+  <section class="sec" id="faq">
+    <div class="sec-head"><h2>Common questions</h2></div>
+    {items}
+  </section>"""
+
+
 PAGES: tuple[Page, ...] = (
     Page(
         slug="compare/balanceproof-vs-intrinio",
@@ -279,11 +318,9 @@ PAGES: tuple[Page, ...] = (
     Page(
         slug="compare/balanceproof-vs-sec-api",
         h1="BalanceProof vs sec-api.io: Which SEC XBRL API Should You Use?",
-        seo_title="BalanceProof vs sec-api.io — SEC XBRL API Comparison",
+        seo_title="BalanceProof vs sec-api.io: Which SEC API to Use",
         description=(
-            "BalanceProof vs sec-api.io for SEC filings data: filing access "
-            "versus reconciled financials, and which one fits a screener, a "
-            "backtest or a pipeline."
+            "sec-api.io gives you the filing; BalanceProof gives you the balance sheet, checked against A = L + E. Compared on method, coverage and price."
         ),
         rival="sec-api.io",
         lede=(
@@ -583,11 +620,9 @@ vendor. That comparison is the only one with an authority behind it.</p>
         slug="compare/balanceproof-vs-financial-modeling-prep",
         updated="2026-09-18",
         h1="BalanceProof vs Financial Modeling Prep: SEC Balance Sheet Data",
-        seo_title="BalanceProof vs FMP \u2014 SEC Balance Sheet Data (2026)",
+        seo_title="BalanceProof vs Financial Modeling Prep: SEC Data",
         description=(
-            "BalanceProof vs Financial Modeling Prep for SEC balance sheets: "
-            "how each one resolves a filing, what happens when a filing is "
-            "ambiguous, and which is the right fit."
+            "BalanceProof vs Financial Modeling Prep for balance sheet data: method, flags, coverage and price. FMP covers more data types; we check balance sheets."
         ),
         rival="Financial Modeling Prep",
         lede=(
@@ -765,11 +800,9 @@ decision on it; it is one <code>curl -I</code>.</p>
         slug="alternatives/financial-modeling-prep",
         updated="2026-09-18",
         h1="Financial Modeling Prep Alternatives for SEC Balance Sheets",
-        seo_title="FMP Alternatives for SEC Balance Sheets (2026)",
+        seo_title="Financial Modeling Prep Alternative: SEC-Sourced Data",
         description=(
-            "Looking for an FMP alternative for SEC balance sheet data? The "
-            "honest answer depends on whether you need breadth or need the "
-            "numbers to reconcile."
+            "A Financial Modeling Prep alternative if you want balance sheet figures straight from SEC filings, checked against A = L + E. What differs."
         ),
         rival="Financial Modeling Prep",
         kind="alternatives",
@@ -815,8 +848,8 @@ decision on it; it is one <code>curl -I</code>.</p>
         seo_title="Best SEC XBRL API \u2014 What Separates Them (2026)",
         description=(
             "Choosing an SEC XBRL API: the duplicate-tag problem, what "
-            "as-reported really means, and the four checks that tell you "
-            "whether a provider resolves a filing or guesses at it."
+            "as-reported means, and four checks for whether a provider "
+            "resolves a filing or guesses."
         ),
         rival="the alternatives",
         kind="best",
@@ -1098,8 +1131,8 @@ being read on the wrong terms, the identity is.</p>
         seo_title="BalanceProof vs Financial Datasets AI (2026)",
         description=(
             "Both publish a verification method. One audits a sample against "
-            "EDGAR; the other tests every filing against the accounting "
-            "identity. What that difference actually buys."
+            "EDGAR; the other tests every filing against A = L + E. What that "
+            "buys you."
         ),
         rival="Financial Datasets AI",
         updated="2026-09-19",
@@ -1265,11 +1298,9 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
     Page(
         slug="alternatives/sec-api",
         h1="sec-api.io Alternatives: Filings, or the Figures Inside Them",
-        seo_title="sec-api.io Alternatives: Filings vs Figures",
+        seo_title="sec-api Alternative: Filings vs Figures",
         description=(
-            "An sec-api.io alternative depends on whether you want the document "
-            "or the number. They are different products and only one of them is "
-            "this."
+            "Looking for an sec-api.io alternative? sec-api returns filings; BalanceProof returns checked balance sheet figures. How to tell which you need."
         ),
         rival="sec-api.io",
         kind="alternatives",
@@ -1447,13 +1478,13 @@ def _plain(html: str) -> str:
 
 
 def _ld(page: Page) -> str:
-    from src.report.schema import breadcrumb_ld, pricing_ld
+    from src.report.schema import breadcrumb_ld, faq_ld, pricing_ld
 
-    trail = [("Home", "/")]
-    head, _, tail = page.slug.partition("/")
-    trail.append((head.title(), f"/{head}"))
-    trail.append((page.h1, f"/{page.slug}"))
+    # /alternatives and /best are not pages; /compare is the index that lists them all.
+    trail = [("Home", "/"), ("Compare", "/compare"), (page.h1, f"/{page.slug}")]
     crumbs = breadcrumb_ld(trail)
+    faq = _faq_pairs(page)
+    crumbs += faq_ld(faq) if faq else ""
 
     if page.kind == "best":
         # An ItemList of the tests, not of products. Ranking other companies in
@@ -1635,6 +1666,7 @@ def render(page: Page, *, nav: str = "") -> str:
   </article>
 
   {_choose(page)}
+  {_faq(page)}
 
   <aside class="sec cta">
     <div class="sec-head"><h2>Check it yourself</h2></div>

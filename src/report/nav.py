@@ -257,6 +257,9 @@ def render_footer(extra: str = "") -> str:
     return f"""
   <footer>
     {lead}<span class="foot-links">
+      <a href="/companies">All companies</a>
+      <a href="/compare">Compare</a>
+      <a href="/blog/sec-xbrl-data-wrong-one-in-five">Data study</a>
       <a href="/restatements">Restatements</a>
       <a href="/terms">Terms</a>
       <a href="/privacy">Privacy</a>

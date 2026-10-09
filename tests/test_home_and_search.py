@@ -140,7 +140,7 @@ def test_home_is_the_product_not_a_redirect(client):
 
     assert r.status_code == 200
     body = r.text
-    assert "Reconciled SEC Balance Sheet API" in body
+    assert "SEC EDGAR Balance Sheet API" in body
     assert "99.9%" not in body, "the retired accuracy claim must not return"
     # The old fallback description was the SAME sentence on all eight
     # shell pages, which is one page to a search engine and eight

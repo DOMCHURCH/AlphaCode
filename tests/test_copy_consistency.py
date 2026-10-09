@@ -268,7 +268,9 @@ def test_the_sitemap_lists_nothing_it_tells_google_to_ignore(client):
     """A sitemap entry and a noindex are two instructions that contradict each
     other. Search Console reports it as an error, and the crawl budget spent
     resolving it comes out of the six thousand pages that do want indexing."""
-    sitemap = client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    sitemap = sitemap_flat(client)
 
     for path in ("/login", "/dashboard"):
         assert f"<loc>https://testserver{path}</loc>" not in sitemap
@@ -326,31 +328,46 @@ def test_the_site_does_not_claim_a_hundred_percent(client):
 # Sitemap completeness
 # ---------------------------------------------------------------------------
 
-def test_the_sitemap_is_a_flat_urlset_not_an_index(client):
+def test_the_sitemap_is_an_index_and_every_child_it_names_answers_200(client):
     """A sitemap index whose children 404 is the classic way a site ends up
-    "unknown to Google". This one is flat, so there are no children to break."""
+    "unknown to Google". So the test that it is an index is the same test that
+    every child it names is there, is a urlset, and carries a lastmod per URL."""
+    from _sitemap_util import sitemap_children
+
+    seed(40)
     xml = client.get("/sitemap.xml").text
 
-    assert "<urlset" in xml
-    assert "<sitemapindex" not in xml, (
-        "if this ever becomes an index, every child needs its own 200 check"
-    )
+    assert "<sitemapindex" in xml
+    assert "<urlset" not in xml
+    children = sitemap_children(client)
+    assert children
+    for path in children:
+        r = client.get(path)
+        assert r.status_code == 200, f"{path} is listed in the index and does not resolve"
+        assert "<urlset" in r.text
+        assert r.text.count("<lastmod>") == r.text.count("<loc>"), path
 
 
 def test_every_page_type_is_in_the_sitemap(client):
     """One assertion per page TYPE, because a generator that quietly stops
     emitting a whole category is invisible in a URL count."""
     seed(40)
+    from _sitemap_util import sitemap_flat
+
     from src.report.blog import POSTS
     from src.report.compare import PAGES
 
-    xml = client.get("/sitemap.xml").text
+    xml = sitemap_flat(client)
 
     for path in (
         "/", "/api", "/pricing", "/dataset", "/blog", "/methodology",
-        "/terms", "/privacy", "/llms.txt", "/financial-data.txt",
+        "/terms", "/privacy",
     ):
         assert f"{path}</loc>" in xml, f"{path} missing"
+    # Machine-readable text files are for crawlers that read them from
+    # robots.txt; they are not pages to rank, so they are not listed.
+    for path in ("/llms.txt", "/financial-data.txt"):
+        assert f"{path}</loc>" not in xml, f"{path} is not an indexable page"
 
     for post in POSTS:
         assert f"/blog/{post.slug}</loc>" in xml, f"{post.slug} missing"
@@ -361,8 +378,10 @@ def test_every_page_type_is_in_the_sitemap(client):
 def test_every_sitemap_url_carries_a_lastmod(client):
     """Google uses `lastmod` to decide what to re-crawl. A URL without one is a
     URL it has no reason to come back to."""
+    from _sitemap_util import sitemap_flat
+
     seed(40)
-    xml = client.get("/sitemap.xml").text
+    xml = sitemap_flat(client)
 
     assert xml.count("<loc>") > 0
     assert xml.count("<lastmod>") == xml.count("<loc>"), (
@@ -373,6 +392,8 @@ def test_every_sitemap_url_carries_a_lastmod(client):
 def test_the_sitemap_does_not_advertise_swagger(client):
     """/docs is FastAPI's generated UI and is off in production. Asking Google
     to index a 404 is worse than not asking."""
-    xml = client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    xml = sitemap_flat(client)
     assert "/docs</loc>" not in xml
     assert "/openapi.json" not in xml

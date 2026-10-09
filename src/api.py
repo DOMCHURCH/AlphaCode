@@ -4655,6 +4655,25 @@ def sector_page(slug: str, request: Request) -> HTMLResponse:
     )))
 
 
+@app.get("/companies", response_class=HTMLResponse, include_in_schema=False)
+def companies_hub(request: Request) -> HTMLResponse:
+    """Every indexable company A-Z, and every sector: the parent of the company pages."""
+    from src.report.hubs import render_companies
+    from src.report.sector_page import load_sectors
+
+    return HTMLResponse(_versioned(render_companies(
+        nav=_nav_for(request, ""), sectors=load_sectors()
+    )))
+
+
+@app.get("/compare", response_class=HTMLResponse, include_in_schema=False)
+def compare_hub(request: Request) -> HTMLResponse:
+    """Every comparison, alternatives and buyer's-guide page, in one list."""
+    from src.report.hubs import render_compare_index
+
+    return HTMLResponse(_versioned(render_compare_index(nav=_nav_for(request, ""))))
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about_page(request: Request) -> HTMLResponse:
     """What this is and who built it, on a page that says so on purpose.
@@ -4686,7 +4705,7 @@ def methodology_page(request: Request) -> HTMLResponse:
 
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(request: Request) -> Response:
-    """Every page worth indexing, with a date on each one that is true.
+    """The sitemap index: one file per page type, each with a date that is true.
 
     Deliberately NOT here: /search. With no query it answers 400, and a URL in
     a sitemap that returns 400 is reported in Search Console as a submitted URL
@@ -4698,6 +4717,24 @@ def sitemap_xml(request: Request) -> Response:
 
     return Response(
         content=sitemap.xml(_public_origin(request)),
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@app.get("/sitemap-{name}.xml", include_in_schema=False)
+def sitemap_file(name: str, request: Request) -> Response:
+    """One child of the sitemap index (`/sitemap-blog.xml`, `/sitemap-company-1.xml`).
+
+    Only the files the index lists exist; anything else is a 404, so a crawler
+    that follows the index never meets a child that is not there."""
+    from src import sitemap
+
+    body = sitemap.file_xml(_public_origin(request), name)
+    if body is None:
+        raise HTTPException(status_code=404, detail="no such sitemap")
+    return Response(
+        content=body,
         media_type="application/xml",
         headers={"Cache-Control": "public, max-age=3600"},
     )

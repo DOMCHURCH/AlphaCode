@@ -1317,7 +1317,9 @@ def test_sitemap_lists_only_companies_with_something_to_draw(client):
     # which is what made this test pass alone and fail in a full run.
     sitemap.reset_drawable()
 
-    body = client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    body = sitemap_flat(client)
 
     assert "/company/DRAW" in body
     assert "/company/EMPTY" not in body
@@ -1344,7 +1346,9 @@ def test_sitemap_dates_a_company_page_by_its_newest_filing(client):
 
     sitemap.reset_drawable()
 
-    body = client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    body = sitemap_flat(client)
     block = body.split("/company/DATED", 1)[1].split("</url>", 1)[0]
 
     assert "2026-08-06" in block, "the newest filing, not the oldest"
@@ -1352,24 +1356,47 @@ def test_sitemap_dates_a_company_page_by_its_newest_filing(client):
     assert dt.date.today().isoformat() not in block, "never stamped today"
 
 
-def test_sitemap_is_valid_xml_and_well_formed(client):
+def test_sitemap_is_a_valid_index_whose_children_are_valid_urlsets(client):
     from xml.etree import ElementTree
 
+    from _sitemap_util import sitemap_children
+
+    ns = "{http://www.sitemaps.org/schemas/sitemap/0.9}"
     r = client.get("/sitemap.xml")
 
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("application/xml")
     root = ElementTree.fromstring(r.content)
-    assert root.tag.endswith("urlset")
-    for url in root:
-        assert url.find("{http://www.sitemaps.org/schemas/sitemap/0.9}loc") is not None
+    assert root.tag == ns + "sitemapindex"
+    children = sitemap_children(client)
+    assert children, "an index with no children"
+    for entry in root:
+        assert entry.find(ns + "loc") is not None
+        assert entry.find(ns + "lastmod") is not None, "an index entry without a lastmod"
+
+    for path in children:
+        child = client.get(path)
+        assert child.status_code == 200, path
+        assert child.headers["content-type"].startswith("application/xml")
+        urlset = ElementTree.fromstring(child.content)
+        assert urlset.tag == ns + "urlset", path
+        assert 0 < len(urlset) <= 10_000, f"{path} has {len(urlset)} URLs"
+        for url in urlset:
+            assert url.find(ns + "loc") is not None
+            assert url.find(ns + "lastmod") is not None
+
+
+def test_a_sitemap_file_that_the_index_does_not_list_is_a_404(client):
+    assert client.get("/sitemap-nonsense.xml").status_code == 404
 
 
 def test_sitemap_omits_the_search_endpoint(client):
     """/search with no query answers 400. A URL in a sitemap that returns 400 is
     reported in Search Console as a submitted URL that failed -- so listing it
     would put an error in the console the sitemap exists to feed."""
-    body = client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    body = sitemap_flat(client)
 
     assert "/search" not in body
     assert client.get("/search").status_code == 400, "the reason it is omitted"
@@ -1383,10 +1410,14 @@ def test_sitemap_names_the_host_the_crawler_asked_on(client):
     from src import sitemap
 
     sitemap.reset_cache()
-    a = client.get("/sitemap.xml", headers={"host": "balanceproof.dev",
-                                            "x-forwarded-proto": "https"}).text
-    b = client.get("/sitemap.xml", headers={"host": "example.invalid",
-                                            "x-forwarded-proto": "https"}).text
+    from _sitemap_util import sitemap_flat
+
+    ha = {"host": "balanceproof.dev", "x-forwarded-proto": "https"}
+    hb = {"host": "example.invalid", "x-forwarded-proto": "https"}
+    # Both the index and its children carry the host that was asked.
+    assert "https://balanceproof.dev/sitemap-" in client.get("/sitemap.xml", headers=ha).text
+    a = sitemap_flat(client, ha)
+    b = sitemap_flat(client, hb)
 
     assert "https://balanceproof.dev/" in a
     assert "example.invalid" not in a

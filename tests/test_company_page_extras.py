@@ -682,6 +682,8 @@ def _seed_undrawable(ticker: str) -> None:
 
 
 def test_the_sitemap_leaves_out_a_ticker_whose_page_404s(client):
+    from _sitemap_util import sitemap_locs
+
     from src import sitemap
     from src.company.view1 import build_view1
 
@@ -695,13 +697,15 @@ def test_the_sitemap_leaves_out_a_ticker_whose_page_404s(client):
     assert build_view1("NODRAW") is None, "fixture is not undrawable"
 
     sitemap.refresh_drawable()
-    xml = sitemap.build("https://balanceproof.dev")
+    xml = sitemap_locs(sitemap)
 
     assert "/company/NODRAW" not in xml
     assert client.get("/company/NODRAW").status_code == 404
 
 
 def test_the_sitemap_still_lists_a_ticker_that_renders(client):
+    from _sitemap_util import sitemap_locs
+
     from src import sitemap
     from src.company.view1 import build_view1
 
@@ -711,7 +715,7 @@ def test_the_sitemap_still_lists_a_ticker_that_renders(client):
     sitemap.reset_drawable()
     sitemap.refresh_drawable()
 
-    xml = sitemap.build("https://balanceproof.dev")
+    xml = sitemap_locs(sitemap)
     assert "/company/DRAW" in xml
     assert build_view1("DRAW") is not None
     assert client.get("/company/DRAW").status_code == 200
@@ -720,6 +724,8 @@ def test_the_sitemap_still_lists_a_ticker_that_renders(client):
 def test_the_sitemap_company_count_matches_the_drawable_count(client):
     """The count is the assertion: not "fewer", but exactly the ones that render."""
     import re
+
+    from _sitemap_util import sitemap_locs
 
     from src import sitemap
     from src.company.view1 import build_view1
@@ -730,7 +736,7 @@ def test_the_sitemap_company_count_matches_the_drawable_count(client):
     sitemap.reset_drawable()
     sitemap.refresh_drawable()
 
-    xml = sitemap.build("https://balanceproof.dev")
+    xml = sitemap_locs(sitemap)
     listed = re.findall(r"<loc>[^<]*/company/([A-Z]+)</loc>", xml)
 
     candidates = [t for t, _ in sitemap._candidate_rows()]
@@ -743,11 +749,13 @@ def test_the_sitemap_company_count_matches_the_drawable_count(client):
 
 def test_the_sitemap_is_unfiltered_rather_than_empty_before_the_walk(client):
     """A cold process lists its old set. Listing nothing would be worse."""
+    from _sitemap_util import sitemap_locs
+
     from src import sitemap
 
     _seed_sector([("AAA", 100e9)], "Technology")
     sitemap.reset_cache()
     sitemap.reset_drawable()
 
-    xml = sitemap.build("https://balanceproof.dev")
+    xml = sitemap_locs(sitemap)
     assert "/company/AAA" in xml

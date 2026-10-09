@@ -95,10 +95,12 @@ def test_a_shell_is_noindexed_and_a_real_company_is_not(client):
 def test_a_shell_is_left_out_of_the_sitemap(client):
     seed("TINY", 135_000.0)
     seed("BIGCO", 5e9)
+    from _sitemap_util import sitemap_flat
+
     from src import sitemap
 
     sitemap.refresh_drawable()
-    xml = client.get("/sitemap.xml").text
+    xml = sitemap_flat(client)
     assert "/company/BIGCO<" in xml
     assert "/company/TINY<" not in xml
 

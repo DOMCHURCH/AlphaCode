@@ -127,7 +127,9 @@ def test_every_post_has_related_reading_to_the_others(client):
 def test_no_post_recommends_itself(client):
     for post in POSTS:
         html = client.get(f"/blog/{post.slug}").text
-        section = html.split('id="related-reading"', 1)[1]
+        # Up to the footer: the footer is the same on every page and links the
+        # data study, which on the study's own page is not a recommendation.
+        section = html.split('id="related-reading"', 1)[1].split("<footer>", 1)[0]
         assert f"/blog/{post.slug}" not in section, f"{post.slug} recommends itself"
 
 
@@ -212,7 +214,9 @@ def test_every_internal_link_added_here_resolves(client):
 def test_the_new_posts_are_in_the_sitemap(client):
     """The sitemap enumerates POSTS, so this guards the wiring rather than a
     hand-kept list -- but a post nobody can find is a post nobody reads."""
-    sitemap = client.get("/sitemap.xml").text
+    from _sitemap_util import sitemap_flat
+
+    sitemap = sitemap_flat(client)
     for slug in (
         "why-bank-balance-sheets-are-different",
         "understanding-the-accounting-identity",

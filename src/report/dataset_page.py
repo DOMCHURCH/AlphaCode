@@ -190,12 +190,12 @@ def render_dataset(
     from src.report.schema import breadcrumb_ld, dataset_ld
 
     return shell(
-        "SEC XBRL Dataset Download — BalanceProof",
+        "SEC XBRL Balance Sheet Dataset (CSV) — BalanceProof",
         body,
         description=(
-            f"Download every as-reported SEC balance sheet figure as one "
-            f"CSV: {row_label} rows across {companies_label()} companies, "
-            f"reconciled with A = L + E. One-time {dataset_price}."
+            f"Every as-reported SEC balance sheet figure as one CSV: "
+            f"{row_label} rows, {companies_label()} companies, each reconciled "
+            f"with A = L + E. One-time {dataset_price}, no subscription."
         ),
         canonical="/dataset",
         # `companies=6201` was a literal ARGUMENT here -- the hardest

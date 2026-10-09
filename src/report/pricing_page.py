@@ -28,7 +28,7 @@ import datetime as dt
 from html import escape
 
 from src.report.company_page import asset_version
-from src.report.home_page import companies_label, shell
+from src.report.home_page import shell
 
 
 def compact(n: int) -> str:
@@ -755,6 +755,9 @@ def render_pricing(
     # sentences that stand alone out of context. Marked up so a model quoting
     # one of them has the question attached to it.
     price_list = plan_price_list()
+    from src.config.settings import get_settings as _gs
+
+    free_calls = _gs().free_tier_monthly_calls
     faq_pairs = [
         (
             "How much does BalanceProof cost?",
@@ -794,11 +797,12 @@ def render_pricing(
         ),
     ]
     return shell(
-        "Pricing — BalanceProof",
+        "SEC Balance Sheet API Pricing, Free Tier — BalanceProof",
         body,
         description=(
-            f"{price_list} Every figure traced to its source, every "
-            f"exception named. {companies_label()} companies."
+            f"{free_calls:,} free API calls a month, no card. Paid plans for "
+            "more calls, history and alerts, or the full dataset once. "
+            "Prices in CAD, every figure checked."
         ),
         canonical="/pricing",
         ld=pricing_ld(all_tiers=True)

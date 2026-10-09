@@ -37,14 +37,14 @@ log = structlog.get_logger(__name__)
 
 # An hour. The company set moves four times a year.
 _TTL_S = 3600.0
-# The protocol's own ceiling is 50,000 URLs (and 50 MB uncompressed) per file.
-# At ~6,200 companies there is a lot of room, but a site that grows into an
-# index file should find out by reading this note rather than by having Google
-# reject the file.
-MAX_URLS = 50_000
+# URLs per file. The protocol's own ceiling is 50,000 (and 50 MB uncompressed);
+# 10,000 keeps every file small enough to fetch quickly and to read in Search
+# Console. Company pages are split into `company-1`, `company-2`, ... past it.
+MAX_URLS = 10_000
 
 _lock = threading.Lock()
-_cache: tuple[float, str, str] | None = None   # (built_at, base_url, xml)
+# (built_at, base_url, {file name: entries})
+_cache: tuple[float, str, dict] | None = None
 
 
 # The tickers whose page actually renders, or None before it has been computed.
@@ -189,16 +189,48 @@ def _url(loc: str, lastmod: dt.date | str | None,
     )
 
 
-def build(base_url: str) -> str:
-    """The XML, for a site served at `base_url` (no trailing slash).
+# One entry per URL: (loc, lastmod as an ISO string or None, changefreq, priority).
+Entry = tuple[str, str | None, str, str]
 
-    The host comes from the request rather than from a constant, so the file
-    lists the domain the crawler actually asked on -- which is what Search
+
+def _iso(d: dt.date | str | None) -> str | None:
+    if d is None:
+        return None
+    return d.isoformat() if isinstance(d, dt.date) else str(d)
+
+
+def _newest(*dates: dt.date | str | None) -> str | None:
+    """The latest of several dates, as an ISO string. ISO dates sort as text."""
+    stamps = [x for x in (_iso(d) for d in dates) if x]
+    return max(stamps) if stamps else None
+
+
+# The order the index lists the files in. A page type that is not named here
+# (a new URL prefix in `compare.PAGES`) still gets its own file, after these.
+_GROUP_ORDER = ("pages", "blog", "compare", "alternatives", "best", "sector")
+
+
+def build_groups(base_url: str) -> dict[str, list[Entry]]:
+    """Every indexable URL, grouped by page type, one group per sitemap file.
+
+    The host comes from the request rather than from a constant, so the files
+    list the domain the crawler actually asked on -- which is what Search
     Console requires, and what stops a sitemap fetched at one hostname from
     advertising another.
+
+    Only HTML pages that are indexable and canonical are listed. The two
+    machine-readable disclosures (/llms.txt, /financial-data.txt) are text
+    files for crawlers that read them from robots.txt, not pages to rank, so
+    they are not here. Neither are /dashboard and /login (both `noindex`: a
+    sitemap that lists a noindexed URL is two instructions that contradict
+    each other), /search (400 without a query) or /docs (off in production).
+
+    `lastmod` is a claim, so each date is one the page can defend: the filing
+    date behind a company page, the date written on a post or a comparison page,
+    the newest post for the blog index, and for the pages that print live counts
+    the later of the newest filing and the legal-document date.
     """
     base = base_url.rstrip("/")
-    parts: list[str] = []
 
     newest = _newest_filing()
     try:
@@ -207,91 +239,80 @@ def build(base_url: str) -> str:
     except Exception:  # noqa: BLE001 - a sitemap must not depend on prose
         legal_date = None
 
-    # The front door changes whenever a filing lands, because the hero drawing
-    # and the counts on it are built from the data.
-    # `newest` is the newest filing date behind any drawable company, and it is
-    # None on a database with no loaded filings. Two URLs use it -- the home
-    # page and /dataset -- and both were emitted with NO `lastmod` in that
-    # state, which is the one field Google uses to decide whether to come back.
-    # Falling back to the legal date keeps the guarantee unconditional: every
-    # URL in this file carries a lastmod, whatever the database holds.
-    newest = newest or legal_date
-    parts.append(_url(f"{base}/", newest, "daily", "1.0"))
-    parts.append(_url(f"{base}/api", legal_date, "monthly", "0.8"))
-    # Both are real pages now rather than a redirect and a dashboard tab, and
-    # both are the answer to a search somebody actually types ("SEC XBRL
-    # dataset download", "financial statement API pricing"), so they are worth
-    # a crawl. `newest` rather than `legal_date` on /dataset: its whole content
-    # is the snapshot date, which moves when a quarter lands.
-    parts.append(_url(f"{base}/pricing", legal_date, "monthly", "0.8"))
-    parts.append(_url(f"{base}/dataset", newest, "monthly", "0.7"))
-    # Rebuilt from the exceptions feed as filings load, so it moves when the
-    # data does.
-    parts.append(_url(f"{base}/restatements", newest, "daily", "0.7"))
-    # The public explanation of the accuracy figure. Prose, so it moves
-    # when somebody rewrites it rather than when a filing lands.
-    parts.append(_url(f"{base}/about", legal_date, "monthly", "0.7"))
-    parts.append(_url(f"{base}/methodology", legal_date, "monthly", "0.7"))
-    parts.append(_url(f"{base}/blog", legal_date, "weekly", "0.7"))
-    for slug, updated in _blog_posts():
-        parts.append(_url(f"{base}/blog/{slug}", updated, "monthly", "0.6"))
-    # The comparison and decision pages. Enumerated from `compare.PAGES` rather
-    # than listed here, so adding a page to that tuple is the only step -- a
-    # sitemap that has to be edited in a second file is a sitemap that will one
-    # day be missing a page nobody notices. `updated` is the date written on
-    # each page, which is the honest lastmod: the content is prose and it
-    # changes when somebody rewrites it, not when a filing lands.
+    # `newest` is None on a database with no loaded filings. Falling back to the
+    # legal date keeps the guarantee unconditional: every URL carries a lastmod,
+    # whatever the database holds.
+    newest_iso = _iso(newest) or legal_date
+    # Pages that print live counts (the strip, the coverage line) move when the
+    # data does, or when somebody rewrites them: the later of the two.
+    live = _newest(newest_iso, legal_date)
+
+    posts = _blog_posts()
+    blog_index = _newest(*[updated for _slug, updated in posts]) or legal_date
+
+    compare_index = _newest(*[updated for _slug, updated in _compare_pages()]) or legal_date
+
+    groups: dict[str, list[Entry]] = {}
+
+    groups["pages"] = [
+        (f"{base}/", newest_iso, "daily", "1.0"),
+        (f"{base}/api", live, "monthly", "0.8"),
+        (f"{base}/pricing", live, "monthly", "0.8"),
+        (f"{base}/dataset", newest_iso, "monthly", "0.7"),
+        (f"{base}/restatements", newest_iso, "daily", "0.7"),
+        (f"{base}/about", legal_date, "monthly", "0.7"),
+        (f"{base}/methodology", live, "monthly", "0.7"),
+        (f"{base}/blog", blog_index, "weekly", "0.7"),
+        (f"{base}/companies", newest_iso, "weekly", "0.7"),
+        (f"{base}/compare", compare_index, "monthly", "0.7"),
+        (f"{base}/terms", legal_date, "yearly", "0.3"),
+        (f"{base}/privacy", legal_date, "yearly", "0.3"),
+    ]
+    groups["blog"] = [
+        (f"{base}/blog/{slug}", _iso(updated), "monthly", "0.6")
+        for slug, updated in posts
+    ]
+    # Enumerated from `compare.PAGES` rather than listed here, so adding a page
+    # to that tuple is the only step. The slug's first segment names the file:
+    # compare/, alternatives/ and best/ are three page types.
     for slug, updated in _compare_pages():
-        parts.append(_url(f"{base}/{slug}", updated, "monthly", "0.6"))
-    # The sector hubs. Higher priority than a single company page and lower
-    # than the product pages: each one is the parent of several hundred
-    # companies, which is exactly the relationship this sitemap could not
-    # express while the hubs did not exist. `lastmod` is the newest filing
-    # date IN THAT SECTOR -- a real date, like the company pages, rather than
-    # today.
-    for slug, updated in _sector_pages():
-        parts.append(_url(f"{base}/sector/{slug}", updated, "weekly", "0.7"))
-    # NOT /dashboard and NOT /login. Both are `noindex` now, and a sitemap
-    # that lists a noindexed URL is two instructions that contradict each
-    # other -- Search Console reports it as an error, and the crawl budget
-    # spent resolving it comes out of the six thousand company pages that do
-    # want indexing. Signed out, the dashboard is a paste-your-key box and the
-    # login page is a single field; a crawler has no session, so that is all
-    # either one ever shows it.
-    # The two machine-readable disclosures. Both are served as text/plain and
-    # both are advertised in robots.txt already; listing them here is what puts
-    # a `lastmod` on them, which is the field a crawler uses to decide whether
-    # to come back. Low priority deliberately -- they are for machines, and a
-    # crawler that spends a company page's budget on a text file has been
-    # misdirected.
-    #
-    # NOT /docs. That is FastAPI's generated Swagger UI and it is switched off
-    # in production; asking Google to index a 404 is worse than not asking.
-    parts.append(_url(f"{base}/llms.txt", legal_date, "monthly", "0.3"))
-    parts.append(_url(f"{base}/financial-data.txt", legal_date, "monthly", "0.3"))
-    parts.append(_url(f"{base}/terms", legal_date, "yearly", "0.3"))
-    parts.append(_url(f"{base}/privacy", legal_date, "yearly", "0.3"))
-
-    companies = _company_rows()
-    room = MAX_URLS - len(parts)
-    if len(companies) > room:
-        log.warning(
-            "sitemap_truncated",
-            companies=len(companies), room=room,
-            note="past 50,000 URLs this needs to become a sitemap index",
+        kind = slug.split("/", 1)[0]
+        groups.setdefault(kind, []).append(
+            (f"{base}/{slug}", _iso(updated), "monthly", "0.6")
         )
-        companies = companies[:room]
+    # `lastmod` is the newest filing date IN THAT SECTOR.
+    groups["sector"] = [
+        (f"{base}/sector/{slug}", _iso(updated), "weekly", "0.7")
+        for slug, updated in _sector_pages()
+    ]
 
-    for ticker, filed in companies:
-        # Weekly, not daily: a balance sheet changes when the company files,
-        # roughly four times a year. Claiming daily on six thousand pages that
-        # do not change daily is how a sitemap stops being believed.
-        parts.append(
-            _url(f"{base}/company/{ticker}", filed, "weekly", "0.6")
-        )
+    # Weekly, not daily: a balance sheet changes when the company files,
+    # roughly four times a year. Claiming daily on six thousand pages that do
+    # not change daily is how a sitemap stops being believed.
+    companies = [
+        (f"{base}/company/{ticker}", _iso(filed), "weekly", "0.6")
+        for ticker, filed in _company_rows()
+    ]
+    for n, start in enumerate(range(0, len(companies), MAX_URLS), start=1):
+        groups[f"company-{n}"] = companies[start:start + MAX_URLS]
 
-    body = "\n".join(parts)
-    log.info("sitemap_built", urls=len(parts), companies=len(companies))
+    ordered: dict[str, list[Entry]] = {}
+    for name in _GROUP_ORDER:
+        if groups.get(name):
+            ordered[name] = groups.pop(name)
+    for name in sorted(groups):
+        if groups[name]:
+            ordered[name] = groups[name]
+    log.info(
+        "sitemap_built",
+        files=len(ordered), urls=sum(len(v) for v in ordered.values()),
+        companies=len(companies),
+    )
+    return ordered
+
+
+def _urlset(entries: list[Entry]) -> str:
+    body = "\n".join(_url(loc, last, freq, prio) for loc, last, freq, prio in entries)
     return (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
@@ -300,12 +321,28 @@ def build(base_url: str) -> str:
     )
 
 
-def xml(base_url: str) -> str:
-    """`build`, memoised for an hour and per host.
+def _index(base: str, groups: dict[str, list[Entry]]) -> str:
+    items = []
+    for name, entries in groups.items():
+        last = _newest(*[e[1] for e in entries])
+        when = f"\n    <lastmod>{escape(last)}</lastmod>" if last else ""
+        items.append(
+            f"  <sitemap>\n    <loc>{escape(base)}/sitemap-{name}.xml</loc>{when}\n  </sitemap>"
+        )
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n'
+        + "\n".join(items)
+        + "\n</sitemapindex>\n"
+    )
+
+
+def _groups_cached(base_url: str) -> dict[str, list[Entry]]:
+    """`build_groups`, memoised for an hour and per host.
 
     Keyed on the base URL as well as on time: the same process answers on
-    balanceproof.dev and on the Railway hostname, and a cache that ignored which one
-    was asked would serve one domain's URLs to the other.
+    balanceproof.dev and on the Railway hostname, and a cache that ignored which
+    one was asked would serve one domain's URLs to the other.
     """
     global _cache
 
@@ -321,9 +358,32 @@ def xml(base_url: str) -> str:
         hit = _cache
         if hit is not None and hit[1] == base and now - hit[0] < _TTL_S:
             return hit[2]
-        out = build(base)
+        out = build_groups(base)
         _cache = (time.monotonic(), base, out)
         return out
+
+
+def xml(base_url: str) -> str:
+    """The sitemap INDEX: one `<sitemap>` per page type, each with the newest
+    `lastmod` of the URLs in it. This is what /sitemap.xml serves and what
+    robots.txt names."""
+    base = base_url.rstrip("/")
+    return _index(base, _groups_cached(base))
+
+
+def file_xml(base_url: str, name: str) -> str | None:
+    """One child file (`/sitemap-{name}.xml`), or None if there is no such file.
+
+    Only names the index lists exist, so the index and its children cannot
+    disagree: a child that is not listed is a 404, and a listed child is a 200."""
+    groups = _groups_cached(base_url.rstrip("/"))
+    entries = groups.get(name)
+    return _urlset(entries) if entries else None
+
+
+def all_urls(base_url: str) -> list[tuple[str, str | None]]:
+    """Every (loc, lastmod) across every file. For diagnostics and tests."""
+    return [(e[0], e[1]) for v in _groups_cached(base_url.rstrip("/")).values() for e in v]
 
 
 def reset_cache() -> None:
