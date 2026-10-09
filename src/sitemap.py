@@ -268,6 +268,17 @@ def build_groups(base_url: str) -> dict[str, list[Entry]]:
         (f"{base}/terms", legal_date, "yearly", "0.3"),
         (f"{base}/privacy", legal_date, "yearly", "0.3"),
     ]
+    # Product pages (`report.landing`), enumerated like the comparison pages so
+    # the page, its route and its sitemap entry share one source.
+    try:
+        from src.report.landing import PAGES as LANDING_PAGES
+
+        groups["pages"] += [
+            (f"{base}/{p.slug}", p.updated, "monthly", "0.7")
+            for p in LANDING_PAGES
+        ]
+    except Exception:  # noqa: BLE001 - a sitemap must not depend on a page module
+        log.warning("sitemap_landing_pages_unavailable")
     groups["blog"] = [
         (f"{base}/blog/{slug}", _iso(updated), "monthly", "0.6")
         for slug, updated in posts

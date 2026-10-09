@@ -4684,6 +4684,34 @@ def compare_hub(request: Request) -> HTMLResponse:
     return HTMLResponse(_versioned(render_compare_index(nav=_nav_for(request, ""))))
 
 
+def _register_landing_pages() -> None:
+    """One GET route per page in `report.landing.PAGES`.
+
+    Registered from the tuple, like the comparison pages, so adding a page there
+    is the only step: the route, the sitemap entry (`sitemap.build_groups`) and
+    the /compare hub all read the same list.
+    """
+    from src.report import landing
+
+    def make(page: "landing.Landing"):
+        def handler(request: Request) -> HTMLResponse:
+            return HTMLResponse(_versioned(landing.render(
+                page, nav=_nav_for(request, "")
+            )))
+
+        handler.__name__ = "landing_" + page.slug.replace("-", "_")
+        return handler
+
+    for page in landing.PAGES:
+        app.add_api_route(
+            f"/{page.slug}", make(page), methods=["GET"],
+            response_class=HTMLResponse, include_in_schema=False,
+        )
+
+
+_register_landing_pages()
+
+
 @app.get("/about", response_class=HTMLResponse)
 def about_page(request: Request) -> HTMLResponse:
     """What this is and who built it, on a page that says so on purpose.
@@ -4847,6 +4875,9 @@ def _llms_full_sections(request: Request) -> list[tuple[str, str]]:
          body(_compare_page(page.kind, page.slug.split("/", 1)[1], request)))
         for page in COMPARISONS
     ]
+    from src.report import landing
+
+    sections += [(f"/{p.slug}", landing.render(p)) for p in landing.PAGES]
     return sections
 
 

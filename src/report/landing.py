@@ -1,0 +1,382 @@
+"""Product pages that answer one search: /xbrl-balance-sheet-api and its siblings.
+
+These are not comparisons. A comparison page (`compare.py`) argues one product
+against another; a page here describes ONE thing this site does, shows a real
+response from it, and says plainly what it does not do. Each has a self
+canonical, a title of 60 characters or fewer, a description of 155 or fewer,
+and links to the pages beside it and to /api.
+
+THE RULE FOR THE SAMPLES. Every figure shown is read from the database when
+the page is rendered, through the same `get_balance_sheet` the API serves. If
+the database has nothing for the sample company the sample section is left
+out; it is never replaced with an invented one.
+
+NO COVERAGE CLAIMS BEYOND THE DATA. Periodic balance sheets only. Nothing here
+says the site reads event filings, and `tests/test_landing_pages.py` fails the
+build if one of these pages does.
+"""
+
+from __future__ import annotations
+
+import json
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
+from html import escape
+
+import structlog
+
+from src.report.company_page import asset_version
+from src.report.home_page import SITE_ORIGIN, shell
+
+log = structlog.get_logger(__name__)
+
+SAMPLE_TICKER = "AAPL"
+
+
+@dataclass(frozen=True)
+class Landing:
+    slug: str
+    h1: str
+    seo_title: str
+    description: str
+    lede: str
+    updated: str
+    body: Callable[[], str]
+    faq: Callable[[], tuple[tuple[str, str], ...]]
+    # (href, label, why) for the "Next to this page" list. Only pages that exist.
+    related: tuple[tuple[str, str, str], ...] = ()
+
+
+# ---------------------------------------------------------------------------
+# Real samples
+# ---------------------------------------------------------------------------
+# The lines worth showing, in the order a reader looks for them. The response
+# has many more; the page says so.
+_SHOWN = {
+    "assets": ("total_assets", "cash", "receivables", "property_plant_equipment"),
+    "liabilities": ("total_liabilities", "long_term_debt"),
+    "equity": ("shareholders_equity",),
+}
+
+
+def sample_response(ticker: str = SAMPLE_TICKER) -> dict | None:
+    """A trimmed copy of the real REST response for `ticker`, or None.
+
+    Trimmed by selecting keys, never by editing values: what is printed is a
+    subset of what `/api/company/{ticker}` returns, field for field.
+    """
+    try:
+        from src.company.balancesheet import get_balance_sheet
+
+        sheet = get_balance_sheet(ticker)
+    except Exception as exc:  # noqa: BLE001 - a sample must never take a page down
+        log.warning("landing_sample_failed", ticker=ticker, error=str(exc)[:200])
+        return None
+    if sheet is None:
+        return None
+    full = asdict(sheet)
+    out: dict = {
+        "ticker": full["ticker"],
+        "company_name": full["company_name"],
+        "period_end": full["period_end"].isoformat(),
+        "filing_date": full["filing_date"].isoformat(),
+    }
+    for group, keys in _SHOWN.items():
+        picked = {}
+        for key in keys:
+            cell = full[group].get(key)
+            if cell is None or cell.get("missing") or cell.get("value") is None:
+                continue
+            picked[key] = {
+                "concept": cell["concept"],
+                "value": cell["value"],
+                "period_end": cell["period_end"].isoformat(),
+                "filing_date": cell["filing_date"].isoformat(),
+                "missing": False,
+                "restated": cell["restated"],
+            }
+        if picked:
+            out[group] = picked
+    if "total_assets" not in out.get("assets", {}):
+        return None
+    out["missing_concepts"] = full["missing_concepts"]
+    out["data_quality_issues"] = full["data_quality_issues"]
+    out["source"] = "SEC Financial Statement Data Sets (as reported)"
+    return out
+
+
+def _json_block(sample: dict) -> str:
+    """Pretty JSON with the long lists elided, escaped for HTML."""
+    shown = dict(sample)
+    missing = shown.pop("missing_concepts", [])
+    text = json.dumps(shown, indent=2)
+    if missing:
+        keep = missing[:3]
+        tail = ", ".join(json.dumps(m) for m in keep)
+        extra = f", ... {len(missing) - 3} more" if len(missing) > 3 else ""
+        text = text[:-2] + f',\n  "missing_concepts": [{tail}{extra}]\n}}'
+    return escape(text)
+
+
+def check_line(ticker: str = SAMPLE_TICKER) -> tuple[str, str] | None:
+    """(arithmetic line, verdict) for the sample, from the same view the
+    company page draws, or None."""
+    try:
+        from src.company.view1 import build_view1
+        from src.report.company_facts import arithmetic_line, balance_verdict
+
+        view = build_view1(ticker)
+    except Exception as exc:  # noqa: BLE001
+        log.warning("landing_check_failed", ticker=ticker, error=str(exc)[:200])
+        return None
+    if view is None:
+        return None
+    line = arithmetic_line(view)
+    if not line:
+        return None
+    return line, balance_verdict({
+        "balances": bool(view.balances), "basis": view.identity_basis or "",
+        "imbalance_pct": view.imbalance_pct,
+    })
+
+
+# ---------------------------------------------------------------------------
+# Shared furniture
+# ---------------------------------------------------------------------------
+def _free_calls() -> str:
+    from src.config.settings import get_settings
+
+    return f"{get_settings().free_tier_monthly_calls:,}"
+
+
+def _cta() -> str:
+    return """
+  <aside class="sec cta">
+    <div class="sec-head"><h2>Try it on a company you know</h2></div>
+    <p class="sec-sub">Free key, no card. Pick a company whose balance sheet you
+      have read, call the API, and compare the response with the filing on
+      EDGAR.</p>
+    <div class="api-cta">
+      <a class="btn" href="/dashboard">Get a free API key</a>
+      <a class="btn ghost" href="/api">API reference</a>
+      <a class="btn ghost" href="/pricing">Pricing</a>
+    </div>
+  </aside>"""
+
+
+def _related(page: Landing) -> str:
+    items = "".join(
+        f'<li><a href="{escape(href)}">{escape(label)}</a> &mdash; '
+        f"{escape(why)}</li>"
+        for href, label, why in page.related
+    )
+    return f"""
+  <section class="sec" id="related">
+    <div class="sec-head"><h2>Next to this page</h2></div>
+    <ul class="notelist">{items}</ul>
+  </section>"""
+
+
+def _faq_html(pairs: tuple[tuple[str, str], ...]) -> str:
+    items = "".join(f"<h3>{escape(q)}</h3><p>{escape(a)}</p>" for q, a in pairs)
+    return f"""
+  <section class="sec" id="faq">
+    <div class="sec-head"><h2>Common questions</h2></div>
+    {items}
+  </section>"""
+
+
+def render(page: Landing, *, nav: str = "") -> str:
+    from src.report.nav import render_footer
+    from src.report.schema import breadcrumb_ld, faq_ld, webpage_ld
+
+    pairs = page.faq()
+    footer = render_footer(
+        "Figures are as reported to the SEC. This describes what a company "
+        "filed; it is not advice and makes no prediction."
+    )
+    body = f"""{nav}
+<main class="wrap post" id="main">
+  <article>
+    <header class="hero">
+      <h1 class="htitle">{escape(page.h1)}</h1>
+      <p class="hlede">{escape(page.lede)}</p>
+      <div class="api-cta hero-cta">
+        <a class="btn" href="/dashboard">Get a free API key</a>
+        <a class="btn ghost" href="/api">API reference</a>
+      </div>
+    </header>
+    <div class="prose">{page.body()}</div>
+  </article>
+  {_faq_html(pairs)}
+  {_cta()}
+  {_related(page)}
+{footer}
+</main>
+<script src="/static/nav.js?v={asset_version()}" defer></script>"""
+    ld = (
+        webpage_ld(page.h1, page.description, f"/{page.slug}")
+        + breadcrumb_ld([("Home", "/"), (page.h1, f"/{page.slug}")])
+        + faq_ld(pairs)
+    )
+    return shell(
+        page.seo_title, body,
+        description=page.description, canonical=f"/{page.slug}", ld=ld,
+    )
+
+
+# ---------------------------------------------------------------------------
+# /xbrl-balance-sheet-api
+# ---------------------------------------------------------------------------
+def _xbrl_body() -> str:
+    from src.report.compare import NAIVE_ACCURACY, live_counts
+
+    counts = live_counts()
+    filers = counts["{FILERS}"]
+    host = SITE_ORIGIN
+    sample = sample_response()
+    check = check_line()
+
+    sample_html = ""
+    if sample is not None:
+        sample_html = f"""
+<h2>A real response</h2>
+<p>This is the response for {escape(sample["company_name"] or sample["ticker"])}
+({escape(sample["ticker"])}), period ended {escape(sample["period_end"])},
+filed {escape(sample["filing_date"])}, read from the database when this page
+was rendered. It is a subset of the fields: the full response lists every
+balance sheet line the filer reported, and names the ones it did not.</p>
+<pre class="code api-code"><code>{_json_block(sample)}</code></pre>"""
+        if check:
+            line, verdict = check
+            sample_html += f"""
+<p>The check, run on those figures:</p>
+<pre class="code api-code"><code>{escape(line)}</code></pre>
+<p>Result: <strong>{escape(verdict.lower())}</strong>. The same line is printed
+on <a href="/company/{escape(sample["ticker"])}">the company page</a>; over
+the API, <code>POST /api/verify</code> (Pro and above) returns the pass or fail,
+the gap as a share of assets, and the basis it balanced on, for up to 50 tickers
+per request on Pro.</p>"""
+
+    return f"""
+<h2>One request, one balance sheet</h2>
+<p>Send a ticker, get that company&rsquo;s latest balance sheet from its SEC
+XBRL filing as JSON. {escape(filers)} are covered. Each line item comes with
+its name, its value in dollars, the period it is for, the date of the
+filing it was read from, and flags for whether it is missing or restated.</p>
+<pre class="code api-code"><code>curl -H "X-API-Key: YOUR_KEY" \\
+  {host}/api/company/{escape(SAMPLE_TICKER)}</code></pre>
+<p>No key yet? <code>{host}/api/demo/{escape(SAMPLE_TICKER)}</code> returns the
+same response with no sign-up, rate limited per address. A free key gives you
+{_free_calls()} calls a month with no card.</p>
+{sample_html}
+
+<h2>Why a balance sheet from XBRL needs a check</h2>
+<p>Open a large filer&rsquo;s 10-Q and search for <code>Assets</code> and you
+find many facts, not one: the consolidated total plus a separate fact for every
+segment and subsidiary the filer has to break out. All of them are valid XBRL.
+Only one is the number on the face of the balance sheet, and the only thing
+marking it is that it carries no dimensions. An extractor that takes the first
+match, the largest, or the most recent is right most of the time and wrong
+without leaving a trace; measured on the filings loaded here, taking the naive
+pick was {escape(NAIVE_ACCURACY)}.</p>
+<p>This API picks the combination of assets, liabilities and equity that
+satisfies <strong>Assets = Liabilities + Equity</strong>, and it publishes the
+filings that do not balance with the reason rather than adjusting them until
+they do. The method is written out on
+<a href="/methodology">how we verify</a>, and the measurement behind the claim
+is in <a href="/blog/sec-xbrl-data-wrong-one-in-five">why SEC XBRL data is
+wrong one time in five</a>.</p>
+
+<h2>What it returns, and what it does not</h2>
+<ul class="notelist">
+  <li><strong>As filed.</strong> Figures are what the company reported in its
+  periodic filings, as read from the SEC Financial Statement Data Sets. Nothing
+  is estimated, smoothed or backfilled.</li>
+  <li><strong>Missing is missing.</strong> A line the filer did not report is
+  listed under <code>missing_concepts</code> and has <code>missing: true</code>.
+  It is never returned as zero.</li>
+  <li><strong>Balance sheet first.</strong> Income statement and cash flow are
+  at <code>/api/company/{{ticker}}/statements</code>, history at
+  <code>/api/company/{{ticker}}/history</code>; depth depends on the plan, and
+  <code>/api/plans</code> lists it as data.</li>
+  <li><strong>No prices.</strong> This is filing data. It does not return
+  quotes, market caps or estimates.</li>
+  <li><strong>Not real time.</strong> A balance sheet appears after the company
+  files it and the filing is loaded; it is not a feed of the filing as it
+  lands.</li>
+</ul>
+
+<h2>From Python</h2>
+<pre class="code api-code"><code>pip install balanceproof
+
+import balanceproof as bp
+client = bp.Client("YOUR_KEY")        # or set BALANCEPROOF_API_KEY
+client.balance_sheet("{escape(SAMPLE_TICKER)}")</code></pre>
+<p>The client is on <a href="https://pypi.org/project/balanceproof/"
+rel="noopener">PyPI</a> and wraps every endpoint on the
+<a href="/api">API reference</a>.</p>
+"""
+
+
+def _xbrl_faq() -> tuple[tuple[str, str], ...]:
+    return (
+        (
+            "What is an XBRL balance sheet API?",
+            "It returns a company's balance sheet, taken from the XBRL data "
+            "the company files with the SEC, as structured JSON instead of "
+            "a document you have to parse. BalanceProof returns each line "
+            "item with its concept, value, period and source filing.",
+        ),
+        (
+            "Where does the balance sheet data come from?",
+            "From the XBRL financial data companies file with the SEC on "
+            "EDGAR, read through the SEC Financial Statement Data Sets. "
+            "Figures are as reported, with no estimates or smoothing.",
+        ),
+        (
+            "How do I know a balance sheet from the API is right?",
+            "Each one is checked against the accounting identity Assets = "
+            "Liabilities + Equity before it is published. A filing that does "
+            "not balance is published with the reason, such as a "
+            "noncontrolling interest, a component that was not read, or a "
+            "filing whose own totals disagree, instead of being adjusted.",
+        ),
+        (
+            "Is there a free XBRL balance sheet API?",
+            f"Yes. A free key gives {_free_calls()} calls a month with no "
+            "card, and a keyless demo endpoint returns the same response "
+            "for one company at a time, rate limited per address.",
+        ),
+    )
+
+
+XBRL_BALANCE_SHEET_API = Landing(
+    slug="xbrl-balance-sheet-api",
+    h1="XBRL balance sheet API for US public companies",
+    seo_title="XBRL Balance Sheet API for SEC Filings — BalanceProof",
+    description=(
+        "A REST API for SEC XBRL balance sheets as JSON, each checked against "
+        "Assets = Liabilities + Equity. Free key, no card. Real response below."
+    ),
+    lede=(
+        "Send a ticker, get the latest balance sheet from the company's SEC "
+        "XBRL filing as JSON, checked against Assets = Liabilities + Equity "
+        "before it is served."
+    ),
+    updated="2026-10-09",
+    body=_xbrl_body,
+    faq=_xbrl_faq,
+    related=(
+        ("/api", "API reference", "every endpoint, with plan limits."),
+        ("/methodology", "How we verify", "what the check is and how the exceptions are counted."),
+        ("/best/sec-xbrl-api", "How to choose an SEC XBRL API", "four tests to run on any provider."),
+        ("/best/balance-sheet-api", "How to choose a balance sheet API", "the buyer's guide, not the product page."),
+        ("/alternatives/sec-api", "Alternatives to sec-api.io", "the document or the figures inside it."),
+        ("/pricing", "Pricing", "what each plan includes."),
+        (f"/company/{SAMPLE_TICKER}", f"{SAMPLE_TICKER} balance sheet", "the same figures, drawn to scale."),
+    ),
+)
+
+PAGES: tuple[Landing, ...] = (XBRL_BALANCE_SHEET_API,)
+BY_SLUG: dict[str, Landing] = {p.slug: p for p in PAGES}

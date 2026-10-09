@@ -169,6 +169,20 @@ def render_compare_index(*, nav: str = "") -> str:
       <ul class="notelist">{items}</ul>
     </section>""")
 
+    from src.report.landing import PAGES as LANDING_PAGES
+
+    if LANDING_PAGES:
+        items = "".join(
+            f'<li><a href="/{escape(p.slug)}">{escape(p.h1)}</a></li>'
+            for p in LANDING_PAGES
+        )
+        blocks.insert(0, f"""
+    <section class="sec" id="product">
+      <div class="sec-head"><h2>The product</h2></div>
+      <p class="sec-sub">What the API does, with a real response from it.</p>
+      <ul class="notelist">{items}</ul>
+    </section>""")
+
     body = f"""{nav}
 <main class="wrap post" id="main">
   <article>
