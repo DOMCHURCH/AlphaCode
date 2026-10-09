@@ -233,10 +233,6 @@ def hubs_html(view: Any, sector_slug_value: str | None) -> str:
         "directory this page belongs to.</li>"
     )
     links.append(
-        '<li><a href="/restatements">Recent restatements</a> — figures '
-        "companies revised in a later filing.</li>"
-    )
-    links.append(
         '<li><a href="/methodology">How the check works</a> — what '
         "“balanced” means and what the exceptions are.</li>"
     )

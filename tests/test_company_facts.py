@@ -180,9 +180,10 @@ def test_stated_total_note_names_who_is_short():
 
 def test_hubs_link_to_the_sector_and_the_directories():
     html = cf.hubs_html(_V, "technology")
-    for href in ("/sector/technology", "/companies", "/restatements",
-                 "/methodology"):
+    for href in ("/sector/technology", "/companies", "/methodology"):
         assert f'href="{href}"' in html
+    # The restatement detector is not audited; company pages do not point at it.
+    assert "/restatements" not in html
 
 
 # ---------------------------------------------------------------------------
