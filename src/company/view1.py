@@ -859,12 +859,25 @@ def _check_identity(
     # not report separately" -- pointed at our own coverage gap and labelled as
     # ours. Nothing is invented: the height comes from the filer's own stated
     # total, and the band says we could not read what fills it.
+    #
+    # WHOSE FAULT THE BAND IS, AND WHAT IT CLAIMS. It used to say "a line
+    # reported under a tag this site does not yet map. Ours, not theirs." That
+    # asserts more than the figures held here can show. Checked against SEC's
+    # own XBRL for GYRE's 2026-06-30 filing: the filing states total assets and
+    # total liabilities-and-equity as $199,255,000, and tags Liabilities
+    # ($34,336,000) and equity including the noncontrolling interest
+    # ($142,489,000) -- which sum to $22,430,000 less than the total it states.
+    # No undimensioned USD fact in the filing carries that amount, so it is not
+    # a tag we fail to map; it is either not tagged or tagged only with a
+    # dimension. Those cannot be told apart from here, so the note says so.
     stated = view.stated_rhs
+    unread_drawn = False
     if stated and total_assets > 0:
         own_gap = abs(total_assets - stated) / total_assets * 100.0
         drawn = (total_liabilities or 0.0) + (total_equity or 0.0)
         unread = stated - drawn
         if own_gap <= IDENTITY_TOLERANCE * 100.0 and unread > 0:
+            unread_drawn = True
             view.claims.append(Block(
                 key="unread_components",
                 label="Not read from this filing",
@@ -875,11 +888,29 @@ def _check_identity(
                 is_remainder=True,
                 note=(
                     "This filer's own stated total for liabilities plus equity "
-                    "equals their total assets, so the filing balances. This "
-                    "band is the part we could not read — a line reported "
-                    "under a tag this site does not yet map. Ours, not theirs."
+                    "equals their total assets, so the filing balances against "
+                    "its own arithmetic. This band is the part this page did "
+                    "not read. Whether that line is tagged under a name this "
+                    "site does not map, tagged only with a dimension, or not "
+                    "tagged in the filing's XBRL cannot be told from the "
+                    "figures held here."
                 ),
             ))
+
+    if unread_drawn:
+        # The filing balances; what is short is what was read. Saying "this
+        # filing does not balance" here contradicted the band above it, the
+        # paragraph, and the API's own note, all built from this same view.
+        view.notes.append(
+            "The filer's own stated total for liabilities plus equity equals "
+            "its total assets, so this filing balances against its own "
+            f"arithmetic. The components this page read come to "
+            f"{view.imbalance_pct:.1f}% less than that stated total, and the "
+            "difference is drawn as the band labelled \"Not read from this "
+            "filing\". Every figure here is as filed; nothing has been "
+            "adjusted."
+        )
+        return
 
     view.notes.append(
         "This filing does not balance — data shown as reported. "

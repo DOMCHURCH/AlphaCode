@@ -410,7 +410,18 @@ def test_a_gap_that_is_ours_is_drawn_not_left_as_a_short_column():
     band = unread[0]
     assert band.value == pytest.approx(ASSETS - (LIAB + EQUITY))
     assert band.is_remainder
-    assert "Ours, not theirs" in (band.note or "")
+    # The band must not blame either side: from the figures held here an
+    # unmapped tag, an untagged line and a dimension-only line look identical.
+    assert "Ours, not theirs" not in (band.note or "")
+    assert "cannot be told from the figures held here" in band.note
+
+    # And the note under the drawing agrees with the band instead of
+    # contradicting it (GYRE: "does not balance" beside "the filing balances").
+    final = view.notes[-1]
+    assert "balances against its own arithmetic" in final
+    assert "does not balance" not in final.lower()
+    assert "fail" not in final.lower()
+    assert not any("does not balance" in n.lower() for n in view.notes)
 
     # The column now sums to the filer's own stated total.
     drawn = sum(b.value for b in view.claims if b.kind != "equity") + EQUITY
@@ -433,6 +444,8 @@ def test_a_filer_whose_own_totals_disagree_gets_no_band():
 
     assert not view.balances
     assert not [b for b in view.claims if b.key == "unread_components"]
+    # Their arithmetic is the problem, so THIS case keeps the plain statement.
+    assert "does not balance" in view.notes[-1].lower()
 
 
 # --- the derived-liabilities path, which used to say nothing at all --------
