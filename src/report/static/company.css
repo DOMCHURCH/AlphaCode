@@ -337,13 +337,6 @@ table.legend{width:100%;border-collapse:collapse;margin:20px 0 0}
   border-bottom:1px solid var(--lo);text-decoration:none;margin-left:4px}
 .summary a:hover{border-bottom-color:var(--ink)}
 
-/* The operations page is not part of the product, so it gets a footnote
-   rather than a place in the nav -- but it has to be reachable without typing
-   a URL. */
-.foot-admin{display:block;margin-top:10px}
-.foot-admin a{color:var(--ink2);text-decoration:none;border-bottom:1px solid var(--lo)}
-.foot-admin a:hover{color:var(--ink)}
-
 /* The jump target for "How this works". scroll-margin keeps the heading clear
    of the sticky nav when the anchor lands. */
 .fold{height:16px;scroll-margin-top:72px}

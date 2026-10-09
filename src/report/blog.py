@@ -1073,8 +1073,8 @@ counts as a reconciling difference and what does not.</p>
 
 <h3>The counts, as they stand</h3>
 
-<p>6,222 companies in the database. 4,911 of them reconcile directly against
-the identity. 215 are flagged with the reason they do not. 0 are hidden. The
+<p>{COMPANIES} companies in the database. {RECONCILED} of them reconcile directly against
+the identity. {FLAGGED} are flagged with the reason they do not. {HIDDEN} are hidden. The
 remainder are filings that do not report enough of a balance sheet to check,
 and those say so on the page rather than being counted as passes.</p>
 
@@ -2184,7 +2184,7 @@ flagged with the reason instead of adjusted
 (<a href="/methodology">how the check works</a>). It covers 6,000+ US
 companies' periodic reports, not every filer. Every company page is free to
 read, the <a href="/api">API</a> gives a free key 1,000 calls a month, and the
-<a href="/dataset">full dataset</a> is one as-reported CSV of 2.1 million
+<a href="/dataset">full dataset</a> is one as-reported CSV of {FACTS}
 rows with a <code>restated</code> flag, $79.99 once, a snapshot that does not
 update.</p>
 """,
@@ -2557,12 +2557,28 @@ def _fill_scale(prose: str) -> str:
     slightly old number, and unlike the meta descriptions this text has to
     scan as English.
     """
-    from src.dataset import facts_label
-    from src.report.home_page import companies_label
+    from src.dataset import FALLBACK_COMPANIES, FALLBACK_FACTS, facts_label
+    from src.report.home_page import companies_label, fmt_int
 
-    return prose.replace(
-        "{COMPANIES}", companies_label() or "6,201"
-    ).replace("{FACTS}", facts_label() or "1.8M")
+    # The reconcile / flag / hidden counts come from the same breakdown the
+    # home page strip and /methodology read, so a post cannot disagree with them.
+    try:
+        from src.company.stats import identity_breakdown
+
+        b = identity_breakdown()
+    except Exception:  # noqa: BLE001 - copy must not take a page down
+        b = None
+    reconciled = fmt_int(b["reconciled"]) if b else "5,639"
+    flagged = fmt_int(b["flagged"]) if b else "193"
+    hidden = fmt_int(b["counts"]["broken"]) if b else "0"
+
+    return (
+        prose.replace("{COMPANIES}", companies_label() or FALLBACK_COMPANIES)
+        .replace("{FACTS}", facts_label() or FALLBACK_FACTS)
+        .replace("{RECONCILED}", reconciled)
+        .replace("{FLAGGED}", flagged)
+        .replace("{HIDDEN}", hidden)
+    )
 
 
 # The companies each post actually TALKS ABOUT, with the reason it names them.

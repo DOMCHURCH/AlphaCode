@@ -4840,12 +4840,12 @@ def _seo_file(name: str) -> Response:
     # table on every request. A number written into a file that is served
     # unchanged for months is a number that is wrong for most of them.
     if "{COMPANIES}" in text or "{FACTS}" in text:
-        from src.dataset import facts_label
+        from src.dataset import FALLBACK_COMPANIES, FALLBACK_FACTS, facts_label
         from src.report.home_page import companies_label
 
-        text = text.replace("{COMPANIES}", companies_label() or "6,200").replace(
-            "{FACTS}", facts_label() or "1.8 million"
-        )
+        text = text.replace(
+            "{COMPANIES}", companies_label() or FALLBACK_COMPANIES
+        ).replace("{FACTS}", facts_label() or FALLBACK_FACTS)
     return Response(
         content=text,
         media_type="text/plain; charset=utf-8",

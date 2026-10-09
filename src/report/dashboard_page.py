@@ -350,7 +350,7 @@ def render_dashboard(
               <td>Ongoing automation</td></tr>
           <tr><th scope="row">Updates</th>
               <td><span class="no" aria-label="no">&#10007;</span> No (buy again)</td>
-              <td><span class="yes" aria-label="yes">&#10003;</span> Yes (monthly)</td></tr>
+              <td><span class="yes" aria-label="yes">&#10003;</span> Yes (daily)</td></tr>
           <tr><th scope="row">Automation</th>
               <td><span class="no" aria-label="no">&#10007;</span> Manual</td>
               <td><span class="yes" aria-label="yes">&#10003;</span> Programmatic</td></tr>

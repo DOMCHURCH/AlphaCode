@@ -197,6 +197,14 @@ def _source_rank_sql():
     )
 
 
+# Last-resort copy for prose that has to scan as English when the live count
+# cannot be read (blog posts, llms.txt). NOT a source of truth: facts_label()
+# and home_page.companies_label() are, and every page prefers them. These two
+# exist so the fallback is one place to update, not two literals in two files.
+# Last checked against the live site on 2026-10-08 (6,246 companies, 2,014,821 facts).
+FALLBACK_COMPANIES = "6,246"
+FALLBACK_FACTS = "2M"
+
 _COUNT_TTL_S = 900.0
 _SHAPE_TTL_S = 900.0
 _count_cache: tuple[float, int] | None = None

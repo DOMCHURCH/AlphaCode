@@ -294,7 +294,7 @@ PAGES: tuple[Page, ...] = (
         rows=(
             Row("Primary object", "A reconciled balance sheet", "A filing, and everything in it", False),
             Row("Full-text filing search", "No — this is not a filings API", "Yes, and it is good at it", False),
-            Row("Form coverage", "Balance sheet data from periodic filings", "Every form type: 8-K, S-1, 13F, Form 4, more", False),
+            Row("Form coverage", "Balance sheets from 10-K and 10-Q periodic filings", "Every form type: 8-K, S-1, 13F, Form 4, more", False),
             Row("Selection method", "A = L + E, published and testable", "Returns the tags as filed"),
             Row("Duplicate-tag handling", "Resolved to the consolidated figure", "Yours to resolve"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
@@ -1283,7 +1283,7 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
         rows=(
             Row("Primary object", "One balance sheet, resolved", "A filing, and everything in it", False),
             Row("Full-text search", "None", "Yes, and good at it", False),
-            Row("Form coverage", "Periodic filings only", "Every form type \u2014 8-K, S-1, 13F, Form 4 and more", False),
+            Row("Form coverage", "10-K and 10-Q periodic filings", "Every form type \u2014 8-K, S-1, 13F, Form 4 and more", False),
             Row("Duplicate-tag resolution", "Done for you, by the identity", "Yours to do \u2014 the tags arrive as filed", False),
             Row("Tells you when a statement does not reconcile", "Yes, with the reason", "Not applicable \u2014 it is not selecting for you", False),
             Row("If you already have a reconciler you trust", "You want their raw access, not this", "Stay", False),
@@ -1299,7 +1299,7 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
         ),
         choose_them=(
             "<b>You need the document.</b> Exhibits, 8-K monitoring, full-text "
-            "search, forms this site never touches. Different product, and a "
+            "search, forms BalanceProof does not cover. Different product, and a "
             "good one.",
             "<b>You want raw tags because you resolve them yourself.</b> That "
             "is a legitimate and often correct choice \u2014 then a service "

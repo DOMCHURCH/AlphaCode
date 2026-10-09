@@ -501,7 +501,7 @@ def comparison_table(
               <td>Ongoing automation</td></tr>
           <tr><th scope="row">Updates</th>
               <td>{no} No (buy again)</td>
-              <td>{yes} Yes (monthly)</td></tr>
+              <td>{yes} Yes (daily)</td></tr>
           <tr><th scope="row">Automation</th>
               <td>{no} Manual</td>
               <td>{yes} Programmatic</td></tr>

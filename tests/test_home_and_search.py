@@ -564,28 +564,24 @@ def test_the_home_page_carries_a_quotable_definition(client):
     assert 'href="/about"' in body, "one visible route to the About page"
 
 
-def test_admin_is_reachable_from_the_front_door_and_nowhere_else(client):
-    """It is not part of the product, so it is a footnote rather than a nav
-    item -- but it has to be reachable from the UI.
-
-    ONE footnote, on the home page. It used to sit on every company page as
-    well: 6,167 crawlable links to a URL robots.txt disallows, from the page
-    type search traffic actually lands on. `nofollow`, because a crawler
-    following it learns nothing and the link is for a person who knows what
-    they are looking for.
-    """
+def test_admin_is_not_linked_from_any_public_page(client):
+    """/admin is the operator's page, opened by URL. It is not linked from the
+    home page footer, the nav or any company page: it is disallowed in
+    robots.txt, and a public link is only a hint to scanners. The routes are
+    unchanged and the data and action routes still need the admin secret
+    (see the require_admin tests)."""
     _seed("JPM", _drawable(), sector="Financials")
 
     home = client.get("/").text
     company = client.get("/company/JPM").text
 
     foot = home.split("<footer>", 1)[1]
-    assert 'href="/admin"' in foot, "no way to admin from the home page"
-    assert 'rel="nofollow"' in foot
-
-    assert 'href="/admin"' not in company, "an admin link on every company page"
-    # And not in the nav, where it would compete with the product.
+    assert 'href="/admin"' not in foot, "a public Admin link in the footer"
+    assert 'href="/admin"' not in company, "an admin link on a company page"
     assert 'href="/admin"' not in home.split("<nav>", 1)[1].split("</nav>", 1)[0]
+    # The page itself still serves, and its data route still refuses without the secret.
+    assert client.get("/admin").status_code == 200
+    assert client.get("/admin.json").status_code in (401, 403, 503)
 
 
 def test_the_landing_page_states_its_scale_above_the_fold(client):
