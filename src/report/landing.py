@@ -373,10 +373,242 @@ XBRL_BALANCE_SHEET_API = Landing(
         ("/best/sec-xbrl-api", "How to choose an SEC XBRL API", "four tests to run on any provider."),
         ("/best/balance-sheet-api", "How to choose a balance sheet API", "the buyer's guide, not the product page."),
         ("/alternatives/sec-api", "Alternatives to sec-api.io", "the document or the figures inside it."),
+        ("/free-sec-fundamentals-api", "Free SEC fundamentals API", "exactly what the free key includes."),
         ("/pricing", "Pricing", "what each plan includes."),
         (f"/company/{SAMPLE_TICKER}", f"{SAMPLE_TICKER} balance sheet", "the same figures, drawn to scale."),
     ),
 )
 
-PAGES: tuple[Landing, ...] = (XBRL_BALANCE_SHEET_API,)
+# ---------------------------------------------------------------------------
+# /free-sec-fundamentals-api
+# ---------------------------------------------------------------------------
+def _cell(feature: str, value) -> str:
+    """One plans.MATRIX cell, as a reader would say it."""
+    if value is None:
+        return "No limit"
+    if value is False or value == 0:
+        return "Not included"
+    if value is True:
+        return "Included"
+    one = value == 1
+    unit = {
+        "history_years": "year back" if one else "years back",
+        "watchlist": "company watched" if one else "companies watched",
+        "bulk_verify": "ticker per request" if one else "tickers per request",
+        "webhooks": "endpoint" if one else "endpoints",
+        "exceptions_feed": "day" if one else "days",
+    }.get(feature)
+    return f"{value} {unit}" if unit else str(value)
+
+
+def free_history_sample(ticker: str = SAMPLE_TICKER) -> dict | None:
+    """What `GET /api/company/{ticker}/history` returns on the Free plan.
+
+    Built by the same `history()` the route calls, with the years the plan
+    allows, then trimmed to three totals per period by selecting keys. None if
+    the database has nothing for the ticker.
+    """
+    from src import plans
+
+    cap = plans.allowance("free", "history_years")
+    try:
+        from src.company.history import history
+
+        out = history(ticker, cap)
+    except Exception as exc:  # noqa: BLE001 - a sample must never take a page down
+        log.warning("landing_history_failed", ticker=ticker, error=str(exc)[:200])
+        return None
+    if not out or not out.get("balance_sheets"):
+        return None
+
+    def total(sheet: dict, group: str, key: str):
+        cell = sheet[group].get(key)
+        return None if cell is None or cell.get("missing") else cell["value"]
+
+    sheets = []
+    for sheet in out["balance_sheets"][:2]:
+        sheets.append({
+            "period_end": sheet["period_end"].isoformat(),
+            "filing_date": sheet["filing_date"].isoformat(),
+            "total_assets": total(sheet, "assets", "total_assets"),
+            "total_liabilities": total(sheet, "liabilities", "total_liabilities"),
+            "shareholders_equity": total(sheet, "equity", "shareholders_equity"),
+        })
+    return {
+        "ticker": out["ticker"],
+        "years_requested": out["years_requested"],
+        "years_allowed": cap,
+        "plan": "free",
+        "periods": out["periods"],
+        "available_from": out["available_from"],
+        "balance_sheets": sheets,
+    }
+
+
+def _free_body() -> str:
+    from src import accounts, plans
+    from src.report.compare import live_counts
+
+    free_calls = _free_calls()
+    filers = live_counts()["{FILERS}"]
+    free_years = plans.allowance("free", "history_years")
+
+    included = [
+        "<li><code>GET /api/company/{ticker}</code> &mdash; the latest balance "
+        "sheet, every line item, with the filing it came from.</li>",
+        "<li><code>GET /api/company/{ticker}/history</code> &mdash; "
+        f"{_cell('history_years', free_years)}. Ask for more and you are "
+        "answered with what the plan allows, and the response says so in "
+        "<code>years_allowed</code>.</li>",
+        "<li><code>GET /api/company/{ticker}/statements</code> &mdash; income "
+        "statement and cash flow, each checked, to the same depth.</li>",
+        "<li><code>GET /api/user/status</code> and <code>GET /api/plans</code> "
+        "&mdash; your remaining calls and this table as data. Checking "
+        "your status never costs a call.</li>",
+    ]
+
+    rows = []
+    for key in plans.MATRIX:
+        free = plans.allowance("free", key)
+        has = free is None or bool(free)
+        needs = "&mdash;" if has else escape(
+            plans.TIER_NAMES[plans.lowest_tier_with(key)] + " and above")
+        label = escape(plans.FEATURE_LABELS[key].capitalize())
+        rows.append(
+            f'<tr><th scope="row">{label}</th>'
+            f"<td>{escape(_cell(key, free))}</td><td>{needs}</td></tr>"
+        )
+    quotas = "".join(
+        f'<tr><th scope="row">{escape(plans.TIER_NAMES[t])}</th>'
+        f"<td>{accounts.tier_limit(t):,}</td></tr>"
+        for t in ("free", "starter", "pro", "business")
+    )
+
+    sample = free_history_sample()
+    sample_html = ""
+    if sample is not None:
+        sample_html = f"""
+<h2>A real response from the free plan</h2>
+<p>This is <code>GET /api/company/{escape(sample["ticker"])}/history</code> on the
+Free plan, built by the same function the endpoint calls and read from the
+database when this page was rendered. Each entry in the real response carries
+every line item; three totals per period are shown here, and the first two
+periods of {sample["periods"]}.</p>
+<pre class="code api-code"><code>{escape(json.dumps(sample, indent=2))}</code></pre>"""
+
+    return f"""
+<h2>What the free key is</h2>
+<p>A key from the <a href="/dashboard">dashboard</a>, with no card. It reads
+SEC balance sheets for {escape(filers)} as JSON, each checked against
+Assets = Liabilities + Equity before it is served, and it gives you
+<strong>{free_calls} calls a month</strong>. Calls are counted per calendar
+month and reset on the first, whatever day you signed up. A call that fails on
+our side is not counted. Past the limit the API answers
+<code>429</code> with the reset date; nothing is billed, because there is no
+card on file.</p>
+<pre class="code api-code"><code>curl -H "X-API-Key: YOUR_KEY" \\
+  {SITE_ORIGIN}/api/company/{escape(SAMPLE_TICKER)}/history</code></pre>
+<p>Want to look first? <code>{SITE_ORIGIN}/api/demo/{escape(SAMPLE_TICKER)}</code>
+needs no key and is rate limited per address.</p>
+{sample_html}
+
+<h2>What Free includes</h2>
+<ul class="notelist">{"".join(included)}</ul>
+
+<h2>What is not in Free</h2>
+<p>Read from the same table the API enforces, so this cannot drift from what a
+call is actually allowed to do:</p>
+<div class="tablewrap">
+  <table class="compare">
+    <caption class="vh">Features by plan</caption>
+    <thead><tr><th scope="col">Feature</th><th scope="col">Free</th>
+      <th scope="col">Needs</th></tr></thead>
+    <tbody>{"".join(rows)}</tbody>
+  </table>
+</div>
+<p>Calls per month by plan:</p>
+<div class="tablewrap">
+  <table class="compare">
+    <caption class="vh">Monthly calls by plan</caption>
+    <thead><tr><th scope="col">Plan</th><th scope="col">Calls a month</th></tr></thead>
+    <tbody>{quotas}</tbody>
+  </table>
+</div>
+<p>What each paid plan costs is on <a href="/pricing">the pricing page</a>,
+which is the only copy that is kept current.</p>
+
+<h2>What free does not mean here</h2>
+<ul class="notelist">
+  <li><strong>Not a trial.</strong> The key does not expire. A paid plan that
+  lapses falls back to the free allowance and the key does not change.</li>
+  <li><strong>Not market data.</strong> This is filing data: balance sheets,
+  income statements and cash flows as reported to the SEC. No prices, no
+  estimates.</li>
+  <li><strong>Filed, not live.</strong> A figure appears after the company files
+  and the filing is loaded.</li>
+</ul>
+"""
+
+
+def _free_faq() -> tuple[tuple[str, str], ...]:
+    from src import plans
+
+    years = plans.allowance("free", "history_years")
+    return (
+        (
+            "Is there a free SEC fundamentals API?",
+            f"Yes. A free BalanceProof key gives {_free_calls()} calls a month "
+            "of SEC balance sheets as JSON, with no card, and each balance "
+            "sheet is checked against Assets = Liabilities + Equity.",
+        ),
+        (
+            "What does the free plan include?",
+            "The latest balance sheet for any covered company, balance sheet "
+            f"history going back {years} year{'s' if years != 1 else ''}, and "
+            "income statement and cash flow to the same depth. Change tracking, "
+            "watchlists, bulk verification, filing links, webhooks, "
+            "point-in-time queries and the exceptions feed need a paid plan.",
+        ),
+        (
+            "What happens when I use all my free calls?",
+            "The API answers with a 429 and the date the allowance resets. "
+            "Calls are counted per calendar month and reset on the first. "
+            "Nothing is charged, because no card is on file.",
+        ),
+        (
+            "Do I need a credit card for the free API key?",
+            "No. You sign up with an email address and get a key from the "
+            "dashboard.",
+        ),
+    )
+
+
+FREE_SEC_FUNDAMENTALS_API = Landing(
+    slug="free-sec-fundamentals-api",
+    h1="Free SEC fundamentals API: what the free key includes",
+    seo_title="Free SEC Fundamentals API, No Card — BalanceProof",
+    description=(
+        "A free key for SEC balance sheets as JSON, each checked against "
+        "A = L + E. No card. Exactly what Free includes and what needs a paid plan."
+    ),
+    lede=(
+        "A free key reads SEC balance sheets as JSON with no card. This page "
+        "lists what it includes and what it does not, from the same table the "
+        "API enforces."
+    ),
+    updated="2026-10-09",
+    body=_free_body,
+    faq=_free_faq,
+    related=(
+        ("/xbrl-balance-sheet-api", "XBRL balance sheet API", "the endpoint in detail, with a real response."),
+        ("/api", "API reference", "every endpoint, with plan limits."),
+        ("/pricing", "Pricing", "what each paid plan includes and costs."),
+        ("/best/free-financial-statement-api", "How to choose a free financial statement API", "what “free” means once you read how the quota is metered."),
+        ("/alternatives/alpha-vantage", "Alternatives to Alpha Vantage", "if you ran out of free calls."),
+        ("/dataset", "The full dataset", "every figure as one CSV, bought once."),
+        ("/methodology", "How we verify", "what the check is."),
+    ),
+)
+
+PAGES: tuple[Landing, ...] = (XBRL_BALANCE_SHEET_API, FREE_SEC_FUNDAMENTALS_API)
 BY_SLUG: dict[str, Landing] = {p.slug: p for p in PAGES}

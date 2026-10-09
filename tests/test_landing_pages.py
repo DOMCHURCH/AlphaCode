@@ -166,9 +166,10 @@ def test_coverage_count_is_counted_from_the_database_not_typed(client):
 
 def test_sample_values_follow_the_database_between_requests(client):
     """Nothing on the page is a stored copy: change the row, change the page."""
+    from sqlalchemy import update
+
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
-    from sqlalchemy import update
 
     _seed()
     first = client.get("/xbrl-balance-sheet-api").text
@@ -182,3 +183,50 @@ def test_sample_values_follow_the_database_between_requests(client):
         )
     second = client.get("/xbrl-balance-sheet-api").text
     assert "777000000.0" in second and "123456000.0" not in second
+
+
+def test_free_page_table_is_read_from_the_plan_matrix(client):
+    """Change a cell in plans.MATRIX and the page moves with it."""
+    from src import accounts, plans
+
+    _seed()
+    text = _text(client.get("/free-sec-fundamentals-api").text)
+    for key in plans.MATRIX:
+        assert plans.FEATURE_LABELS[key].capitalize() in text
+    # The tier that unlocks a gated feature is named from the matrix too.
+    need = plans.TIER_NAMES[plans.lowest_tier_with("changes")]
+    assert f"{need} and above" in text
+    assert f"{accounts.tier_limit('free'):,}" in text
+    assert f"{accounts.tier_limit('pro'):,}" in text
+    assert "1 year back" in text
+
+
+def test_free_page_sample_is_the_real_history_the_free_plan_gets(client):
+    from src.company.history import history
+
+    _seed()
+    # A second, older period inside the free year.
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    older, filed = dt.date(2026, 3, 31), dt.date(2026, 5, 2)
+    with session_scope() as s:
+        for metric, value in (("total_assets", 900e6), ("total_liabilities", 500e6),
+                              ("total_equity", 400e6)):
+            s.add(Fundamental(
+                ticker=landing.SAMPLE_TICKER, metric=metric, value=value,
+                period_end=older, fiscal_period="Q1", filing_date=filed,
+                source="sec", source_tag=f"us-gaap:{metric}"))
+    h = _html.unescape(client.get("/free-sec-fundamentals-api").text)
+    real = history(landing.SAMPLE_TICKER, 1)
+    assert real["periods"] == 2
+    assert '"periods": 2' in h
+    assert "900000000.0" in h and "1000000000.0" in h
+    assert '"plan": "free"' in h and '"years_allowed": 1' in h
+
+
+def test_free_page_leaves_the_sample_out_when_the_database_is_empty(client):
+    r = client.get("/free-sec-fundamentals-api")
+    assert r.status_code == 200
+    assert "A real response from the free plan" not in r.text
+    assert "What Free includes" in r.text
