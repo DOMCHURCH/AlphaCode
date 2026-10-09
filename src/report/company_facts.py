@@ -225,8 +225,8 @@ def hubs_html(view: Any, sector_slug_value: str | None) -> str:
     if view.sector and sector_slug_value:
         links.append(
             f'<li><a href="/sector/{escape(sector_slug_value)}">All '
-            f"{escape(view.sector)} companies</a> — ranked by total assets "
-            "as most recently filed.</li>"
+            f"{escape(view.sector)} companies</a> — largest by total "
+            "assets first, as most recently filed.</li>"
         )
     links.append(
         '<li><a href="/companies">Every company covered</a> — the '
