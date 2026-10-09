@@ -396,16 +396,24 @@ def test_the_page_carries_every_section_once_it_is_backfilled(client):
     assert "sec.gov/Archives/edgar/data/123456" in html
     # The year-on-year sentence found its previous period.
     assert "grew 11.1%" in html
-    # It is the largest of the five seeded.
-    assert "the largest of the 5 technology companies" in html
+    # The sector-rank sentence is NOT on the live page: ranking needs a scan of
+    # every company in the sector, which is a stored-row cost and not a
+    # per-render one (see company_facts). The stored paragraph carried it; the
+    # live one is built from the drawn view and does not.
+    assert "of the 5 technology companies" not in html
+    # And the figures-behind-the-drawing section is there.
+    assert 'id="facts"' in html
 
 
 def test_a_page_that_was_never_backfilled_still_renders(client):
-    """A missing row costs sections, never the page."""
+    """A missing row costs the stored sections, never the page. The paragraph
+    and the figures behind the drawing are rendered live, so they stay."""
     _seed_sector([("AAA", 100e9)], "Technology")
     r = client.get("/company/AAA")
     assert r.status_code == 200
-    assert "company-intro" not in r.text
+    assert "company-intro" in r.text
+    assert "company-peers" not in r.text
+    assert "company-filings" not in r.text
     # The drawing itself is untouched.
     assert "What it owns, and who has a claim on it" in r.text
 

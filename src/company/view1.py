@@ -232,15 +232,24 @@ def _val(group: dict[str, Any], key: str) -> float | None:
     return float(cell.value)
 
 
-def build_view1(ticker: str, as_of: dt.date | None = None) -> View1 | None:
+def build_view1(
+    ticker: str,
+    as_of: dt.date | None = None,
+    period_end: dt.date | None = None,
+) -> View1 | None:
     """Compose a scale drawing of the most recent balance sheet.
+
+    `period_end` draws an earlier period instead of the newest. It exists so
+    the per-period history on a company page is judged by this very function
+    -- the same identity check the drawing above it is -- rather than by a
+    second reimplementation that could disagree about one filing.
 
     Returns None when the ticker has no usable fundamentals -- the caller says
     so to the reader rather than rendering an empty frame.
     """
     from src.company.balancesheet import get_balance_sheet
 
-    bs = get_balance_sheet(ticker, as_of=as_of)
+    bs = get_balance_sheet(ticker, as_of=as_of, period_end=period_end)
     if bs is None:
         return None
 

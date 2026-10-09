@@ -249,9 +249,10 @@ def build_intro(
         )
     )
     sentences.append(
-        "Every figure above is as filed. Nothing is estimated, smoothed or "
-        "restated, and where the filing and the identity disagree the "
-        "disagreement is shown rather than closed."
+        "Every figure above is as filed, taken from the most recent filing "
+        "that reported it. Nothing is estimated or smoothed, and where the "
+        "filing and the identity disagree the disagreement is shown rather "
+        "than closed."
     )
 
     body = " ".join(s for s in sentences if s)

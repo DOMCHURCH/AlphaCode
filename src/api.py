@@ -2017,6 +2017,16 @@ def company_page(ticker: str, request: Request) -> HTMLResponse:
     # extras row is keyed by that -- looking it up under the symbol in the URL
     # silently drops the prose from every aliased page.
     extras = load_extras(view.ticker)
+    # The introduction and the figures behind the drawing are rendered from
+    # `view` itself, not read back from the row. The stored paragraph lagged the
+    # chart by a quarter (AAPL), and a stored sentence is only ever as current
+    # as its last rebuild. None means that render failed: keep the stored one.
+    from src.report.company_facts import render_facts
+
+    live = render_facts(view)
+    if live is not None:
+        extras = dict(extras or {})
+        extras["intro"], extras["facts"] = live
     if extras is not None and view.period_end is not None:
         # The JSON-LD is rebuilt here rather than read from the row: it is a
         # pure function of figures already loaded, costs no query, and a

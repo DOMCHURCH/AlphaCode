@@ -594,6 +594,9 @@ def render_company_page(
     peers_html = e.get("peers", "")
     filings_html = e.get("filings", "")
     company_ld = e.get("jsonld", "")
+    # Rendered live from this very `view` by `company_facts`, so the numbers
+    # under the drawing are the drawing's numbers. Absent when that failed.
+    facts_html = e.get("facts", "")
 
     d = view.as_dict()
     total = d["total_assets"]
@@ -818,6 +821,7 @@ def render_company_page(
   </section>
 
   <section class="shape">{shape_html}</section>
+  {facts_html}
   {_flow_html(flow)}
   {_scale_html(scale)}
   {_ask_html(d["ticker"], ask_available)}

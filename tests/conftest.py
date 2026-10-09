@@ -39,6 +39,11 @@ def _clean_identity_cache():
         reset_identity_cache()
         reset_counts_cache()
         reset_panels_cache()
+        # The company page's live facts are memoised by figures; a second
+        # test seeding the same ticker must not be served the first one's.
+        from src.report.company_facts import clear_cache
+
+        clear_cache()
         # `/status` is capped at ten a minute and the gate is module state, so
         # without this the budget is shared by the WHOLE SESSION: the eleventh
         # test to read /status gets a 429 and reports it as a missing key.
