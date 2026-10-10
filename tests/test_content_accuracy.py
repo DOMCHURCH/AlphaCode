@@ -179,6 +179,7 @@ STYLED_SLUGS: tuple[str, ...] = (
     "sec-xbrl-duplicate-tags",
     "what-i-got-wrong-about-sec-filings",
     "five-ways-a-balance-sheet-fails",
+    "which-sec-balance-sheets-fail-the-identity-check",
 )
 
 # Posts written under the no-em-dash rule. Scoped rather than site-wide on
