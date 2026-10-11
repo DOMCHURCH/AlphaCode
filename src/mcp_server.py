@@ -1202,7 +1202,6 @@ async def mcp_endpoint(request: Request) -> Response:
     return JSONResponse(payload, status_code=status, headers=headers)
 
 
-@router.get("/mcp", include_in_schema=False)
 @router.delete("/mcp", include_in_schema=False)
 async def mcp_method_not_allowed() -> Response:
     """GET opened the old standalone SSE stream and DELETE ended a session.
@@ -1211,6 +1210,11 @@ async def mcp_method_not_allowed() -> Response:
     implements only it answers both with 405. Answering rather than 404ing
     matters: a 404 tells a fallback-capable client this path is not an MCP
     endpoint at all, and it would go looking for the deprecated transport.
+
+    GET is no longer registered here. `/mcp` is also a page people and crawlers
+    read (`report.landing`), and its route returns this same 405 to any GET
+    that asks for `text/event-stream`, which is the only GET an MCP client
+    sends.
     """
     return Response(status_code=405, headers={"Allow": "POST"})
 

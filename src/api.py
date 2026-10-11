@@ -4693,11 +4693,24 @@ def _register_landing_pages() -> None:
     """
     from src.report import landing
 
-    def make(page: "landing.Landing"):
-        def handler(request: Request) -> HTMLResponse:
-            return HTMLResponse(_versioned(landing.render(
+    def make(page: landing.Landing):
+        def handler(request: Request) -> Response:
+            if page.get_conflict and "text/event-stream" in request.headers.get(
+                "accept", ""
+            ):
+                # An MCP client opening the standalone SSE stream: the
+                # transport requires a 405 here, and a 404 or an HTML page
+                # would send a fallback-capable client looking for the old one.
+                return Response(
+                    status_code=405,
+                    headers={"Allow": "POST", "Vary": "Accept"},
+                )
+            resp = HTMLResponse(_versioned(landing.render(
                 page, nav=_nav_for(request, "")
             )))
+            if page.get_conflict:
+                resp.headers["Vary"] = "Accept"
+            return resp
 
         handler.__name__ = "landing_" + page.slug.replace("-", "_")
         return handler

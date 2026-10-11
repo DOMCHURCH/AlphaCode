@@ -205,13 +205,25 @@ def test_unsupported_protocol_version_names_what_is_supported(client):
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.parametrize("verb", ["get", "delete"])
-def test_get_and_delete_are_405_not_404(client, verb):
+def test_an_event_stream_get_and_a_delete_are_405_not_404(client):
     """405 rather than 404 on purpose: a 404 tells a fallback-capable client
     this path is not an MCP endpoint, and it goes looking for the deprecated
-    transport instead of reporting the real problem."""
-    r = getattr(client, verb)("/mcp")
+    transport instead of reporting the real problem.
+
+    GET is 405 only when it asks for `text/event-stream`, which is the one GET
+    an MCP client sends. Any other GET is a person or a crawler and is served
+    the page at /mcp (see test_landing_pages)."""
+    r = client.get("/mcp", headers={"Accept": "text/event-stream"})
     assert r.status_code == 405
+    assert r.headers["allow"] == "POST"
+    assert client.delete("/mcp").status_code == 405
+
+
+def test_a_browser_get_is_the_page_and_the_post_endpoint_is_untouched(client):
+    r = client.get("/mcp", headers={"Accept": "text/html,application/xhtml+xml"})
+    assert r.status_code == 200 and "<h1" in r.text
+    assert "Accept" in r.headers["vary"].split(", ")
+    assert rpc(client, "tools/list").status_code == 200
 
 
 def test_unknown_method_is_404_with_a_jsonrpc_body(client):

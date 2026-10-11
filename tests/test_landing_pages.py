@@ -230,3 +230,42 @@ def test_free_page_leaves_the_sample_out_when_the_database_is_empty(client):
     assert r.status_code == 200
     assert "A real response from the free plan" not in r.text
     assert "What Free includes" in r.text
+
+
+def test_mcp_page_lists_every_tool_the_server_serves(client):
+    from src.mcp_server import TOOLS
+
+    _seed()
+    h = client.get("/mcp").text
+    for tool in TOOLS:
+        assert f"<code>{tool['name']}</code>" in h
+        assert tool["name"] in landing._TOOL_BLURB, f"no human blurb for {tool['name']}"
+
+
+def test_mcp_page_sample_is_the_tool_result_not_a_copy_of_its_wording(client):
+    from src.mcp_server import _tool_check_balance_sheet
+
+    _seed()
+
+    class _M:
+        def spend(self, _t):
+            return None
+
+    text, _payload = _tool_check_balance_sheet({"ticker": landing.SAMPLE_TICKER}, _M())
+    assert _html.escape(text) in client.get("/mcp").text
+
+
+def test_mcp_page_makes_no_directory_or_registry_claim(client):
+    _seed()
+    low = _text(client.get("/mcp").text).lower()
+    for word in ("smithery", "glama", "mcp.so", "registry", "directory", "listed in"):
+        assert word not in low, word
+
+
+def test_mcp_page_url_is_the_real_endpoint_and_headers_match_the_code(client):
+    _seed()
+    h = client.get("/mcp").text
+    assert "https://balanceproof.dev/mcp" in h
+    assert "Authorization: Bearer" in h
+    # The code reads a Bearer token on /mcp and X-API-Key on REST; the page says so.
+    assert "X-API-Key" in h

@@ -45,6 +45,10 @@ class Landing:
     faq: Callable[[], tuple[tuple[str, str], ...]]
     # (href, label, why) for the "Next to this page" list. Only pages that exist.
     related: tuple[tuple[str, str, str], ...] = ()
+    # The path is also an API endpoint (`/mcp`). The route then answers a GET
+    # that asks for an event stream with 405, as that transport requires, and
+    # serves the page to everything else.
+    get_conflict: bool = False
 
 
 # ---------------------------------------------------------------------------
@@ -610,5 +614,202 @@ FREE_SEC_FUNDAMENTALS_API = Landing(
     ),
 )
 
-PAGES: tuple[Landing, ...] = (XBRL_BALANCE_SHEET_API, FREE_SEC_FUNDAMENTALS_API)
+# ---------------------------------------------------------------------------
+# /mcp
+# ---------------------------------------------------------------------------
+# One line per tool, for a person. The descriptions in `mcp_server.TOOLS` are
+# written for the model; a test fails if a tool is added there without a line
+# here, so the page cannot list fewer tools than the server serves.
+_TOOL_BLURB = {
+    "search_companies": "find a ticker from a company name",
+    "get_balance_sheet": "the latest filed balance sheet, line by line",
+    "check_balance_sheet": "does Assets = Liabilities + Equity hold on the filing, and if not, by how much and why",
+    "get_balance_sheet_history": "past balance sheets, newest first",
+    "get_balance_sheet_changes": "what moved since the previous period, and figures that differ between filings",
+    "get_financial_statements": "income statement and cash flow, each period checked",
+    "get_exceptions": "filings that fail the check and figures that differ between filings, across every company",
+    "get_api_key": "create a free key from inside the chat, after asking for your email and your agreement to the terms",
+}
+
+
+def mcp_check_sample(ticker: str = SAMPLE_TICKER) -> tuple[str, dict] | None:
+    """The real `check_balance_sheet` tool result for `ticker`: the text a
+    model is handed, and a few of the structured fields beside it.
+
+    Produced by calling the tool function itself, not a copy of its wording.
+    """
+    try:
+        from src.mcp_server import _tool_check_balance_sheet
+
+        class _NoMeter:
+            def spend(self, _ticker: str) -> None:
+                return None
+
+        text, payload = _tool_check_balance_sheet({"ticker": ticker}, _NoMeter())
+    except Exception as exc:  # noqa: BLE001 - a sample must never take a page down
+        log.warning("landing_mcp_sample_failed", ticker=ticker, error=str(exc)[:200])
+        return None
+    if not payload:
+        return None
+    keep = ("ticker", "period_end", "balances", "identity_basis",
+            "imbalance_pct", "total_assets", "total_liabilities", "total_equity")
+    return text, {k: payload[k] for k in keep if k in payload}
+
+
+def _mcp_body() -> str:
+    from src import plans
+    from src.mcp_server import TOOLS
+
+    free_calls = _free_calls()
+    url = f"{SITE_ORIGIN}/mcp"
+    tools = "".join(
+        f"<li><code>{escape(t['name'])}</code> &mdash; "
+        f"{escape(_TOOL_BLURB.get(t['name'], t['description'].split('. ')[0]))}.</li>"
+        for t in TOOLS
+    )
+    changes = plans.TIER_NAMES[plans.lowest_tier_with("changes")]
+    exceptions = plans.TIER_NAMES[plans.lowest_tier_with("exceptions_feed")]
+    pit = plans.TIER_NAMES[plans.lowest_tier_with("point_in_time")]
+
+    sample_html = ""
+    sample = mcp_check_sample()
+    if sample is not None:
+        text, fields = sample
+        sample_html = f"""
+<h2>A real tool result</h2>
+<p>This is what <code>check_balance_sheet</code> returns for
+{escape(SAMPLE_TICKER)}, produced by calling the tool function against the
+database when this page was rendered. The first block is the text the model is
+handed; the second is some of the structured data beside it.</p>
+<pre class="code api-code"><code>{escape(text)}</code></pre>
+<pre class="code api-code"><code>{escape(json.dumps(fields, indent=2))}</code></pre>"""
+
+    return f"""
+<h2>Connect it</h2>
+<p>BalanceProof runs a remote MCP server at <code>{url}</code>. There is
+nothing to install and no package to run: you give your client the URL.</p>
+<pre class="code api-code"><code>claude mcp add --transport http balanceproof {url}</code></pre>
+<p>That is Claude Code. Most other clients take the same two things in their
+connector settings, a URL and an optional headers map:</p>
+<pre class="code api-code"><code>{{
+  "mcpServers": {{
+    "balanceproof": {{
+      "type": "http",
+      "url": "{url}"
+    }}
+  }}
+}}</code></pre>
+<p>Client settings differ and change; if yours names the fields differently,
+the URL is the part that matters.</p>
+
+<h2>With and without a key</h2>
+<p>With no key the server runs on a shared demo allowance, rate limited per
+address, which is enough to try it. A free key raises that to
+<strong>{free_calls} calls a month</strong> tied to your account rather than
+to a machine. Send it as an <code>Authorization: Bearer YOUR_KEY</code>
+header (the REST API uses <code>X-API-Key</code> instead). Each tool result
+reports your current plan and remaining calls in its metadata. Get a key from
+the <a href="/dashboard">dashboard</a>, or ask the model to run
+<code>get_api_key</code> and it will ask for your email address and your
+agreement to the <a href="/terms">terms</a> first.</p>
+<pre class="code api-code"><code>claude mcp add --transport http balanceproof {url} \\
+  --header "Authorization: Bearer YOUR_KEY"</code></pre>
+
+<h2>The tools</h2>
+<ul class="notelist">{tools}</ul>
+<p>A tool call counts as one call on your plan. Three need a paid plan:
+<code>get_balance_sheet_changes</code> from {escape(changes)},
+<code>get_exceptions</code> from {escape(exceptions)}, and the
+<code>as_of</code> argument of <code>get_financial_statements</code> from
+{escape(pit)}. History depth follows the plan, and the result says how far back
+the data goes. The full table is on
+<a href="/free-sec-fundamentals-api">what the free key includes</a>.</p>
+{sample_html}
+
+<h2>What to ask it</h2>
+<ul class="notelist">
+  <li>&ldquo;Does Apple&rsquo;s latest balance sheet actually balance?&rdquo;
+  &mdash; the model reaches for <code>check_balance_sheet</code>.</li>
+  <li>&ldquo;Show me Microsoft&rsquo;s liabilities and equity.&rdquo; &mdash;
+  <code>get_balance_sheet</code>, after <code>search_companies</code> if you
+  gave a name instead of a ticker.</li>
+  <li>&ldquo;How has JPMorgan&rsquo;s balance sheet changed over the last
+  year?&rdquo; &mdash; <code>get_balance_sheet_history</code>.</li>
+</ul>
+
+<h2>What it is not</h2>
+<ul class="notelist">
+  <li><strong>As filed.</strong> Figures are what companies reported to the SEC,
+  not adjusted or restated by this server.</li>
+  <li><strong>Filing data only.</strong> No prices, no estimates, no
+  recommendations. It is not investment advice.</li>
+  <li><strong>The same data as the API.</strong> The REST
+  <a href="/xbrl-balance-sheet-api">balance sheet API</a> and this server read
+  the same database; use REST when you are writing code and MCP when you are
+  talking to a model.</li>
+</ul>
+"""
+
+
+def _mcp_faq() -> tuple[tuple[str, str], ...]:
+    return (
+        (
+            "What is the BalanceProof MCP server?",
+            "A remote Model Context Protocol server at https://balanceproof.dev/mcp "
+            "that lets an AI client read SEC balance sheets and check them "
+            "against Assets = Liabilities + Equity.",
+        ),
+        (
+            "How do I connect it to Claude?",
+            "In Claude Code, run: claude mcp add --transport http balanceproof "
+            "https://balanceproof.dev/mcp. Other clients take the same URL in "
+            "their connector settings.",
+        ),
+        (
+            "Do I need an API key to use the MCP server?",
+            "No. Without a key it runs on a shared demo allowance, rate limited "
+            f"per address. A free key gives {_free_calls()} calls a month; send "
+            "it as an Authorization: Bearer header.",
+        ),
+        (
+            "What can the BalanceProof MCP server do?",
+            "Find a company's ticker, return its filed balance sheet, history, "
+            "income statement and cash flow, and check whether the balance "
+            "sheet balances and why not if it does not. Some tools need a "
+            "paid plan.",
+        ),
+    )
+
+
+MCP_SERVER = Landing(
+    slug="mcp",
+    h1="BalanceProof MCP server: SEC balance sheets for AI clients",
+    seo_title="MCP Server for SEC Balance Sheets — BalanceProof",
+    description=(
+        "Connect Claude or any MCP client to SEC balance sheets checked against "
+        "A = L + E. Remote server, free key, one command to set up."
+    ),
+    lede=(
+        "A remote MCP server that gives an AI client SEC balance sheets and a "
+        "way to check them against Assets = Liabilities + Equity. Paste the "
+        "URL; there is nothing to install."
+    ),
+    updated="2026-10-09",
+    body=_mcp_body,
+    faq=_mcp_faq,
+    # /mcp is also the JSON-RPC endpoint. A GET asking for an event stream is
+    # an MCP client opening the old SSE channel and gets the 405 the transport
+    # requires; every other GET is a person or a crawler and gets this page.
+    get_conflict=True,
+    related=(
+        ("/xbrl-balance-sheet-api", "XBRL balance sheet API", "the same data over REST, with a real response."),
+        ("/free-sec-fundamentals-api", "Free SEC fundamentals API", "what the free key includes."),
+        ("/api", "API reference", "every REST endpoint."),
+        ("/methodology", "How we verify", "what the check is and how the exceptions are counted."),
+        ("/pricing", "Pricing", "what each plan includes."),
+        ("/terms", "Terms", "what you agree to when you create a key."),
+    ),
+)
+
+PAGES: tuple[Landing, ...] = (XBRL_BALANCE_SHEET_API, FREE_SEC_FUNDAMENTALS_API, MCP_SERVER)
 BY_SLUG: dict[str, Landing] = {p.slug: p for p in PAGES}
