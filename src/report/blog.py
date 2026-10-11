@@ -1787,9 +1787,9 @@ _POST_POINT_IN_TIME = Post(
     # fundamentals", "lookahead bias fundamentals", "sec edgar backtest".
     seo_title="Point-in-Time Fundamentals from SEC EDGAR (No Lookahead)",
     description=(
-        "Five ways SEC fundamentals leak the future into a backtest: filing "
-        "lag, restatements, the missing Q4, year-to-date cash flow, and "
-        "colliding periods."
+        "Five ways SEC data leaks the future into a backtest: filing lag, "
+        "figures that differ between filings, the missing Q4, YTD cash "
+        "flow, colliding periods."
     ),
     summary=(
         "A backtest on fundamentals is only honest if every figure is the one "
