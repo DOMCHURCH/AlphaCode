@@ -2787,7 +2787,7 @@ subject to redemption and shareholders' deficit is 181,205,585, equal to assets.
 <p>Without the Class A line, liabilities plus equity come to 1,095,692, a gap of
 180,109,893 against total assets of 181,205,585: nearly all of them. The line is in
 the filing and in its XBRL, as us-gaap
-<code>TemporaryEquityCarryingAmountAttributableToParent</code>, but only under a
+<code style="overflow-wrap:anywhere">TemporaryEquityCarryingAmountAttributableToParent</code>, but only under a
 class-of-stock dimension (Class A), with no undimensioned total. Our reader keeps
 facts that carry no dimensions, so the line never reached our sum. The filing
 balances. Our figures for it did not.</p>
