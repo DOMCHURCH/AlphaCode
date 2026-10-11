@@ -34,6 +34,21 @@ def _ep(method: str, path: str, auth: str, blurb: str) -> str:
     </div>"""
 
 
+def demo_allowance_phrase(per_hour: int, per_day: int) -> str:
+    """What the keyless demo allows, from the limits that are actually in force.
+
+    This said "Five a day" while the endpoint list on the same page said 100 an
+    hour. The five-a-day quota was the old default of `DEMO_CALLS_PER_IP_PER_DAY`;
+    it is now 0 (off) and the hourly per-address window is what limits a
+    caller. A deployment that turns the daily counter back on gets it named
+    here, because the daily quota wins when it is on (see `api_demo`)."""
+    if per_day:
+        return f"{per_day:,} a day"
+    if per_hour:
+        return f"{per_hour:,} an hour"
+    return "Rate limited"
+
+
 def _scale_clause() -> str:
     """"6,201 companies, 1.8M as-reported data points, " -- or "" if unreadable.
 
@@ -58,6 +73,7 @@ def render_api(
     pro_calls: int = 10000,
     dataset_price: str = "$79.99",
     demo_calls_per_hour: int = 100,
+    demo_calls_per_day: int = 0,
 ) -> str:
     """The reference. `base_url` is the deployment's own origin so the curl
     examples work from the machine reading them, not from a machine that
@@ -253,7 +269,7 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
 
   <section class="sec">
     <div class="sec-head"><h2>Try it without a key</h2></div>
-    <p class="sec-sub">Five a day from any one address, no registration.</p>
+    <p class="sec-sub">{demo_allowance_phrase(demo_calls_per_hour, demo_calls_per_day)} from any one address, no registration.</p>
     <!-- LABELLED, and the Windows one is not a footnote.
          This block first carried `| head -40`: two bugs in one pipe, since
          `head` does not exist on Windows and the response is one line of

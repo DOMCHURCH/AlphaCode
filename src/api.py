@@ -5030,6 +5030,7 @@ def api_page(request: Request) -> HTMLResponse:
                 pro_calls=s.pro_tier_monthly_calls,
                 dataset_price=price_label(s.dataset_price_usd),
                 demo_calls_per_hour=_demo_ip_gate.limit,
+                demo_calls_per_day=s.demo_calls_per_ip_per_day,
             )
         )
     )
