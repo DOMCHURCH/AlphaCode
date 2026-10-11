@@ -281,6 +281,52 @@ def test_check_reports_a_filing_that_does_not_balance(client):
     assert result["structuredContent"]["balances"] is False
 
 
+def _seed_stated(ticker: str, stated: float, liabilities: float = 500.0,
+                 equity: float = 400.0):
+    """Assets 1000; the components we read sum to `liabilities + equity`; the
+    filer's own stated liabilities-plus-equity total is `stated`."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as s:
+        s.add(UniverseSnapshot(as_of_date=dt.date.today(), ticker=ticker, name="Stated Co"))
+        for metric, val in [("total_assets", 1000.0), ("total_liabilities", liabilities),
+                            ("total_equity", equity), ("liabilities_and_equity", stated)]:
+            s.add(Fundamental(
+                ticker=ticker, metric=metric, value=val,
+                period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+                filing_date=dt.date(2026, 8, 1), source="sec",
+            ))
+
+
+def test_check_does_not_open_with_does_not_balance_when_the_filer_balances(client):
+    """GYRE's shape: the filer's own totals agree (stated = assets), the
+    components we read fall 10% short. The text used to open with "DOES NOT
+    balance" and then append a note saying the filing balances."""
+    _seed_stated("GYRL", stated=1000.0)
+    result = rpc(client, "tools/call", {
+        "name": "check_balance_sheet", "arguments": {"ticker": "GYRL"},
+    }).json()["result"]
+    text = result["content"][0]["text"]
+    assert "DOES NOT balance" not in text
+    assert "balances against its own arithmetic" in text
+    assert "10.00%" in text
+    assert "cannot be told from the figures held here" in text
+    structured = result["structuredContent"]
+    assert structured["filer_totals_agree"] is True
+    assert structured["balances"] is False        # as read here, it does not close
+
+
+def test_check_keeps_does_not_balance_when_the_filers_own_totals_disagree(client):
+    _seed_stated("BRKT", stated=800.0)
+    result = rpc(client, "tools/call", {
+        "name": "check_balance_sheet", "arguments": {"ticker": "BRKT"},
+    }).json()["result"]
+    text = result["content"][0]["text"]
+    assert "DOES NOT balance" in text
+    assert result["structuredContent"]["filer_totals_agree"] is False
+
+
 def test_check_reports_a_filing_that_balances(client):
     seed("TSTB", equity=400.0)
     result = rpc(client, "tools/call", {

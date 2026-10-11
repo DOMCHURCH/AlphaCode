@@ -558,9 +558,20 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
 
     m.spend(ticker)
 
+    from src.report.company_facts import stated_agrees
+
     payload = view.as_dict()
     name = view.company_name or ticker
     period = view.period_end
+    # Only meaningful when the plain check failed; said separately so a client
+    # reading the structured data does not have to infer it from `notes`.
+    # The band is drawn only when the components fall SHORT of the stated total;
+    # if they overshoot it the shortfall wording would be backwards.
+    filer_totals_agree = (
+        (not view.balances) and stated_agrees(view)
+        and any(b.key == "unread_components" for b in view.claims)
+    )
+    payload["filer_totals_agree"] = filer_totals_agree
 
     # The three outcomes are genuinely different claims and the text says
     # which one it is making. "Balances once you add the minority interest"
@@ -579,6 +590,25 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
         verdict = (
             f"{name} ({ticker}) balances for the period ending {period}: "
             "assets equal liabilities plus equity within tolerance."
+        )
+    elif filer_totals_agree:
+        # The filer's own stated liabilities-plus-equity equals its total
+        # assets, so the FILING balances; what falls short is what this dataset
+        # read. Opening with "DOES NOT balance" contradicted the note appended
+        # below it (the same view says the filing balances against its own
+        # arithmetic) and told a model the company's accounts were off.
+        verdict = (
+            f"{name} ({ticker}): the filing balances against its own "
+            f"arithmetic for the period ending {period}. The filer's stated "
+            "total for liabilities plus equity equals its total assets. The "
+            "components this dataset read come to "
+            f"{view.imbalance_pct:.2f}% of total assets less than that stated "
+            "total, so the check does not close as read here; the difference "
+            "is the band 'Not read from this filing'. Whether that line is "
+            "tagged under a name this dataset does not map, tagged only with "
+            "a dimension, or not tagged at all cannot be told from the "
+            "figures held here, so this is not evidence that the company's "
+            "accounts are wrong."
         )
     else:
         verdict = (
