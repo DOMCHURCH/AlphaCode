@@ -272,17 +272,35 @@ def render_footer(extra: str = "") -> str:
     lead = f"{extra} " if extra else ""
     return f"""
   <footer>
-    {lead}<span class="foot-links">
-      <a href="/companies">All companies</a>
-      <a href="/compare">Compare</a>
-      <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">Data study</a>
-      <a href="/blog/sec-xbrl-data-wrong-one-in-five">XBRL 1-in-5 study</a>
-      <a href="/restatements">Restatements</a>
-      <a href="/terms">Terms</a>
-      <a href="/privacy">Privacy</a>
-      <a href="{SOURCE_URL}" rel="noopener">Source</a>
-      <a href="mailto:{SUPPORT_EMAIL}">Support</a>
-    </span>
+    {lead}<nav class="foot-links foot-cols" aria-label="Site">
+      <div class="foot-col"><p class="foot-h">Data</p>
+        <a href="/companies">All companies</a>
+        <a href="/companies#by-sector">Sectors</a>
+        <a href="/dataset">Dataset</a>
+        <a href="/restatements">Restatements</a>
+        <a href="{SOURCE_URL}" rel="noopener">Source</a>
+      </div>
+      <div class="foot-col"><p class="foot-h">Product</p>
+        <a href="/api">API docs</a>
+        <a href="/mcp">MCP server</a>
+        <a href="/pricing">Pricing</a>
+        <a href="/free-sec-fundamentals-api">Free API</a>
+        <a href="/xbrl-balance-sheet-api">XBRL balance sheet API</a>
+        <a href="/compare">Compare</a>
+      </div>
+      <div class="foot-col"><p class="foot-h">Research</p>
+        <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">Data study</a>
+        <a href="/blog/sec-xbrl-data-wrong-one-in-five">XBRL 1-in-5 study</a>
+        <a href="/blog">All research</a>
+        <a href="/methodology">How we verify</a>
+      </div>
+      <div class="foot-col"><p class="foot-h">Company</p>
+        <a href="/about">About</a>
+        <a href="/terms">Terms</a>
+        <a href="/privacy">Privacy</a>
+        <a href="mailto:{SUPPORT_EMAIL}">Support</a>
+      </div>
+    </nav>
     <span class="foot-disc">{SHORT_DISCLAIMER}</span>
   </footer>"""
 

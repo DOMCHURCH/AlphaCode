@@ -1899,3 +1899,17 @@ def test_the_report_is_linked_from_footer_company_methodology_about_and_compare(
     # the one-in-five post is still reachable from the company page and methodology
     assert "/blog/sec-xbrl-data-wrong-one-in-five" in client.get("/company/JPM").text
     assert "/blog/sec-xbrl-data-wrong-one-in-five" in client.get("/methodology").text
+
+
+def test_the_footer_is_grouped_and_reaches_the_product_pages(client):
+    footer = client.get("/about").text.split("<footer>", 1)[1].split("</footer>", 1)[0]
+    heads = [h.split("</p>", 1)[0] for h in footer.split('class="foot-h">')[1:]]
+    assert heads == ["Data", "Product", "Research", "Company"]
+    for href in ("/companies", "/companies#by-sector", "/dataset", "/restatements", "/api",
+                 "/mcp", "/pricing", "/free-sec-fundamentals-api", "/xbrl-balance-sheet-api",
+                 "/compare", "/blog/which-sec-balance-sheets-fail-the-identity-check",
+                 "/blog/sec-xbrl-data-wrong-one-in-five", "/blog", "/methodology", "/about",
+                 "/terms", "/privacy"):
+        assert f'href="{href}"' in footer, href
+    for page in ("/dataset", "/mcp", "/xbrl-balance-sheet-api", "/free-sec-fundamentals-api"):
+        assert client.get(page).status_code == 200, page
