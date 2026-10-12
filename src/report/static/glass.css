@@ -2288,3 +2288,71 @@ body[data-bd="fluted"] #pricing .plan-bullets li { color: #d3d7ee; }
 body[data-bd="fluted"] .drawn-explained .how-h { margin: 0 0 6px; }
 body[data-bd="fluted"] .drawn-explained p { margin: 0; max-width: 70ch; color: var(--ink2); font-size: 15px; line-height: 1.6; }
 .disclaim { color: #c3c8e2; }
+
+/* ---- the stats strip, seven cells, any width -----------------------------------
+   Production shows a seventh cell ("Updated · Nd ago") once the scheduler has a
+   success to report, and with seven one-line labels in a single row the longest
+   ran into its neighbour from 621px to 1440px. One grid at every width now:
+   2 columns on a phone, 4 (two rows) up to 1499px, all 7 on one row from 1500px.
+   Each cell spans a label row and a value row of the strip (subgrid), so every
+   value in a row sits on one baseline whatever its size. Labels may wrap to two
+   lines; values never wrap. The rules between cells are box-shadows, which do
+   not change a cell's box; the strip clips the one that would sit left of each
+   row's first cell, and is pulled out by the cell padding so the text still
+   lines up with the page. */
+body[data-bd="fluted"] .strip {
+  display: grid;
+  grid-auto-flow: row;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: none;
+  grid-auto-rows: auto;
+  column-gap: 0;
+  row-gap: 14px;
+  justify-content: stretch;
+  align-items: end;
+  overflow: hidden;
+  max-width: none;
+  width: auto;
+}
+body[data-bd="fluted"] .scell,
+body[data-bd="fluted"] .scell + .scell {
+  display: grid;
+  grid-row: auto / span 2;
+  grid-template-rows: subgrid;
+  row-gap: 8px;
+  align-items: end;
+  min-width: 0;
+  border: 0;
+  box-shadow: none;
+  padding: 2px 14px 2px 0;
+}
+body[data-bd="fluted"] .scell .sk {
+  align-self: end;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
+}
+body[data-bd="fluted"] .scell .sv {
+  align-self: baseline;
+  white-space: nowrap;
+  min-width: 0;
+}
+@media (min-width: 621px) {
+  body[data-bd="fluted"] .strip {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    row-gap: 26px;
+    margin-left: -18px;
+    margin-right: -18px;
+  }
+  body[data-bd="fluted"] .scell,
+  body[data-bd="fluted"] .scell + .scell {
+    padding: 4px 18px;
+    box-shadow: -1px 0 0 var(--edge-soft);
+  }
+}
+@media (min-width: 1500px) {
+  body[data-bd="fluted"] .strip { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  body[data-bd="fluted"] .scell .sv,
+  body[data-bd="fluted"] .scell.key .sv { font-size: clamp(34px, 2.7vw, 44px); }
+  body[data-bd="fluted"] .scell.txt .sv { font-size: 14px; }
+}
