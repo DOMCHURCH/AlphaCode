@@ -573,10 +573,22 @@ def fit_name(name: str, budget: int) -> str:
     return cut + "\u2026"
 
 
-def title_name(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
-    """`fit_name` against what the <title> has left after its own words."""
-    fixed = len(f" ({ticker}) Balance Sheet \u2014 BalanceProof")
-    return fit_name(name, limit - fixed)
+def title_name(name: str, ticker: str) -> str:
+    """The name as the <title> writes it: legal form and state marker dropped,
+    never cut. A name ending in "\u2026" looked like a bug in a result listing
+    (7 of 44 sampled titles), so length is handled in `company_title` by
+    dropping the brand suffix instead."""
+    return fit_name(name, 10**6)
+
+
+def company_title(name: str, ticker: str, limit: int = _TITLE_LIMIT) -> str:
+    """The page <title>. "\u2014 BalanceProof" goes first when the whole thing
+    would run over `limit`; the company name is never truncated. A name that
+    is long even then makes a long title, which a listing cuts at its own
+    edge -- after the name, where the brand would have been."""
+    short = f"{title_name(name, ticker)} ({ticker}) Balance Sheet"
+    full = f"{short} \u2014 BalanceProof"
+    return full if len(full) <= limit else short
 
 
 def render_company_page(
@@ -795,7 +807,7 @@ def render_company_page(
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{escape(title_name(d["company_name"] or d["ticker"], str(d["ticker"])))} ({escape(d["ticker"])}) Balance Sheet — BalanceProof</title>
+<title>{escape(company_title(d["company_name"] or d["ticker"], str(d["ticker"])))}</title>
 {_company_meta(d)}
 {_robots_meta(view)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">

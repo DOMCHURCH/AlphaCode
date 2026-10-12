@@ -557,15 +557,20 @@ def _title_len(short, ticker):
     return len(f"{short} ({ticker}) Balance Sheet \u2014 BalanceProof")
 
 
-def test_the_legal_form_is_dropped_before_anything_is_truncated():
-    from src.report.company_page import title_name
+def test_the_legal_form_is_dropped_and_the_name_is_never_cut():
+    from src.report.company_page import company_title, title_name
 
-    # 26 characters against a 25-character budget: the legal form is still
-    # dropped first, but what is left now misses by one and is truncated.
+    # 26 characters: one too many for the branded title, so the brand goes,
+    # not the end of the name.
     hornbeck = title_name("HORNBECK OFFSHORE SERVICES, INC.", "HLX")
-    assert "INC" not in hornbeck
-    assert hornbeck == "HORNBECK OFFSHORE\u2026"
-    assert _title_len(hornbeck, "HLX") <= 60
+    assert hornbeck == "HORNBECK OFFSHORE SERVICES"
+    assert _title_len(hornbeck, "HLX") == 61
+    assert company_title("HORNBECK OFFSHORE SERVICES, INC.", "HLX") == (
+        "HORNBECK OFFSHORE SERVICES (HLX) Balance Sheet"
+    )
+    assert company_title("Apple Inc.", "AAPL") == (
+        "Apple (AAPL) Balance Sheet \u2014 BalanceProof"
+    )
     assert title_name("Walmart Inc.", "WMT") == "Walmart"
     assert title_name("NVIDIA CORP", "NVDA") == "NVIDIA"
     assert title_name("Apple Inc.", "AAPL") == "Apple"
@@ -603,16 +608,15 @@ def test_several_legal_forms_are_stripped_not_just_the_last():
     assert "Ltd" not in alps
 
 
-def test_a_name_too_long_even_stripped_is_cut_on_a_word_boundary():
-    """A title cut mid-word reads as a bug rather than an abbreviation."""
-    from src.report.company_page import title_name
+def test_a_name_too_long_even_stripped_is_kept_whole():
+    """An ellipsis in a title read as a bug. The brand suffix goes instead,
+    and the name stays as written however long it is."""
+    from src.report.company_page import company_title
 
     long = "PERUSAHAAN PERSEROAN PERSERO PT TELEKOMUNIKASI INDONESIA TBK"
-    short = title_name(long, "TLK")
-    assert _title_len(short, "TLK") <= 60
-    assert short.endswith("\u2026")
-    assert " " not in short[-2:], "cut mid-word"
-    assert long.startswith(short[:-1].rstrip())
+    title = company_title(long, "TLK")
+    assert title == f"{long} (TLK) Balance Sheet"
+    assert "\u2026" not in title and "BalanceProof" not in title
 
 
 def test_a_name_that_is_only_a_legal_form_keeps_it():
@@ -644,7 +648,7 @@ def test_the_page_title_fits_and_the_heading_does_not_change(db):
     import re as _re
 
     title = _re.search(r"<title>(.*?)</title>", html).group(1)
-    assert len(title) <= 60, f"{len(title)}: {title}"
-    assert title.startswith("HORNBECK OFFSHORE\u2026 (HLX)")
+    assert title == "HORNBECK OFFSHORE SERVICES (HLX) Balance Sheet"
+    assert "\u2026" not in title
     # The heading is untouched.
     assert "<h1 class=\"cname\">HORNBECK OFFSHORE SERVICES, INC.</h1>" in html
