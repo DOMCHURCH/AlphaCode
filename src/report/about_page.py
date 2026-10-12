@@ -34,7 +34,8 @@ _BODY = """
       interests, mezzanine equity, rounding, or a genuinely broken filing. It
       is never quietly adjusted until it balances. The counts are public and
       the categories are named: <a href="/methodology">how we verify every
-      number</a>.</p>
+      number</a>. How many filings fail and why is in
+      <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">the report on 38,568 balance sheets</a>.</p>
 
     <h2>What it does not do</h2>
     <p>No predictions. No scores. No recommendations. Nothing is estimated,

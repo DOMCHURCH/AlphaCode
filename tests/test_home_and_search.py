@@ -1888,3 +1888,14 @@ def test_a_bank_page_links_the_bank_post(client):
     _seed("JPM", _drawable(), sector="Financials")
     page = client.get("/company/JPM").text
     assert 'href="/blog/why-bank-balance-sheets-are-different"' in page
+
+
+def test_the_report_is_linked_from_footer_company_methodology_about_and_compare(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    for path in ("/company/JPM", "/methodology", "/about", "/compare/balanceproof-vs-intrinio"):
+        assert 'href="/blog/which-sec-balance-sheets-fail-the-identity-check"' in client.get(path).text, path
+    footer = client.get("/about").text.split("<footer>", 1)[1]
+    assert '<a href="/blog/which-sec-balance-sheets-fail-the-identity-check">Data study</a>' in footer
+    # the one-in-five post is still reachable from the company page and methodology
+    assert "/blog/sec-xbrl-data-wrong-one-in-five" in client.get("/company/JPM").text
+    assert "/blog/sec-xbrl-data-wrong-one-in-five" in client.get("/methodology").text

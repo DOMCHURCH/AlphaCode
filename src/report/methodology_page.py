@@ -164,9 +164,11 @@ _BODY = """
     </div>
     <p class="plan-note">More on the selection step:
       <a href="/blog/sec-xbrl-data-wrong-one-in-five">why SEC XBRL data is wrong
-      one time in five</a>, and
+      one time in five</a>,
       <a href="/blog/understanding-the-accounting-identity">what the identity
-      actually proves</a>.</p>
+      actually proves</a>, and
+      <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">which SEC balance sheets fail the check</a>
+      (995 of 38,568 filings).</p>
   </aside>
 """
 

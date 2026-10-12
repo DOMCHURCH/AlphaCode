@@ -143,7 +143,7 @@ def test_a_company_page_offers_two_notes_and_the_product_links(client):
 
     assert 'id="learn-more"' in html
     blog_links = {ln for ln in links_in(html) if ln.startswith("/blog/")}
-    assert len(blog_links) == 2, f"expected two notes, got {sorted(blog_links)}"
+    assert len(blog_links) == 3, f"expected three notes, got {sorted(blog_links)}"
     assert "/pricing" in links_in(html)
     assert "/api" in links_in(html)
 
@@ -151,7 +151,7 @@ def test_a_company_page_offers_two_notes_and_the_product_links(client):
 def test_a_bank_is_pointed_at_the_bank_note(client):
     """A bank's page and a software company's page provoke different questions,
     so sending both to the same explainer wastes the link."""
-    seed("JPM", sector="Financial Services")
+    seed("JPM", sector="Financials")
     seed("PLAIN")
 
     bank = links_in(client.get("/company/JPM").text)
@@ -191,7 +191,7 @@ def test_every_internal_link_added_here_resolves(client):
                    "AAPL", "BLK", "KKR", "KO", "AMZN", "LCID",
                    "META", "XYZ", "TSLA", "SYK", "NKE",
                    "NTWO", "APLD", "SLG"):
-        seed(ticker, sector="Financial Services" if ticker == "JPM" else None)
+        seed(ticker, sector="Financials" if ticker == "JPM" else None)
 
     pages = ["/company/JPM", "/blog"]
     pages += [f"/blog/{p.slug}" for p in POSTS]
@@ -251,7 +251,7 @@ def _pages_that_could_link() -> list[str]:
 
 
 def test_every_comparison_page_has_at_least_four_inlinks(client):
-    seed("JPM", sector="Financial Services")
+    seed("JPM", sector="Financials")
 
     targets = [f"/{p.slug}" for p in PAGES]
     found: dict[str, set[str]] = {t: set() for t in targets}
@@ -277,7 +277,7 @@ def test_a_comparison_page_does_not_link_to_itself(client):
     """The cross-link block is rendered from the same list the page is in, so
     the self-exclusion is a real thing to get wrong, and a self-link in a
     "read these instead" list reads as a bug to anyone who clicks it."""
-    seed("JPM", sector="Financial Services")
+    seed("JPM", sector="Financials")
 
     for page in PAGES:
         html = client.get(f"/{page.slug}").text

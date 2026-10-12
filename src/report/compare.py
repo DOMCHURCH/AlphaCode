@@ -1686,6 +1686,8 @@ def render(page: Page, *, nav: str = "") -> str:
       that stays true. Both of these are the method itself rather than an
       argument about it, so you can judge the claim rather than take it.</p>
     <ul class="notelist">
+      <li><a href="/blog/which-sec-balance-sheets-fail-the-identity-check">Which SEC balance sheets fail the check</a> — 995
+        of 38,568 filings, with the reason for each failure.</li>
       <li><a href="/blog/sec-xbrl-data-wrong-one-in-five">Why SEC XBRL data is
         wrong one time in five</a> — the measurement behind the duplicate-tag
         problem, on JPMorgan's own filing.</li>

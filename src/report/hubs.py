@@ -197,7 +197,8 @@ def render_compare_index(*, nav: str = "") -> str:
       <p class="sec-sub">The method behind every figure is on
         <a href="/methodology">how we verify</a>; the study that motivates it is
         <a href="/blog/sec-xbrl-data-wrong-one-in-five">why naive XBRL extraction is
-        wrong 1 in 5 times</a>.</p>
+        wrong 1 in 5 times</a>; how many filings fail and why is in
+        <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">the report on 38,568 balance sheets</a>.</p>
     </section>
   </article>
 {render_footer()}

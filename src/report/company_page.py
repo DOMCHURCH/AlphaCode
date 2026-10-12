@@ -281,6 +281,13 @@ _METHOD_READING = (
     "filer published for it.",
 )
 
+# The published report on how many balance sheets fail the check, and why.
+_REPORT_READING = (
+    "which-sec-balance-sheets-fail-the-identity-check",
+    "995 of 38,568 filings failed the check: the method, the reasons and the "
+    "filings themselves.",
+)
+
 
 def _robots_meta(view: View1) -> str:
     """`noindex,follow` for a page kept out of the sitemap; nothing otherwise.
@@ -327,7 +334,7 @@ def _learn_more(d: dict) -> str:
     thousand pages sat in a silo passing no authority to anything and giving a
     reader who wanted to understand what they were looking at nowhere to go.
 
-    Two links, not a wall of them. The sector-specific note where there is one,
+    Three links, not a wall of them. The sector-specific note where there is one,
     the identity note otherwise, and always the note explaining how the number
     on THIS page was selected, which is the question the page itself provokes.
     """
@@ -335,7 +342,7 @@ def _learn_more(d: dict) -> str:
 
     sector = (d.get("sector") or "").strip()
     first = _SECTOR_READING.get(sector, _GENERAL_READING)
-    picks = [first, _METHOD_READING]
+    picks = [first, _METHOD_READING, _REPORT_READING]
 
     items = ""
     for slug, why in picks:
