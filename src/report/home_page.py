@@ -1721,6 +1721,7 @@ def render_home(
      search pages, and none of those have a demo box to drive. -->
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
+<script src="/static/keyform.js?v={asset_version()}" defer></script>
 <script src="/static/countup.js?v={asset_version()}" defer></script>"""
     # The company count is read live rather than written down: this line once
     # said "1.7M data points" while /dataset, which counts the same table, said 1.8M.

@@ -1303,7 +1303,8 @@ def test_the_key_forms_work_without_script_and_the_key_panel_ships_hidden(client
 
 
 def test_the_home_script_registers_with_terms_and_hands_the_key_over_once(client):
-    js = client.get("/static/home.js").text
+    # The form code lives in keyform.js, shared with the sign-up prompt.
+    js = client.get("/static/keyform.js").text
 
     assert '"/api/auth/register"' in js
     assert "accept_terms: true" in js
@@ -1519,7 +1520,7 @@ def test_the_home_stylesheet_adds_no_blur_and_keeps_reduced_motion_honest(client
     no_pref = block.split("@media (prefers-reduced-motion: no-preference)", 1)[1].split(
         "@media (prefers-reduced-motion: reduce)", 1)[0]
     assert "home-rise" in no_pref
-    reduce = block.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+    reduce = block.split("@media (prefers-reduced-motion: reduce)", 1)[1].split("/* ----", 1)[0]
     assert "home-fade" in reduce and "!important" in reduce
     assert "translateY" not in reduce, "reduced motion gets a fade, never movement"
 
@@ -1821,3 +1822,34 @@ def test_the_docs_say_to_use_curl_exe_on_windows_powershell(client):
     assert "On Windows PowerShell, use <code>curl.exe</code>" in api
     dash = " ".join(client.get("/dashboard").text.split())
     assert dash.count("On Windows PowerShell, use <code>curl.exe</code>") == 2
+
+
+# ------------------------------------------------- sign-up prompt (nudge.js)
+def test_the_signup_prompt_renders_only_on_company_pages_and_posts(client):
+    from src.report.blog import POSTS
+
+    _seed("JPM", _drawable(), sector="Financials")
+    company = client.get("/company/JPM").text
+    post = client.get(f"/blog/{POSTS[0].slug}").text
+    for html in (company, post):
+        assert 'id="signup-nudge"' in html and "data-nudge-end" in html
+        assert "/static/nudge.js" in html and "/static/keyform.js" in html
+    assert "Get JPM as JSON, free" in company
+    assert "Get this data as JSON" in post
+    for path in ("/", "/pricing", "/dashboard", "/login", "/dataset", "/api", "/about"):
+        assert 'id="signup-nudge"' not in client.get(path).text, path
+
+
+def test_the_signup_prompt_offers_no_discount_and_never_fires_on_a_timer(client):
+    from pathlib import Path
+
+    import src.report.nudge as nudge
+
+    html = nudge.render_signup_nudge("JPM").lower()
+    for word in ("discount", "% off", "half off", "coupon", "promo"):
+        assert word not in html, word
+    assert "1,000 calls a month. no card, no password." in html or "calls a month. no card, no password." in html
+    js = (Path(nudge.__file__).parent / "static" / "nudge.js").read_text(encoding="utf-8")
+    code = "\n".join(line for line in js.splitlines() if not line.strip().startswith(("/*", "*", "//")))
+    for trigger in ("setTimeout", "setInterval", "beforeunload", "mouseout", "mouseleave", ".focus("):
+        assert trigger not in code, trigger

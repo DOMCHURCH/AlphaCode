@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from html import escape
 
+from src.report.nudge import NUDGE_END, render_signup_nudge
 from src.report.sector_page import sector_hub_slug
 from pathlib import Path
 from typing import Any
@@ -826,6 +827,7 @@ def render_company_page(
 
   <section class="shape">{shape_html}</section>
   {facts_html}
+  {NUDGE_END}
   {_flow_html(flow)}
   {_scale_html(scale)}
   {_ask_html(d["ticker"], ask_available)}
@@ -833,6 +835,7 @@ def render_company_page(
   {peers_html}
   {filings_html}
 
+{render_signup_nudge(d["ticker"])}
 {render_footer(
     f'Every figure is as reported to the SEC for the quarter ended '
     f'{escape(d["period_end"])}, filed {escape(d["filing_date"])}. Nothing is '

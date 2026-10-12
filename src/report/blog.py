@@ -3200,6 +3200,8 @@ def _faq_html(post: Post) -> str:
 
 
 def render_post(post: Post, *, nav: str = "") -> str:
+    from src.report.nudge import NUDGE_END, render_signup_nudge
+
     from src.report.schema import blogposting_ld, breadcrumb_ld, faq_ld
 
     nav_html, footer = _nav_and_footer(nav)
@@ -3227,7 +3229,9 @@ def render_post(post: Post, *, nav: str = "") -> str:
     </div>
   </aside>
 
+  {NUDGE_END}
   {_related_reading(post)}
+{render_signup_nudge()}
 {footer}
 </main>
 <script src="/static/nav.js?v={asset_version()}" defer></script>"""
