@@ -1845,11 +1845,40 @@ def test_the_signup_prompt_offers_no_discount_and_never_fires_on_a_timer(client)
 
     import src.report.nudge as nudge
 
-    html = nudge.render_signup_nudge("JPM").lower()
-    for word in ("discount", "% off", "half off", "coupon", "promo"):
+    from src.config.settings import get_settings, price_label
+
+    s = get_settings()
+    raw = nudge.render_signup_nudge("JPM")
+    html = raw.lower()
+    # The free key is the main action; the one offer is the sign-in sheet's
+    # existing one, hidden until the server reports it, worded from settings.
+    offer = raw.split("data-nudge-offer", 1)[1].split("</p>", 1)[0]
+    assert raw.index('id="nudge-email"') < raw.index("data-nudge-offer")
+    assert "data-nudge-offer hidden" in raw
+    assert "your first month of Pro" in offer and "monthly Pro only" in offer
+    assert price_label(s.pro_price_usd) in offer
+    assert f"{s.signin_offer_claim_minutes} minutes" in offer
+    for word in ("hurry", "only today", "countdown", "expires in", "last chance"):
         assert word not in html, word
     assert "1,000 calls a month. no card, no password." in html or "calls a month. no card, no password." in html
     js = (Path(nudge.__file__).parent / "static" / "nudge.js").read_text(encoding="utf-8")
     code = "\n".join(line for line in js.splitlines() if not line.strip().startswith(("/*", "*", "//")))
     for trigger in ("setTimeout", "setInterval", "beforeunload", "mouseout", "mouseleave", ".focus("):
         assert trigger not in code, trigger
+
+
+def test_the_privacy_policy_mentions_the_prompt_flag(client):
+    page = " ".join(client.get("/privacy").text.split())
+    assert ("It also remembers, locally, whether you have closed the sign-up prompt on "
+            "company pages and articles, so it is not shown again. That flag never "
+            "leaves your device.") in page
+    assert "Last updated 12 October 2026." in page
+
+
+def test_nav_js_stands_down_where_the_signup_prompt_lives():
+    from pathlib import Path
+
+    import src.report.nudge as nudge
+
+    js = (Path(nudge.__file__).parent / "static" / "nav.js").read_text(encoding="utf-8")
+    assert 'if (document.getElementById("signup-nudge")) return;' in js

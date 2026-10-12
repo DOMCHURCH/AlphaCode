@@ -304,6 +304,10 @@
   function wireSigninPrompt() {
     _prompt = $("signin-prompt");
     if (!_prompt || !window.fetch) return;
+    /* Company pages and posts carry the bottom-of-page sign-up prompt
+       (nudge.js), which is the one offer there. The sheet stays everywhere
+       else. */
+    if (document.getElementById("signup-nudge")) return;
 
     window.fetch("/api/signin-prompt", { credentials: "same-origin" })
       .then(function (r) { return r.ok ? r.json() : null; })

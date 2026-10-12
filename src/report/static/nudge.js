@@ -51,7 +51,50 @@
       /* next frame, so the slide-in transition has a start state */
       window.requestAnimationFrame(function () { card.classList.add("in"); });
       document.addEventListener("keydown", onKey);
+      offerIfAvailable();
     }
+
+    /* The sign-in sheet's own offer, through its own endpoints and rules.
+       Asked only once the card is showing; reserved (/show) only when the
+       server says there is one; leaving without claiming forfeits it, exactly
+       as the sheet does. No billing or checkout code is involved here. */
+    var offerShown = false, offerClaimed = false;
+    function post(path) {
+      return window.fetch(path, { method: "POST", credentials: "same-origin" });
+    }
+    function offerIfAvailable() {
+      var line = card.querySelector("[data-nudge-offer]");
+      if (!line || !window.fetch) return;
+      window.fetch("/api/signin-prompt", { credentials: "same-origin" })
+        .then(function (r) { return r.json(); })
+        .then(function (state) {
+          if (!state || !state.offer || closed) return null;
+          return post("/api/signin-offer/show").then(function (r) { return r.json(); });
+        })
+        .then(function (res) {
+          if (!res || !res.show || closed) return;
+          offerShown = true;
+          line.hidden = false;
+          document.body.style.paddingBottom = (card.offsetHeight + 32) + "px";
+        })
+        .catch(function () { /* no offer is better than a broken one */ });
+      var claim = line.querySelector("[data-nudge-claim]");
+      claim.addEventListener("click", function (ev) {
+        ev.preventDefault();
+        offerClaimed = true;
+        remember("claimed");
+        var href = claim.getAttribute("href");
+        post("/api/signin-offer/claim").catch(function () {})
+          .then(function () { window.location.href = href; });
+      });
+    }
+    window.addEventListener("pagehide", function () {
+      if (!offerShown || offerClaimed) return;
+      try {
+        if (navigator.sendBeacon) { navigator.sendBeacon("/api/signin-offer/forfeit"); return; }
+        post("/api/signin-offer/forfeit").catch(function () {});
+      } catch (e) { /* nothing to undo */ }
+    });
 
     function close(why) {
       closed = true;

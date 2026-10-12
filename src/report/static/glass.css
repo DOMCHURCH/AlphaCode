@@ -2455,3 +2455,8 @@ body[data-bd="fluted"] #cc-t-ps:checked ~ .cc-tabs label[for="cc-t-ps"] {
 @media (prefers-reduced-motion: reduce) {
   .signup-nudge { transition: none; transform: none; }
 }
+
+/* the prompt's one secondary line: the existing offer, quieter than the key */
+.nudge-offer { margin: 8px 0 4px; font-size: 12.5px; line-height: 1.5; color: var(--dim); }
+.nudge-offer a { color: var(--ink2); }
+.nudge-offer[hidden] { display: none; }

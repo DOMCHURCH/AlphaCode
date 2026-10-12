@@ -8,7 +8,14 @@ cannot appear on the home page, /pricing, /dashboard, /login, /dataset, /api,
 
 The form inside is the home page's own free-key form (`home_page._key_form`),
 so the request, the success state, the shown-once key and "Copy key" are the
-same code path. No discount is offered here.
+same code path.
+
+The one secondary line is the sign-in sheet's existing offer, offered through
+its own endpoints (/api/signin-prompt, /api/signin-offer/show, /claim,
+/forfeit) and therefore its own rules: shown at most once per address, applied
+at checkout from the claim cookie, monthly Pro only, ended by leaving the page.
+Its wording is built from the same settings the sheet and the Stripe coupon
+use. It stays hidden unless the server says an offer is available.
 """
 
 from __future__ import annotations
@@ -21,11 +28,23 @@ NUDGE_END = '<div class="nudge-end" data-nudge-end aria-hidden="true"></div>'
 
 
 def render_signup_nudge(ticker: str | None = None) -> str:
-    from src.config.settings import get_settings
+    from src.config.settings import get_settings, price_label
     from src.report.company_page import asset_version
     from src.report.home_page import _key_form
 
-    free = get_settings().free_tier_monthly_calls
+    s = get_settings()
+    free = s.free_tier_monthly_calls
+    pct = s.signin_offer_percent
+    off = "half off" if pct == 50 else f"{pct}% off"
+    pro = price_label(s.pro_price_usd)
+    first = price_label(round(s.pro_price_usd * (100 - pct) / 100, 2))
+    offer = f"""
+  <p class="nudge-offer" data-nudge-offer hidden>Or
+    <a href="/login?next=%2Fdashboard%3Fplan%3Dpro%23billing" data-nudge-claim>claim
+    {escape(off)} your first month of Pro</a>: {escape(first)} for the first month,
+    then {escape(pro)}/month, monthly Pro only. Once claimed it is applied at
+    checkout for {s.signin_offer_claim_minutes} minutes; it is offered once, and
+    leaving this page without claiming it ends it.</p>"""
     heading = (
         f"Get {escape(ticker)} as JSON, free" if ticker else "Get this data as JSON"
     )
@@ -35,7 +54,7 @@ def render_signup_nudge(ticker: str | None = None) -> str:
   <button type="button" class="nudge-x" data-nudge-close aria-label="Close">&times;</button>
   <p class="nudge-h">{heading}</p>
   {form}
-  <p class="nudge-line">{free:,} calls a month. No card, no password.</p>
+  <p class="nudge-line">{free:,} calls a month. No card, no password.</p>{offer}
   <p class="nudge-fine">By getting a key you accept the <a href="/terms">Terms</a>
     and <a href="/privacy">Privacy Policy</a>.</p>
 </aside>

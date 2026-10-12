@@ -122,3 +122,38 @@ test('signing up from it shows the key and Copy key, and it never shows again', 
   await page.waitForTimeout(800);
   await expect(page.locator('#signup-nudge')).toBeHidden();
 });
+
+/* One offer per page: on company pages and posts the nav.js sign-in sheet
+   stands down (it never even asks /api/signin-prompt), and the bottom prompt
+   is the only offer. Elsewhere the sheet's logic still runs. These tests do
+   not pre-answer the sheet, so it is free to try. */
+test.describe('one offer per page', () => {
+  for (const path of [COMPANY, POST]) {
+    test(`${path}: the sign-in sheet stays down, the prompt appears at the bottom`, async ({ browser }) => {
+      const ctx = await browser.newContext();
+      const page = await ctx.newPage();
+      const asked: string[] = [];
+      page.on('request', (r) => { if (r.url().includes('/api/signin-prompt')) asked.push(r.url()); });
+      await page.goto(path);
+      await page.mouse.wheel(0, 600);
+      await page.waitForTimeout(11000); // past the sheet's 10-second timer
+      await expect(page.locator('#signin-prompt')).toBeHidden();
+      expect(asked, 'nav.js did not ask for the sheet').toEqual([]);
+      await page.locator('[data-nudge-end]').evaluate((e) => e.scrollIntoView({ block: 'start' }));
+      await expect(page.locator('#signup-nudge')).toBeVisible();
+      await expect(page.locator('#signin-prompt')).toBeHidden();
+      await ctx.close();
+    });
+  }
+
+  test('elsewhere the sheet is still alive: /about asks /api/signin-prompt', async ({ browser }) => {
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    const asked = page.waitForRequest((r) => r.url().includes('/api/signin-prompt'), { timeout: 15000 });
+    await page.goto('/about');
+    await page.mouse.wheel(0, 600);
+    expect((await asked).method()).toBe('GET');
+    await expect(page.locator('#signup-nudge')).toHaveCount(0);
+    await ctx.close();
+  });
+});

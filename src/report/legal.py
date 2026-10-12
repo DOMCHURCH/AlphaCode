@@ -38,7 +38,7 @@ from __future__ import annotations
 from src.report.company_page import asset_version
 from src.report.home_page import shell
 
-LAST_UPDATED = "23 September 2026"
+LAST_UPDATED = "12 October 2026"
 # The same day in the form a machine wants it. Written next to the prose
 # date rather than derived from it, so the two cannot drift: the sitemap
 # tells crawlers when these documents last changed, and a lastmod that
@@ -372,7 +372,8 @@ def render_privacy(*, nav: str = "", contact: str = "") -> str:
       it. There are no
       tracking or advertising cookies. Your browser also stores your API key locally if you paste one
       in; that never leaves your device except as the header on your own API
-      calls.</p>
+      calls. It also remembers, locally, whether you have closed the sign-up prompt on company
+      pages and articles, so it is not shown again. That flag never leaves your device.</p>
 
     <h2>9. Where the data lives</h2>
     <p>The service is operated from Ontario, Canada, and hosted on
