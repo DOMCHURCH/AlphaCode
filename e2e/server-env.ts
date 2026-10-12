@@ -37,4 +37,9 @@ export const SERVER_ENV: Record<string, string> = {
   // No demo account: it is a shared row with a well-known key, and these
   // tests are about keys that belong to one person.
   DEMO_API_KEY: '',
+  // Placeholder Price ids, so the Starter and Business cards render and their
+  // buttons can be clicked. There is no Stripe secret here, so nothing can
+  // reach Stripe: a signed-out click is answered 401 before any of it is used.
+  STRIPE_PRICE_STARTER: 'price_e2e_starter',
+  STRIPE_PRICE_BUSINESS: 'price_e2e_business',
 };

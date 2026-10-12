@@ -30,4 +30,11 @@ export default function globalSetup(): void {
     env: { ...process.env, ...SERVER_ENV },
     stdio: 'inherit',
   });
+  // Two companies for the site smoke suite (company page tables, search). Only
+  // ever the throwaway file above: the script refuses any other DATABASE_URL.
+  execFileSync('python', ['e2e/seed_smoke.py'], {
+    cwd: REPO_ROOT,
+    env: { ...process.env, ...SERVER_ENV },
+    stdio: 'inherit',
+  });
 }

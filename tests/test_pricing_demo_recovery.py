@@ -199,8 +199,8 @@ def test_pricing_sits_under_the_explanation(client):
     # part of the same story, and the duplication was literal -- the SEC
     # duplicate-tag problem was stated three times on one page. They are now
     # one section, `id="how"`, and the ordering rule is unchanged.
-    assert html.index('id="demo"') < html.index('id="how"')
-    assert html.index('id="how"') < html.index('id="pricing"')
+    assert html.index('id="how"') < html.index('id="demo"')
+    assert html.index('id="demo"') < html.index('id="pricing"')
 
 
 def test_the_dataset_card_counts_the_rows_it_is_selling(client):
@@ -673,40 +673,127 @@ def _home_pricing(client) -> str:
 
 
 def test_the_home_page_summarises_the_plans_in_cad_from_settings(client):
-    from src.accounts import tier_limit
     from src.config.settings import get_settings, price_label
 
     section = _home_pricing(client)
     s = get_settings()
 
     assert "Canadian dollars" in section and "CAD" in section
-    assert 'href="/pricing"' in section
-    assert "data-plan" not in section, "the summary is not a checkout"
+    assert 'href="/pricing#compare-plans"' in section
     assert price_label(0) in section
     assert price_label(s.pro_price_usd) in section
     assert price_label(s.dataset_price_usd) in section
-    # Call limits come from the tier table, not the copy: the env sets 7 and
-    # 5,000, which no hand-written sentence would say.
-    assert f"{tier_limit('free'):,} calls a month" in section
-    assert f"{tier_limit('pro'):,} calls a month" in section
 
 
-def test_the_home_summary_sells_only_what_checkout_can_sell(client, monkeypatch):
-    """Same gate as the /pricing cards: a plan with no Stripe Price is absent."""
+def test_the_home_plan_cards_are_the_pricing_pages_cards_with_working_buttons(client, monkeypatch):
+    """The same `plan_cards()` block as /pricing, so every Start button carries
+    the `data-plan` home.js turns into a checkout, the billing toggle and the
+    status note are there, and the dataset and Enterprise actions exist."""
     from src import billing
-
-    real = billing.price_for
-
-    monkeypatch.setattr(
-        billing, "price_for",
-        lambda plan: "" if plan in ("starter", "business") else real(plan),
-    )
-    section = _home_pricing(client)
-    assert "Starter" not in section and "Business" not in section
 
     monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
     section = _home_pricing(client)
-    assert "Starter" in section and "Business" in section
+
+    for plan in ("starter", "pro", "business", "dataset"):
+        assert f'class="plan-cta" href="/dashboard#billing" data-plan="{plan}"' in section, plan
+    assert 'class="bill-lead"' in section and 'class="bill-opt' in section
+    assert 'data-plan="pro_annual"' in section
+    assert 'id="plan-note"' in section
+    assert "mailto:" in section and "Enterprise%20enquiry" in section
+    assert ">Get a free API key<" in section
+
+
+def test_the_home_cards_sell_only_what_checkout_can_sell(client, monkeypatch):
+    from src import billing
+
+    monkeypatch.setattr(billing, "price_for",
+                        lambda plan: "" if plan.startswith(("starter", "business")) else "price_test")
+    section = _home_pricing(client)
+    assert 'data-plan="starter"' not in section and 'data-plan="business"' not in section
+    assert ">Enterprise<" in section, "a conversation, always offered"
+
+
+def _cards(section: str) -> dict[str, str]:
+    import re
+
+    out = {}
+    for m in re.finditer(r'<span class="plan-name">([A-Za-z ]+?)(?:<span class="badge">[^<]*</span>)?</span>', section):
+        name = m.group(1).strip()
+        rest = section[m.end():]
+        out[name] = rest.split('<span class="plan-name">', 1)[0]
+    return out
+
+
+def test_the_plan_cards_show_a_per_call_price_worked_out_from_settings(client, monkeypatch):
+    from src import billing
+    from src.accounts import tier_limit
+    from src.config.settings import get_settings
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    cards = _cards(_home_pricing(client))
+    s = get_settings()
+
+    for name, price in (("Starter", s.starter_price), ("Pro", s.pro_price_usd),
+                        ("Business", s.business_price)):
+        expected = f"about CA${price / tier_limit(name.lower()):.4f} a call"
+        assert expected in cards[name], expected
+    assert "a call," not in cards["Free"], "nothing to price on the free tier"
+
+
+def test_one_line_says_why_pro_costs_more_per_call_than_starter(client, monkeypatch):
+    from src import billing
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    section = _home_pricing(client)
+    note = section.split('class="psum-note">', 1)[1].split("</p>", 1)[0]
+
+    assert "more per call than Starter" in note
+    for feature in ("point-in-time", "failed checks", "alerts on 50 companies"):
+        assert feature in note, feature
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "")
+    note = _home_pricing(client).split('class="psum-note">', 1)[1].split("</p>", 1)[0]
+    assert "more per call than Starter" not in note, "no comparison with a plan that is not shown"
+
+
+def test_each_plan_card_lists_its_features_from_the_plan_tables(client, monkeypatch):
+    """Two or three bullets a card on the home page, and the numbers in them are
+    the matrix's own, so a card cannot promise what the server refuses."""
+    import re
+
+    from src import billing, plans
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    cards = _cards(_home_pricing(client))
+
+    assert list(cards) == ["Free", "Starter", "Pro", "Business", "Full dataset", "Enterprise"]
+    for name, body in cards.items():
+        bullets = re.findall(r"<li>([^<]+)</li>", body.split('<ul class="plan-bullets">', 1)[1].split("</ul>", 1)[0])
+        assert 2 <= len(bullets) <= 3, (name, bullets)
+    assert f"last {plans.allowance('pro', 'exceptions_feed')} days" in cards["Pro"]
+    assert f"Check {plans.allowance('pro', 'bulk_verify')} companies" in cards["Pro"]
+    assert f"({plans.allowance('business', 'webhooks')} endpoints)" in cards["Business"]
+    assert f"Alerts on {plans.allowance('starter', 'watchlist')} companies" in cards["Starter"]
+
+
+def test_the_most_popular_badge_is_on_pro_alone(client, monkeypatch):
+    from src import billing
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    section = _home_pricing(client)
+    assert section.count("Most popular") == 1
+    assert '<span class="plan-name">Pro<span class="badge">Most popular</span></span>' in section
+
+
+def test_pricing_page_cards_are_unchanged_by_the_home_options(client, monkeypatch):
+    """/pricing calls plan_cards() with the defaults: no badge, no per-call line,
+    and its own longer bullets."""
+    from src import billing
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    page = client.get("/pricing").text
+    assert "Most popular" not in page and "plan-pc" not in page
+    assert "Data updates daily, so you always get the latest filings" in page
 
 
 def test_the_home_card_response_is_what_the_demo_endpoint_answers(client):
@@ -733,67 +820,82 @@ def test_the_home_card_response_is_what_the_demo_endpoint_answers(client):
     # Trimmed, and says so: the caption counts what was left out.
     assert "line items, the ones the check uses" in " ".join(html.split())
 
-def test_the_home_summary_gives_pro_the_featured_tile_and_no_one_else(client):
-    import re
+# --------------------------------------------------------------- fix pass 3
+def test_the_pricing_section_says_what_happens_at_the_call_limit(client):
+    """Checked against `enforce_monthly_limit`: a 429 that resets on the 1st
+    (UTC), and no code anywhere bills beyond the plan price."""
+    from pathlib import Path
+
+    import src.accounts as accounts
 
     section = _home_pricing(client)
-    tiles = re.findall(r'<li class="(psum[^"]*)"><b>([^<]+)</b>', section)
+    line = section.split('class="psum-limit">', 1)[1].split("</p>", 1)[0]
+    assert "429" in line and "1st (UTC)" in line and "no overage billing" in line
 
-    assert tiles, "the summary renders its tiles"
-    featured = [name for cls, name in tiles if "featured" in cls]
-    assert featured == ["Pro"]
-
-
-def test_the_home_summary_always_offers_enterprise_like_pricing_does(client, monkeypatch):
-    """Starter and Business come and go with their Stripe Prices; Enterprise is a
-    conversation, so it is on /pricing unconditionally and so it is here, in the
-    same order (Free, Starter, Pro, Business, Dataset, Enterprise)."""
-    import re
-
-    from src import billing
-
-    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
-    section = _home_pricing(client)
-    names = re.findall(r'<li class="psum[^"]*"><b>([^<]+)</b>', section)
-
-    assert names == ["Free", "Starter", "Pro", "Business", "Dataset", "Enterprise"]
-    enterprise = section.split("<b>Enterprise</b>", 1)[1].split("</li>", 1)[0]
-    assert "Let&#x27;s talk" in enterprise or "Let's talk" in enterprise
-    assert "CAD" not in enterprise, "nothing to quote, so no currency"
-
-    monkeypatch.setattr(billing, "price_for", lambda plan: "")
-    names = re.findall(r'<li class="psum[^"]*"><b>([^<]+)</b>', _home_pricing(client))
-    assert "Enterprise" in names and "Starter" not in names and "Business" not in names
+    source = Path(accounts.__file__).read_text(encoding="utf-8")
+    assert "status_code=429" in source and "It resets on the 1st (UTC)" in source
+    assert "overage" not in source.lower()
 
 
-def test_the_plan_tiles_show_a_per_call_price_worked_out_from_settings(client, monkeypatch):
-    from src import billing
-    from src.accounts import tier_limit
-    from src.config.settings import get_settings
+def test_a_short_plan_faq_answers_the_four_questions(client):
+    html = client.get("/").text
+    faq = html.split('id="plan-faq"', 1)[1].split("</section>", 1)[0]
+    flat = " ".join(faq.split())
 
-    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
-    section = _home_pricing(client)
-    s = get_settings()
+    assert flat.count("<details") == 4
+    for question in ("Do I need a card for the Free plan?", "Can I cancel any time?",
+                     "What counts as a call?", "What happens when I go over the limit?"):
+        assert question in flat, question
+    assert "no card and no password" in flat
+    assert "Manage subscription" in flat and "14-day refund window" in flat
+    assert "HTTP 429" in flat and "no overage billing" in flat
+    # ordered after the plans and before the founder note
+    assert html.index('id="pricing"') < html.index('id="plan-faq"') < html.index('id="why"')
 
-    for name, price in (("starter", s.starter_price), ("pro", s.pro_price_usd),
-                        ("business", s.business_price)):
-        expected = f"about CA${price / tier_limit(name):.4f} a call"
-        assert expected in section, expected
-    free = section.split("<b>Free</b>", 1)[1].split("</li>", 1)[0]
-    assert "a call" not in free, "nothing to price on the free tier"
+
+def test_the_header_is_solid_and_the_phone_menu_is_its_own_opaque_sheet():
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    block = css.split("Fix pass: opaque header", 1)[1]
+    head = block.split("---- the strip", 1)[0]
+    assert "background: #06070e;" in head and "backdrop-filter: none;" in head
+    assert "rgba" not in head.split(".nav-js .navlinks", 1)[0].split("nav,", 1)[1]
+    assert "background: #0b0c14;" in head
 
 
-def test_one_line_says_why_pro_costs_more_per_call_than_starter(client, monkeypatch):
-    from src import billing
+def test_every_strip_figure_is_one_size_on_one_baseline():
+    from pathlib import Path
 
-    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
-    section = _home_pricing(client)
-    note = section.split('class="psum-note">', 1)[1].split("</p>", 1)[0]
+    import src.report.home_page as hp
 
-    assert "more per call than Starter" in note
-    for feature in ("point-in-time", "failed checks", "alerts on 50 companies"):
-        assert feature in note, feature
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    block = css.split("Fix pass: opaque header", 1)[1].split("loose text over the glow", 1)[0]
+    assert 'body[data-bd="fluted"] .scell.key .sv { font-size: clamp(34px, 3.6vw, 48px); }' in block
+    # the subgrid rows that put every value on one baseline are still in force
+    assert "align-self: baseline" in css
 
-    monkeypatch.setattr(billing, "price_for", lambda plan: "")
-    note = _home_pricing(client).split('class="psum-note">', 1)[1].split("</p>", 1)[0]
-    assert "more per call than Starter" not in note, "no comparison with a plan that is not shown"
+
+def test_long_prose_over_the_glow_is_held_by_a_plate_or_a_width(client):
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    block = css.split("loose text over the glow sits on a plate", 1)[1]
+    assert ".company-intro::before" in block and "rgba(5, 6, 10, .78)" in block
+    assert ".company-intro { max-width: 56rem; }" in block
+    assert "backdrop-filter" not in block.split("the code card", 1)[0], "a plate, not a blur"
+
+
+def test_the_code_card_wraps_at_spaces_and_scrolls_rather_than_split_a_url(client):
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    block = css.split("the code card: break only where a person would", 1)[1]
+    assert "overflow-wrap: normal;" in block and "word-break: normal;" in block
+    assert "overflow-x: auto;" in block

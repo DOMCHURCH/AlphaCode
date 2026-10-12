@@ -81,8 +81,26 @@ def _supports_dash() -> bool:
 # The plans, in one place
 # ---------------------------------------------------------------------------
 
+def per_call_line(tier: str) -> str:
+    """"about CA$0.0049 a call" for a monthly plan, from its price and call
+    limit in settings -- never typed. "" for a tier with nothing to divide."""
+    from src.accounts import tier_limit
+    from src.config.settings import get_settings
+
+    s = get_settings()
+    price = {"starter": s.starter_price, "pro": s.pro_price_usd,
+             "business": s.business_price}.get(tier)
+    limit = tier_limit(tier) if price else 0
+    if not price or not limit:
+        return ""
+    return (f'<p class="plan-pc">about CA${price / limit:.4f} a call, '
+            "on monthly billing</p>")
+
+
 def _pro_card(pro_price: str, pro_annual_price: str,
-              annual_saving: str, pro_limit: int) -> str:
+              annual_saving: str, pro_limit: int, *,
+              bullets: tuple[str, ...] | None = None, badge: str = "",
+              per_call: bool = False) -> str:
     """Pro, with the billing period as a toggle instead of a second card.
 
     Monthly and annual were two cards side by side, which asked a reader to
@@ -98,9 +116,19 @@ def _pro_card(pro_price: str, pro_annual_price: str,
     rather than a dead card.
     """
     saving = escape(annual_saving)
+    tag = f'<span class="badge">{escape(badge)}</span>' if badge else ""
+    pc = per_call_line("pro") if per_call else ""
+    items = (
+        "".join(f"<li>{escape(b)}</li>" for b in bullets) if bullets is not None else
+        """<li>Data updates daily, so you always get the latest filings</li>
+        <li>Check up to 50 companies in one request</li>
+        <li>Point-in-time: any date's figures as they were public, for backtests</li>
+        <li>Feed of failed checks and restatements, last 90 days</li>
+        <li>Email alerts on the companies you follow</li>"""
+    )
     return f"""
-    <div class="plan pro-plan period-plan">
-      <span class="plan-name">Pro</span>
+    <div class="plan pro-plan period-plan{' popular' if badge else ''}">
+      <span class="plan-name">Pro{tag}</span>
       <div class="bill-toggle in-card" role="group" aria-label="Billing period">
         <a class="bill-opt on" href="/dashboard#billing" data-period="month"
           data-plan="pro" aria-current="true">Monthly</a>
@@ -110,13 +138,9 @@ def _pro_card(pro_price: str, pro_annual_price: str,
       </div>
       <p class="plan-price"><span data-price>{escape(pro_price)}</span><small
         data-per>/month</small></p>
-      <p class="plan-line" data-line>Live, up-to-date data</p>
+      <p class="plan-line" data-line>Live, up-to-date data</p>{pc}
       <ul class="plan-bullets">
-        <li>Data updates daily, so you always get the latest filings</li>
-        <li>Check up to 50 companies in one request</li>
-        <li>Point-in-time: any date's figures as they were public, for backtests</li>
-        <li>Feed of failed checks and restatements, last 90 days</li>
-        <li>Email alerts on the companies you follow</li>
+        {items}
       </ul>
       <a class="plan-cta" href="/dashboard#billing" data-plan="pro" data-name="Pro"
         data-plan-month="pro" data-plan-year="pro_annual"
@@ -127,7 +151,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
 
 
 def _tier_card(tier: str, *, line: str, year_line: str,
-               bullets: tuple[str, ...]) -> str:
+               bullets: tuple[str, ...], per_call: bool = False) -> str:
     """Starter or Business -- rendered ONLY once its Stripe Price is set.
 
     Unset means `billing.price_for(tier)` is empty and checkout would 503, so
@@ -158,7 +182,7 @@ def _tier_card(tier: str, *, line: str, year_line: str,
       <span class="plan-name">{name}</span>
       <p class="plan-price"><span data-price>{escape(month)}</span><small
         data-per>/month</small></p>
-      <p class="plan-line" data-line>{escape(line)}</p>
+      <p class="plan-line" data-line>{escape(line)}</p>{per_call_line(tier) if per_call else ""}
       <ul class="plan-bullets">{items}</ul>
       <a class="plan-cta" href="/dashboard#billing" data-plan="{tier}" data-name="{name}"
         data-plan-month="{tier}" data-price-month="{escape(month)}"{year_attrs}
@@ -166,14 +190,13 @@ def _tier_card(tier: str, *, line: str, year_line: str,
     </div>"""
 
 
-def _starter_card() -> str:
+def _starter_card(bullets: tuple[str, ...] | None = None, per_call: bool = False) -> str:
     from src import plans
-    from src.accounts import tier_limit
 
     return _tier_card(
         "starter", line="Follow a few companies",
-        year_line="The same Starter plan, paid yearly",
-        bullets=(
+        year_line="The same Starter plan, paid yearly", per_call=per_call,
+        bullets=bullets if bullets is not None else (
             # Not "5 years": the database holds about three (2026-09-24).
             "Multi-year history",
             "See what changed, including restatements",
@@ -182,14 +205,11 @@ def _starter_card() -> str:
     )
 
 
-def _business_card() -> str:
-    from src import plans
-    from src.accounts import tier_limit
-
+def _business_card(bullets: tuple[str, ...] | None = None, per_call: bool = False) -> str:
     return _tier_card(
         "business", line="For products built on the data",
-        year_line="The same Business plan, paid yearly",
-        bullets=(
+        year_line="The same Business plan, paid yearly", per_call=per_call,
+        bullets=bullets if bullets is not None else (
             "Everything in Pro",
             "The full feed of failed checks and restatements, as CSV",
             "Webhooks into your own systems",
@@ -305,8 +325,16 @@ def plan_cards(
     dataset_price: str,
     dataset_rows: str,
     dataset_as_of: str,
+    bullets: dict[str, tuple[str, ...]] | None = None,
+    popular: str = "",
+    per_call: bool = False,
 ) -> str:
-    """The four cards. Rendered identically on the home page and on /pricing.
+    """The cards. Rendered on the home page and on /pricing.
+
+    /pricing calls this with the defaults. The home page passes `bullets`
+    (two or three per plan, read from `plans.MATRIX` by the caller), `popular`
+    (the plan that carries the badge) and `per_call`; every button, data
+    attribute and checkout hook is the same either way.
 
     Every paid card carries `data-plan`, which home.js turns into a Checkout
     Session, and an href that is a REAL fallback rather than a placeholder:
@@ -329,8 +357,9 @@ def plan_cards(
     from src.report.nav import SUPPORT_EMAIL
 
     # Present only once their Stripe Prices are configured; see _tier_card.
-    starter = _starter_card()
-    business = _business_card()
+    over = bullets or {}
+    starter = _starter_card(over.get("Starter"), per_call)
+    business = _business_card(over.get("Business"), per_call)
     grid = "plans plans-6" if (starter or business) else "plans"
     # Built as plain strings so their position can follow the layout: with
     # four cards the dataset sits second (as it always has); with six, the
@@ -363,7 +392,7 @@ def plan_cards(
     enterprise = card(
         "Enterprise", "Let's talk", "",
         "Custom volume and terms",
-        (
+        over.get("Enterprise") or (
             "Everything in Business, plus the dataset",
             "A call quota set to what you use",
             "Invoicing and a signed agreement",
@@ -374,7 +403,7 @@ def plan_cards(
     dataset = card(
         "Full dataset", dataset_price, " once",
         f"Static snapshot of all company data as of {dataset_as_of}",
-        (
+        over.get("Dataset") or (
             "One-time download. No updates.",
             f"{dataset_rows} rows as one CSV file",
             "The snapshot never changes",
@@ -402,7 +431,7 @@ def plan_cards(
     <div class="{grid}">
       {card(
         "Free", "$0", "", "Unlimited: look up as many companies as you like",
-        (
+        over.get("Free") or (
             "Every balance sheet, no account needed",
             "Income statement and cash flow, every period checked",
             f"{free_limit:,} keyed API calls a month",
@@ -412,7 +441,9 @@ def plan_cards(
     )}
       {dataset_first}
       {starter}
-      {_pro_card(pro_price, pro_annual_price, annual_saving, pro_limit)}
+      {_pro_card(pro_price, pro_annual_price, annual_saving, pro_limit,
+                 bullets=over.get("Pro"), badge="Most popular" if popular == "Pro" else "",
+                 per_call=per_call)}
       {business}
       {dataset_last}
       {enterprise}

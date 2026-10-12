@@ -1920,3 +1920,371 @@ body { isolation: isolate; }
 .leadin::before { display: none !important; content: none !important; }
 /* The two short notes under the filing drawings sit at the picture's brightest point. */
 body[data-bd="fluted"] .bs-note, body[data-bd="fluted"] .plan-note { color: #d9dcf0; }
+
+/* =============================================================================
+   Fix pass: opaque header, one-size strip figures, text plates, code card wrap
+   ============================================================================= */
+
+/* ---- the header is a solid bar ------------------------------------------------
+   It used to be 72-88% opaque, so words scrolling underneath showed through
+   behind the nav buttons. Opaque costs nothing (no blur on any page) and nothing
+   shows through. The open phone menu is its own opaque sheet with an edge. */
+nav,
+body[data-bd="fluted"] nav {
+  background: #06070e;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (max-width: 720px) {
+  .nav-js .navlinks {
+    background: #0b0c14;
+    border: 1px solid var(--edge-soft);
+  }
+}
+
+/* ---- the strip: every value is the same size, so the baseline is the row ----
+   The two "claim" figures were half again as large as the rest, so even on one
+   baseline the small ones read as dropped. All numerals are now one size on one
+   baseline; the claim figures keep their emphasis in colour and glow instead. */
+body[data-bd="fluted"] .scell.key .sv { font-size: clamp(34px, 3.6vw, 48px); }
+@media (max-width: 620px) {
+  body[data-bd="fluted"] .scell.key .sv { font-size: 40px; }
+}
+
+/* ---- loose text over the glow sits on a plate ---------------------------------
+   Long lines run into the bright right-hand side of the picture. A dark plate
+   under the paragraph (a plain translucent fill, no blur, no mask) holds the
+   contrast without moving the text or dimming the picture for everyone else. */
+.company-intro,
+body[data-bd="fluted"] .cta-strip {
+  position: relative;
+  isolation: isolate;
+}
+.company-intro { max-width: 56rem; }
+.company-intro::before,
+body[data-bd="fluted"] .cta-strip::before {
+  content: "";
+  position: absolute;
+  inset: -10px -18px;
+  z-index: -1;
+  border-radius: 16px;
+  background: rgba(5, 6, 10, .78);
+}
+
+/* ---- the code card: break only where a person would ---------------------------
+   `anywhere` split the demo URL mid-word on a phone. Long tokens now stay whole
+   and the box scrolls sideways; the font steps down a little on a narrow card. */
+.cc-panel pre.code {
+  overflow-wrap: normal;
+  word-break: normal;
+  overflow-x: auto;
+}
+.cc-panel pre.code code,
+.keyout pre.code code { overflow-wrap: normal; word-break: normal; }
+@media (max-width: 460px) {
+  .cc-panel pre.code,
+  .cc-panel pre.code code { font-size: 11.5px; }
+}
+
+/* the closing sign-up reads over the same glow as the strip after "How it works" */
+body[data-bd="fluted"] .cta { position: relative; isolation: isolate; }
+body[data-bd="fluted"] .cta::before {
+  content: "";
+  position: absolute;
+  inset: -10px -18px;
+  z-index: -1;
+  border-radius: 16px;
+  background: rgba(5, 6, 10, .78);
+}
+/* the plan tiles' small lines and the strip's captions sit nearest the bright edge */
+body[data-bd="fluted"] .psum .pl { color: #d3d7ee; }
+body[data-bd="fluted"] .strip .sk { color: #e1e5f6; }
+
+/* ---- pricing: three to a row, with what each plan includes --------------------
+   Six tiles read as 3 + 3 on a desktop, 2 + 2 + 2 on a tablet and one column on
+   a phone. Each tile carries its feature bullets, the featured one a badge. */
+body[data-bd="fluted"] .psum-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+  align-items: stretch;
+}
+@media (max-width: 899px) {
+  body[data-bd="fluted"] .psum-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 560px) {
+  body[data-bd="fluted"] .psum-grid { grid-template-columns: 1fr; }
+}
+body[data-bd="fluted"] .psum { position: relative; gap: 6px; padding: 20px 22px 22px; }
+body[data-bd="fluted"] .psum.featured { border-color: rgba(170, 185, 255, .45); }
+body[data-bd="fluted"] .psum .pb {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid var(--edge-soft);
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+body[data-bd="fluted"] .psum .pb li {
+  position: relative;
+  padding-left: 16px;
+  font-size: 13.5px;
+  line-height: 1.45;
+  color: #d3d7ee;
+}
+body[data-bd="fluted"] .psum .pb li::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: .55em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(170, 185, 255, .75);
+}
+body[data-bd="fluted"] .psum .pbadge {
+  position: absolute;
+  top: 16px;
+  right: 18px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10.5px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: #0b0c14;
+  background: #e1e5f6;
+}
+body[data-bd="fluted"] .psum-limit {
+  margin: 0 0 14px;
+  max-width: 70ch;
+  font-size: 14.5px;
+  line-height: 1.6;
+  color: var(--ink2);
+}
+body[data-bd="fluted"] .psum-limit b { color: var(--ink); font-weight: 600; }
+
+/* ---- plan questions ----------------------------------------------------------- */
+body[data-bd="fluted"] #plan-faq .faq { max-width: 760px; }
+body[data-bd="fluted"] #plan-faq .faq-item {
+  border-top: 1px solid var(--edge-soft);
+  padding: 4px 0;
+}
+body[data-bd="fluted"] #plan-faq .faq-item:last-child { border-bottom: 1px solid var(--edge-soft); }
+body[data-bd="fluted"] #plan-faq summary {
+  cursor: pointer;
+  padding: 14px 4px;
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--ink);
+  list-style: none;
+}
+body[data-bd="fluted"] #plan-faq summary::-webkit-details-marker { display: none; }
+body[data-bd="fluted"] #plan-faq summary::after {
+  content: "+";
+  float: right;
+  font-family: var(--mono);
+  color: var(--dim);
+}
+body[data-bd="fluted"] #plan-faq details[open] summary::after { content: "\2212"; }
+body[data-bd="fluted"] #plan-faq .faq-a { padding: 0 4px 16px; max-width: 64ch; }
+body[data-bd="fluted"] #plan-faq .faq-a p { margin: 0; font-size: 15px; line-height: 1.65; color: var(--ink2); }
+
+/* the short notes under the drawings and the founder note meet the glow at narrow desktop widths */
+body[data-bd="fluted"] .bs-note,
+body[data-bd="fluted"] .plan-note,
+body[data-bd="fluted"] .why { position: relative; isolation: isolate; }
+body[data-bd="fluted"] .bs-note::before,
+body[data-bd="fluted"] .plan-note::before,
+body[data-bd="fluted"] .why::before {
+  content: "";
+  position: absolute;
+  inset: -6px -12px;
+  z-index: -1;
+  border-radius: 12px;
+  background: rgba(5, 6, 10, .78);
+}
+body[data-bd="fluted"] .why { max-width: 56rem; }
+
+/* Reading width on the pages that are mostly prose. A 140-character line is
+   hard to read anyway, and its far end ran into the bright side of the picture.
+   Capped, the text stays over the dimmed part and does not move otherwise. */
+article > p, article > ul, article > ol, article > .lede, .prose .lede { max-width: 46rem; }
+.plan-note { max-width: 62ch; }
+
+p.lede { max-width: 46rem; }
+.foot-disc { color: #c3c8e2; }
+
+/* =============================================================================
+   Parity pass: the tables that never had a style, the restored home sections,
+   and the plan cards back on the home page
+   ============================================================================= */
+
+/* ---- data tables: ratios, quarter by quarter, the methodology counts ---------
+   They had no rules at all, so the browser's defaults showed: centred headers,
+   1px cells, no rules between rows. Row separators, labels on the left,
+   figures on the right in tabular digits, and the table scrolls inside its own
+   box on a narrow screen instead of widening the page. */
+.tscroll {
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 6px 0 22px;
+}
+.facts-ratios,
+.facts-history,
+.mtable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.facts-history, .mtable { min-width: 560px; }
+.facts-ratios { min-width: 420px; }
+.facts-ratios th, .facts-ratios td,
+.facts-history th, .facts-history td,
+.mtable th, .mtable td {
+  padding: 10px 14px;
+  text-align: left;
+  vertical-align: top;
+  border-bottom: 1px solid var(--edge-soft);
+}
+.facts-ratios tr:last-child > *,
+.facts-history tbody tr:last-child > *,
+.mtable tbody tr:last-child > * { border-bottom: 0; }
+.facts-history thead th,
+.mtable thead th {
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--dim);
+  border-bottom: 1px solid var(--edge);
+  white-space: nowrap;
+}
+.facts-ratios tbody th,
+.facts-history tbody th,
+.mtable tbody th { font-weight: 600; color: var(--ink2); }
+/* figures right-aligned: ratios' working and result, the three totals, the count */
+.facts-ratios td,
+.facts-history th:nth-child(n+3):nth-child(-n+5),
+.facts-history td:nth-child(n+3):nth-child(-n+5),
+.mtable td.num,
+.mtable thead th:nth-child(2) {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.facts-history td:nth-child(2) { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.facts-ratios td:last-child { width: 1%; font-weight: 600; }
+.facts-history tbody tr:hover > *,
+.facts-ratios tbody tr:hover > * { background: rgba(255, 255, 255, .03); }
+
+/* ---- home: the search box under the hero's buttons --------------------------- */
+body[data-bd="fluted"] .hero-search { margin-top: 26px; max-width: 520px; }
+body[data-bd="fluted"] .hero-search .search { margin: 0; }
+
+/* ---- home: the schematic, compact, beside its two sentences ------------------ */
+body[data-bd="fluted"] .drawn-explained { margin-top: -8px; }
+body[data-bd="fluted"] .drawn-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: clamp(20px, 3vw, 40px);
+  align-items: center;
+}
+body[data-bd="fluted"] .drawn-row .example { margin: 0; }
+body[data-bd="fluted"] .drawn-text .how-h { margin: 0 0 8px; }
+body[data-bd="fluted"] .drawn-text p { margin: 0 0 8px; max-width: 58ch; color: var(--ink2); }
+body[data-bd="fluted"] .drawn-text .exnote { font-size: 12.5px; color: var(--dim); }
+@media (max-width: 620px) {
+  body[data-bd="fluted"] .drawn-row { grid-template-columns: 1fr; }
+}
+
+/* ---- home: why this is hard, three short blocks in a row ---------------------- */
+body[data-bd="fluted"] #hard .hard {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 18px;
+}
+body[data-bd="fluted"] #hard .hardrow { margin: 0; }
+body[data-bd="fluted"] #hard .hardrow h3 { margin: 0 0 6px; font-size: 16px; }
+body[data-bd="fluted"] #hard .hardrow p { margin: 0; font-size: 14.5px; line-height: 1.55; color: var(--ink2); }
+@media (max-width: 860px) {
+  body[data-bd="fluted"] #hard .hard { grid-template-columns: 1fr; }
+}
+
+/* ---- home: the two short lists ------------------------------------------------ */
+body[data-bd="fluted"] .shortlist {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+  max-width: 70ch;
+  display: grid;
+  gap: 8px;
+}
+body[data-bd="fluted"] .shortlist li {
+  position: relative;
+  padding-left: 18px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--ink2);
+}
+body[data-bd="fluted"] .shortlist li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: .62em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: rgba(170, 185, 255, .75);
+}
+body[data-bd="fluted"] .shortlist b { color: var(--ink); font-weight: 600; }
+body[data-bd="fluted"] #sources,
+body[data-bd="fluted"] #limits,
+body[data-bd="fluted"] #hard { position: relative; isolation: isolate; }
+body[data-bd="fluted"] #sources::before,
+body[data-bd="fluted"] #limits::before,
+body[data-bd="fluted"] #hard::before {
+  content: "";
+  position: absolute;
+  inset: -10px -18px;
+  z-index: -1;
+  border-radius: 16px;
+  background: rgba(5, 6, 10, .72);
+}
+
+/* ---- home: plan cards, the new look ------------------------------------------- */
+body[data-bd="fluted"] #pricing .plan .badge {
+  margin-left: 10px;
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  vertical-align: 2px;
+  color: #0b0c14;
+  background: #e1e5f6;
+}
+body[data-bd="fluted"] #pricing .plan.popular {
+  outline: 1px solid rgba(170, 185, 255, .45);
+  outline-offset: -1px;
+}
+body[data-bd="fluted"] #pricing .plan-pc {
+  margin: 2px 0 6px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  letter-spacing: .02em;
+  color: #c9d2ff;
+}
+body[data-bd="fluted"] #pricing .plan-bullets li { color: #d3d7ee; }
+
+/* ---- the homepage key: wraps inside its box rather than running off it ------- */
+.keyout .keyval { overflow-wrap: anywhere; word-break: break-all; }
+/* the ratios read as label, working, result: kept together rather than spread across the card */
+.facts-ratios { width: auto; max-width: 100%; }
+body[data-bd="fluted"] .drawn-explained .how-h { margin: 0 0 6px; }
+body[data-bd="fluted"] .drawn-explained p { margin: 0; max-width: 70ch; color: var(--ink2); font-size: 15px; line-height: 1.6; }
+.disclaim { color: #c3c8e2; }

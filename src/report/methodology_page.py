@@ -253,11 +253,11 @@ def _live_section() -> str:
       any of the others linked from those pages.</p>
 
     <h3>Every flag, named</h3>
-    <table class="mtable">
+    <div class="tscroll"><table class="mtable">
       <thead><tr><th>Category</th><th>Filings</th><th>What it means</th>
         <th>Examples</th></tr></thead>
       <tbody>{table}</tbody>
-    </table>
+    </table></div>
 
     <h3>Why there is no percentage here</h3>
     <p>The denominator moves as we improve coverage. In one week we restored 31

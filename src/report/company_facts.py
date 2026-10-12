@@ -211,12 +211,12 @@ def history_html(rows: list[dict[str, Any]]) -> str:
         "filing” is the newest filing that carried that period's "
         "figures, since later filings repeat earlier periods as comparatives."
         "</p>"
-        "<table class=\"facts-history\"><caption class=\"vh\">Balance sheet "
+        "<div class=\"tscroll\"><table class=\"facts-history\"><caption class=\"vh\">Balance sheet "
         "totals and identity result by period</caption><thead><tr>"
         "<th scope=\"col\">Period end</th><th scope=\"col\">Latest filing</th>"
         "<th scope=\"col\">Assets</th><th scope=\"col\">Liabilities</th>"
         "<th scope=\"col\">Equity</th><th scope=\"col\">A = L + E</th>"
-        f"</tr></thead><tbody>{body}</tbody></table>"
+        f"</tr></thead><tbody>{body}</tbody></table></div>"
     )
 
 
@@ -262,9 +262,9 @@ def build_facts_html(
             for label, working, result in rows
         )
         parts.append(
-            "<h3>Ratios</h3><table class=\"facts-ratios\"><caption "
+            "<h3>Ratios</h3><div class=\"tscroll\"><table class=\"facts-ratios\"><caption "
             "class=\"vh\">Ratios computed from this balance sheet</caption>"
-            f"<tbody>{body}</tbody></table>"
+            f"<tbody>{body}</tbody></table></div>"
         )
     parts.append(history_html(history))
     parts.append(hubs_html(view, sector_slug_value))

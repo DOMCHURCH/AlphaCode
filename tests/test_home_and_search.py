@@ -464,21 +464,25 @@ def test_the_landing_page_puts_the_key_and_a_real_call_before_showing_off(client
         "data-keyform",
         'class="codecard"',
         'class="strip"',
+        'id="how"',
         "hero-bs",
         'id="demo"',
-        'id="how"',
+        'id="try"',
+        'id="hard"',
         'id="pricing"',
+        'id="sources"',
+        'id="limits"',
+        'id="why"',
         'id="start"',
     ]
     at = [body.index(marker) for marker in order]
     assert at == sorted(at), dict(zip(order, at))
     # The drawing is the hero's own, from the same view the company page uses.
     assert body.index('href="/company/JPM"') > body.index('class="strip"')
-    # The made-up schematic and the long "why this is hard" table are gone:
-    # the real filing above teaches the shape, and the three steps carry the
-    # method.
-    for gone in ("Why this is hard", 'class="example"'):
-        assert gone not in body, f"{gone!r} should no longer be on the home page"
+    # "Why this is hard" is back, short; the made-up schematic is not: the
+    # explanation of the drawing points at the real filing instead.
+    assert "Why this is hard" in body
+    assert 'class="example"' not in body
 
 
 def test_the_nav_does_not_advertise_the_same_page_as_a_destination(client):
@@ -838,7 +842,10 @@ def test_the_fold_opens_on_a_real_balance_sheet(client):
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
-    fold = body.index('id="how"')
+    # Real output above the fold is the request and response card; the full
+    # drawing follows the three steps, before the demo.
+    assert body.index('class="codecard"') < body.index('id="how"')
+    fold = body.index('id="demo"')
 
     assert body.index('hero-bs') < fold
     # A full-size drawing, not the 88px thumbnail the gallery uses.
@@ -1344,7 +1351,7 @@ def test_the_steps_explain_the_flag_and_never_accuse(client):
     steps = body.split('id="how"', 1)[1].split('id="pricing"', 1)[0]
 
     for needle in ("How a filing is checked", "What a flag means",
-                   "Where the data comes from", "not an accusation"):
+                   "What you get back", "not an accusation"):
         assert needle in steps, needle
     # Most flags are a gap in what WE read, so the copy must never frame a
     # flag as the company's fault (docs: Decisions, "not forensic red flags").
@@ -1720,3 +1727,36 @@ def test_the_card_label_says_illustrative_for_seeded_rows(client):
     with session_scope() as s:
         s.query(Fundamental).filter(Fundamental.ticker == "JPM").update({"source": "demo"})
     assert "illustrative, for " in client.get("/").text
+
+
+def test_the_search_box_is_back_on_the_home_page(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    hero = client.get("/").text.split('<header class="hero">', 1)[1].split("</header>", 1)[0]
+    assert '<form class="search" action="/search" method="get" role="search">' in hero
+    assert 'id="q" name="q"' in hero
+
+
+def test_the_restored_sections_are_short_lists_from_live_counts(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    sources = body.split('id="sources"', 1)[1].split("</section>", 1)[0]
+    limits = body.split('id="limits"', 1)[1].split("</section>", 1)[0]
+    hard = body.split('id="hard"', 1)[1].split("</section>", 1)[0]
+
+    assert sources.count("<li>") == 4
+    assert "checked against assets = liabilities + equity" in sources
+    assert limits.count("<li>") == 3 and "No predictions" in limits
+    assert hard.count('class="hardrow"') == 3
+    for block in hard.split('class="hardrow"')[1:]:
+        text = block.split("<p>", 1)[1].split("</p>", 1)[0]
+        assert len(text) < 240, "two or three lines, not a paragraph"
+    assert "one time in five" not in " ".join(body.lower().split())
+
+
+def test_the_drawing_is_explained_against_the_real_filing(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    drawn = body.split('id="drawn"', 1)[1].split("</section>", 1)[0]
+    assert "Both columns are the same money, counted twice" in drawn
+    assert "In the drawing above" in drawn
+    assert body.index("hero-bs") < body.index('id="drawn"')

@@ -965,6 +965,7 @@ def _hero(free_calls: int, ticker: str) -> str:
     <div class="api-cta hero-cta">
       <a class="btn ghost" href="/api">API docs</a>
     </div>
+    <div class="hero-search">{search_form()}</div>
   </header>"""
 
 
@@ -1275,78 +1276,109 @@ def _steps(stats: dict) -> str:
           <a href="/methodology">The four reasons, with examples</a>.</p>
       </li>
       <li class="tblock">
-        <h3><span class="stepno">3</span> Where the data comes from</h3>
-        <p>The SEC's own
-          <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"
-             rel="noopener">Financial Statement Data Sets</a>, plus its XBRL
-          frames API for anything filed since the last quarterly set. Nothing
-          is scraped or bought. Where a figure was filed twice, the earliest
-          filing wins, so you see what the company said at the time.</p>
+        <h3><span class="stepno">3</span> What you get back</h3>
+        <p>JSON with every line item, its period and the filing it came from,
+          whether it was restated, and the reason when a sheet is flagged. The
+          same answer over the API, the Python client or the MCP server.</p>
       </li>
     </ol>
-    <p class="sec-sub limits-line"><b>What this doesn't do.</b> No predictions.
-      No scores. No recommendations. Nothing estimated: where a company doesn't
-      report something, the page says so rather than showing zero.</p>
-    <p class="method"><a href="/methodology">How the check works</a> &middot;
-      <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
-      considering for quant work</a>, written to be useful even where it does
-      not conclude in our favour.</p>
   </section>"""
 
 
-def _pricing_summary() -> str:
-    """The plans on one line each, in CAD, and the way to /pricing.
-
-    Built from the same gate as the /pricing cards: Starter and Business
-    appear only once their Stripe Price is set (`billing.price_for`), so the
-    home page cannot list a plan that checkout would refuse. Prices come from
-    settings and call limits from `accounts.tier_limit`, never from the copy.
-    The checkout buttons live on /pricing; this is a summary, not a till.
-    """
-    from src import billing
-    from src.accounts import tier_limit
-    from src.config.settings import get_settings, price_label
-
-    s = get_settings()
-    cards: list[tuple[str, str, str, str]] = [
-        ("Free", price_label(0), "", f"{tier_limit('free'):,} calls a month"),
-    ]
-    if billing.price_for("starter"):
-        cards.append(("Starter", price_label(s.starter_price), "/month",
-                      f"{tier_limit('starter'):,} calls a month"))
-    cards.append(("Pro", price_label(s.pro_price_usd), "/month",
-                  f"{tier_limit('pro'):,} calls a month"))
-    if billing.price_for("business"):
-        cards.append(("Business", price_label(s.business_price), "/month",
-                      f"{tier_limit('business'):,} calls a month"))
-    cards.append(("Dataset", price_label(s.dataset_price_usd), " once",
-                  "the full CSV, downloaded once"))
-    # Always offered, as on /pricing, where it is a conversation and not a
-    # checkout: it has no price to quote and no Stripe Price to gate on, so it
-    # carries no currency either.
-    cards.append(("Enterprise", "Let's talk", "", "custom volume and terms"))
-
-    # What a call costs on each paid plan, worked out from the same settings and
-    # call limits the tiles show, never typed: change a price and this follows.
-    monthly = {"Starter": s.starter_price, "Pro": s.pro_price_usd,
-               "Business": s.business_price}
-
-    def pc(name: str) -> str:
-        limit = tier_limit(name.lower()) if name in monthly else 0
-        if not limit:
-            return ""
-        return f'<span class="pc">about CA${monthly[name] / limit:.4f} a call</span>'
-
-    def cad(name: str, per: str) -> str:
-        return "" if name == "Enterprise" else f"<small> CAD{escape(per)}</small>"
-
-    items = "".join(
-        f'<li class="psum{" featured" if name == "Pro" else ""}{" quote" if name == "Enterprise" else ""}"><b>{escape(name)}</b>'
-        f'<span class="pp">{escape(price)}{cad(name, per)}</span>'
-        f"<span class=\"pl\">{escape(line)}</span>{pc(name)}</li>"
-        for name, price, per, line in cards
-    )
+def _plan_bullets() -> dict[str, tuple[str, ...]]:
+    """Two or three things each plan includes, read from the same tables the
+    gates enforce (`plans.MATRIX`, the quota settings) so a tile cannot promise
+    what the server refuses. Wording follows /pricing's own cards."""
     from src import plans
+
+    def cell(tier: str, feature: str):
+        try:
+            return plans.allowance(tier, feature)
+        except Exception:  # noqa: BLE001 - drop the number, keep the sentence
+            return None
+
+    def years(n) -> str:
+        return "All loaded history" if n is None else f"{n} year{'s' if n != 1 else ''} of history"
+
+    from src.dataset import facts_label
+
+    try:
+        rows = facts_label()
+    except Exception:  # noqa: BLE001
+        rows = ""
+    feed, bulk = cell("pro", "exceptions_feed"), cell("pro", "bulk_verify")
+    return {
+        "Free": (
+            "Balance sheet, income statement and cash flow, every period checked",
+            years(cell("free", "history_years")),
+            "MCP server for Claude, ChatGPT and Cursor",
+        ),
+        "Starter": (
+            "Multi-year history",
+            "What changed, including restatements",
+            f"Alerts on {cell('starter', 'watchlist')} companies",
+        ),
+        "Pro": (
+            "Point-in-time figures for backtests (as_of)",
+            f"Feed of failed checks, last {feed} days" if feed else "Feed of failed checks",
+            f"Check {bulk} companies in one request" if bulk else "Bulk checks",
+        ),
+        "Business": (
+            "Everything in Pro",
+            f"Webhooks into your systems ({cell('business', 'webhooks')} endpoints)",
+            "SEC filing link on every figure",
+        ),
+        "Dataset": (
+            "One-time download, no updates",
+            f"{rows} rows as one CSV file" if rows else "Every filed figure as one CSV file",
+            "Open it in Excel or pandas",
+        ),
+        "Enterprise": (
+            "Every paid-plan feature, plus the dataset",
+            "A call quota set to what you use",
+            "Invoicing and a signed agreement",
+        ),
+    }
+
+
+# The badge is the owner's call, not something measured here: nothing in the
+# code knows which plan sells most. One constant, so it is a one-line change.
+_MOST_POPULAR = "Pro"
+
+
+def _pricing_summary(stats: dict | None = None) -> str:
+    """The plans, as the same cards /pricing shows, with the same buttons.
+
+    `plan_cards()` is the one place a plan is written. Its Start buttons carry
+    `data-plan`, which home.js turns into a Stripe Checkout Session (and a 401
+    into a sign-in that comes back to the plan); its billing toggle swaps the
+    price, unit, line and plan; `#plan-note` is where checkout reports. The
+    home page passes three things /pricing does not: two or three bullets per
+    plan read from `plans.MATRIX` (`_plan_bullets`), the "Most popular" badge,
+    and the per-call price. Starter and Business appear only once their Stripe
+    Price is set, exactly as on /pricing.
+    """
+    from src import billing, plans
+    from src.config.settings import get_settings, price_label
+    from src.report.pricing_page import plan_cards, snapshot_date
+
+    stats = stats or {}
+    s = get_settings()
+    rows = _compact(stats.get("facts") or 0) if stats.get("facts") else None
+    saving = max(0, s.pro_price_usd * 12 - s.pro_annual_price_usd)
+    cards = plan_cards(
+        free_limit=s.free_tier_monthly_calls,
+        pro_limit=s.pro_tier_monthly_calls,
+        pro_price=price_label(s.pro_price_usd),
+        pro_annual_price=price_label(s.pro_annual_price_usd),
+        annual_saving=price_label(saving),
+        dataset_price=price_label(s.dataset_price_usd),
+        dataset_rows=rows or "Every",
+        dataset_as_of=snapshot_date(stats.get("generated")),
+        bullets=_plan_bullets(),
+        popular=_MOST_POPULAR,
+        per_call=True,
+    )
 
     try:
         feed = plans.allowance("pro", "exceptions_feed")
@@ -1357,17 +1389,159 @@ def _pricing_summary() -> str:
         extras = "point-in-time figures for backtests and the feed of failed checks"
     lead = ("Pro costs more per call than Starter because it is not only volume: "
             if billing.price_for("starter") else "Pro is not only volume: ")
-    pro_note = f'<p class="psum-note">{lead}it adds {extras}.</p>'
+    # What the code does at the limit (accounts.enforce_monthly_limit): the call
+    # is refused with a 429 that names the count, and the count resets on the
+    # 1st (UTC). Nothing in the code bills beyond the plan price.
     return f"""
   <section class="sec" id="pricing">
     <div class="sec-head"><h2>Pricing</h2></div>
     <p class="sec-sub">Reading the site is free. The key is what scales: more
-      calls, more history, alerts. All prices are in Canadian dollars.</p>
-    <ul class="psum-grid">{items}</ul>
-    {pro_note}
-    <p class="plan-note"><a href="/pricing">Compare the plans and read the
-      FAQ</a>. Paid plans go through Stripe; card details never reach this
+      calls, more history, alerts. All prices are in Canadian dollars (CAD).</p>
+    {cards}
+    <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
+    <p class="psum-note">{lead}it adds {extras}.</p>
+    <p class="psum-limit"><b>At the limit:</b> further calls are refused with
+      HTTP 429 until the 1st (UTC), or until you move to a larger plan. There
+      is no overage billing.</p>
+    <p class="plan-note"><a href="/pricing#compare-plans">Every plan, feature by
+      feature</a>. Paid plans go through Stripe; card details never reach this
       site.</p>
+  </section>"""
+
+
+def _drawn_explained() -> str:
+    """How to read the drawing above, in two sentences, attached to the REAL
+    filing rather than to a schematic: an invented company with round numbers
+    has no place beside real figures, so the explanation points at JPM's own
+    columns instead of drawing a made-up pair."""
+    return """
+  <section class="sec drawn-explained" id="drawn">
+    <h3 class="how-h">Both columns are the same money, counted twice</h3>
+    <p>In the drawing above, the left column is what the company owns and the
+      right is who has a claim on it: lenders first, then the owners. Every
+      band is drawn at the size the company reported, so the two columns are
+      the same height whenever the filing balances.</p>
+  </section>"""
+
+
+_HARD = (
+    ("Filings don't say things once",
+     "JPMorgan reports “total assets” twenty-three times in one filing: by "
+     "segment, by entity, by fair-value level. Exactly one of them is the "
+     "company, and the wrong one looks just as plausible."),
+    ("Point-in-time figures",
+     "A balance sheet is an instant; revenue covers three months. Read a "
+     "duration where an instant belongs and assets can come out negative."),
+    ("Every industry files differently",
+     "A bank reports loans and deposits, not inventory. Look for the retail "
+     "tags on a bank and you get an empty box."),
+)
+
+
+def _hard() -> str:
+    blocks = "".join(
+        f'<div class="hardrow"><h3>{escape(t)}</h3><p>{escape(b)}</p></div>'
+        for t, b in _HARD
+    )
+    return f"""
+  <section class="sec" id="hard">
+    <div class="sec-head"><h2>Why this is hard</h2></div>
+    <div class="hard">{blocks}</div>
+  </section>"""
+
+
+def _where_from(stats: dict) -> str:
+    """Where the figures come from, as four short lines."""
+    from src.company.stats import identity_breakdown
+
+    bd = identity_breakdown() or {}
+    checked = (
+        (bd.get("reconciled") or 0) + (bd.get("flagged") or 0)
+        if bd.get("reconciled") is not None else 0
+    )
+    check = (
+        f"All {fmt_int(checked)} companies with a complete balance sheet are "
+        "checked against assets = liabilities + equity; the rest are drawn with "
+        "what is missing named."
+        if checked else
+        "Every balance sheet that reports its totals is checked against assets "
+        "= liabilities + equity; the rest are drawn with what is missing named."
+    )
+    items = (
+        ("Source", 'The SEC\'s own <a href="https://www.sec.gov/dera/data/'
+         'financial-statement-data-sets" rel="noopener">Financial Statement Data '
+         "Sets</a>, plus its XBRL frames API. Nothing scraped, bought or estimated."),
+        ("Freshness", "Every load starts from the last filing already held, so "
+         "a gap of any length closes on the next run."),
+        ("As reported", "Where a figure was filed twice, the earliest filing "
+         "wins: what the company said at the time."),
+        ("The check", escape(check)),
+    )
+    lis = "".join(f"<li><b>{t}.</b> {b}</li>" for t, b in items)
+    return f"""
+  <section class="sec" id="sources">
+    <div class="sec-head"><h2>Where the figures come from</h2></div>
+    <ul class="shortlist">{lis}</ul>
+    <p class="method"><a href="/methodology">How the check works</a> &middot;
+      <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
+      considering for quant work</a></p>
+  </section>"""
+
+
+def _limits() -> str:
+    items = (
+        "No predictions, no scores, no recommendations.",
+        "Nothing estimated: where a company doesn't report something, the page "
+        "says so rather than showing zero.",
+        "Every figure traces to a filing, with the date it was filed.",
+    )
+    lis = "".join(f"<li>{escape(i)}</li>" for i in items)
+    return f"""
+  <section class="sec" id="limits">
+    <div class="sec-head"><h2>What this doesn't do</h2></div>
+    <ul class="shortlist">{lis}</ul>
+  </section>"""
+
+
+def _plan_faq() -> str:
+    """The four questions asked before a first key or a first payment, answered
+    from what the code does: no card for Free (registration takes an email),
+    cancellation through Stripe's portal (the dashboard's "Manage
+    subscription"), the calls the meter counts (`accounts.record_call`), and the
+    429 at the limit (`accounts.enforce_monthly_limit`)."""
+    from src.accounts import tier_limit
+
+    free = tier_limit("free")
+    rows = (
+        ("Do I need a card for the Free plan?",
+         f"No. A free key needs only an email address: no card and no password. "
+         f"It gives you {free:,} calls a month, and nothing is charged unless you "
+         "choose a paid plan yourself."),
+        ("Can I cancel any time?",
+         "Yes. Paid plans are Stripe subscriptions and you cancel them yourself, "
+         "from Manage subscription in your dashboard, with no email needed. Pro, "
+         "monthly or annual, also has a 14-day refund window. The dataset is a "
+         "file, so it is not refundable once downloaded."),
+        ("What counts as a call?",
+         "One request to a keyed endpoint (company, history, statements, changes "
+         "or exceptions), one tool call through the MCP server, or one company "
+         "inside a bulk check. Looking things up on the site, the live demo on "
+         "this page and checking your own usage do not count."),
+        ("What happens when I go over the limit?",
+         "Further calls are refused with HTTP 429 and a message that says how "
+         "many you have used. The count resets on the 1st (UTC), or you can move "
+         "to a larger plan from the dashboard at any time. There is no overage "
+         "billing, so a busy month never becomes a surprise bill."),
+    )
+    items = "".join(
+        f'<details class="faq-item"><summary>{escape(q)}</summary>'
+        f'<div class="faq-a"><p>{escape(a)}</p></div></details>'
+        for q, a in rows
+    )
+    return f"""
+  <section class="sec" id="plan-faq">
+    <div class="sec-head"><h2>Plan questions</h2></div>
+    <div class="faq">{items}</div>
   </section>"""
 
 
@@ -1533,12 +1707,17 @@ def render_home(
   </div>
   {_status_strip(stats or {}, freshness)}
 {disclaimer}
+  {_steps(stats or {})}
   {hero_bs}
+  {_drawn_explained()}
   {gallery}
   {_demo_section()}
-  {_steps(stats or {})}
   {_cta_strip(free_calls)}
-  {_pricing_summary()}
+  {_hard()}
+  {_pricing_summary(stats)}
+  {_plan_faq()}
+  {_where_from(stats or {})}
+  {_limits()}
   {_why_note()}
   {_closing_cta(free_calls, sample_ticker)}
 
