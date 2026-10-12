@@ -23,7 +23,7 @@ if not url.startswith("sqlite") or "e2e" not in url:
     sys.exit(f"seed_smoke: refusing to seed {url!r}; expected the e2e SQLite file")
 
 from src.storage.db import init_db, session_scope  # noqa: E402
-from src.storage.models import Fundamental, JobState, SectorMap, UniverseSnapshot  # noqa: E402
+from src.storage.models import Fundamental, SectorMap, UniverseSnapshot  # noqa: E402
 
 COMPANIES = {
     # ticker: (name, sector, periods: [(period_end, filing_date, assets, liabilities, equity)])
@@ -64,13 +64,7 @@ def main() -> None:
                         ticker=ticker, metric=metric, value=float(value), period_end=pe,
                         fiscal_period="FY", filing_date=fd, source="sec", restated=False,
                     ))
-        # A scheduler success two days ago, so the home strip shows its seventh
-        # cell ("Updated · 2d ago") exactly as production does.
-        s.query(JobState).filter(JobState.name == "fundamentals").delete()
-        s.add(JobState(name="fundamentals",
-                       last_success_at=dt.datetime.utcnow() - dt.timedelta(days=2),
-                       last_rows=0, consecutive_failures=0))
-    print("seed_smoke: seeded", ", ".join(COMPANIES), "+ a scheduler success")
+    print("seed_smoke: seeded", ", ".join(COMPANIES))
 
 
 if __name__ == "__main__":

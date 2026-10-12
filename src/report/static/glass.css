@@ -2356,3 +2356,19 @@ body[data-bd="fluted"] .scell .sv {
   body[data-bd="fluted"] .scell.key .sv { font-size: clamp(34px, 2.7vw, 44px); }
   body[data-bd="fluted"] .scell.txt .sv { font-size: 14px; }
 }
+
+/* ---- the strip follows its cell count ------------------------------------------
+   Six cells (the default now; "Updated" was removed) read as 3 + 3 at mid widths
+   and one row of 6 from 1500px. Seven, if a cell ever comes back, keep the 4 + 3
+   and one row of 7 above. Counted with :has(); a browser without it falls back
+   to the seven-cell grid, which still never overlaps. */
+@media (min-width: 621px) {
+  body[data-bd="fluted"] .strip:not(:has(> .scell:nth-child(7))) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+@media (min-width: 1500px) {
+  body[data-bd="fluted"] .strip:not(:has(> .scell:nth-child(7))) {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+  }
+}

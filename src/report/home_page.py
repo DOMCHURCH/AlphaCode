@@ -976,46 +976,7 @@ def _hero(free_calls: int, ticker: str) -> str:
 _HERO_COLUMN_PX = 300.0
 
 
-def _pipeline_age() -> str:
-    """How long ago the loader last succeeded, as a person would say it.
-
-    Read from the updater's own state rather than from a build-time constant,
-    so it cannot claim freshness the data does not have. Any failure to read it
-    returns "", and the cell is simply not rendered -- an unknown age must not
-    be shown as a confident one.
-    """
-    import datetime as dt
-
-    try:
-        from src import scheduler
-
-        newest = None
-        for job in scheduler.report().get("jobs", []):
-            when = job.get("last_success_at")
-            if not when:
-                continue
-            stamp = dt.datetime.fromisoformat(when)
-            if stamp.tzinfo is None:
-                stamp = stamp.replace(tzinfo=dt.UTC)
-            if newest is None or stamp > newest:
-                newest = stamp
-        if newest is None:
-            return ""
-        mins = (dt.datetime.now(dt.UTC) - newest).total_seconds() / 60.0
-        if mins < 2:
-            return "just now"
-        if mins < 90:
-            return f"{int(mins)}m ago"
-        hours = mins / 60.0
-        if hours < 36:
-            return f"{int(hours)}h ago"
-        return f"{int(hours / 24)}d ago"
-    except Exception as exc:  # noqa: BLE001 - the home page must still render
-        log.warning("pipeline_age_failed", error=str(exc)[:200])
-        return ""
-
-
-def _status_strip(stats: dict, freshness: str = "") -> str:
+def _status_strip(stats: dict) -> str:
     """The line across the top: what is loaded, how fresh, and how well it adds up.
 
     Cells with rules between them rather than one sentence with middle dots in
@@ -1059,12 +1020,11 @@ def _status_strip(stats: dict, freshness: str = "") -> str:
     # "Hidden" was an ops label facing the public: a visitor reads it as
     # "things you are not showing me", which is the opposite of what the strip
     # is for. The count still exists and is still on /admin.
-    if freshness:
-        cells.append(
-            '<div class="scell txt"><span class="sk">Updated</span>'
-            '<span class="sv"><i class="pulse" aria-hidden="true"></i>'
-            f"{escape(freshness)}</span></div>"
-        )
+    #
+    # No "Updated · Nd ago" cell. It showed the last time any scheduler job
+    # loaded new rows, so it read as stale over a weekend or a holiday when the
+    # data was complete, and as fresh after a price-bar run that changed no
+    # balance sheet. "Latest filing" above says how current the data is.
     return f'<div class="strip">{"".join(cells)}</div>'
 
 
@@ -1642,7 +1602,6 @@ def render_home(
     sample_ticker, sample = _memo(
         "sample", lambda: _pick_sample(hero_view)
     )
-    freshness = _pipeline_age()
 
     facts = headline_facts([v for _s, v in pairs], component_coverage())
     # The gallery is the OTHER companies -- showing the hero's own drawing
@@ -1707,7 +1666,7 @@ def render_home(
   {_hero(free_calls, sample_ticker)}
   {_memo("card", lambda: _code_card(sample_ticker, sample))}
   </div>
-  {_status_strip(stats or {}, freshness)}
+  {_status_strip(stats or {})}
 {disclaimer}
   {_steps(stats or {})}
   {hero_bs}

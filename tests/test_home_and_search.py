@@ -871,16 +871,17 @@ def test_the_hero_shows_nothing_rather_than_a_placeholder(client, monkeypatch):
     assert 'class="strip"' in r.text, "the rest of the page still stands"
 
 
-def test_the_status_strip_never_states_a_freshness_it_cannot_read(client):
-    """An unknown age must not render as a confident one."""
-    from src.report.home_page import _pipeline_age, _status_strip
+def test_the_status_strip_has_no_updated_cell(client):
+    """The strip carries freshness through "Latest filing" only. The old
+    "Updated · Nd ago" cell reported the last scheduler load of any kind, which
+    over a weekend read as stale data that was in fact complete."""
+    import src.report.home_page as hp
 
-    # Label renamed Pipeline -> Updated: "pipeline" is the word the engineer
-    # uses, not the visitor. The guarantee is unchanged -- no age, no cell.
-    assert _status_strip({}, "").count("Updated") == 0
-    assert "Updated" in _status_strip({}, "3h ago")
-    # Never raises, whatever the scheduler is doing.
-    assert isinstance(_pipeline_age(), str)
+    _seed("JPM", _drawable(), sector="Financials")
+    strip = client.get("/").text.split('<div class="strip">', 1)[1].split("</div></div>", 1)[0]
+    assert "Updated" not in strip and "ago<" not in strip
+    assert ">Latest filing<" in strip
+    assert not hasattr(hp, "_pipeline_age")
 
 
 def test_the_suggestions_say_why_each_one_is_there(client):
