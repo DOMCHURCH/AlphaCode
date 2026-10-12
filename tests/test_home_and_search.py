@@ -1913,3 +1913,38 @@ def test_the_footer_is_grouped_and_reaches_the_product_pages(client):
         assert f'href="{href}"' in footer, href
     for page in ("/dataset", "/mcp", "/xbrl-balance-sheet-api", "/free-sec-fundamentals-api"):
         assert client.get(page).status_code == 200, page
+
+
+def _crumb_nav(html):
+    return html.split('<nav class="crumbs"', 1)[1].split("</nav>", 1)[0]
+
+
+def test_company_breadcrumb_links_the_sector_hub_only_when_it_exists(client):
+    import json
+    import re
+    from src.report.sector_page import MIN_COMPANIES, reset_hub_cache
+
+    _seed("JPM", _drawable(), sector="Financials")
+    for i in range(MIN_COMPANIES - 1):
+        _seed(f"BK{i}", _drawable(), sector="Financials")
+    _seed("LONE", _drawable(), sector="Utilities")
+    _seed("NOSEC", _drawable())
+    reset_hub_cache()
+
+    jpm = client.get("/company/JPM").text
+    nav = _crumb_nav(jpm)
+    assert '<a href="/">Home</a>' in nav and '<a href="/companies">Companies</a>' in nav
+    hub = re.search(r'<a href="(/sector/[^"]+)">Financials</a>', nav)
+    assert hub, nav
+    assert client.get(hub.group(1)).status_code == 200
+    assert '<span aria-current="page">' in nav and "(JPM)" in nav
+    # the JSON-LD trail is the visible one
+    ld = [json.loads(b) for b in re.findall(r'<script type="application/ld\+json">(.*?)</script>', jpm, re.S)]
+    trail = next(b for b in ld if b.get("@type") == "BreadcrumbList")["itemListElement"]
+    assert [i["name"] for i in trail][:3] == ["Home", "Companies", "Financials"]
+    assert trail[2]["item"].endswith(hub.group(1)) and trail[-1]["item"].endswith("/company/JPM")
+
+    lone = _crumb_nav(client.get("/company/LONE").text)
+    assert "<span>Utilities</span>" in lone and "/sector/" not in lone
+    nosec = _crumb_nav(client.get("/company/NOSEC").text)
+    assert nosec.count("<li>") == 3

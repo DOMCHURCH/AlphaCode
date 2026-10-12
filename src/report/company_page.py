@@ -462,9 +462,10 @@ def _company_meta(d: dict[str, Any]) -> str:
         )
     desc = fit_name(name, _DESC_LIMIT - len(rest)) + rest
     url = f"{SITE_ORIGIN}/company/{d['ticker']}"
-    crumbs = breadcrumb_ld(
-        [("Home", "/"), (f"{name} ({d['ticker']})", f"/company/{d['ticker']}")]
-    )
+    # The same trail the page shows (`_crumbs_html`). A sector without a hub
+    # has no URL, and a ListItem in the middle of a trail must have one, so it
+    # is shown as text on the page and left out here.
+    crumbs = breadcrumb_ld([(label, url) for label, url in _trail(d) if url])
     tags = [
         f'<meta name="description" content="{escape(desc)}">',
         f'<link rel="canonical" href="{escape(url)}">',
@@ -480,6 +481,33 @@ def _company_meta(d: dict[str, Any]) -> str:
         crumbs,
     ]
     return "\n".join(tags)
+
+
+def _trail(d: dict[str, Any]) -> list[tuple[str, str | None]]:
+    """Home > Companies > Sector > Name. The sector carries a URL only when
+    its hub exists (`sector_hub_slug`: MIN_COMPANIES or more companies), the
+    same rule as the sector chip; a sector-less company has no sector step."""
+    name = d["company_name"] or d["ticker"]
+    trail: list[tuple[str, str | None]] = [("Home", "/"), ("Companies", "/companies")]
+    if d.get("sector"):
+        hub = sector_hub_slug(d["sector"])
+        trail.append((d["sector"], f"/sector/{hub}" if hub else None))
+    trail.append((f"{name} ({d['ticker']})", f"/company/{d['ticker']}"))
+    return trail
+
+
+def _crumbs_html(d: dict[str, Any]) -> str:
+    """The visible breadcrumb. The last step is this page, so it is not a link."""
+    steps = _trail(d)
+    parts = []
+    for i, (label, url) in enumerate(steps):
+        if i == len(steps) - 1:
+            parts.append(f'<li><span aria-current="page">{escape(label)}</span></li>')
+        elif url:
+            parts.append(f'<li><a href="{escape(url)}">{escape(label)}</a></li>')
+        else:
+            parts.append(f"<li><span>{escape(label)}</span></li>")
+    return f'<nav class="crumbs" aria-label="Breadcrumb"><ol>{"".join(parts)}</ol></nav>'
 
 
 # A <title> over ~60 characters is cut off in a result listing, and the part
@@ -784,6 +812,7 @@ def render_company_page(
 {nav}
 
 <main class="wrap" id="main">
+  {_crumbs_html(d)}
   <header class="chead">
     {eyebrow}
     <h1 class="cname">{name}</h1>
