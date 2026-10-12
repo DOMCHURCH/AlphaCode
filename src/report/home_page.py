@@ -1,19 +1,22 @@
-"""The front door: a search box, a sentence, and five real balance sheets.
+"""The front door: a free API key, a real request and response, and the proof.
 
-The hero is not a headline about the product -- it IS the product, five times,
-at thumbnail size. A bank, a software company, a retailer, a miner and an
-airline drawn to their own true proportions look nothing like each other, and
-that contrast is the entire argument. Saying "companies are shaped differently"
-and drawing five differently-shaped companies are not the same claim, and only
-one of them is evidence.
+The page leads with what a developer came to do -- get a key and see a real
+call -- and keeps the evidence that follows: the stat strip, one real filing
+drawn to scale, a live demo, three short steps, the plans, and the sign-up
+again. Every figure and every code sample is produced by the same calls the
+API and the MCP server make, so none of it describes an answer the product
+does not give.
 
-Every thumbnail comes from the same `build_view1` the full page uses, so a
-thumbnail can never show a shape the page then contradicts. A ticker whose
-drawing cannot be built is offered without one rather than with a placeholder.
+The drawing still comes from the same `build_view1` the full company page
+uses, so it can never show a shape the page then contradicts. A ticker whose
+drawing cannot be built is offered without one rather than with a
+placeholder.
 """
 
 from __future__ import annotations
 
+import threading
+import time
 from html import escape
 
 import structlog
@@ -359,55 +362,6 @@ def _definition_para() -> str:
     )
 
 
-def _pricing(stats: dict) -> str:
-    """Four cards, rendered by `pricing_page.plan_cards`.
-
-    The markup used to live here. It moved because the home page and /pricing
-    must not be able to disagree about what a plan is -- and they would, the
-    first time one was edited and the other was not. There is now exactly one
-    place a price or a promise about a plan is written, and both pages render
-    it.
-
-    Every number is read from settings and from the live database rather than
-    typed into the copy. A price quoted in HTML is a price that disagrees with
-    the one Stripe charges the first time either changes, and on this page the
-    disagreement would be with the figure a buyer is about to act on. The
-    annual saving is the same: worked out from the two prices, so it cannot
-    survive a change to either one as a claim that is no longer true.
-    """
-    from src.config.settings import get_settings, price_label
-    from src.report.pricing_page import plan_cards, snapshot_date
-
-    s = get_settings()
-    rows = _compact(stats.get("facts") or 0) if stats.get("facts") else None
-    saving = max(0, s.pro_price_usd * 12 - s.pro_annual_price_usd)
-
-    return f"""
-  <section class="sec" id="pricing">
-    <div class="sec-head"><h2>Pricing</h2></div>
-    <p class="sec-sub">The drawings are free and always will be. The
-      machine-readable version is what costs money, and it comes two ways. The
-      <b>dataset is a photograph</b>: one CSV, downloaded once, fixed forever.
-      The <b>API is a window</b>: live data, current every time you call it.
-      <a href="/pricing">Full comparison and FAQ</a>.</p>
-    {plan_cards(
-        free_limit=s.free_tier_monthly_calls,
-        pro_limit=s.pro_tier_monthly_calls,
-        pro_price=price_label(s.pro_price_usd),
-        pro_annual_price=price_label(s.pro_annual_price_usd),
-        annual_saving=price_label(saving),
-        dataset_price=price_label(s.dataset_price_usd),
-        dataset_rows=rows or "Every",
-        dataset_as_of=snapshot_date(stats.get("generated")),
-    )}
-    <p class="formnote" id="plan-note" role="status" aria-live="polite"></p>
-    <p class="plan-note">Paid plans go through Stripe. Your card details are
-      entered on Stripe's page and never reach this site.
-      <a href="/pricing#faq">What is the difference between the dataset and the
-      API?</a></p>
-  </section>"""
-
-
 def _demo_section() -> str:
     """A ticker box wired to the live API, for someone who wants to see the JSON
     before they take a key.
@@ -438,13 +392,8 @@ def _demo_section() -> str:
     <div class="sec-head"><h2>Live demo</h2></div>
     <p class="sec-sub">The real endpoint, the real data, no key needed.
       {allowance}</p>
-    <!-- The only line on this page addressed to somebody who is not going to
-         write any code. /mcp is the same three checks as an MCP connector, so
-         it belongs beside the demo rather than in the pricing table: both
-         answer "can I see this work without signing up". -->
-    <p class="sec-sub">Not writing code? Add
-      <code>https://balanceproof.dev/mcp</code> to Claude, ChatGPT or Cursor
-      as an MCP connector and ask it to check a filing for you.</p>
+    <p class="sec-sub">Want the drawing instead of the JSON?
+      <a href="/companies">Browse every company</a>.</p>
     <form class="search" id="demo-form">
       <label class="slabel" for="demo-ticker">Ticker</label>
       <div class="sfield">
@@ -533,11 +482,11 @@ def _head_meta(
         f'<meta property="og:title" content="{escape(social)}">',
         f'<meta property="og:description" content="{escape(desc)}">',
         f'<meta property="og:url" content="{escape(url)}">' if canonical else "",
-        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp?v={media_version()}">',
+        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-glass-2000.jpg?v={media_version()}">',
         '<meta name="twitter:card" content="summary_large_image">',
         f'<meta name="twitter:title" content="{escape(social)}">',
         f'<meta name="twitter:description" content="{escape(desc)}">',
-        f'<meta name="twitter:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp?v={media_version()}">',
+        f'<meta name="twitter:image" content="{SITE_ORIGIN}/static/media/backdrop-glass-2000.jpg?v={media_version()}">',
     ]
     return "\n".join(t for t in tags if t)
 
@@ -551,9 +500,11 @@ def shell(
     canonical: str = "",
     ld: str = "",
     noindex: bool = False,
+    backdrop: str = "",
 ) -> str:
     return _shell(title, body, film, description=description,
-                  canonical=canonical, ld=ld, noindex=noindex)
+                  canonical=canonical, ld=ld, noindex=noindex,
+                  backdrop=backdrop)
 
 
 def _shell(
@@ -565,8 +516,12 @@ def _shell(
     canonical: str = "",
     ld: str = "",
     noindex: bool = False,
+    backdrop: str = "",
 ) -> str:
     """`film` says how much of the backdrop this page may spend.
+
+    `backdrop` names a variant picture (see `backdrop.render_backdrop`); only
+    the home page passes one.
 
     "hero"  the full backdrop: light veil, and the film on desktop
     "still" the still only, veiled hard
@@ -588,7 +543,9 @@ def _shell(
     """
     from src.report.backdrop import render_backdrop
 
-    backdrop = "" if film == "none" else render_backdrop()
+    bd_attr = f' data-bd="{escape(backdrop)}"' if backdrop else ""
+    fonts = _self_hosted_fonts() if backdrop == "fluted" else _GOOGLE_FONTS
+    backdrop = "" if film == "none" else render_backdrop(backdrop)
     return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -597,20 +554,71 @@ def _shell(
 <title>{escape(title)}</title>
 {_head_meta(title, description, canonical, noindex)}{ld}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+{fonts}
 <!-- The five layered sheets, as one request. Their order, and the one-line
      revert to terminal.css, live in `cssbundle.LAYERS`. -->
 {stylesheet_link()}
 <meta name="theme-color" content="#0a0a0a">
 </head>
-<body data-film="{film}">
+<body data-film="{film}"{bd_attr}>
 {backdrop}
 <a class="skip" href="#main">Skip to content</a>
 {body}
 </body>
 </html>"""
+
+
+# ---------------------------------------------------------------------------
+# The home page's type: self-hosted, three voices
+# ---------------------------------------------------------------------------
+# Zodiak (Fontshare) is the display serif: headlines and prices, set light, with
+# one italic. Satoshi (Fontshare) is the quiet sans for everything read. Geist
+# Mono (SIL OFL, via the Fontsource mirror) is the voice of data and labels.
+# Three roles that are easy to tell apart at a glance is the whole idea: the
+# old pairing was a geometric sans and a mono, and both lived at one weight.
+#
+# SELF-HOSTED, so the home page makes no request to Google or anyone else for
+# type: nothing to be slow, blocked or logged, and the first paint does not
+# wait on a third party. The files sit in static/media/ because
+# `backdrop.media_version()` stamps that directory, and `/static` is served
+# immutable for a year: an unversioned font URL would never update. Other
+# pages still load Jost and Space Mono as before.
+_FONT_FILES = (
+    ("Zodiak", 300, "normal", "font-zodiak-300.woff2"),
+    ("Zodiak", 400, "normal", "font-zodiak-400.woff2"),
+    ("Zodiak", 400, "italic", "font-zodiak-400i.woff2"),
+    ("Satoshi", 400, "normal", "font-satoshi-400.woff2"),
+    ("Satoshi", 500, "normal", "font-satoshi-500.woff2"),
+    ("Satoshi", 700, "normal", "font-satoshi-700.woff2"),
+    ("Geist Mono", 400, "normal", "font-geistmono-400.woff2"),
+    ("Geist Mono", 500, "normal", "font-geistmono-500.woff2"),
+    ("Geist Mono", 700, "normal", "font-geistmono-700.woff2"),
+)
+# What the first screen is set in; the rest load when something uses them.
+_FONT_PRELOAD = ("font-zodiak-300.woff2", "font-satoshi-400.woff2")
+
+
+def _self_hosted_fonts() -> str:
+    v = media_version()
+    preload = "".join(
+        f'<link rel="preload" href="/static/media/{f}?v={v}" as="font" '
+        'type="font/woff2" crossorigin>\n'
+        for f in _FONT_PRELOAD
+    )
+    faces = "".join(
+        f'@font-face{{font-family:"{fam}";font-weight:{w};font-style:{st};'
+        f'font-display:swap;src:url("/static/media/{f}?v={v}") format("woff2")}}'
+        for fam, w, st, f in _FONT_FILES
+    )
+    return f"{preload}<style>{faces}</style>"
+
+
+_GOOGLE_FONTS = (
+    '<link rel="preconnect" href="https://fonts.googleapis.com">\n'
+    '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>\n'
+    '<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800'
+    '&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">'
+)
 
 
 def search_form(value: str = "", autofocus: bool = False) -> str:
@@ -634,96 +642,330 @@ def search_form(value: str = "", autofocus: bool = False) -> str:
   </form>"""
 
 
-def _example_figure() -> str:
-    """A schematic of the drawing, for someone who has never read one.
+# ---------------------------------------------------------------------------
+# The API front door
+# ---------------------------------------------------------------------------
+# The page used to lead with a company search and a drawing, which is a good
+# answer to "what is this" and a poor one to "can I build on it". It now leads
+# with the thing a developer came to do -- get a key and see a real request
+# and a real response -- and keeps the drawing, the strip and the demo as the
+# evidence that follows. Every figure and every code sample on this page is
+# produced by the same calls the API and the MCP server make, at render time,
+# so none of it can describe an answer the product does not give.
 
-    Deliberately NOT a real company. The teaching point is the shape -- two
-    columns, one height, the same money counted twice -- and round numbers make
-    it in one glance where a real filing's would not. It is labelled as an
-    example on the page, because an unlabelled illustration sitting among real
-    figures is the kind of thing this project exists to avoid.
+# ---------------------------------------------------------------------------
+# Memoised for fifteen minutes, like everything else the home page reads
+# ---------------------------------------------------------------------------
+# The card's sample, the MCP verdict and the flagged-filing check each read a
+# company's balance sheet. Done per request they bring back the exact problem
+# `api.home` documents: "1.35s TTFB against 0.23s for /pricing, on the one page
+# every visitor sees first and the one Google measures". They are figures that
+# only move when a quarter loads, so they share `suggest.PANELS_TTL_S` and are
+# cleared by the same call (`stats.clear_page_caches` -> "panels"), which is
+# what the ingest already runs when new rows land, and by the test fixture that
+# stops one test's database being served to the next.
+_extras_lock = threading.Lock()
+_extras: dict[str, tuple[float, object]] = {}
+
+
+def _memo(key: str, build):
+    from src.company.suggest import PANELS_TTL_S
+
+    now = time.monotonic()
+    with _extras_lock:
+        hit = _extras.get(key)
+    if hit is not None and now - hit[0] < PANELS_TTL_S:
+        return hit[1]
+    value = build()  # outside the lock: it reads the database
+    with _extras_lock:
+        _extras[key] = (now, value)
+    return value
+
+
+def reset_home_extras_cache() -> None:
+    with _extras_lock:
+        _extras.clear()
+
+
+# The company the examples use. AAPL, because it is the sample every other page
+# (/mcp, /api) already uses, so a reader who clicks through sees the same one.
+_SAMPLE_TICKER = "AAPL"
+
+# What /api/demo stamps on its answer. Repeated here rather than imported
+# because the endpoint writes it inline; tests/test_home_and_search.py compares
+# this page's sample against the endpoint's own response, so a change to either
+# one is caught there rather than on a reader's screen.
+_DEMO_SOURCE = "SEC Financial Statement Data Sets (as reported)"
+
+
+def _api_sample(ticker: str) -> dict | None:
+    """What `/api/demo/{ticker}` answers, built by the call the endpoint makes.
+
+    None when there is nothing to show -- no database, no such company -- and
+    the caller then renders no card at all. A card with an invented response
+    in it would be the one thing on this page that is not evidence.
     """
-    owns = (("Cash", 20, "--a1"), ("Stock", 25, "--a3"), ("Buildings", 55, "--a5"))
-    owed = (("Debt", 60, "--l1"), ("Owners", 40, "--yellow"))
-    px = 150.0
+    import json
+    from dataclasses import asdict
 
-    def col(rows):
-        return "".join(
-            f'<i class="exband" style="height:{p / 100 * px:.0f}px;'
-            f'background:var({v})"><b>{escape(n)}</b> {p}%</i>'
-            for n, p, v in rows
+    from src.company.balancesheet import get_balance_sheet
+
+    try:
+        sheet = get_balance_sheet(ticker)
+    except Exception as exc:  # noqa: BLE001 - a sample must never take a page down
+        log.warning("home_sample_failed", ticker=ticker, error=str(exc)[:200])
+        return None
+    if sheet is None:
+        return None
+    payload = json.loads(json.dumps(asdict(sheet), default=str))
+    payload["source"] = _DEMO_SOURCE
+    return payload
+
+
+def _sample_is_filed(ticker: str) -> bool:
+    """True only when none of the company's rows are the `source='demo'`
+    illustrative seed. A failed read answers False: say less, not more."""
+    try:
+        from sqlalchemy import func, select
+
+        from src.storage.db import session_scope
+        from src.storage.models import Fundamental
+
+        with session_scope() as s:
+            n = s.execute(
+                select(func.count()).select_from(Fundamental)
+                .where(Fundamental.ticker == ticker, Fundamental.source == "demo")
+            ).scalar_one()
+        return n == 0
+    except Exception:  # noqa: BLE001 - a label must never take the page down
+        return False
+
+
+def _pick_sample(hero_view: View1 | None) -> tuple[str, dict | None]:
+    """The first company that has a sample: AAPL, else the drawing's own."""
+    candidates = [_SAMPLE_TICKER]
+    if hero_view is not None:
+        candidates.append(str(hero_view.as_dict().get("ticker") or ""))
+    for ticker in candidates:
+        if not ticker:
+            continue
+        sample = _api_sample(ticker)
+        if sample is not None:
+            return ticker, sample
+    return _SAMPLE_TICKER, None
+
+
+def _excerpt(sample: dict) -> tuple[str, int, int]:
+    """The response, trimmed to the fields that carry the check.
+
+    Returns the JSON text and how many concept fields were shown out of how
+    many exist, so the caption can say what was left out. Every value is the
+    endpoint's own: nothing is rounded, renamed or rewritten, only omitted.
+    """
+    import json
+
+    def pick(section: str, keys: tuple[str, ...]) -> dict:
+        have = sample.get(section) or {}
+        return {k: have[k] for k in keys if k in have}
+
+    shown = {
+        "ticker": sample.get("ticker"),
+        "company_name": sample.get("company_name"),
+        "period_end": sample.get("period_end"),
+        "filing_date": sample.get("filing_date"),
+        "assets": pick("assets", ("total_assets",)),
+        "liabilities": pick(
+            "liabilities", ("total_liabilities", "liabilities_and_equity")
+        ),
+        "equity": pick("equity", ("shareholders_equity",)),
+        "data_quality_issues": sample.get("data_quality_issues") or [],
+        "source": sample.get("source"),
+    }
+    sections = ("assets", "liabilities", "equity")
+    total = sum(len(sample.get(s) or {}) for s in sections)
+    kept = sum(len(shown[s]) for s in sections)
+    return json.dumps(shown, indent=2), kept, total
+
+
+def _code_card(ticker: str, sample: dict | None) -> str:
+    """A request and its real response, three ways: curl, Python, MCP.
+
+    Radio inputs and sibling selectors do the tabbing, so the three panels are
+    all in the DOM and the switch works with the script blocked. The Copy
+    buttons are the only part that needs JavaScript and ship `hidden`.
+    """
+    if sample is None:
+        return ""
+    from src.report.landing import mcp_check_sample
+
+    origin = SITE_ORIGIN
+    symbol = escape(ticker)
+    # "real" is a claim about where the figures came from, so it is checked, not
+    # assumed: a database seeded with illustrative rows says so on the card.
+    label = "real" if _sample_is_filed(ticker) else "illustrative"
+    name = str(sample.get("company_name") or ticker)
+    response, kept, total = _excerpt(sample)
+    assets = ((sample.get("assets") or {}).get("total_assets") or {}).get("value")
+
+    curl_req = (
+        "# No key needed for the demo endpoint\n"
+        f"curl {origin}/api/demo/{ticker}\n"
+        "\n"
+        "# Your own key opens the full API\n"
+        f'curl -H "X-API-Key: YOUR_KEY" {origin}/api/company/{ticker}'
+    )
+    py_req = (
+        "import requests\n"
+        "\n"
+        f'r = requests.get("{origin}/api/demo/{ticker}", timeout=30)\n'
+        "r.raise_for_status()\n"
+        "sheet = r.json()\n"
+        'print(sheet["company_name"], sheet["assets"]["total_assets"]["value"])\n'
+        "\n"
+        "# With your key, the full API:\n"
+        f'# requests.get("{origin}/api/company/{ticker}",\n'
+        '#              headers={"X-API-Key": "YOUR_KEY"}, timeout=30)'
+    )
+    py_out = f"{name} {assets}"
+    mcp_req = (
+        f"claude mcp add --transport http balanceproof {origin}/mcp\n"
+        "\n"
+        f"# Then ask: Does {name}'s latest balance sheet balance?"
+    )
+    mcp = mcp_check_sample(ticker)
+    mcp_block = ""
+    if mcp is not None:
+        import json
+
+        text, fields = mcp
+        mcp_block = f"""
+      <p class="cc-cap">Response <span>what the model is handed</span></p>
+      <pre class="code json" tabindex="0"><code>{escape(text)}
+
+{escape(json.dumps(fields, indent=2))}</code></pre>"""
+
+    def copy_btn(target: str) -> str:
+        return (
+            f'<button type="button" class="cc-copy" data-copy-from="#{target}" '
+            'hidden>Copy</button>'
         )
 
     return f"""
-    <h3 class="how-h">Both columns are the same money, counted twice</h3>
-    <p class="sec-sub">Left is what the company owns. Right is who has a claim
-      on it: lenders first, then whatever is left for the owners. Both columns
-      are the same height because they are the same money, counted twice, and
-      every band is drawn at the size the company reported.</p>
-    <div class="example">
-      <div class="excol">
-        <span class="excap">Owns</span>
-        <span class="exstack">{col(owns)}</span>
+  <section class="codecard" id="example" aria-label="A request and its response">
+    <div class="cc">
+      <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-curl"
+        aria-label="curl" checked>
+      <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-py"
+        aria-label="Python">
+      <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-mcp"
+        aria-label="MCP">
+      <div class="cc-tabs">
+        <label for="cc-t-curl">curl</label>
+        <label for="cc-t-py">Python</label>
+        <label for="cc-t-mcp">MCP</label>
       </div>
-      <div class="excol">
-        <span class="excap">Owed &amp; owned</span>
-        <span class="exstack">{col(owed)}</span>
+
+      <div class="cc-panel cc-p-curl">
+        <p class="cc-cap">Request {copy_btn("cc-curl-req")}</p>
+        <pre class="code" tabindex="0"><code id="cc-curl-req">{escape(curl_req)}</code></pre>
+        <p class="cc-cap">Response <span>{label}, for {symbol} &middot; scrolls</span></p>
+        <pre class="code json" tabindex="0"><code>{escape(response)}</code></pre>
+        <p class="cc-foot">Trimmed to {kept} of the {total} line items, the
+          ones the check uses. The whole answer is
+          <a href="/api/demo/{symbol}">/api/demo/{symbol}</a>.</p>
+      </div>
+
+      <div class="cc-panel cc-p-py">
+        <p class="cc-cap">Request {copy_btn("cc-py-req")}</p>
+        <pre class="code" tabindex="0"><code id="cc-py-req">{escape(py_req)}</code></pre>
+        <p class="cc-cap">Output <span>{label}, for {symbol}</span></p>
+        <pre class="code" tabindex="0"><code>{escape(py_out)}</code></pre>
+        <p class="cc-foot">Needs <code>pip install requests</code> and nothing
+          else. There is also a client:
+          <a href="https://pypi.org/project/balanceproof/"
+             rel="noopener">pip install balanceproof</a>.</p>
+      </div>
+
+      <div class="cc-panel cc-p-mcp">
+        <p class="cc-cap">Request {copy_btn("cc-mcp-req")}</p>
+        <pre class="code" tabindex="0"><code id="cc-mcp-req">{escape(mcp_req)}</code></pre>{mcp_block}
+        <p class="cc-foot">Claude Code, Cursor and other MCP clients take the
+          same URL. <a href="/mcp">Setup for each client</a>.</p>
       </div>
     </div>
-    <p class="exnote">An example with round numbers, not a real company.</p>"""
-
-
-_HARD = (
-    (
-        "Filings don't say things once",
-        "SEC's data carries the same figure many times per company per quarter: "
-        "broken out by segment, by geography, by legal entity, by fair-value "
-        "level. JPMorgan reports “total assets” twenty-three separate "
-        "times in one filing. Exactly one of those is the company. Take the "
-        "wrong one and you get $641 billion instead of $4.4 trillion, and "
-        "nothing about it looks wrong.",
-    ),
-    (
-        "Point-in-time figures",
-        "A balance sheet figure is an instant: what was there on one day. "
-        "Revenue covers a duration: what happened over three months. Read a "
-        "duration where you needed an instant and you get the change in assets "
-        "rather than assets, which is how a company ends up with a negative "
-        "total.",
-    ),
-    (
-        "Every industry files differently",
-        "A bank doesn't report inventory; it reports loans and deposits. Look "
-        "for the retail tags on a bank and you get a grey rectangle.",
-    ),
-)
-
-
-def _hard() -> str:
-    blocks = "".join(
-        f'<div class="hardrow"><h3>{escape(t)}</h3><p>{escape(b)}</p></div>'
-        for t, b in _HARD
-    )
-    return f"""
-    <h2 class="how-h">Why this is hard</h2>
-    <div class="hard">{blocks}</div>"""
-
-
-def _limits() -> str:
-    items = (
-        "No predictions.",
-        "No scores.",
-        "No recommendations.",
-        "Nothing estimated: where a company doesn't report something, the "
-        "page says so rather than showing zero.",
-        "Every figure traces to a filing, with the date it was filed.",
-    )
-    lis = "".join(f"<li>{escape(i)}</li>" for i in items)
-    return f"""
-  <section class="sec">
-    <div class="sec-head"><h2>What this doesn't do</h2></div>
-    <ul class="limits">{lis}</ul>
   </section>"""
+
+
+def _key_form(slot: str, ticker: str) -> str:
+    """One field and one button: the whole of signing up.
+
+    `POST /api/auth/register` makes the account, and the key comes back in the
+    answer. The form posts to /dashboard as a plain GET when the script is
+    blocked, which is the sign-up form the dashboard already has, so a blocked
+    script costs a click and not the sign-up.
+
+    The terms line sits under the field in the hero and the closing call to
+    action and is what "ask" means for `accept_terms`: the server refuses an
+    account without it, and the script sends it only on a submit that happened
+    next to that sentence.
+    """
+    return f"""
+    <div class="keyslot" data-keyslot>
+      <form class="search keyform" action="/dashboard" method="get" data-keyform>
+        <label class="slabel" for="{slot}-email">Email, for a free API key</label>
+        <div class="sfield">
+          <input id="{slot}-email" name="email" type="email" required
+            placeholder="you@email.com" autocomplete="email"
+            autocapitalize="none" spellcheck="false" maxlength="254"
+            enterkeyhint="go">
+          <button type="submit">Get my free key</button>
+        </div>
+        <p class="formnote" role="status" aria-live="polite" data-keynote></p>
+      </form>
+      <div class="keyout" data-keyout data-ticker="{escape(ticker)}" hidden>
+        <p class="keyout-h" tabindex="-1">Your key. It is shown once, so copy it
+          now.</p>
+        <div class="keyrow">
+          <code class="keyval" data-keyvalue></code>
+          <button type="button" class="keycopy" data-copy-from="[data-keyvalue]"
+            hidden>Copy key</button>
+        </div>
+        <p class="keyout-h2">Try it:</p>
+        <pre class="code" tabindex="0"><code data-keycurl></code></pre>
+        <button type="button" class="keycopy" data-copy-from="[data-keycurl]"
+          hidden>Copy command</button>
+        <p class="keyout-next"><a href="/api">API docs</a> &middot;
+          <a href="/dashboard">Your dashboard</a></p>
+      </div>
+    </div>"""
+
+
+def _hero(free_calls: int, ticker: str) -> str:
+    """The claim, the sign-up, and the way to the docs.
+
+    The subline says "that can be tested" because some companies publish no
+    total to test against (the strip below counts them out, and /methodology
+    names the case). "Every balance sheet is checked" would be the one sentence
+    on this page that its own figures contradict. "They prove they balance" is
+    the site's standing tagline, which used to be the H1; it opens the subline
+    so the phrase the page is known by is still the first thing under the
+    headline, and three tests pin it.
+    """
+    return f"""
+  <header class="hero">
+    <h1 class="htitle">SEC balance sheets as an <span class="h-ital">API</span>.</h1>
+    <p class="hlede">An API and MCP server for analysts, quants and developers who
+      build on SEC filings. Every balance sheet is checked against Assets =
+      Liabilities + Equity, and when one doesn't add up, it's flagged with the
+      reason.</p>
+    {_key_form("hero", ticker)}
+    <p class="summary">{free_calls:,} calls a month. No card, no password.</p>
+    <p class="fineprint">By getting a key you accept the
+      <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+    <div class="api-cta hero-cta">
+      <a class="btn ghost" href="/api">API docs</a>
+    </div>
+  </header>"""
 
 
 # The hero drawing is full size, not a thumbnail. The brief for this page is
@@ -784,22 +1026,23 @@ def _status_strip(stats: dict, freshness: str = "") -> str:
     """
     cells: list[str] = []
 
-    def cell(key: str, value: str, live: bool = False, count: str = "") -> None:
+    def cell(key: str, value: str, live: bool = False, count: str = "",
+             kind: str = "") -> None:
         attr = f' data-countup="{count}"' if count else ""
         cls = "sv live" if live else "sv"
         cells.append(
-            f'<div class="scell"><span class="sk">{escape(key)}</span>'
+            f'<div class="scell{kind}"><span class="sk">{escape(key)}</span>'
             f'<span class="{cls}"{attr}>{value}</span></div>'
         )
 
-    cell("Source", "SEC EDGAR")
+    cell("Source", "SEC EDGAR", kind=" txt")
     if stats.get("facts"):
         cell("Facts", escape(_compact(stats["facts"])), count=str(stats["facts"]))
     if stats.get("companies"):
         cell("Companies", escape(fmt_int(stats["companies"])),
              count=str(stats["companies"]))
     if stats.get("latest_filing"):
-        cell("Latest filing", escape(str(stats["latest_filing"])))
+        cell("Latest filing", escape(str(stats["latest_filing"])), kind=" txt")
     # Verification, as three counts rather than one rate. A percentage here
     # would fall as coverage improves -- see /methodology -- so the strip
     # reports what was found, not what fraction of it passed.
@@ -808,35 +1051,62 @@ def _status_strip(stats: dict, freshness: str = "") -> str:
     b = identity_breakdown() or {}
     if b.get("reconciled") is not None:
         cell("Reconciled", escape(fmt_int(b["reconciled"])),
-             count=str(b["reconciled"]), live=True)
+             count=str(b["reconciled"]), live=True, kind=" key")
     if b.get("flagged") is not None:
         cell("Flagged with a reason", escape(fmt_int(b["flagged"])),
-             count=str(b["flagged"]))
+             count=str(b["flagged"]), kind=" key")
     # "Hidden" was an ops label facing the public: a visitor reads it as
     # "things you are not showing me", which is the opposite of what the strip
     # is for. The count still exists and is still on /admin.
     if freshness:
         cells.append(
-            '<div class="scell"><span class="sk">Updated</span>'
+            '<div class="scell txt"><span class="sk">Updated</span>'
             '<span class="sv"><i class="pulse" aria-hidden="true"></i>'
             f"{escape(freshness)}</span></div>"
         )
     return f'<div class="strip">{"".join(cells)}</div>'
 
 
-def _hero_drawing(view: View1 | None, kind: str = "") -> str:
-    """A real company's real balance sheet, drawn and tabulated, above the fold.
+# The drawing is the page's second focal point, so it gets a stage: the real
+# balance sheet at a size you can read, and beside it the thing the product is
+# FOR -- a real filing that does not add up, drawn with the gap shown instead of
+# hidden. The line-by-line tables that used to run for twelve rows under a
+# single drawing are folded into a <details>: still in the page for search
+# engines and screen readers, no longer the longest thing on it.
+_STAGE_COLUMN_PX = 340.0
 
-    There is no placeholder when there is nothing to draw: the page falls back
-    to the strip and the search box, which is a smaller page rather than a page
-    showing a picture of nothing and calling it an example.
-    """
-    if view is None:
-        return ""
+# Filings offered as "flagged, and here is why", tried in order. Each is
+# VERIFIED when the page renders: the panel appears only if the filing still
+# fails the plain check AND the filer's own stated total balances, which is the
+# precise claim its caption makes (the gap is in what we read, not in the
+# company). A candidate that now balances, or that fails for another reason,
+# is skipped rather than shown under a caption that would be false.
+_FLAGGED_CANDIDATES = ("AACB",)
 
+
+def _flagged_example() -> View1 | None:
+    from src.company.view1 import build_view1
+    from src.report.company_facts import stated_agrees
+
+    for ticker in _FLAGGED_CANDIDATES:
+        try:
+            view = build_view1(ticker)
+        except Exception as exc:  # noqa: BLE001 - the page must not fall over
+            log.warning("home_flagged_failed", ticker=ticker, error=str(exc)[:200])
+            continue
+        if view is None or view.balances:
+            continue
+        if stated_agrees(view) and any(b.key == "unread_components" for b in view.claims):
+            return view
+    return None
+
+
+def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str = "") -> str:
+    """One filing drawn to scale: both columns, a plain caption, and the
+    line-by-line tables folded away."""
     d = view.as_dict()
     total = d["total_assets"]
-    px = _HERO_COLUMN_PX / 100.0
+    px = _STAGE_COLUMN_PX / 100.0
 
     assets_html = "".join(_band(b, px) for b in d["assets"])
     above = [b for b in d["claims"]
@@ -849,174 +1119,316 @@ def _hero_drawing(view: View1 | None, kind: str = "") -> str:
     eq = sum(b["value"] for b in d["claims"] if b["kind"] == "equity")
     name = escape(d["company_name"] or d["ticker"])
     ticker = escape(d["ticker"])
-    # The card this hero replaces said in one word why the company was on the
-    # list. Dropping that would make the choice look arbitrary.
     why = f'<span class="ckind">{escape(kind)}</span>' if kind else ""
     below_block = (
         f'<div class="baseline"></div><div class="stack">{below_html}</div>'
         if below_html else ""
     )
-
     return f"""
-  <section class="sec hero-bs">
-    <div class="sec-head">
-      <h2>One real filing, drawn</h2>
-      <span class="bs-meta">{ticker} {why} quarter ended {escape(d["period_end"])},
-        filed {escape(d["filing_date"])}</span>
-    </div>
-    <div class="bs">
-      <div class="bs-cols">
-        <div class="bs-cap"><span>{name} owns</span><b>{money(total)}</b></div>
-        <div class="bs-cap"><span>Owed &amp; owned</span>
-          <b>{money(liab)} + {money(eq)}</b></div>
-        <div class="bs-col" role="img" aria-label="What {name} owns, drawn to scale &mdash; total assets {money(total)}. Line-by-line amounts in the table below.">
-          <div class="stack">{assets_html}</div>
+    <figure class="bs-panel {tone}">
+      <figcaption class="bs-tag"><b>{escape(tag)}</b>
+        <span class="bs-meta">{ticker} {why} quarter ended {escape(d["period_end"])},
+          filed {escape(d["filing_date"])}</span></figcaption>
+      <div class="bs">
+        <div class="bs-cols">
+          <div class="bs-cap"><span>{name} owns</span><b>{money(total)}</b></div>
+          <div class="bs-cap"><span>Owed &amp; owned</span>
+            <b>{money(liab)} + {money(eq)}</b></div>
+          <div class="bs-col" role="img" aria-label="What {name} owns, drawn to scale, total assets {money(total)}. Line-by-line amounts in the table below.">
+            <div class="stack">{assets_html}</div>
+          </div>
+          <div class="bs-col" role="img" aria-label="Who has a claim on it, drawn to scale, liabilities {money(liab)}, equity {money(eq)}. Line-by-line amounts in the table below.">
+            <div class="stack">{claims_html}</div>
+            {below_block}
+          </div>
         </div>
-        <div class="bs-col" role="img" aria-label="Who has a claim on it, drawn to scale &mdash; liabilities {money(liab)}, equity {money(eq)}. Line-by-line amounts in the table below.">
-          <div class="stack">{claims_html}</div>
-          {below_block}
-        </div>
+        <details class="bs-lines"><summary>Line by line</summary>
+          <table class="legend"><caption class="vh">Assets, line by line</caption>
+            <tbody>{_legend_rows(d["assets"], total)}</tbody></table>
+          <table class="legend"><caption class="vh">Liabilities and equity, line by line</caption>
+            <tbody>{_legend_rows(d["claims"], total)}</tbody></table>
+        </details>
       </div>
-      <table class="legend"><caption class="vh">Assets, line by line</caption>
-        <tbody>{_legend_rows(d["assets"], total)}</tbody></table>
-      <table class="legend"><caption class="vh">Liabilities and equity, line by line</caption>
-        <tbody>{_legend_rows(d["claims"], total)}</tbody></table>
+      <p class="bs-note">{caption}</p>
+    </figure>"""
+
+
+def _hero_drawing(view: View1 | None, kind: str = "",
+                  flagged: View1 | None = None) -> str:
+    """A real company's real balance sheet, and -- when one can be verified --
+    a real filing that does not add up, side by side.
+
+    There is no placeholder when there is nothing to draw: the page falls back
+    to the strip and the demo, which is a smaller page rather than a page
+    showing a picture of nothing and calling it an example.
+    """
+    if view is None:
+        return ""
+
+    d = view.as_dict()
+    name = escape(d["company_name"] or d["ticker"])
+    ticker = escape(d["ticker"])
+    total = d["total_assets"]
+    good = _drawing_panel(
+        view, tag="Balances", tone="ok", kind=kind,
+        caption=f"The two columns agree. {name} owns {money(total)}, and every "
+                "dollar of it is owed or owned.",
+    )
+
+    bad = ""
+    if flagged is not None:
+        f = flagged.as_dict()
+        gap = next(b["value"] for b in f["claims"] if b["key"] == "unread_components")
+        fname = escape(f["company_name"] or f["ticker"])
+        bad = _drawing_panel(
+            flagged, tag="Flagged, and here is why", tone="flag",
+            caption=f"{fname}: the filer's own stated total balances. {money(gap)} "
+                    "of it did not reach us, so the drawing shows the gap instead "
+                    "of hiding it.",
+        )
+        title = "Real filings, drawn to scale"
+    else:
+        title = "One real filing, drawn"
+
+    cls = "two" if bad else "one"
+    flagged_link = (
+        f' See the other one on its <a href="/company/{escape(flagged.ticker)}">'
+        f"own page</a>." if flagged is not None else ""
+    )
+    return f"""
+  <section class="sec hero-bs stage {cls}">
+    <div class="sec-head"><h2>{title}</h2></div>
+    <div class="stage-grid">{good}{bad}
     </div>
-    <p class="plan-note">Both columns are the same height because they are the
-      same money, counted twice: once by what it is, once by who it belongs to.
-      <a href="/company/{ticker}">Open the full page for {ticker}</a>.</p>
+    <p class="plan-note">Left is what the company owns. Right is who has a claim
+      on it: lenders first, then the owners.</p>
+    <p class="plan-note">Both columns are the same money, counted twice, so they
+      are the same height. A filing where they differ is flagged with the
+      reason.
+      <a href="/company/{ticker}">Open the full page for {ticker}</a>, or
+      <a href="/companies">browse every company</a>.{flagged_link}</p>
   </section>"""
 
 
-def _how_it_works(stats: dict) -> str:
-    """ONE section explaining the method, and the only place it is explained.
+def _steps(stats: dict) -> str:
+    """Three short answers, and the only place the method is explained.
 
-    This replaces four sections that each told part of the same story and
-    overlapped badly. The duplication was not stylistic -- it was literal:
+    How a filing is checked, what a flag means, where the data comes from.
+    It replaces a schematic, a three-row "why this is hard" table, a four-block
+    trust grid and a "what this doesn't do" list, which between them said the
+    check twice, the flag taxonomy once more than /methodology does, and the
+    source three times. The quotable sentence stays, once, as this section's
+    opening line, because it is the one an assistant lifts when asked what the
+    product does.
 
-      * the SEC duplicate-tag problem was stated THREE times (the accuracy
-        banner, a "One row, not twenty-three" block in this grid, and a
-        whole section headed "JPMorgan tags total assets 23 different ways")
-      * "What it doesn't do" was a heading twice on one page, once as a block
-        here and once as its own section
-      * `_numbers` printed facts, companies and latest-filing -- every one of
-        which the status strip already carries a screen above it
-
-    So the page argued with itself about which section was the explanation.
-    Now there is one: the shape first (the schematic, for a reader who has
-    never seen the drawing), then why extracting it is hard, then where the
-    data comes from and what is checked. Each point appears once.
-
-    It states the unflattering parts too, because a methodology note that
-    lists only strengths is marketing wearing a lab coat.
+    The count is the strip's own (`identity_breakdown`): reconciled plus
+    flagged. Two definitions of "checkable" once sat a few inches apart on this
+    page, so this sentence reads the same function the strip does.
     """
-    # The count published HERE must be the one the stat strip's two numbers
-    # add up to. There are two definitions of "checkable" in the codebase and
-    # they disagree by several hundred companies: `identity()` counts a filer
-    # whenever its own stated liabilities-and-equity total is present, while
-    # `identity_breakdown()` -- which the strip reports as Reconciled and
-    # Flagged -- requires the components. Publishing one in the strip and the
-    # other in this sentence put two totals a few inches apart on the one page
-    # whose whole argument is that numbers reconcile, and a reader who added
-    # the strip up got a third. The strip's definition wins because the strip
-    # shows its working; see docs/internal/homepage-checklist-2026-09-22.md.
-    #
-    # `rate` is still computed and still read internally; it is deliberately
-    # not rendered. See docs/internal/identity-failures.md -- the figure
-    # measures whether a filing balances against its own stated total, which is
-    # not the claim the word "accuracy" makes to a reader.
     from src.company.stats import identity_breakdown
 
-    _bd = identity_breakdown() or {}
+    bd = identity_breakdown() or {}
     checked = (
-        (_bd.get("reconciled") or 0) + (_bd.get("flagged") or 0)
-        if _bd.get("reconciled") is not None
+        (bd.get("reconciled") or 0) + (bd.get("flagged") or 0)
+        if bd.get("reconciled") is not None
         else None
     )
-    identity_line = (
+    tested = (
         f"All {fmt_int(checked)} companies with a complete balance sheet are "
-        "checked against assets = liabilities + equity; any that do not balance "
-        "are flagged with the reason."
+        "checked against assets = liabilities + equity."
         if checked
-        else "Every drawing is checked against assets = liabilities + equity."
+        else "Every balance sheet that reports its totals is checked against "
+        "assets = liabilities + equity."
     )
-    span = (
-        f"Most recent filing in the load: {escape(str(stats['latest_filing']))}."
-        if stats.get("latest_filing") else ""
-    )
+    broken = (bd.get("counts") or {}).get("broken")
+    if broken is None:
+        broken_line = ""
+    elif broken == 0:
+        broken_line = " Today no filing genuinely fails the check."
+    else:
+        broken_line = (
+            f" Today {fmt_int(broken)} "
+            f"{plural(broken, 'filing genuinely fails', 'filings genuinely fail')} "
+            "the check."
+        )
 
     return f"""
   <section class="sec" id="how">
     <div class="sec-head"><h2>How it works</h2></div>
-    <!-- THE QUOTABLE SENTENCE, and the only copy of it on the page.
-         It used to sit in the hero as a second lede paragraph. It reads
-         better here -- it is the thesis of this section, not of the page --
-         but it must not simply vanish: it is the sentence an assistant lifts
-         when asked what this product does, and `_HERO_METHOD` keeps it in
-         one place so the wording cannot drift from /about and /methodology. -->
+    <!-- THE QUOTABLE SENTENCE, and the only copy of it on the page. It is the
+         sentence an assistant lifts when asked what this product does, and
+         `_HERO_METHOD` keeps it in one place so the wording cannot drift from
+         /about and /methodology. -->
     <p class="sec-sub">{_HERO_METHOD}</p>
-
-    {_example_figure()}
-
-    {_hard()}
-
-    <h2 class="how-h">Where the figures come from</h2>
-    <div class="trust">
-      <div class="tblock">
-        <h3>Source</h3>
-        <p>SEC's own
+    <ol class="steps trust">
+      <li class="tblock">
+        <h3><span class="stepno">1</span> How a filing is checked</h3>
+        <p>{tested} The filer's own stated total is the referee: it tells us
+          whether a gap is in the filing or in what we read from it, and no
+          figure is adjusted to make a sheet fit.</p>
+      </li>
+      <li class="tblock">
+        <h3><span class="stepno">2</span> What a flag means</h3>
+        <p>A flag is a reason, not an accusation. There are four: rounding, a
+          line item that did not reach us, no stated total to test against,
+          and a filing that really does not balance.{broken_line}
+          <a href="/methodology">The four reasons, with examples</a>.</p>
+      </li>
+      <li class="tblock">
+        <h3><span class="stepno">3</span> Where the data comes from</h3>
+        <p>The SEC's own
           <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"
-             rel="noopener">Financial Statement Data Sets</a>, plus the XBRL
-          frames API for anything filed since the last quarterly dataset
-          published. Nothing is scraped, bought, or estimated.</p>
-      </div>
-      <div class="tblock">
-        <h3>Freshness</h3>
-        <p>Every load starts from the last filing already in the database,
-          so a gap of any length closes on the next run. {span}</p>
-      </div>
-      <div class="tblock">
-        <h3>As reported, never restated</h3>
-        <p>Where a figure has been filed more than once, the earliest filing
-          wins. You see what the company said at the time, not what it said
-          later about the same quarter.</p>
-      </div>
-      <div class="tblock">
-        <h3>The check</h3>
-        <p>{identity_line} The rest are drawn with what is missing named,
-          rather than quietly balanced.</p>
-      </div>
-    </div>
-
-    <!-- The three links the accuracy banner used to carry. That banner said
-         the reconcile claim twice in its own three paragraphs and a third
-         time in the block above it; the links were the only part of it that
-         was not already on the page, so they are what survived. -->
-    <p class="method"><a href="/methodology">How the check works</a> ·
-      <a href="/blog/sec-xbrl-data-wrong-one-in-five">Why XBRL data is wrong
-      one time in five</a> ·
+             rel="noopener">Financial Statement Data Sets</a>, plus its XBRL
+          frames API for anything filed since the last quarterly set. Nothing
+          is scraped or bought. Where a figure was filed twice, the earliest
+          filing wins, so you see what the company said at the time.</p>
+      </li>
+    </ol>
+    <p class="sec-sub limits-line"><b>What this doesn't do.</b> No predictions.
+      No scores. No recommendations. Nothing estimated: where a company doesn't
+      report something, the page says so rather than showing zero.</p>
+    <p class="method"><a href="/methodology">How the check works</a> &middot;
       <a href="/best/sec-filings-api-for-quants">The SEC filings APIs worth
       considering for quant work</a>, written to be useful even where it does
       not conclude in our favour.</p>
   </section>"""
 
 
-def _closing_cta() -> str:
-    """A way to act, after the limits rather than before them.
+def _pricing_summary() -> str:
+    """The plans on one line each, in CAD, and the way to /pricing.
 
-    The page ended on what the product does NOT do, which is the right note to
-    be honest on and the wrong one to leave a convinced reader stranded on.
+    Built from the same gate as the /pricing cards: Starter and Business
+    appear only once their Stripe Price is set (`billing.price_for`), so the
+    home page cannot list a plan that checkout would refuse. Prices come from
+    settings and call limits from `accounts.tier_limit`, never from the copy.
+    The checkout buttons live on /pricing; this is a summary, not a till.
     """
-    return """
-  <aside class="sec cta" id="start">
-    <div class="sec-head"><h2>Check it against a filing you already know</h2></div>
-    <p class="sec-sub">Take a company where you know the answer, call it, and
-      compare the response against EDGAR. That is the only comparison with an
-      authority behind it, and the free tier needs no card.</p>
+    from src import billing
+    from src.accounts import tier_limit
+    from src.config.settings import get_settings, price_label
+
+    s = get_settings()
+    cards: list[tuple[str, str, str, str]] = [
+        ("Free", price_label(0), "", f"{tier_limit('free'):,} calls a month"),
+    ]
+    if billing.price_for("starter"):
+        cards.append(("Starter", price_label(s.starter_price), "/month",
+                      f"{tier_limit('starter'):,} calls a month"))
+    cards.append(("Pro", price_label(s.pro_price_usd), "/month",
+                  f"{tier_limit('pro'):,} calls a month"))
+    if billing.price_for("business"):
+        cards.append(("Business", price_label(s.business_price), "/month",
+                      f"{tier_limit('business'):,} calls a month"))
+    cards.append(("Dataset", price_label(s.dataset_price_usd), " once",
+                  "the full CSV, downloaded once"))
+    # Always offered, as on /pricing, where it is a conversation and not a
+    # checkout: it has no price to quote and no Stripe Price to gate on, so it
+    # carries no currency either.
+    cards.append(("Enterprise", "Let's talk", "", "custom volume and terms"))
+
+    # What a call costs on each paid plan, worked out from the same settings and
+    # call limits the tiles show, never typed: change a price and this follows.
+    monthly = {"Starter": s.starter_price, "Pro": s.pro_price_usd,
+               "Business": s.business_price}
+
+    def pc(name: str) -> str:
+        limit = tier_limit(name.lower()) if name in monthly else 0
+        if not limit:
+            return ""
+        return f'<span class="pc">about CA${monthly[name] / limit:.4f} a call</span>'
+
+    def cad(name: str, per: str) -> str:
+        return "" if name == "Enterprise" else f"<small> CAD{escape(per)}</small>"
+
+    items = "".join(
+        f'<li class="psum{" featured" if name == "Pro" else ""}{" quote" if name == "Enterprise" else ""}"><b>{escape(name)}</b>'
+        f'<span class="pp">{escape(price)}{cad(name, per)}</span>'
+        f"<span class=\"pl\">{escape(line)}</span>{pc(name)}</li>"
+        for name, price, per, line in cards
+    )
+    from src import plans
+
+    try:
+        feed = plans.allowance("pro", "exceptions_feed")
+        alerts = plans.allowance("pro", "watchlist")
+        extras = (f"point-in-time figures for backtests, the {feed}-day feed of "
+                  f"failed checks, and alerts on {alerts} companies")
+    except Exception:  # noqa: BLE001 - say what is certain, drop the numbers
+        extras = "point-in-time figures for backtests and the feed of failed checks"
+    lead = ("Pro costs more per call than Starter because it is not only volume: "
+            if billing.price_for("starter") else "Pro is not only volume: ")
+    pro_note = f'<p class="psum-note">{lead}it adds {extras}.</p>'
+    return f"""
+  <section class="sec" id="pricing">
+    <div class="sec-head"><h2>Pricing</h2></div>
+    <p class="sec-sub">Reading the site is free. The key is what scales: more
+      calls, more history, alerts. All prices are in Canadian dollars.</p>
+    <ul class="psum-grid">{items}</ul>
+    {pro_note}
+    <p class="plan-note"><a href="/pricing">Compare the plans and read the
+      FAQ</a>. Paid plans go through Stripe; card details never reach this
+      site.</p>
+  </section>"""
+
+
+# The published report this note rests on (blog.py: "995 of 38,568 SEC Filings
+# Failed Our Balance Sheet Check"). They are a frozen snapshot, not live counts,
+# so they are named here once and a test checks them against the post itself.
+_REPORT_SLUG = "which-sec-balance-sheets-fail-the-identity-check"
+_REPORT_TESTED, _REPORT_FAILED, _REPORT_OURS = 38_568, 995, 971
+
+
+def _cta_strip(free_calls: int) -> str:
+    """A way in for the reader who has just understood the method and has not
+    yet reached the pricing."""
+    return f"""
+  <aside class="sec cta-strip" id="try">
+    <h2>Balance sheets that prove they balance.</h2>
+    <p class="sec-sub">A free key is {free_calls:,} calls a month. No card, no
+      password.</p>
     <div class="api-cta">
-      <a class="btn" href="/dashboard">Get a free API key</a>
-      <a class="btn ghost" href="/api">Read the API docs</a>
-      <a class="btn ghost" href="/methodology">See how we verify</a>
+      <a class="btn" href="#start">Get free key</a>
+      <a class="btn ghost" href="/api">API docs</a>
+    </div>
+  </aside>"""
+
+
+def _why_note() -> str:
+    """The reason this exists, in the company's voice ("we", no name, no age),
+    using only what the published report says. The numbers are the report's;
+    the sentence about the 971 is the report's own label (`missing_tag`) in
+    plain words, and it is the honest half of the finding: most failures are a
+    line we did not read, not a mistake by the company."""
+    return f"""
+  <section class="sec why" id="why">
+    <div class="sec-head"><h2>Why we built this</h2></div>
+    <p class="why-p">We built BalanceProof to check every SEC balance sheet
+      against Assets = Liabilities + Equity, and to say so when one doesn't add
+      up.</p>
+    <p class="why-p">When we ran that check across {fmt_int(_REPORT_TESTED)} filings
+      in a frozen copy of our database, {fmt_int(_REPORT_FAILED)} failed. In
+      {fmt_int(_REPORT_OURS)} of them the filer's own total agrees with its assets
+      and a line on the credit side did not reach our sum, so the gap was in what
+      we read and not in the company.
+      <a href="/blog/{_REPORT_SLUG}">Read the report</a>: the method, the charts
+      and the filings themselves.</p>
+  </section>"""
+
+
+def _closing_cta(free_calls: int, ticker: str) -> str:
+    """The sign-up again, for the reader who scrolled the whole page first."""
+    return f"""
+  <aside class="sec cta" id="start">
+    <div class="sec-head"><h2>Get your free API key</h2></div>
+    <p class="sec-sub">Take a company where you know the answer, call it, and
+      compare the response with EDGAR. {free_calls:,} calls a month, no card,
+      no password.</p>
+    {_key_form("cta", ticker)}
+    <p class="fineprint">By getting a key you accept the
+      <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+    <div class="api-cta">
+      <a class="btn ghost" href="/api">API docs</a>
+      <a class="btn ghost" href="/methodology">How we verify</a>
     </div>
   </aside>"""
 
@@ -1047,7 +1459,13 @@ def render_home(
     # the last place to show a gap.
     hero_pair = next(((sg, v) for sg, v in pairs if v is not None), None)
     hero_view = hero_pair[1] if hero_pair else None
-    hero_bs = _hero_drawing(hero_view, hero_pair[0].kind if hero_pair else "")
+    hero_bs = _hero_drawing(
+        hero_view, hero_pair[0].kind if hero_pair else "",
+        _memo("flagged", _flagged_example),
+    )
+    sample_ticker, sample = _memo(
+        "sample", lambda: _pick_sample(hero_view)
+    )
     freshness = _pipeline_age()
 
     facts = headline_facts([v for _s, v in pairs], component_coverage())
@@ -1072,13 +1490,10 @@ def render_home(
     if pairs:
         gallery = f"""
   <section class="sec">
-    <div class="sec-head"><h2>Every company is a different shape</h2></div>
-    <p class="sec-sub">Each drawing is that company's own balance sheet at its
-      own proportions, so no two of them look the same.
-      A bank is the clearest case:
-      <a href="/blog/why-bank-balance-sheets-are-different">its shape inverts
-      the one most people picture</a>, with deposits as liabilities and loans
-      as assets.</p>
+    <div class="sec-head"><h2>Other filings, same check</h2></div>
+    <p class="sec-sub">Every company is its own shape. A bank's
+      <a href="/blog/why-bank-balance-sheets-are-different">inverts the one
+      most people picture</a>.</p>
     <div class="cards">{cards}</div>
   </section>"""
     else:
@@ -1093,77 +1508,39 @@ def render_home(
     </div>
   </section>"""
 
-    # One page, in the order someone actually uses it: search, then the five
-    # shapes, then -- only for whoever is still reading -- the explanation.
-    # Read, never typed: production runs its own
-    # FREE_TIER_MONTHLY_CALLS and the copy must follow it.
+    # The order a first-time reader needs it in: the claim and the way in (hero),
+    # a real request and response beside it, the strip as the evidence, one
+    # real filing drawn, the live demo, three short steps, what it costs, and
+    # the way in again. `#demo`, `#how` and `#pricing` keep that relative order
+    # because tests/test_pricing_demo_recovery.py pins it. Read, never typed:
+    # production runs its own FREE_TIER_MONTHLY_CALLS and the copy must follow
+    # it.
     from src.config.settings import get_settings as _gs
     free_calls = _gs().free_tier_monthly_calls
     body = f"""
 <!-- No nav link to the explanation. It is further down THIS page, and a nav
-     item reads as a separate destination -- which is exactly the confusion
-     that made it a separate page in the first place. The jump under the stat
-     line is enough; the rest is scrolling. -->
+     item reads as a separate destination. -->
 {nav}
 
 <main class="wrap" id="main">
-  <!-- Source order is the PHONE's order, and the phone reads top to bottom
-       with no column beside it: name, who it is for, how it works, the search
-       box, one real balance sheet, and only then the counts. Eight unlabelled
-       figures are the wrong first thing to meet -- they are evidence for a
-       claim, and the claim has to arrive first for them to be evidence of
-       anything. On a wide screen the strip goes back above the hero with
-       `order`, where it reads as the masthead it was drawn to be. One strip
-       in the DOM either way; see `.leadin` in glass.css. -->
-  <div class="leadin">
-  <header class="hero">
-    <h1 class="htitle">SEC balance sheets that prove they balance.</h1>
-    <!-- ONE sentence. This was two paragraphs plus the method, and the
-         method restated the check that "How it works" explains properly a
-         screen below -- so the fold carried the argument twice and the
-         search box got pushed off it. The hero's job is the claim; the
-         section's job is the proof. -->
-    <p class="hlede">When a filing reconciles you get the figure. When it
-      does not, you get the reason instead of a number that looks fine.</p>
-    {search_form()}
-    <!-- THE HOMEPAGE HAD NO BUTTON. Seven conversion links, every one of them
-         plain text, and the first was the phrase "get the data" inside a
-         paragraph -- while every comparison page carried a proper "Get a free
-         API key". The page most visitors land on was the one asking least.
-         `.btn` and `.api-cta` are dashboard.css's, already loaded on every
-         page, so this matches those pages rather than inventing a style. -->
-    <div class="api-cta hero-cta">
-      <a class="btn" href="/dashboard">Get a free API key</a>
-      <a class="btn ghost" href="#how">See how it works</a>
-    </div>
-    <p class="summary">{free_calls:,} calls a month, no card &middot;
-      <a href="/methodology">how we verify</a></p>
-  </header>
-  {hero_bs}
-  {_status_strip(stats or {}, freshness)}
+  <!-- The hero and the card share a row on a wide screen and stack on a phone,
+       hero first, so a phone meets the claim and the form before the sample.
+       The strip is NOT inside `.leadin`: its old `order: -1` there lifted it
+       above the hero, and it now sits below this block as the evidence. -->
+  <div class="leadin intro">
+  {_hero(free_calls, sample_ticker)}
+  {_memo("card", lambda: _code_card(sample_ticker, sample))}
   </div>
+  {_status_strip(stats or {}, freshness)}
 {disclaimer}
-  <!-- ONE JOB PER SECTION, in the order a first-time reader needs them:
-       the claim (hero), the proof it is real (drawing + strip, above), it
-       working (demo), why it can be trusted (how it works), what else there
-       is (gallery), what it costs (pricing), what it will not do (limits),
-       and a way to act (cta).
-
-       DEMO BEFORE PRICE is kept from the previous order and for the same
-       reason: pricing used to sit above the live demo, which asked a
-       first-time reader for money before showing them the product working.
-       The limits stay last because they are the honest note to end on --
-       with a way to act underneath them.
-
-       The demo also moved ABOVE the explanation. Showing the thing run is a
-       faster answer to "does this work" than three sections about how it
-       works, and a reader the demo satisfies never needed them. -->
-  {_demo_section()}
-  {_how_it_works(stats or {})}
+  {hero_bs}
   {gallery}
-  {_pricing(stats or {})}
-  {_limits()}
-  {_closing_cta()}
+  {_demo_section()}
+  {_steps(stats or {})}
+  {_cta_strip(free_calls)}
+  {_pricing_summary()}
+  {_why_note()}
+  {_closing_cta(free_calls, sample_ticker)}
 
 {footer}
 </main>
@@ -1189,6 +1566,7 @@ def render_home(
         ),
         canonical="/",
         ld=organization_ld() + software_ld(),
+        backdrop="fluted",
     )
 
 

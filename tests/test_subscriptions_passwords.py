@@ -492,14 +492,14 @@ def test_magic_link_users_keep_working(client):
 # UX
 # ---------------------------------------------------------------------------
 
-def test_the_homepage_plan_buttons_go_to_the_dashboard(client):
+def test_the_pricing_page_plan_buttons_go_to_the_dashboard(client):
     """The plan buttons go to the dashboard, not to /login.
 
     /dashboard opens with a "Get a key" form for a visitor with no session, so
     the destination repeats the button's own words (bd1abde); /login is written
     for somebody who already has an account. The free card (and the dataset)
     link to /dashboard, the paid cards to /dashboard#billing."""
-    html = client.get("/").text
+    html = client.get("/pricing").text  # the plan buttons live here now
     pricing = html[html.index('id="pricing"'):]
     pricing = pricing[: pricing.index("</section>")]
     assert 'class="plan-cta" href="/dashboard"' in pricing  # free card

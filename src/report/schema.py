@@ -142,7 +142,7 @@ BLOG_BASE = f"{SITE}/blog"
 # structured-data URL is an identity that crawlers re-fetch over weeks, and one
 # that changes every time a static file's mtime moves is a new image each
 # deploy. The bytes at this path are stable; the query string is what is not.
-IMAGE = f"{SITE}/static/media/backdrop-1200.webp"
+IMAGE = f"{SITE}/static/media/backdrop-glass-2000.jpg"
 
 # The publisher, inlined wherever another block names it.
 #

@@ -810,7 +810,7 @@ def test_the_paid_pricing_cards_start_a_checkout_not_a_login(client):
     cards now carry the plan, and their href is a fallback that still reaches a
     place a purchase can be finished.
     """
-    home = client.get("/").text
+    home = client.get("/pricing").text  # the cards moved here; / carries a summary
 
     assert 'data-plan="pro"' in home
     assert 'data-plan="dataset"' in home

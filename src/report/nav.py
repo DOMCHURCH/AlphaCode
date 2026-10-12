@@ -107,10 +107,24 @@ def render_nav(
     <span id="signed-out">{sign_in}</span>"""
 
     home_on = " on" if active == "home" else ""
+    # The two entry points a first-time visitor needs from any page: the demo,
+    # and a key. Not shown to somebody already signed in, and not on the two
+    # pages that ARE the sign-in. The bar carries its own copy of the key button
+    # because the links collapse into a menu on a phone and the one action we
+    # want visible there is "Get free key".
+    if signed_in or active in {"login", "dashboard"}:
+        demo_link = key_link = bar_cta = ""
+    else:
+        key_href = "#hero-email" if active == "home" else "/dashboard"
+        demo_href = "#demo" if active == "home" else "/#demo"
+        demo_link = f'<a class="navlink" href="{demo_href}">Live demo</a>'
+        key_link = f'<a class="navlink navcta" href="{key_href}">Get free key</a>'
+        bar_cta = f'<a class="navcta navcta-bar" href="{key_href}">Get free key</a>'
     return f"""
 <nav><div class="wrap nav">
   <a class="brand{home_on}" href="/"><span class="dot"></span>BalanceProof</a>
   <span class="spacer"></span>
+  {bar_cta}
   <!-- Revealed by nav.js. Rendered hidden so that with no script there is no
        button and the links below stay visible, rather than a collapsed menu
        nothing can open. -->
@@ -121,8 +135,10 @@ def render_nav(
   </button>
   <div class="navlinks" id="nav-links">
     {links}
+    {demo_link}
     {dash}
     {right}
+    {key_link}
   </div>
 </div>
 <p class="navnote" id="nav-note" role="status" aria-live="polite" hidden></p>

@@ -39,6 +39,9 @@ def _clean_identity_cache():
         reset_identity_cache()
         reset_counts_cache()
         reset_panels_cache()
+        from src.report.home_page import reset_home_extras_cache
+
+        reset_home_extras_cache()
         # The company page's live facts are memoised by figures; a second
         # test seeding the same ticker must not be served the first one's.
         from src.report.company_facts import clear_cache

@@ -187,7 +187,9 @@ def test_root_is_the_home_page(client):
     desc = meta.group(1)
     assert "SEC EDGAR" in desc
     assert len(desc) <= 160, f"description is {len(desc)} chars: {desc!r}"
-    assert 'action="/search"' in r.text
+    # The hero is the free-key form now; the directory is the way to a
+    # company (bare /search answers 400 by design, so it is not linked).
+    assert 'href="/companies"' in r.text
     assert 'href="/admin"' not in r.text.split("<footer>", 1)[-1], "a public Admin link in the footer"
 
 

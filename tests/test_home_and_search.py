@@ -157,7 +157,10 @@ def test_home_is_the_product_not_a_redirect(client):
     from src.report.schema import SITE_DESCRIPTION
 
     assert SITE_DESCRIPTION in body
-    assert 'action="/search"' in body
+    # The hero's search box gave way to the free-key form. Bare /search
+    # answers 400 by design, so the way to a company page that stays is the
+    # A-to-Z directory, linked from the drawing's caption and the demo.
+    assert 'href="/companies"' in body
     assert 'href="/company/JPM"' in body
 
 
@@ -441,47 +444,54 @@ def test_the_page_still_says_what_it_does_not_do(client):
 
 
 # ------------------------------------------------------- search-first landing
-def test_the_landing_page_puts_search_before_showing_off(client):
-    """One page, in the order someone actually uses it.
+def test_the_landing_page_puts_the_key_and_a_real_call_before_showing_off(client):
+    """One page, in the order a first-time reader needs it.
 
-    The explanation stays on the page but comes after the search box, the
-    status strip and a real drawing -- a visitor meets the product before the
-    argument for it.
+    The free-key form and a real request and response come first, then the
+    strip as the evidence, then one real filing drawn, the live demo, three
+    short steps, the plans and the sign-up again. `#demo < #how < #pricing`
+    is also pinned by tests/test_pricing_demo_recovery.py.
 
-    `id="how"` is now the explanation SECTION itself, rather than the empty
-    spacer div that used to sit above four separate explanation sections. The
-    drawing above the fold is the hero's, which carries its own
-    `href="/company/JPM"`; the gallery of other companies now sits below the
-    explanation, so that link is not what this asserts on.
+    This replaces the order "search box, strip, drawing, explanation": the
+    hero is the free-key form now, and the strip follows the card instead of
+    being lifted above the hero.
     """
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
-    fold = body.index('id="how"')
-
-    assert body.index('action="/search"') < fold
-    assert body.index('class="strip"') < fold
-    # The hero drawing, not the gallery -- see the docstring.
-    assert body.index('hero-bs') < fold
-    assert body.index('href="/company/JPM"') < fold
-    for later in ("Why this is hard",
-                  "Both columns are the same money, counted twice",
-                  "What this doesn't do",
-                  'class="example"'):
-        assert body.index(later) > fold, f"{later!r} must come after the fold"
+    order = [
+        'class="htitle"',
+        "data-keyform",
+        'class="codecard"',
+        'class="strip"',
+        "hero-bs",
+        'id="demo"',
+        'id="how"',
+        'id="pricing"',
+        'id="start"',
+    ]
+    at = [body.index(marker) for marker in order]
+    assert at == sorted(at), dict(zip(order, at))
+    # The drawing is the hero's own, from the same view the company page uses.
+    assert body.index('href="/company/JPM"') > body.index('class="strip"')
+    # The made-up schematic and the long "why this is hard" table are gone:
+    # the real filing above teaches the shape, and the three steps carry the
+    # method.
+    for gone in ("Why this is hard", 'class="example"'):
+        assert gone not in body, f"{gone!r} should no longer be on the home page"
 
 
 def test_the_nav_does_not_advertise_the_same_page_as_a_destination(client):
     """A nav item pointing at an anchor on the page you are already on reads
-    as somewhere else to go. The jump under the stat line reads as what it is
-    -- a jump to a section -- and that one stays."""
+    as somewhere else to go. The explanation is a section further down this
+    page, reached by scrolling, and the nav does not pretend otherwise."""
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
     nav = body.split("<nav>", 1)[1].split("</nav>", 1)[0]
 
     assert "#how" not in nav
-    assert 'href="#how"' in body.split("</nav>", 1)[1], "the stat-line jump stays"
+    assert 'id="how"' in body.split("</nav>", 1)[1], "the explanation is here"
 
 
 def test_about_is_a_real_page_that_defines_the_product(client):
@@ -528,7 +538,10 @@ def test_the_home_page_carries_a_quotable_definition(client):
     assert "BalanceProof is the verification layer over SEC EDGAR" in body
     assert body.index('class="htitle"') < body.index('class="hlede"')
     lede = hero.split('class="hlede"', 1)[1].split("</p>", 1)[0]
-    assert "When a filing reconciles you get the figure" in lede
+    # The subline says what it is, who it is for, and what a failure looks like.
+    lede = " ".join(lede.split())
+    assert "analysts, quants and developers" in lede
+    assert "flagged with the reason" in lede
     # The naming clause must not come back into the hero, where it delayed the
     # benefit. Once, in the head, is where it belongs.
     assert "BalanceProof is the verification layer" not in hero
@@ -609,7 +622,9 @@ def test_the_landing_page_states_its_scale_above_the_fold(client):
     assert "Reconciled" in strip, "the reconciled count"
     assert "Flagged with a reason" in strip, "the flagged count"
     assert "100.0%" not in strip, "no rate may be published"
-    assert 'href="#how"' in body
+    # The strip follows the hero and the card, and comes before the drawing
+    # and the explanation. (It used to be lifted above the hero.)
+    assert body.index('class="strip"') < body.index('id="how"')
 
 
 def test_the_status_strip_drops_cells_it_cannot_fill(client):
@@ -625,7 +640,7 @@ def test_the_status_strip_drops_cells_it_cannot_fill(client):
     for absent in ("Facts", "Companies", "Reconciles"):
         assert absent not in strip, f"{absent} must be dropped, not zeroed"
     assert "SEC EDGAR" in strip, "what is always true still shows"
-    assert 'href="#how"' in body, "the way to the explanation always shows"
+    assert 'id="how"' in body, "the explanation always renders"
 
 
 def test_a_million_facts_reads_as_1_2m(client):
@@ -798,37 +813,23 @@ def test_the_page_explains_the_drawing(client):
 
     assert "Both columns are the same money, counted twice" in body
     assert "same money, counted twice" in body
-    # The schematic is drawn, not described.
-    assert 'class="example"' in body and "exband" in body
+    # The real filing is drawn. The made-up schematic that used to teach the
+    # shape first was dropped: the real one teaches it just as well, and an
+    # invented company has no place beside real figures.
+    assert "hero-bs" in body
+    assert 'class="example"' not in body
 
 
-def test_the_example_figure_is_labelled_as_an_example(client):
-    """An unlabelled illustration sitting among real figures is exactly the
-    kind of thing this project exists to avoid."""
+def test_nothing_drawn_on_the_home_page_is_a_made_up_company(client):
+    """The schematic was labelled "not a real company", which was right while it
+    was there. It is gone, so the guard is that nothing like it comes back:
+    an illustration with round numbers sitting among real filings is exactly
+    the kind of thing this project exists to avoid."""
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
 
-    assert "not a real company" in body
-
-
-def test_the_hard_part_is_stated_with_the_real_numbers(client):
-    _seed("JPM", _drawable(), sector="Financials")
-
-    body = client.get("/").text
-
-    # The heading is now "Why this is hard" -- the JPMorgan figure was the H2
-    # of its own section AND was restated in two other places on the page, so
-    # the heading generalised and the vivid number stayed in the body, once.
-    assert "Why this is hard" in body
-    assert "twenty-three separate times" in body
-    assert "$641 billion instead of $4.4 trillion" in body
-    # The deprecated-tag-names aside and the "every tag was confirmed against
-    # the raw filing data" line were both cut: the first was a third example
-    # of a point already made twice, the second answered a doubt nobody had
-    # raised. Asserted as ABSENT so they are not quietly restored.
-    assert "ExcludingAccruedInterest" not in body
-    assert "confirmed against the raw filing data" not in body
+    assert 'class="example"' not in body and 'class="exband"' not in body
 
 
 def test_the_fold_opens_on_a_real_balance_sheet(client):
@@ -1186,26 +1187,25 @@ def test_the_service_is_branded_to_scale(client):
 
 
 def test_the_homepage_actually_asks_for_something(client):
-    """It had no button at all.
-
-    Seven conversion links, every one plain text, and the first was the phrase
-    "get the data" inside a paragraph -- while every comparison page carried a
-    proper "Get a free API key". The page most visitors land on was the one
-    asking least.
-    """
+    """It had no button at all, then a button to a dashboard. The ask is now the
+    form itself: one field and "Get my free key", in the hero and again at the
+    close, with the objection answered where it forms."""
     body = client.get("/").text
     main = body.split("<main", 1)[1]
-
-    assert 'class="btn"' in main, "the homepage has no primary button"
-    assert "Get a free API key" in main
 
     # In the hero, not only at the foot: a reader who is already convinced
     # should not have to scroll past the whole explanation to act.
     hero = main.split("</header>", 1)[0]
-    assert "Get a free API key" in hero, "the call to action is below the fold"
+    assert "Get my free key" in hero, "the call to action is below the fold"
+    assert "data-keyform" in hero
+    assert 'href="/api"' in hero, "the docs are one click from the hero"
 
     # And the objection answered where it forms.
     assert "no card" in hero.lower()
+    assert "no password" in hero.lower()
+
+    # And again at the foot, for the reader who scrolled the whole page first.
+    assert main.count("Get my free key") >= 2
 
 
 def test_the_demo_comes_before_the_price(client):
@@ -1230,3 +1230,493 @@ def test_the_page_does_not_end_on_what_it_cannot_do(client):
     closing = main.find('id="start"')
     assert limits != -1 and closing != -1
     assert limits < closing, "nothing to act on after the limits"
+
+
+# ----------------------------------------------------- the API front door
+# The home page leads with a free key and a real request and response. These
+# tests defend what that promises: the headline names the API, the form is one
+# field and works without script, the examples are real and name one company
+# throughout, and nothing on the page is invented.
+
+
+def _hero_of(body: str) -> str:
+    return body.split('<header class="hero">', 1)[1].split("</header>", 1)[0]
+
+
+def test_the_hero_leads_with_the_api_and_a_one_field_key_form(client):
+    from src.config.settings import get_settings
+
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    hero = _hero_of(body)
+    h1 = re.search(r"<h1[^>]*>(.*?)</h1>", body, re.S).group(1)
+
+    assert "API" in h1
+    assert body.count("<h1") == 1
+    flat_hero = " ".join(hero.split())
+    assert "Assets = Liabilities + Equity" in flat_hero
+    assert "flagged with the reason" in flat_hero
+
+    form = hero.split("<form", 1)[1].split("</form>", 1)[0]
+    assert form.count("<input") == 1 and 'type="email"' in form
+    assert ">Get my free key<" in form
+
+    # Read from settings, never typed: production runs its own allowance.
+    calls = get_settings().free_tier_monthly_calls
+    assert f"{calls:,} calls a month. No card, no password." in hero
+    assert ">API docs<" in hero and 'href="/api"' in hero
+    # "Asked" is what the server requires of accept_terms: the sentence sits
+    # next to the form, and the script only sends it from a submit made there.
+    assert 'href="/terms"' in hero and 'href="/privacy"' in hero
+
+
+def test_the_key_forms_work_without_script_and_the_key_panel_ships_hidden(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+
+    forms = re.findall(r"<form[^>]*data-keyform[^>]*>", body)
+    assert len(forms) == 2, "the hero's and the closing call to action's"
+    for tag in forms:
+        # Blocked script: a GET to the dashboard, which has the sign-up form.
+        assert 'action="/dashboard"' in tag and 'method="get"' in tag
+    assert sorted(re.findall(r'id="((?:hero|cta)-email)"', body)) == [
+        "cta-email", "hero-email",
+    ]
+
+    # Anything that needs script is hidden until script reveals it, so a
+    # failed script leaves nothing dead on the page.
+    for tag in re.findall(r"<button[^>]*data-copy-from[^>]*>", body):
+        assert " hidden" in tag, tag
+    for tag in re.findall(r'<div class="keyout"[^>]*>', body):
+        assert " hidden" in tag, tag
+    assert 'class="keyout"' in body and "YOUR_KEY" in body
+    # No key is ever written into the page: it is issued once, to one reader.
+    assert "data-keyvalue></code>" in body
+
+
+def test_the_home_script_registers_with_terms_and_hands_the_key_over_once(client):
+    js = client.get("/static/home.js").text
+
+    assert '"/api/auth/register"' in js
+    assert "accept_terms: true" in js
+    # Same store as the dashboard's own sign-up, so /dashboard finds the key.
+    assert 'KEY_STORE = "toscale.api_key"' in js
+    # The key goes into the page as text, never as markup.
+    assert 'querySelector("[data-keyvalue]").textContent = key' in js
+    # An address that already has a key is sent to sign in, and is never shown
+    # the key: that would turn the open endpoint into a lookup.
+    assert "r.status === 409" in js and '"/login"' in js
+    # Somebody who has just taken a key is not offered one by the sign-in sheet.
+    assert 'bp.prompt_after", "yes"' in js
+
+
+def test_the_card_has_real_examples_for_one_company_in_three_tabs(client):
+    from html import unescape
+
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    card = unescape(body.split('class="codecard"', 1)[1].split("</section>", 1)[0])
+
+    assert card.count('class="cc-radio"') == 3
+    for tab in ("curl", "Python", "MCP"):
+        assert f">{tab}</label>" in card
+    # One company throughout, so the tabs cannot disagree about the example.
+    assert "curl https://balanceproof.dev/api/demo/JPM" in card
+    assert 'requests.get("https://balanceproof.dev/api/demo/JPM", timeout=30)' in card
+    assert "claude mcp add --transport http balanceproof https://balanceproof.dev/mcp" in card
+    # The key is a placeholder; a real one is only ever handed over by the
+    # sign-up, to the person who made it.
+    assert 'X-API-Key: YOUR_KEY' in card
+    # The MCP tab shows what the tool returns, which is where the verdict lives.
+    assert "balances" in card.split("cc-p-mcp", 1)[1]
+
+
+def test_with_nothing_loaded_the_card_is_left_out_not_faked(client):
+    body = client.get("/").text
+
+    assert 'class="codecard"' not in body
+    assert "data-keyform" in body, "the sign-up does not depend on the data"
+
+
+def test_the_steps_explain_the_flag_and_never_accuse(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    steps = body.split('id="how"', 1)[1].split('id="pricing"', 1)[0]
+
+    for needle in ("How a filing is checked", "What a flag means",
+                   "Where the data comes from", "not an accusation"):
+        assert needle in steps, needle
+    # Most flags are a gap in what WE read, so the copy must never frame a
+    # flag as the company's fault (docs: Decisions, "not forensic red flags").
+    for banned in ("red flag", "fraud", "misstat"):
+        assert banned not in steps.lower(), banned
+
+
+def test_the_home_page_invents_no_customers_ratings_filings_or_claims(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    main = client.get("/").text.split("<main", 1)[1].lower()
+
+    for invented in ("trusted by", "testimonial", "5-star", "as seen in",
+                     "join thousands", "8-k", "1 in 5", "one time in five"):
+        assert invented not in main, invented
+
+
+def test_the_new_home_copy_has_no_em_dashes(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    main = client.get("/").text.split("<main", 1)[1]
+    # The drawing's aria-labels are older than this change and are not copy a
+    # reader sees; everything else on the page is held to the site rule.
+    main = re.sub(r'aria-label="[^"]*"', "", main)
+
+    for dash in ("—", "&mdash;", "&#8212;", "&#x2014;"):
+        assert dash not in main, repr(dash)
+
+def test_the_home_page_sets_its_type_from_our_own_files_and_no_one_else(client):
+    """Zodiak, Satoshi and Geist Mono are served from /static/media, so the home
+    page makes no request to Google for type. Every other page still loads
+    Jost and Space Mono as before."""
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    _seed("JPM", _drawable(), sector="Financials")
+    home = client.get("/").text
+
+    assert "fonts.googleapis.com" not in home and "fonts.gstatic.com" not in home
+    for family in ("Zodiak", "Satoshi", "Geist Mono"):
+        assert f'font-family:"{family}"' in home, family
+    assert home.count('rel="preload"') >= 2, "the first screen's faces are preloaded"
+    # Versioned, because /static is served immutable for a year.
+    assert re.search(r'font-zodiak-300\.woff2\?v=\d+', home)
+    assert 'class="h-ital">API<' in home
+
+    assert "fonts.googleapis.com" in client.get("/about").text
+
+    media = Path(hp.__file__).parent / "static" / "media"
+    for _fam, _w, _style, name in hp._FONT_FILES:
+        data = (media / name).read_bytes()
+        assert data[:4] == b"wOF2", f"{name} is not a woff2 file"
+
+# ------------------------------------------------- the stage, the strip, the light
+# The home page shows a real filing that balances beside a real one that does
+# not. The second is never assumed: it is checked every time the page renders,
+# because its caption makes a precise claim (the filer's own total balances; a
+# line did not reach us) that is false the moment the filing is anything else.
+
+
+def _seed_flagged_blank_cheque() -> None:
+    """Artius II's 2026-06-30 balance sheet as the demo endpoint serves it: the
+    filer states liabilities-plus-equity equal to its assets, but the components
+    that reached us fall $232M short."""
+    _seed("AACB", {
+        "total_assets": 232_407_651.0,
+        "current_assets": 161_879.0,
+        "total_liabilities": 17_309_711.0,
+        "liabilities_and_equity": 232_407_651.0,
+        "current_liabilities": 4_709_711.0,
+        "total_equity": -17_147_832.0,
+    }, sector="Financials")
+
+
+def test_a_real_flagged_filing_is_drawn_beside_the_one_that_balances(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed_flagged_blank_cheque()
+
+    body = client.get("/").text
+    stage = body.split('class="sec hero-bs stage two"', 1)[1].split("</section>", 1)[0]
+
+    assert stage.count('class="bs-panel') == 2
+    assert 'class="bs-panel ok"' in stage and ">Balances<" in stage
+    assert 'class="bs-panel flag"' in stage and ">Flagged, and here is why<" in stage
+    assert "Not read from this filing" in stage, "the gap is drawn, not hidden"
+    flag_note = stage.split('class="bs-panel flag"', 1)[1].split("</figure>", 1)[0]
+    flat = " ".join(flag_note.split())
+    assert "the filer's own stated total balances" in flat
+    assert "did not reach us" in flat
+    # A gap in what we read is not an accusation about the company.
+    for banned in ("fraud", "misstat", "red flag", "irregular"):
+        assert banned not in flat.lower(), banned
+    assert 'href="/company/AACB"' in stage
+
+
+def test_the_flagged_panel_is_left_out_when_the_filing_balances(client):
+    """Verified at render time, not assumed: a candidate that now balances must
+    not sit under a caption that says it does not."""
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("AACB", {
+        "total_assets": 232_407_651.0,
+        "total_liabilities": 100_000_000.0,
+        "total_equity": 132_407_651.0,
+        "liabilities_and_equity": 232_407_651.0,
+    }, sector="Financials")
+
+    body = client.get("/").text
+
+    assert 'class="bs-panel flag"' not in body
+    assert "Flagged, and here is why" not in body
+    assert 'class="sec hero-bs stage one"' in body
+
+
+def test_the_flagged_panel_is_left_out_when_the_company_is_not_loaded(client):
+    _seed("JPM", _drawable(), sector="Financials")
+
+    body = client.get("/").text
+
+    assert 'class="bs-panel flag"' not in body
+    assert "One real filing, drawn" in body
+
+
+def test_the_line_by_line_tables_are_folded_not_deleted(client):
+    """They were twelve rows under one drawing and the longest block on the
+    page. They are still in the page for search engines and screen readers."""
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed_flagged_blank_cheque()
+
+    body = client.get("/").text
+    stage = body.split('class="sec hero-bs stage', 1)[1].split("</section>", 1)[0]
+
+    assert stage.count('<details class="bs-lines">') == 2
+    assert stage.count('<table class="legend">') == 4
+    assert "<summary>Line by line</summary>" in stage
+    assert "open" not in re.search(r'<details class="bs-lines"[^>]*>', stage).group(0)
+
+
+def test_the_strip_sets_the_two_claims_large_and_the_plain_facts_small(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    strip = body.split('class="strip"', 1)[1].split("</div></div>", 1)[0]
+    cells = re.findall(r'<div class="scell([^"]*)"><span class="sk">([^<]+)</span>', body.split('class="strip"', 1)[1])
+    kinds = {label: kind.strip() for kind, label in cells}
+
+    assert kinds.get("Reconciled") == "key"
+    assert kinds.get("Flagged with a reason") == "key"
+    assert kinds.get("Source") == "txt"
+    assert kinds.get("Latest filing") == "txt"
+    assert "SEC EDGAR" in strip
+
+
+def test_the_home_stylesheet_adds_no_blur_and_keeps_reduced_motion_honest(client):
+    """The life added to this page is opacity and transform, once, and nothing
+    that blurs: the page's one live blur (the strip) was removed."""
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    block = css.split("The home page's life: hierarchy, light and a little motion", 1)[1]
+
+    assert "blur(" not in block, "no new blur"
+    assert "backdrop-filter: none" in block, "the strip's blur is switched off"
+    assert "animation-iteration-count" not in block and "infinite" not in block
+    no_pref = block.split("@media (prefers-reduced-motion: no-preference)", 1)[1].split(
+        "@media (prefers-reduced-motion: reduce)", 1)[0]
+    assert "home-rise" in no_pref
+    reduce = block.split("@media (prefers-reduced-motion: reduce)", 1)[1]
+    assert "home-fade" in reduce and "!important" in reduce
+    assert "translateY" not in reduce, "reduced motion gets a fade, never movement"
+
+
+def test_the_count_up_starts_when_the_strip_is_in_view_and_still_obeys_reduced_motion(client):
+    js = client.get("/static/countup.js").text
+
+    assert "IntersectionObserver" in js
+    assert "unobserve" in js, "once per figure"
+    assert "prefers-reduced-motion: reduce" in js
+    assert not re.search(r"addEventListener\(\s*[\x22\x27]scroll", js), "no scroll listener"
+
+
+def test_the_home_extras_are_memoised_and_cleared_with_the_panels(client):
+    """The card sample, MCP verdict and flagged check read balance sheets, which
+    `api.home` documents costing a 1.35s TTFB when done per request. They are
+    built once and served from memory until the same call that clears the
+    panels (`stats.clear_page_caches`) drops them."""
+    from src.company import stats
+    from src.report import home_page as hp
+
+    _seed("JPM", _drawable(), sector="Financials")
+    calls = {"n": 0}
+    real = hp._api_sample
+
+    def counting(ticker):
+        calls["n"] += 1
+        return real(ticker)
+
+    hp._api_sample = counting
+    try:
+        client.get("/")
+        after_first = calls["n"]
+        client.get("/")
+        client.get("/")
+        assert after_first >= 1
+        assert calls["n"] == after_first, "later visits must not re-read the sample"
+
+        stats.clear_page_caches()
+        client.get("/")
+        assert calls["n"] > after_first, "clearing the page caches rebuilds it"
+    finally:
+        hp._api_sample = real
+
+
+def test_the_home_navigation_does_not_blur_what_scrolls_under_it(client):
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    rule = css.split('body[data-bd="fluted"] nav {', 1)[1].split("}", 1)[0]
+
+    assert "backdrop-filter: none" in rule
+    life = css.split("The home page's life: hierarchy, light and a little motion", 1)[1]
+    life = life.split("The backdrop: ONE fixed layer", 1)[0]
+    # No CSS masks in the home page's additions: each one is an off-screen surface.
+    assert not re.search(r"(^|[\s;{])(-webkit-)?mask(-image|-composite)?\s*:", life, re.M)
+
+
+# --------------------------------------------------------------- review pass
+def test_one_fixed_backdrop_sits_behind_every_page(client):
+    """One picture, one layer, everywhere: WebP preferred and JPG as the
+    fallback, 2000px wide and under 200 KB each, fixed behind the content, with
+    no veil element and none of the old ribbon pictures."""
+    import struct
+    from pathlib import Path
+
+    import src.report.backdrop as bd
+
+    _seed("JPM", _drawable(), sector="Financials")
+    for page in ("/", "/about", "/pricing", "/company/JPM"):
+        html = client.get(page).text
+        assert 'class="backdrop-art"' in html, page
+        assert html.count('class="backdrop"') == 1, f"{page}: exactly one layer"
+        assert "backdrop-glass-2000.webp" in html and "backdrop-glass-2000.jpg" in html, page
+        assert html.index("backdrop-glass-2000.jpg") < html.index("image-set("), (
+            f"{page}: the JPG is declared first so it is the fallback")
+        for gone in ("backdrop-veil", "backdrop-still", "backdrop-1200", "backdrop-2400",
+                     "backdrop-portrait", "backdrop-lqip"):
+            assert gone not in html, f"{page}: {gone}"
+
+    media = Path(bd.__file__).parent / "static" / "media"
+    for name in ("backdrop-glass-2000.webp", "backdrop-glass-2000.jpg"):
+        assert (media / name).stat().st_size < 200 * 1024, name
+    assert not list(media.glob("backdrop-1200*")) and not list(media.glob("backdrop-2400*"))
+    jpg = (media / "backdrop-glass-2000.jpg").read_bytes()
+    i = 2
+    while i < len(jpg):  # walk the JPEG markers to the frame header
+        marker = jpg[i + 1]
+        if marker in (0xC0, 0xC2):
+            height, width = struct.unpack(">HH", jpg[i + 5:i + 9])
+            break
+        i += 2 + struct.unpack(">H", jpg[i + 2:i + 4])[0]
+    assert width == 2000, width
+
+
+def test_the_backdrop_css_is_fixed_isolated_masked_and_dims_on_a_phone(client):
+    from pathlib import Path
+
+    import src.report.home_page as hp
+
+    css = (Path(hp.__file__).parent / "static" / "glass.css").read_text(encoding="utf-8")
+    block = css.split("The backdrop: ONE fixed layer behind every section of every page", 1)[1]
+
+    assert "body { isolation: isolate; }" in block
+    for needle in ("position: fixed;", "z-index: -1;", "pointer-events: none;",
+                   "width: 60vw;", "background-size: cover;", "background-repeat: no-repeat;",
+                   "background-position: right center;",
+                   "mask-image: linear-gradient(90deg, transparent 0%, #000 32%);",
+                   "#05060a"):
+        assert needle in block, needle
+    phone = block.split("@media (max-width: 640px)", 1)[1].split("}", 1)[0]
+    assert "opacity: .35" in phone
+    assert ".hero::before" in block and ".leadin::before" in block, "hero-only layers are off"
+
+
+def test_the_nav_offers_a_key_and_the_demo_to_somebody_signed_out(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    home = client.get("/").text.split("</nav>")[0]
+    about = client.get("/about").text.split("</nav>")[0]
+
+    assert ">Live demo<" in home and 'href="#demo"' in home
+    assert 'href="#hero-email"' in home and home.count(">Get free key<") == 2, (
+        "once in the bar (visible on a phone) and once in the links")
+    assert 'href="/#demo"' in about and 'href="/dashboard"' in about
+    # the sign-in pages do not offer to sign up
+    login = client.get("/login").text.split("</nav>")[0]
+    assert "Get free key" not in login
+
+
+def test_the_footer_still_says_restatements(client):
+    """The rename ships in its own commit; until then the label stays."""
+    _seed("JPM", _drawable(), sector="Financials")
+    footer = client.get("/").text.split("<footer>", 1)[1]
+    assert ">Restatements<" in footer
+
+
+def test_the_why_note_uses_only_what_the_published_report_says(client):
+    """The three numbers in the note are the report's own, so they are checked
+    against the post rather than trusted."""
+    from pathlib import Path
+
+    import src.report.blog as blog
+    import src.report.home_page as hp
+
+    post = next(p for p in blog.POSTS if p.slug == hp._REPORT_SLUG)
+    assert f"{hp._REPORT_FAILED}" in post.title and "38,568" in post.title
+    source = Path(blog.__file__).read_text(encoding="utf-8")
+    assert f"{hp._REPORT_OURS} of the {hp._REPORT_FAILED}" in source
+
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    why = body.split('id="why"', 1)[1].split("</section>", 1)[0]
+    assert "Why we built this" in why and f"/blog/{hp._REPORT_SLUG}" in why
+    assert "Dominique" not in why and "Church" not in why and "I'm" not in why and " I " not in why
+    assert "995" in why and "38,568" in why and "971" in why
+    for invented in ("customers", "testimonial", "trusted", "rated", "stars", "solo", "years old", "founder"):
+        assert invented not in why.lower(), invented
+
+
+def test_a_strip_after_how_it_works_offers_a_key_and_the_docs(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    strip = body.split('id="try"', 1)[1].split("</aside>", 1)[0]
+
+    assert body.index('id="how"') < body.index('id="try"') < body.index('id="pricing"')
+    assert ">Get free key<" in strip and 'href="#start"' in strip
+    assert ">API docs<" in strip and 'href="/api"' in strip
+    assert "prove they balance" in strip
+
+
+def test_the_counts_on_the_page_are_computed_from_the_database(client):
+    """Nothing in the strip or the steps is a literal: seeding another company
+    moves "All N companies" with it."""
+    from src.company.stats import (
+        reset_breakdown_cache,
+        reset_counts_cache,
+        reset_identity_cache,
+    )
+
+    reset_breakdown_cache()
+    _seed("JPM", _drawable(), sector="Financials")
+    _seed("MSFT", _drawable(), sector="Information Technology")
+    two = " ".join(client.get("/").text.split())
+    assert "All 2 companies with a complete balance sheet" in two
+
+    _seed("WMT", _drawable(), sector="Consumer Staples")
+    reset_identity_cache()
+    reset_counts_cache()
+    reset_breakdown_cache()
+    three = " ".join(client.get("/").text.split())
+    assert "All 3 companies with a complete balance sheet" in three
+    assert "Today no filing genuinely fails the check." in three
+
+
+def test_the_card_label_says_illustrative_for_seeded_rows(client):
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    _seed("JPM", _drawable(), sector="Financials")
+    assert "real, for " in client.get("/").text
+
+    from src.report import home_page as hp
+    hp.reset_home_extras_cache()
+    with session_scope() as s:
+        s.query(Fundamental).filter(Fundamental.ticker == "JPM").update({"source": "demo"})
+    assert "illustrative, for " in client.get("/").text

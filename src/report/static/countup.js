@@ -77,11 +77,27 @@
     window.requestAnimationFrame(frame);
   }
 
+  /* Each figure counts when IT is on screen, once. It used to start at
+     DOMContentLoaded, which on a shorter laptop screen meant the strip counted
+     up below the fold and nobody saw it. IntersectionObserver is the cheap way
+     to ask: no scroll listener, no layout reads. Without it (or when the strip
+     is already in view) it runs straight away, as before. */
   function start() {
     if (reducedMotion()) return;
     if (!window.requestAnimationFrame) return;
     var els = document.querySelectorAll("[data-countup]");
-    for (var i = 0; i < els.length; i++) run(els[i]);
+    if (!("IntersectionObserver" in window)) {
+      for (var i = 0; i < els.length; i++) run(els[i]);
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (entry) {
+        if (!entry.isIntersecting) return;
+        io.unobserve(entry.target);
+        run(entry.target);
+      });
+    }, { threshold: 0.6 });
+    for (var j = 0; j < els.length; j++) io.observe(els[j]);
   }
 
   if (document.readyState === "loading") {

@@ -463,7 +463,7 @@ def _company_meta(d: dict[str, Any]) -> str:
         f'<meta property="og:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
         f'<meta property="og:description" content="{escape(desc)}">',
         f'<meta property="og:url" content="{escape(url)}">',
-        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-1200.webp?v={media_version()}">',
+        f'<meta property="og:image" content="{SITE_ORIGIN}/static/media/backdrop-glass-2000.jpg?v={media_version()}">',
         '<meta name="twitter:card" content="summary_large_image">',
         f'<meta name="twitter:title" content="{escape(name)} ({escape(d["ticker"])}) balance sheet">',
         f'<meta name="twitter:description" content="{escape(desc)}">',

@@ -235,7 +235,7 @@
 .logout{display:inline;margin:0}
 
 /* ---- collapsed, only once the script is here ---- */
-@media(max-width:620px){
+@media(max-width:720px){
   .nav-js .navtoggle{display:flex;align-items:center;justify-content:center;
     width:40px;height:40px;flex:none;background:var(--bg);border:0;
     border-radius:999px;box-shadow:var(--up-sm);cursor:pointer}

@@ -89,7 +89,7 @@ def test_the_home_page_prices_come_from_settings_not_the_copy(client):
     """The env sets an unusual free tier (7) and Pro ceiling (5,000). If the
     card is hardcoded it will say 10 and 10,000 -- and in production it would
     quote a price the API does not enforce."""
-    html = client.get("/").text
+    html = client.get("/pricing").text  # the cards live here; / carries a summary
     assert "$29" in html and "$49" in html and "$0" in html
     assert "7 keyed API calls a month" in html
     # The quotas left the cards on 2026-09-23 (owner: "less data full") and
@@ -102,7 +102,7 @@ def test_the_home_page_separates_the_snapshot_from_the_live_api(client):
     """The dataset and the API used to read as one product at two prices, so a
     buyer picked on price and got the wrong one. Each card now says what its
     data DOES, and the words are the differentiator rather than decoration."""
-    html = client.get("/").text
+    html = client.get("/pricing").text  # the cards live here; / carries a summary
 
     # Em-dash retired site-wide 2026-09-22. What is guarded here is the
     # photograph-vs-window distinction, not the punctuation: each card must
@@ -117,7 +117,7 @@ def test_the_home_page_separates_the_snapshot_from_the_live_api(client):
 def test_the_home_page_offers_the_annual_plan_with_a_computed_saving(client):
     """$49 x 12 - $490 = $98. Worked out from the two prices rather than typed,
     so changing either cannot leave a saving that is no longer true."""
-    html = client.get("/").text
+    html = client.get("/pricing").text  # the cards live here; / carries a summary
 
     assert 'data-plan="pro_annual"' in html
     assert "$490" in html
@@ -208,7 +208,7 @@ def test_the_dataset_card_counts_the_rows_it_is_selling(client):
     from src.dataset import reset_count_cache
 
     reset_count_cache()
-    html = client.get("/").text
+    html = client.get("/pricing").text  # the cards live here; / carries a summary
     # The row count moved onto the card's bullets when the cards started
     # saying what each product IS. It is still counted, never written down.
     assert "3 rows as one CSV file" in html
@@ -657,3 +657,143 @@ def test_an_sdk_error_logs_a_readable_cause():
     assert "content-type" not in line
     # A plain exception still says something useful.
     assert _why(RuntimeError("boom")).startswith("RuntimeError: boom")
+
+
+# ---------------------------------------------------------------------------
+# 6. The home page's plan summary and its card
+# ---------------------------------------------------------------------------
+# The four tests above read /pricing: the plan cards, with their checkout
+# buttons, live there now. The home page carries one line per plan.
+
+
+def _home_pricing(client) -> str:
+    html = client.get("/").text
+    section = html[html.index('id="pricing"'):]
+    return section[: section.index("</section>")]
+
+
+def test_the_home_page_summarises_the_plans_in_cad_from_settings(client):
+    from src.accounts import tier_limit
+    from src.config.settings import get_settings, price_label
+
+    section = _home_pricing(client)
+    s = get_settings()
+
+    assert "Canadian dollars" in section and "CAD" in section
+    assert 'href="/pricing"' in section
+    assert "data-plan" not in section, "the summary is not a checkout"
+    assert price_label(0) in section
+    assert price_label(s.pro_price_usd) in section
+    assert price_label(s.dataset_price_usd) in section
+    # Call limits come from the tier table, not the copy: the env sets 7 and
+    # 5,000, which no hand-written sentence would say.
+    assert f"{tier_limit('free'):,} calls a month" in section
+    assert f"{tier_limit('pro'):,} calls a month" in section
+
+
+def test_the_home_summary_sells_only_what_checkout_can_sell(client, monkeypatch):
+    """Same gate as the /pricing cards: a plan with no Stripe Price is absent."""
+    from src import billing
+
+    real = billing.price_for
+
+    monkeypatch.setattr(
+        billing, "price_for",
+        lambda plan: "" if plan in ("starter", "business") else real(plan),
+    )
+    section = _home_pricing(client)
+    assert "Starter" not in section and "Business" not in section
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    section = _home_pricing(client)
+    assert "Starter" in section and "Business" in section
+
+
+def test_the_home_card_response_is_what_the_demo_endpoint_answers(client):
+    """The card's response is built by the call the endpoint makes, and this is
+    what stops the two drifting: every value shown must equal the endpoint's."""
+    import json
+    from html import unescape
+
+    seed_jpm()
+    api = client.get("/api/demo/JPM").json()
+    html = client.get("/").text
+
+    card = html.split('class="codecard"', 1)[1]
+    response = card.split('<pre class="code json"', 1)[1].split("<code>", 1)[1]
+    shown = json.loads(unescape(response.split("</code>", 1)[0]))
+
+    assert shown["ticker"] == "JPM"
+    for key in ("ticker", "company_name", "period_end", "filing_date",
+                "data_quality_issues", "source"):
+        assert shown[key] == api[key], key
+    for section in ("assets", "liabilities", "equity"):
+        for concept, cell in shown[section].items():
+            assert cell == api[section][concept], (section, concept)
+    # Trimmed, and says so: the caption counts what was left out.
+    assert "line items, the ones the check uses" in " ".join(html.split())
+
+def test_the_home_summary_gives_pro_the_featured_tile_and_no_one_else(client):
+    import re
+
+    section = _home_pricing(client)
+    tiles = re.findall(r'<li class="(psum[^"]*)"><b>([^<]+)</b>', section)
+
+    assert tiles, "the summary renders its tiles"
+    featured = [name for cls, name in tiles if "featured" in cls]
+    assert featured == ["Pro"]
+
+
+def test_the_home_summary_always_offers_enterprise_like_pricing_does(client, monkeypatch):
+    """Starter and Business come and go with their Stripe Prices; Enterprise is a
+    conversation, so it is on /pricing unconditionally and so it is here, in the
+    same order (Free, Starter, Pro, Business, Dataset, Enterprise)."""
+    import re
+
+    from src import billing
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    section = _home_pricing(client)
+    names = re.findall(r'<li class="psum[^"]*"><b>([^<]+)</b>', section)
+
+    assert names == ["Free", "Starter", "Pro", "Business", "Dataset", "Enterprise"]
+    enterprise = section.split("<b>Enterprise</b>", 1)[1].split("</li>", 1)[0]
+    assert "Let&#x27;s talk" in enterprise or "Let's talk" in enterprise
+    assert "CAD" not in enterprise, "nothing to quote, so no currency"
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "")
+    names = re.findall(r'<li class="psum[^"]*"><b>([^<]+)</b>', _home_pricing(client))
+    assert "Enterprise" in names and "Starter" not in names and "Business" not in names
+
+
+def test_the_plan_tiles_show_a_per_call_price_worked_out_from_settings(client, monkeypatch):
+    from src import billing
+    from src.accounts import tier_limit
+    from src.config.settings import get_settings
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    section = _home_pricing(client)
+    s = get_settings()
+
+    for name, price in (("starter", s.starter_price), ("pro", s.pro_price_usd),
+                        ("business", s.business_price)):
+        expected = f"about CA${price / tier_limit(name):.4f} a call"
+        assert expected in section, expected
+    free = section.split("<b>Free</b>", 1)[1].split("</li>", 1)[0]
+    assert "a call" not in free, "nothing to price on the free tier"
+
+
+def test_one_line_says_why_pro_costs_more_per_call_than_starter(client, monkeypatch):
+    from src import billing
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
+    section = _home_pricing(client)
+    note = section.split('class="psum-note">', 1)[1].split("</p>", 1)[0]
+
+    assert "more per call than Starter" in note
+    for feature in ("point-in-time", "failed checks", "alerts on 50 companies"):
+        assert feature in note, feature
+
+    monkeypatch.setattr(billing, "price_for", lambda plan: "")
+    note = _home_pricing(client).split('class="psum-note">', 1)[1].split("</p>", 1)[0]
+    assert "more per call than Starter" not in note, "no comparison with a plan that is not shown"

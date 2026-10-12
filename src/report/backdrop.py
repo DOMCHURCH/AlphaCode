@@ -1,34 +1,28 @@
-"""The backdrop: a gradient, then one still image. No video.
+"""The backdrop: one fixed picture behind every page, and nothing else.
 
-Two layers, and the first is a complete answer on its own:
+A single image of vertical glowing panels with curved light, near-black on the
+left and colour on the right. It is ONE layer, `position: fixed`, behind every
+section of every page, rather than a hero image plus veils, glows and grids per
+section. The picture does the work the veils used to do: its left ~40% is
+already near-black, and the CSS fades its left edge into #05060A.
 
-    1. gradient   0 bytes, painted with the first CSS, plus a 24px blurred
-                  placeholder inlined as a data URI. Dark, carrying the
-                  picture's own twilight palette, so a viewer who never gets
-                  past this layer sees the intended mood rather than a hole.
-    2. image      79 KB WebP at 2400px, 27 KB at 1200px, in a <picture>.
+THE FILES. `backdrop-glass-2000.webp` is the preferred source and
+`backdrop-glass-2000.jpg` the fallback, both 2000px wide and each well under
+200 KB, in static/media/. They are named in an inline `<style>` and not in
+`glass.css` for one reason: `/static` is served `max-age=31536000, immutable`,
+so an unversioned URL would never reach anybody who had already visited, and
+the version stamp (`media_version`) is only known here.
 
-**The film is gone.** It was three files -- WebM, MP4 and a JPEG poster --
-fetched by a script that could not start until `load` had fired, behind checks
-for viewport, connection type and tab visibility. All of that machinery existed
-to decide whether to spend 190 KB on decoration, and the decision cost more
-than the bytes: the largest element on the page could not begin loading until
-everything else had finished.
+WHY `image-set()` HERE AND NOT `srcset`. The first attempt at a backdrop on this
+site put `w` descriptors in `image-set()`, which takes `1x`/`2x` and not `w`; the
+whole declaration was dropped and the site shipped plain black for three
+deploys. This one uses `type()`, which is what `image-set()` is for, and it
+follows a plain `url()` declaration of the JPG, so a browser that does not
+understand `type()` ignores the second line and keeps the first. Nothing here
+can fail to black.
 
-WHY <picture> AND NOT A CSS `image-set()`. The first attempt at this put both
-variants in one `background-image: image-set(...)` rule with `2400w` / `1200w`
-descriptors, and shipped a backdrop that was **plain black on every browser**
-for the life of three deploys. `image-set()` takes *resolution* descriptors
-(`1x`, `2x`); the `w` descriptor is a `srcset` feature and is a parse error
-there. An invalid value drops the whole declaration -- so the image and the
-placeholder stacked behind it in the same declaration both vanished, and the
-`@supports not (image-set(...))` fallback never ran because the thing it tested
-for was supported. Nothing logged, nothing 404'd, the bytes sat on the CDN
-being served with a 200 to nobody.
-
-`<picture>` has none of that failure mode: `w` descriptors are what `srcset` is
-for, the preload scanner sees it in the markup, and `fetchpriority="high"` says
-out loud what this element is -- the LCP.
+The old ribbon pictures (`backdrop-1200/2400/portrait`) and their veil layer are
+gone. `variant` is still accepted so callers need not change, and is ignored.
 """
 
 from __future__ import annotations
@@ -36,35 +30,22 @@ from __future__ import annotations
 from pathlib import Path
 
 # One place for the asset paths, so the CSS, the markup and the social cards
-# cannot disagree about what is being loaded. The film is gone: see above.
+# cannot disagree about what is being loaded.
 _MEDIA = Path(__file__).parent / "static" / "media"
 
-HERO_2400 = "/static/media/backdrop-2400.webp"
-HERO_1200 = "/static/media/backdrop-1200.webp"
-
-# PORTRAIT IS A DIFFERENT PICTURE, NOT A CROP OF THE SAME ONE.
-# `object-fit: cover` on a 2400x1350 landscape image inside a 390x844 frame
-# scales to HEIGHT and throws away most of the width, which is how the phone
-# came to look like a different product from the desktop. These are composed
-# for the frame they are shown in. See scripts/render_backdrop.mjs.
-HERO_P1200 = "/static/media/backdrop-portrait-1200.webp"
-HERO_P800 = "/static/media/backdrop-portrait-800.webp"
-
-# The intrinsic size of the desktop variant. Declared on the <img> so the box
-# is known before the bytes land -- a fixed full-screen layer cannot shift the
-# page, but stating the ratio keeps the intent legible and costs nothing.
-HERO_W, HERO_H = 2400, 1350
+BACKDROP_WEBP = "/static/media/backdrop-glass-2000.webp"
+BACKDROP_JPG = "/static/media/backdrop-glass-2000.jpg"
 
 
 def media_version() -> str:
-    """Cache-busting stamp for the hero files specifically.
+    """Cache-busting stamp for everything in static/media/.
 
     `asset_version()` walks the top level of `static/` and these live one
-    directory down in `media/`, so it does not see them change. That matters
-    more here than anywhere else on the site: `/static` is served
-    `max-age=31536000, immutable`, so a regenerated image behind an unversioned
-    URL reaches nobody who has already visited -- which is precisely the set of
-    people most likely to notice the backdrop was broken.
+    directory down, so it does not see them change. That matters more here than
+    anywhere else on the site: `/static` is served `max-age=31536000,
+    immutable`, so a regenerated image behind an unversioned URL reaches nobody
+    who has already visited -- which is precisely the set of people most likely
+    to notice the backdrop was broken.
     """
     try:
         return str(int(max(f.stat().st_mtime for f in _MEDIA.iterdir() if f.is_file())))
@@ -72,35 +53,15 @@ def media_version() -> str:
         return "0"
 
 
-def render_backdrop() -> str:
-    """The markup. One <picture>, one veil, nothing to sequence.
+def render_backdrop(variant: str = "") -> str:
+    """The markup: one fixed container holding one picture.
 
-    `alt=""` and `aria-hidden` on the container because this is scenery: it
-    carries no information a screen reader should stop for.
+    `alt`-less and `aria-hidden` because this is scenery: it carries no
+    information a screen reader should stop for. The sizing, the right-anchored
+    60% width, the left-edge fade and the phone dimming live in glass.css
+    (`.backdrop`, `.backdrop-art`); this function only says which files.
     """
     v = media_version()
-    # THE ONE PLACE the backdrop is built. There are THREE
-    # separate `<head>` blocks on this site -- `home_page._shell` and two in
-    # `company_page` -- and anything added to one and not the others leaves the
-    # company pages silently on the old look. This function is called by all
-    # three, so it is the only edit that cannot half-land.
-    #
-    # THE LIVE CANVAS IS GONE. A WebGL shader used to draw behind every page,
-    # and it cost a visibly slow first second on a phone and a laptop both.
-    # The same shader now runs once, offline, into the pictures below -- see
-    # scripts/render_backdrop.mjs. Nothing to sequence, nothing to compile, no
-    # frame-rate watchdog, and `backdrop-filter` on the panels is a cached
-    # one-off again rather than a per-frame gaussian.
     return f"""
-<div class="backdrop" id="backdrop" aria-hidden="true">
-  <picture class="backdrop-still">
-    <source type="image/webp" media="(max-aspect-ratio: 3/4)" sizes="100vw"
-            srcset="{HERO_P800}?v={v} 800w, {HERO_P1200}?v={v} 1200w">
-    <source type="image/webp" sizes="100vw"
-            srcset="{HERO_1200}?v={v} 1200w, {HERO_2400}?v={v} 2400w">
-    <img class="backdrop-img" src="{HERO_2400}?v={v}" alt=""
-         width="{HERO_W}" height="{HERO_H}"
-         loading="eager" fetchpriority="high" decoding="async">
-  </picture>
-  <div class="backdrop-veil"></div>
-</div>"""
+<style>.backdrop-art{{background-image:url("{BACKDROP_JPG}?v={v}");background-image:image-set(url("{BACKDROP_WEBP}?v={v}") type("image/webp"),url("{BACKDROP_JPG}?v={v}") type("image/jpeg"))}}</style>
+<div class="backdrop" id="backdrop" aria-hidden="true"><div class="backdrop-art"></div></div>"""

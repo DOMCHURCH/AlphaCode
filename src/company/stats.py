@@ -338,8 +338,12 @@ def _clear_identity() -> None:
 
 def _clear_panels() -> None:
     from src.company.suggest import reset_panels_cache
+    from src.report.home_page import reset_home_extras_cache
 
     reset_panels_cache()
+    # What the home page derives from the same data (card sample, flagged
+    # example) goes with it.
+    reset_home_extras_cache()
 
 
 def _clear_row_count() -> None:
