@@ -1948,3 +1948,14 @@ def test_company_breadcrumb_links_the_sector_hub_only_when_it_exists(client):
     assert "<span>Utilities</span>" in lone and "/sector/" not in lone
     nosec = _crumb_nav(client.get("/company/NOSEC").text)
     assert nosec.count("<li>") == 3
+
+
+def test_the_h1_full_stop_is_not_pushed_away_from_the_gradient_word():
+    from pathlib import Path
+
+    css = (Path(__file__).resolve().parents[1] / "src/report/static/glass.css").read_text(
+        encoding="utf-8"
+    )
+    css = css.replace(chr(13), "")
+    block = css.split(".htitle .h-ital {" + chr(10) + "    background", 1)[1].split("}", 1)[0]
+    assert "padding-right: .08em" in block and "margin-right: -.08em" in block

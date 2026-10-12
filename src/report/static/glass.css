@@ -1624,7 +1624,11 @@ body[data-bd="fluted"] #cc-t-mcp:checked ~ .cc-tabs label[for="cc-t-mcp"] {
     background-clip: text;
     color: transparent;
     -webkit-text-fill-color: transparent;
+    /* the padding keeps the italic "I" from being clipped by the gradient;
+       the negative margin takes the same width back so the full stop sits
+       against the word instead of a space away */
     padding-right: .08em;
+    margin-right: -.08em;
   }
 }
 
