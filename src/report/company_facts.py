@@ -363,7 +363,7 @@ def render_facts(view: Any) -> tuple[str, str] | None:
     if hit is not None and now - hit[0] < _TTL_SECONDS:
         return hit[1]
     try:
-        from src.report.sector_page import sector_slug
+        from src.report.sector_page import sector_hub_slug
 
         history = _history_rows(view, view.ticker)
         prior = history[1] if len(history) > 1 else None
@@ -393,7 +393,7 @@ def render_facts(view: Any) -> tuple[str, str] | None:
         )
         facts = build_facts_html(
             view, history,
-            sector_slug(view.sector) if view.sector else None,
+            sector_hub_slug(view.sector),
         )
     except Exception as exc:  # noqa: BLE001 - decoration must never take the page
         log.warning("company_facts_failed", ticker=view.ticker, error=str(exc)[:200])

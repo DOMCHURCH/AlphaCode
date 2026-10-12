@@ -1775,3 +1775,24 @@ def test_the_home_footer_speaks_as_the_company(client):
         assert gone not in flat, gone
     for link in ('href="/terms"', 'href="/privacy"', "mailto:"):
         assert link in footer, link
+
+
+def test_a_company_links_to_its_sector_hub_only_when_the_hub_exists(client):
+    """/sector/{slug} 404s below sector_page.MIN_COMPANIES, so a company in a
+    smaller sector gets plain text instead of a link to a missing page."""
+    from src.report.company_facts import clear_cache
+    from src.report.sector_page import MIN_COMPANIES, reset_hub_cache
+
+    _seed("JPM", _drawable(), sector="Financials")
+    page = client.get("/company/JPM").text
+    assert 'href="/sector/financials"' not in page, "one company: no hub, no link"
+    assert ">Financials<" in page, "the sector is still named"
+    assert client.get("/sector/financials").status_code == 404
+
+    for i in range(MIN_COMPANIES - 1):
+        _seed(f"FIN{i}", _drawable(), sector="Financials")
+    reset_hub_cache()
+    clear_cache()
+    page = client.get("/company/JPM").text
+    assert 'href="/sector/financials"' in page
+    assert client.get("/sector/financials").status_code == 200

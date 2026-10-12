@@ -45,6 +45,39 @@ def sector_slug(sector: str | None) -> str:
     return re.sub(r"[^a-z0-9]+", "-", sector.strip().lower()).strip("-")
 
 
+# Which sector slugs have a hub page, i.e. at least MIN_COMPANIES companies.
+# Every company page asks, and `load_sectors()` reads the whole fundamentals
+# table, so the answer is kept for fifteen minutes. A sector crossing the line
+# shows up within that window; nothing else depends on it being instant.
+_HUB_TTL_S = 900.0
+_hub_cache: dict[str, Any] = {"at": 0.0, "slugs": None}
+
+
+def reset_hub_cache() -> None:
+    _hub_cache["at"] = 0.0
+    _hub_cache["slugs"] = None
+
+
+def sector_hub_slug(sector: str | None) -> str | None:
+    """The hub slug for this sector, or None when the sector has no hub.
+
+    /sector/{slug} 404s below MIN_COMPANIES (see `build_sector`), so a company
+    page links to its sector only when this returns a slug. An unreadable
+    sector list answers None: no link beats a link to a 404.
+    """
+    import time
+
+    if not sector or not sector.strip():
+        return None
+    now = time.monotonic()
+    slugs = _hub_cache["slugs"]
+    if slugs is None or now - _hub_cache["at"] > _HUB_TTL_S:
+        slugs = {s["slug"] for s in load_sectors()}
+        _hub_cache["slugs"], _hub_cache["at"] = slugs, now
+    slug = sector_slug(sector)
+    return slug if slug in slugs else None
+
+
 def _fmt_money(v: float) -> str:
     """$1.2T / $5.0B / $12.3M, matching the company pages."""
     a = abs(v)

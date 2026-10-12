@@ -47,6 +47,10 @@ def _clean_identity_cache():
         from src.report.company_facts import clear_cache
 
         clear_cache()
+        # Which sectors have a hub is memoised for fifteen minutes.
+        from src.report.sector_page import reset_hub_cache
+
+        reset_hub_cache()
         # `/status` is capped at ten a minute and the gate is module state, so
         # without this the budget is shared by the WHOLE SESSION: the eleventh
         # test to read /status gets a 429 and reports it as a missing key.

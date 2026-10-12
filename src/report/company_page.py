@@ -10,7 +10,7 @@ from __future__ import annotations
 import re
 from html import escape
 
-from src.report.sector_page import sector_slug
+from src.report.sector_page import sector_hub_slug
 from pathlib import Path
 from typing import Any
 
@@ -712,10 +712,14 @@ def render_company_page(
     # are stored in the database and only rebuilt when a filing moves, so a link
     # added there would not appear until the next forced backfill. This is on
     # the live render path and appears the moment the deploy lands.
+    #
+    # A link only when the sector has a hub: /sector/{slug} 404s below
+    # MIN_COMPANIES, and a chip that leads to a 404 is worse than plain text.
+    hub = sector_hub_slug(d["sector"]) if d["sector"] else None
     sector = (
-        f'<a class="chip chiplink" href="/sector/{escape(sector_slug(d["sector"]))}">'
-        f'{escape(d["sector"])}</a>'
-        if d["sector"] else ""
+        f'<a class="chip chiplink" href="/sector/{escape(hub)}">{escape(d["sector"])}</a>'
+        if hub else
+        f'<span class="chip">{escape(d["sector"])}</span>' if d["sector"] else ""
     )
 
     # `company_name` is SEC's CURRENT name for this CIK, and the filings below
