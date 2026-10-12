@@ -1959,3 +1959,9 @@ def test_the_h1_full_stop_is_not_pushed_away_from_the_gradient_word():
     css = css.replace(chr(13), "")
     block = css.split(".htitle .h-ital {" + chr(10) + "    background", 1)[1].split("}", 1)[0]
     assert "padding-right: .08em" in block and "margin-right: -.08em" in block
+
+
+def test_the_footer_columns_are_not_a_nav_element_which_the_header_rules_style(client):
+    footer = client.get("/about").text.split("<footer>", 1)[1].split("</footer>", 1)[0]
+    assert "<nav" not in footer
+    assert 'role="navigation" aria-label="Site"' in footer

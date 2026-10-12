@@ -272,7 +272,7 @@ def render_footer(extra: str = "") -> str:
     lead = f"{extra} " if extra else ""
     return f"""
   <footer>
-    {lead}<nav class="foot-links foot-cols" aria-label="Site">
+    {lead}<div class="foot-links foot-cols" role="navigation" aria-label="Site">
       <div class="foot-col"><p class="foot-h">Data</p>
         <a href="/companies">All companies</a>
         <a href="/companies#by-sector">Sectors</a>
@@ -300,7 +300,7 @@ def render_footer(extra: str = "") -> str:
         <a href="/privacy">Privacy</a>
         <a href="mailto:{SUPPORT_EMAIL}">Support</a>
       </div>
-    </nav>
+    </div>
     <span class="foot-disc">{SHORT_DISCLAIMER}</span>
   </footer>"""
 

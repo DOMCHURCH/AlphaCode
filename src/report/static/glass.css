@@ -2493,3 +2493,8 @@ body[data-bd="fluted"] #cc-t-ps:checked ~ .cc-tabs label[for="cc-t-ps"] {
 .crumbs a { color: var(--ink2, inherit); text-decoration: underline; text-underline-offset: 3px; }
 .crumbs a:hover, .crumbs a:focus-visible { color: inherit; }
 .crumbs [aria-current] { color: inherit; }
+/* the site-wide `nav` rules style the header bar; a breadcrumb is not one */
+nav.crumbs, body[data-bd="fluted"] nav.crumbs {
+  background: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
+  position: static; padding: 0; margin-top: 14px;
+}
