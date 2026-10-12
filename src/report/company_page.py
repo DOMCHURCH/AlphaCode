@@ -256,7 +256,9 @@ def _scale_html(v2: View2 | None) -> str:
 # so pointing both at the same general explainer wastes the link. The general
 # one is the fallback rather than the default.
 _SECTOR_READING: dict[str, tuple[str, str]] = {
-    "Financial Services": (
+    # The stored sector name is "Financials" (src/ingest/sic.py). "Financial
+    # Services" matched nothing, so no bank page linked the bank post.
+    "Financials": (
         "why-bank-balance-sheets-are-different",
         "Deposits are a liability and loans are an asset, which is why this "
         "drawing looks inside out until it does not.",

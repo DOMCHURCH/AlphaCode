@@ -1882,3 +1882,9 @@ def test_nav_js_stands_down_where_the_signup_prompt_lives():
 
     js = (Path(nudge.__file__).parent / "static" / "nav.js").read_text(encoding="utf-8")
     assert 'if (document.getElementById("signup-nudge")) return;' in js
+
+
+def test_a_bank_page_links_the_bank_post(client):
+    _seed("JPM", _drawable(), sector="Financials")
+    page = client.get("/company/JPM").text
+    assert 'href="/blog/why-bank-balance-sheets-are-different"' in page
