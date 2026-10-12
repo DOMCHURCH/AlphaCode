@@ -100,8 +100,8 @@ def render_api_tab() -> str:
          still need the CSV they were about to buy. -->
     <div class="banner live" id="api-live" role="note">
       <span class="banner-tick" aria-hidden="true">&#8635;</span>
-      <span>Every call answers from the live database — including filings that
-        landed this morning. The <a href="/dataset">full dataset</a> is the same
+      <span>Every call answers from the live database — including the latest
+        loaded filings. The <a href="/dataset">full dataset</a> is the same
         data frozen at one moment; this is not.</span>
     </div>
 

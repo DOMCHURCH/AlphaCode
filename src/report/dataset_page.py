@@ -88,8 +88,8 @@ def render_dataset(
       <span><strong>This is a static snapshot.</strong> It contains the data as
         of {escape(as_of)} and will never update. When new filings land, this
         file does not change. You would buy a fresh copy.
-        <a href="/pricing#compare">For live data, use the API</a>, which is
-        current every time you call it.</span>
+        <a href="/pricing#compare">For the most current data, use the API</a>,
+        which reflects the latest filings every time you call it.</span>
     </div>
   </section>
 
@@ -143,7 +143,7 @@ def render_dataset(
       <div class="buy">
         <span class="plan-name">Pro</span>
         <p class="plan-price">{escape(pro_price)}<small>/month</small></p>
-        <p class="plan-line">Live data instead of a snapshot, queried by API.</p>
+        <p class="plan-line">Current data instead of a snapshot, queried by API.</p>
         <a class="btn" href="/pricing">Compare them first</a>
       </div>
     </div>

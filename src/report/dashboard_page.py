@@ -341,7 +341,7 @@ def render_dashboard(
         <tbody>
           <tr><th scope="row">Data freshness</th>
               <td>Static (as of download date)</td>
-              <td>Live (updates daily)</td></tr>
+              <td>Current (updates as filings land)</td></tr>
           <tr><th scope="row">Access method</th>
               <td>One CSV download</td>
               <td>API calls ({_compact(pro_limit)}/month)</td></tr>
@@ -350,7 +350,7 @@ def render_dashboard(
               <td>Ongoing automation</td></tr>
           <tr><th scope="row">Updates</th>
               <td><span class="no" aria-label="no">&#10007;</span> No (buy again)</td>
-              <td><span class="yes" aria-label="yes">&#10003;</span> Yes (daily)</td></tr>
+              <td><span class="yes" aria-label="yes">&#10003;</span> Yes (as filings land)</td></tr>
           <tr><th scope="row">Automation</th>
               <td><span class="no" aria-label="no">&#10007;</span> Manual</td>
               <td><span class="yes" aria-label="yes">&#10003;</span> Programmatic</td></tr>

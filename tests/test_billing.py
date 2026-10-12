@@ -688,7 +688,7 @@ def test_pricing_is_a_real_page_and_answers_the_dataset_vs_api_question(client):
 
     # The comparison, and the four rows that carry the actual differentiation.
     assert "Static (as of download date)" in html
-    assert "Live (updates daily)" in html
+    assert "Current (updates as filings land)" in html
     assert "One-time analysis" in html
     assert "Ongoing automation" in html
     # And the FAQ, whose first question is the one the page exists for.
@@ -716,7 +716,7 @@ def test_the_dataset_page_states_its_snapshot_date_and_that_it_is_static(client)
 
     assert "static snapshot" in html.lower()
     assert "will never update" in html
-    assert "For live data, use the API" in html
+    assert "For the most current data, use the API" in html
     # Size and rows, so a large download is a decision rather than a surprise.
     assert "File size" in html and "Rows" in html
 

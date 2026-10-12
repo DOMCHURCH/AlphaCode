@@ -120,7 +120,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
     pc = per_call_line("pro") if per_call else ""
     items = (
         "".join(f"<li>{escape(b)}</li>" for b in bullets) if bullets is not None else
-        """<li>Data updates daily, so you always get the latest filings</li>
+        """<li>Updates as new filings land, so you get the latest available filings</li>
         <li>Check up to 50 companies in one request</li>
         <li>Point-in-time: any date's figures as they were public, for backtests</li>
         <li>Feed of failed checks and restatements, last 90 days</li>
@@ -138,7 +138,7 @@ def _pro_card(pro_price: str, pro_annual_price: str,
       </div>
       <p class="plan-price"><span data-price>{escape(pro_price)}</span><small
         data-per>/month</small></p>
-      <p class="plan-line" data-line>Live, up-to-date data</p>{pc}
+      <p class="plan-line" data-line>Current through the latest SEC filing day</p>{pc}
       <ul class="plan-bullets">
         {items}
       </ul>
@@ -523,7 +523,7 @@ def comparison_table(
         <tbody>
           <tr><th scope="row">Data freshness</th>
               <td>Static (as of download date)</td>
-              <td>Live (updates daily)</td></tr>
+              <td>Current (updates as filings land)</td></tr>
           <tr><th scope="row">Access method</th>
               <td>One CSV download</td>
               <td>API calls ({compact(pro_limit)}/month)</td></tr>
@@ -532,7 +532,7 @@ def comparison_table(
               <td>Ongoing automation</td></tr>
           <tr><th scope="row">Updates</th>
               <td>{no} No (buy again)</td>
-              <td>{yes} Yes (daily)</td></tr>
+              <td>{yes} Yes (as filings land)</td></tr>
           <tr><th scope="row">Automation</th>
               <td>{no} Manual</td>
               <td>{yes} Programmatic</td></tr>
@@ -578,8 +578,8 @@ def faq(
               CSV containing every filed figure in the database at the moment you
               buy it. That file never changes again: when Apple files its next
               10-Q, your copy still ends at the quarter before. The API answers
-              from the live database, so the same call made tomorrow returns
-              tomorrow&rsquo;s filings.</p>
+              from the current database, so a later call includes any filings
+              added since.</p>
             <p>Buy the dataset if the analysis has an end: a study, a model you
               are fitting once, a spreadsheet. Buy Pro if the thing you are
               building has to keep being right: a dashboard, a screen that runs
@@ -594,7 +594,7 @@ def faq(
             <p>If you find yourself wanting a second copy, Pro at
               {escape(pro_price)}/month is almost certainly the cheaper answer, and
               it gives you the data without a re-download: the API is already
-              current every time you call it.</p>""",
+              current through the latest filing day every time you call it.</p>""",
             False,
         ),
         (
@@ -718,9 +718,8 @@ def render_pricing(
         <span class="plan-name">The API</span>
         <p class="split-lede">A window.</p>
         <p class="split-body">A live query against the same database this site
-          draws from. Ask for any company at any time and the answer is current
-          when you ask it, including filings that arrived this morning. One
-          header, one key, JSON back.</p>
+          draws from. The answer is current through the latest filing day when
+          you ask it. One header, one key, JSON back.</p>
         <p class="split-for"><b>Best for:</b> algorithmic trading, dashboards,
           ongoing research.</p>
       </div>
@@ -800,8 +799,8 @@ def render_pricing(
             "What's the difference between the SEC dataset and the API?",
             "The dataset is a static CSV snapshot of every filed figure at the "
             "moment you buy it, for one-time analysis in Excel or pandas. The "
-            "API answers from the live database, so a call made tomorrow "
-            "returns tomorrow's filings. Buy the dataset if the analysis has "
+            "API answers from the current database, so a later call includes "
+            "any filings added since. Buy the dataset if the analysis has "
             "an end; buy the API if what you are building has to keep being "
             "right.",
         ),
@@ -810,7 +809,7 @@ def render_pricing(
             "No. A dataset purchase is one download of one snapshot and it is "
             "never refreshed. To get a later snapshot you buy it again. If you "
             "find yourself wanting a second copy, the Pro API is cheaper and "
-            "is current every time you call it.",
+            "is current through the latest filing day every time you call it.",
         ),
         (
             "How do I use the BalanceProof API key?",

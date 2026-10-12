@@ -528,7 +528,7 @@ def test_the_comparison_table_reads_from_settings(client):
     assert "$79.99" in table and "$49" in table
     assert "10k" in table
     assert "Static (as of download date)" in table
-    assert "Live (updates daily)" in table
+    assert "Current (updates as filings land)" in table
 
 
 def test_the_login_page_offers_both_ways_in(client):

@@ -110,8 +110,8 @@ def test_the_home_page_separates_the_snapshot_from_the_live_api(client):
     assert "Static snapshot of all company data as of" in html
     assert "One-time download. No updates." in html
     assert "The snapshot never changes" in html
-    assert "Live, up-to-date data" in html
-    assert "Data updates daily, so you always get the latest filings" in html
+    assert "Current through the latest SEC filing day" in html
+    assert "Updates as new filings land, so you get the latest available filings" in html
 
 
 def test_the_home_page_offers_the_annual_plan_with_a_computed_saving(client):
@@ -793,7 +793,7 @@ def test_pricing_page_cards_are_unchanged_by_the_home_options(client, monkeypatc
     monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
     page = client.get("/pricing").text
     assert "Most popular" not in page and "plan-pc" not in page
-    assert "Data updates daily, so you always get the latest filings" in page
+    assert "Updates as new filings land, so you get the latest available filings" in page
 
 
 def test_the_home_card_response_is_what_the_demo_endpoint_answers(client):
