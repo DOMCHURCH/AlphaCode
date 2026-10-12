@@ -103,12 +103,12 @@ test.describe('home page', () => {
 
   test('each code-card tab shows its own non-empty panel', async ({ page }) => {
     await page.goto('/');
-    for (const tab of ['py', 'mcp', 'curl']) {
+    for (const tab of ['py', 'mcp', 'ps', 'curl']) {
       await page.locator(`label[for="cc-t-${tab}"]`).click();
       const panel = page.locator(`.cc-p-${tab}`);
       await expect(panel).toBeVisible();
       expect((await panel.innerText()).trim().length).toBeGreaterThan(20);
-      for (const other of ['curl', 'py', 'mcp'].filter((t) => t !== tab)) {
+      for (const other of ['curl', 'ps', 'py', 'mcp'].filter((t) => t !== tab)) {
         await expect(page.locator(`.cc-p-${other}`)).toBeHidden();
       }
     }

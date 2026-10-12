@@ -1318,15 +1318,15 @@ def test_the_home_script_registers_with_terms_and_hands_the_key_over_once(client
     assert 'bp.prompt_after", "yes"' in js
 
 
-def test_the_card_has_real_examples_for_one_company_in_three_tabs(client):
+def test_the_card_has_real_examples_for_one_company_in_four_tabs(client):
     from html import unescape
 
     _seed("JPM", _drawable(), sector="Financials")
     body = client.get("/").text
     card = unescape(body.split('class="codecard"', 1)[1].split("</section>", 1)[0])
 
-    assert card.count('class="cc-radio"') == 3
-    for tab in ("curl", "Python", "MCP"):
+    assert card.count('class="cc-radio"') == 4
+    for tab in ("curl", "PowerShell", "Python", "MCP"):
         assert f">{tab}</label>" in card
     # One company throughout, so the tabs cannot disagree about the example.
     assert "curl https://balanceproof.dev/api/demo/JPM" in card
@@ -1797,3 +1797,27 @@ def test_a_company_links_to_its_sector_hub_only_when_the_hub_exists(client):
     page = client.get("/company/JPM").text
     assert 'href="/sector/financials"' in page
     assert client.get("/sector/financials").status_code == 200
+
+
+def test_the_code_card_has_a_powershell_tab_with_curl_exe(client):
+    """Windows PowerShell aliases curl to Invoke-WebRequest; the tab gives the
+    two commands that work there."""
+    _seed("JPM", _drawable(), sector="Financials")
+    from html import unescape
+
+    card = client.get("/").text.split('class="codecard"', 1)[1].split("</section>", 1)[0]
+    assert 'id="cc-t-ps"' in card and '<label for="cc-t-ps">PowerShell</label>' in card
+    ps = unescape(card.split('id="cc-ps-req">', 1)[1].split("</code>", 1)[0])
+    assert "curl.exe https://balanceproof.dev/api/demo/" in ps
+    assert 'curl.exe -H "X-API-Key: YOUR_KEY" https://balanceproof.dev/api/company/' in ps
+    assert 'Invoke-RestMethod -Uri https://balanceproof.dev/api/company/' in ps
+    assert '-Headers @{"X-API-Key"="YOUR_KEY"}' in ps
+    # the curl tab is still the default without the script
+    assert 'id="cc-t-curl"\n        aria-label="curl" checked' in card
+
+
+def test_the_docs_say_to_use_curl_exe_on_windows_powershell(client):
+    api = " ".join(client.get("/api").text.split())
+    assert "On Windows PowerShell, use <code>curl.exe</code>" in api
+    dash = " ".join(client.get("/dashboard").text.split())
+    assert dash.count("On Windows PowerShell, use <code>curl.exe</code>") == 2

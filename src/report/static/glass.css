@@ -2372,3 +2372,19 @@ body[data-bd="fluted"] .scell .sv {
     grid-template-columns: repeat(6, minmax(0, 1fr));
   }
 }
+
+/* ---- the code card's PowerShell tab: the same rules as the other three -------- */
+#cc-t-ps:checked ~ .cc-p-ps { display: block; }
+#cc-t-ps:checked ~ .cc-tabs label[for="cc-t-ps"] { color: var(--ink); border-bottom-color: var(--ink); }
+#cc-t-ps:focus-visible ~ .cc-tabs label[for="cc-t-ps"] { outline: 2px solid var(--ink); outline-offset: -3px; border-radius: 8px; }
+body[data-bd="fluted"] #cc-t-ps:checked ~ .cc-tabs label[for="cc-t-ps"] {
+  color: #d7deff;
+  text-shadow: 0 0 14px rgba(120, 150, 255, .45);
+}
+/* four tabs on a phone: tighter, and the row scrolls rather than wraps */
+@media (max-width: 460px) {
+  .cc-tabs { overflow-x: auto; scrollbar-width: none; white-space: nowrap; }
+  .cc-tabs::-webkit-scrollbar { display: none; }
+  .cc-tabs label { padding: 0 10px; }
+}
+.ps-note { font-size: 13px; }

@@ -788,7 +788,14 @@ def _excerpt(sample: dict) -> tuple[str, int, int]:
 
 
 def _code_card(ticker: str, sample: dict | None) -> str:
-    """A request and its real response, three ways: curl, Python, MCP.
+    """A request and its real response, four ways: curl, PowerShell, Python, MCP.
+
+    PowerShell has its own tab because in Windows PowerShell `curl` is an alias
+    for Invoke-WebRequest, which does not take curl's flags: the curl tab's
+    command fails there as typed. `curl.exe` reaches the real curl Windows has
+    shipped since 2018, and Invoke-RestMethod is the native alternative.
+    home.js opens this tab by default on Windows; without the script, curl stays
+    the default.
 
     Radio inputs and sibling selectors do the tabbing, so the three panels are
     all in the DOM and the switch works with the script blocked. The Copy
@@ -813,6 +820,17 @@ def _code_card(ticker: str, sample: dict | None) -> str:
         "\n"
         "# Your own key opens the full API\n"
         f'curl -H "X-API-Key: YOUR_KEY" {origin}/api/company/{ticker}'
+    )
+    ps_req = (
+        "# No key needed for the demo endpoint\n"
+        f"curl.exe {origin}/api/demo/{ticker}\n"
+        "\n"
+        "# Your own key opens the full API\n"
+        f'curl.exe -H "X-API-Key: YOUR_KEY" {origin}/api/company/{ticker}\n'
+        "\n"
+        "# Or PowerShell's own command, no curl.exe needed\n"
+        f"Invoke-RestMethod -Uri {origin}/api/company/{ticker} "
+        '-Headers @{"X-API-Key"="YOUR_KEY"}'
     )
     py_req = (
         "import requests\n"
@@ -855,12 +873,15 @@ def _code_card(ticker: str, sample: dict | None) -> str:
     <div class="cc">
       <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-curl"
         aria-label="curl" checked>
+      <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-ps"
+        aria-label="PowerShell">
       <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-py"
         aria-label="Python">
       <input class="cc-radio" type="radio" name="cc-tab" id="cc-t-mcp"
         aria-label="MCP">
       <div class="cc-tabs">
         <label for="cc-t-curl">curl</label>
+        <label for="cc-t-ps">PowerShell</label>
         <label for="cc-t-py">Python</label>
         <label for="cc-t-mcp">MCP</label>
       </div>
@@ -873,6 +894,17 @@ def _code_card(ticker: str, sample: dict | None) -> str:
         <p class="cc-foot">Trimmed to {kept} of the {total} line items, the
           ones the check uses. The whole answer is
           <a href="/api/demo/{symbol}">/api/demo/{symbol}</a>.</p>
+      </div>
+
+      <div class="cc-panel cc-p-ps">
+        <p class="cc-cap">Request {copy_btn("cc-ps-req")}</p>
+        <pre class="code" tabindex="0"><code id="cc-ps-req">{escape(ps_req)}</code></pre>
+        <p class="cc-cap">Response <span>{label}, for {symbol} &middot; scrolls</span></p>
+        <pre class="code json" tabindex="0"><code>{escape(response)}</code></pre>
+        <p class="cc-foot">In Windows PowerShell, plain <code>curl</code> is an
+          alias for <code>Invoke-WebRequest</code> and will not take these
+          flags; <code>curl.exe</code> is the real curl that ships with Windows
+          10 and 11.</p>
       </div>
 
       <div class="cc-panel cc-p-py">

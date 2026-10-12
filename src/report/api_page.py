@@ -113,6 +113,10 @@ def render_api(
       regenerate from the dashboard if lost.</p>
     <pre class="code api-code"><code>curl -H "X-API-Key: YOUR_KEY" \\
   {host}/api/company/JPM</code></pre>
+    <p class="plan-note">On Windows PowerShell, use <code>curl.exe</code> and
+      keep the command on one line: plain <code>curl</code> there is
+      <code>Invoke-WebRequest</code>, and the backslash is not a line break.
+      <code>curl.exe -H "X-API-Key: YOUR_KEY" {host}/api/company/JPM</code></p>
     <p class="plan-note">Lost it? <a href="/dashboard">Sign in</a>. The
       dashboard shows the first eight characters, so you can tell which key
       an account is holding, and a Regenerate button that issues a new one.

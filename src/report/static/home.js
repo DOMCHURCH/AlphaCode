@@ -236,6 +236,19 @@
 
   var KEY_STORE = "toscale.api_key";   // the dashboard's own store; keep in step
 
+  /* Windows, where `curl` in PowerShell is Invoke-WebRequest and only
+     `curl.exe` takes curl's flags. userAgentData first (Chromium), then the
+     older platform and user-agent strings. A wrong guess costs nothing: the
+     command still works in cmd and PowerShell, and every tab is a click away. */
+  function onWindows() {
+    try {
+      var uad = navigator.userAgentData;
+      if (uad && uad.platform) return /windows/i.test(uad.platform);
+    } catch (e) { /* fall through */ }
+    return /win/i.test(navigator.platform || "") || /windows/i.test(navigator.userAgent || "");
+  }
+  var CURL = onWindows() ? "curl.exe" : "curl";
+
   function legacyCopy(text) {
     var box = document.createElement("textarea");
     box.value = text;
@@ -299,9 +312,10 @@
         var ticker = out.getAttribute("data-ticker") || "AAPL";
         out.querySelector("[data-keyvalue]").textContent = key;
         /* One line, no backslash continuation: it has to paste into bash, cmd
-           and PowerShell alike. */
+           and PowerShell alike -- and `curl.exe` on Windows, where PowerShell's
+           `curl` is Invoke-WebRequest. Copy copies exactly what is shown. */
         out.querySelector("[data-keycurl]").textContent =
-          'curl -H "X-API-Key: ' + key + '" ' +
+          CURL + ' -H "X-API-Key: ' + key + '" ' +
           location.origin + "/api/company/" + ticker;
         form.hidden = true;
         out.hidden = false;
@@ -369,6 +383,10 @@
   }
 
   document.addEventListener("DOMContentLoaded", function () {
+    /* The code card opens on the PowerShell tab on Windows. The tabs are radio
+       inputs, so this only changes which one starts checked. */
+    var ps = document.getElementById("cc-t-ps");
+    if (ps && onWindows()) ps.checked = true;
     Array.prototype.forEach.call(
       document.querySelectorAll("[data-copy-from]"), wireCopy
     );

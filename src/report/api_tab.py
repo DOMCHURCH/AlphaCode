@@ -69,6 +69,8 @@ def render_api_tab() -> str:
     <div class="nextup keyed" id="next-steps" hidden>
       <p class="sec-sub">Try it in one line:</p>
       <pre class="code"><code id="next-curl">curl -H "X-API-Key: YOUR_KEY"   https://balanceproof.dev/api/company/JPM</code></pre>
+      <p class="sec-sub ps-note">On Windows PowerShell, use <code>curl.exe</code>
+        in place of <code>curl</code>, on one line.</p>
       <p class="sec-sub">Then:
         <a href="/api">read the API reference</a>, or
         <a href="/methodology">see how the numbers are verified</a>.</p>
@@ -114,6 +116,10 @@ def render_api_tab() -> str:
     <p class="exlabel">curl</p>
     <pre class="code"><code id="curl-example">curl -H "X-API-Key: YOUR_KEY" \\
   https://HOST/api/company/{TICKER}</code></pre>
+    <p class="sec-sub ps-note">On Windows PowerShell, use <code>curl.exe</code>
+      in place of <code>curl</code> and put it on one line: plain
+      <code>curl</code> there is <code>Invoke-WebRequest</code>, and the
+      backslash is not a line break.</p>
 
     <p class="exlabel">Python</p>
     <pre class="code"><code id="py-example">import requests
