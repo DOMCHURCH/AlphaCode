@@ -1617,11 +1617,13 @@ def render_home(
     from src.company.stats import component_coverage
     from src.report.nav import render_disclaimer, render_footer
 
-    # The page keeps what it always said; the shared part is added around it.
+    # The source attribution, in the company's voice: BalanceProof, not a
+    # person (no name, no age, no "solo" -- the vault's voice rule). The
+    # shared part, legal and contact links included, is added around it.
     footer = render_footer(
-        'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
-        ' rel="noopener">SEC Financial Statement Data Sets</a>. Founded by '
-        'Dominique Church.'
+        'BalanceProof. Source: <a href="https://www.sec.gov/dera/data/'
+        'financial-statement-data-sets" rel="noopener">SEC Financial Statement '
+        'Data Sets</a>.'
         # No public link to /admin: the operator opens it by URL. The routes
         # themselves are unchanged and /admin.json and every action route
         # still require the admin secret.

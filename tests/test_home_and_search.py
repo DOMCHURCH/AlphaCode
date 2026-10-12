@@ -1760,3 +1760,18 @@ def test_the_drawing_is_explained_against_the_real_filing(client):
     assert "Both columns are the same money, counted twice" in drawn
     assert "In the drawing above" in drawn
     assert body.index("hero-bs") < body.index('id="drawn"')
+
+
+def test_the_home_footer_speaks_as_the_company(client):
+    """Company voice: the footer names BalanceProof and the source, never a
+    person, an age or "solo", and keeps the legal and contact links."""
+    _seed("JPM", _drawable(), sector="Financials")
+    footer = client.get("/").text.split("<footer>", 1)[1].split("</footer>", 1)[0]
+    flat = " ".join(footer.split())
+
+    assert flat.startswith("BalanceProof. Source:")
+    assert "SEC Financial Statement Data Sets" in flat
+    for gone in ("Founded by", "Dominique", "Church", "solo", "years old"):
+        assert gone not in flat, gone
+    for link in ('href="/terms"', 'href="/privacy"', "mailto:"):
+        assert link in footer, link
