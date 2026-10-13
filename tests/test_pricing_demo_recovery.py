@@ -849,8 +849,8 @@ def test_a_short_plan_faq_answers_the_four_questions(client):
     assert "no card and no password" in flat
     assert "Manage subscription" in flat and "14-day refund window" in flat
     assert "HTTP 429" in flat and "no overage billing" in flat
-    # ordered after the plans and before the founder note
-    assert html.index('id="pricing"') < html.index('id="plan-faq"') < html.index('id="why"')
+    # ordered after the plans and before the research notes
+    assert html.index('id="pricing"') < html.index('id="plan-faq"') < html.index('id="research"')
 
 
 def test_the_header_is_solid_and_the_phone_menu_is_its_own_opaque_sheet():

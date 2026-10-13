@@ -176,10 +176,9 @@ def test_home_draws_a_real_thumbnail_from_the_same_view_as_the_page(client):
     cash = next(b for b in d["assets"] if b["label"] == "Cash")
 
     assert cash["pct"] == pytest.approx(25.0)
-    # 25% of the 88px thumbnail column, drawn to the same proportion. Which
-    # block the card LABELS is a separate decision (see the card-label tests);
-    # what is asserted here is that the picture is the same picture.
-    assert "height:22.0px" in body
+    # 25% of the 340px column the home drawing is built in (_STAGE_COLUMN_PX),
+    # drawn to the same proportion: the picture is the same picture.
+    assert "height:85.0px" in body
 
 
 def test_home_says_so_when_nothing_is_loaded(client):
@@ -190,27 +189,6 @@ def test_home_says_so_when_nothing_is_loaded(client):
     assert "No filed statements loaded yet" in body
     assert 'href="/admin"' in body
     assert 'href="/company/' not in body
-
-
-def test_home_offers_a_ticker_it_cannot_draw_without_a_fake_thumbnail(
-    client, monkeypatch
-):
-    """A drawing that will not build is absent, never a placeholder -- a
-    placeholder is a picture of nothing presented as a company."""
-    import src.company.view1 as v1
-
-    _seed("JPM", _drawable(), sector="Financials")
-
-    def no_view(ticker, *a, **kw):
-        raise RuntimeError("view exploded")
-
-    monkeypatch.setattr(v1, "build_view1", no_view)
-    r = client.get("/")
-
-    assert r.status_code == 200, "one bad ticker must not take the page down"
-    assert 'href="/company/JPM"' in r.text
-    assert "card bare" in r.text
-    assert "thumb" not in r.text
 
 
 # ------------------------------------------------------------- card labels
@@ -445,43 +423,44 @@ def test_the_page_still_says_what_it_does_not_do(client):
 
 # ------------------------------------------------------- search-first landing
 def test_the_landing_page_puts_the_key_and_a_real_call_before_showing_off(client):
-    """One page, in the order a first-time reader needs it.
+    """One page, in the order a first-time reader decides in.
 
-    The free-key form and a real request and response come first, then the
-    strip as the evidence, then one real filing drawn, the live demo, three
-    short steps, the plans and the sign-up again. `#demo < #how < #pricing`
-    is also pinned by tests/test_pricing_demo_recovery.py.
+    What it is (the claim), the demo command (the card), the free key, the
+    strip as the evidence, one real filing drawn, the three steps, the demo
+    box, the two plain lists, the price, the plan questions and the research
+    notes. `#how < #demo < #pricing` is also pinned by
+    tests/test_pricing_demo_recovery.py.
 
-    This replaces the order "search box, strip, drawing, explanation": the
-    hero is the free-key form now, and the strip follows the card instead of
-    being lifted above the hero.
+    This replaces the order that put the key in the header and closed on a
+    second sign-up: there is one key form now, under the command it unlocks,
+    and the page ends on something to read.
     """
     _seed("JPM", _drawable(), sector="Financials")
 
     body = client.get("/").text
     order = [
         'class="htitle"',
-        "data-keyform",
         'class="codecard"',
+        "data-keyform",
         'class="strip"',
-        'id="how"',
         "hero-bs",
+        'id="how"',
         'id="demo"',
-        'id="try"',
-        'id="hard"',
-        'id="pricing"',
         'id="sources"',
         'id="limits"',
-        'id="why"',
-        'id="start"',
+        'id="pricing"',
+        'id="plan-faq"',
+        'id="research"',
     ]
     at = [body.index(marker) for marker in order]
     assert at == sorted(at), dict(zip(order, at))
     # The drawing is the hero's own, from the same view the company page uses.
     assert body.index('href="/company/JPM"') > body.index('class="strip"')
-    # "Why this is hard" is back, short; the made-up schematic is not: the
-    # explanation of the drawing points at the real filing instead.
-    assert "Why this is hard" in body
+    # The sections that repeated the explanation, the sign-up or the report are
+    # gone, and the made-up schematic is not back.
+    for gone in ("Why this is hard", "Why we built this", "Other filings, same check",
+                 'id="try"', 'id="start"', 'id="drawn"', 'id="hard"', 'id="why"'):
+        assert gone not in body, gone
     assert 'class="example"' not in body
 
 
@@ -884,18 +863,6 @@ def test_the_status_strip_has_no_updated_cell(client):
     assert not hasattr(hp, "_pipeline_age")
 
 
-def test_the_suggestions_say_why_each_one_is_there(client):
-    """One word each. "negative equity" is the reason AAL is on the list;
-    "an airline" would only describe it."""
-    _seed("JPM", _drawable(), sector="Financials")
-    _seed("AAL", _drawable(total_equity=-50e6, total_liabilities=1_050e6))
-
-    body = client.get("/").text
-
-    assert ">bank<" in body
-    assert ">negative equity<" in body
-
-
 # ----------------------------------------------------------------------- search
 @pytest.mark.parametrize(
     "query,expected",
@@ -1195,25 +1162,25 @@ def test_the_service_is_branded_to_scale(client):
 
 
 def test_the_homepage_actually_asks_for_something(client):
-    """It had no button at all, then a button to a dashboard. The ask is now the
-    form itself: one field and "Get my free key", in the hero and again at the
-    close, with the objection answered where it forms."""
+    """The ask is the form itself: one field and "Get my free key", once, under
+    the demo command, with the objection answered where it forms."""
     body = client.get("/").text
     main = body.split("<main", 1)[1]
+    block = main.split('id="free-key"', 1)[1].split("</section>", 1)[0]
 
-    # In the hero, not only at the foot: a reader who is already convinced
-    # should not have to scroll past the whole explanation to act.
-    hero = main.split("</header>", 1)[0]
-    assert "Get my free key" in hero, "the call to action is below the fold"
-    assert "data-keyform" in hero
-    assert 'href="/api"' in hero, "the docs are one click from the hero"
-
-    # And the objection answered where it forms.
-    assert "no card" in hero.lower()
-    assert "no password" in hero.lower()
-
-    # And again at the foot, for the reader who scrolled the whole page first.
-    assert main.count("Get my free key") >= 2
+    assert "Get my free key" in block and "data-keyform" in block
+    assert 'href="/api"' in block, "the docs are one click from the form"
+    assert "no card" in block.lower() and "no password" in block.lower()
+    # One form, not one per section: the closing sign-up, the strip that pointed
+    # at it and the second "API docs" button are gone.
+    assert main.count("Get my free key") == 1
+    assert main.count("data-keyform") == 1
+    assert 'id="try"' not in main and 'id="start"' not in main
+    assert 'class="api-cta' not in main, "no row of buttons repeating the docs link"
+    assert main.count('class="keyblock-links"') == 1
+    # In the first screen's worth of page: before the explanation, the demo box
+    # and the price, with or without a drawing to show.
+    assert main.index("Get my free key") < main.index('id="how"')
 
 
 def test_the_demo_comes_before_the_price(client):
@@ -1228,16 +1195,21 @@ def test_the_demo_comes_before_the_price(client):
     assert demo < price, "pricing appears before the demo again"
 
 
-def test_the_page_does_not_end_on_what_it_cannot_do(client):
-    """"What this doesn't do" is the right note to be honest on and the wrong
-    one to strand a convinced reader on."""
+def test_the_page_ends_on_something_to_read_after_the_price(client):
+    """Not on "What this doesn't do", which strands a convinced reader, and not
+    on a second sign-up: the price, the plan questions, then the research notes,
+    which link on to the blog and back to pricing."""
     body = client.get("/").text
     main = body.split("<main", 1)[1]
 
     limits = main.find("What this doesn't do")
-    closing = main.find('id="start"')
-    assert limits != -1 and closing != -1
-    assert limits < closing, "nothing to act on after the limits"
+    price = main.find("<h2>Pricing</h2>")
+    research = main.find('id="research"')
+    assert -1 not in (limits, price, research)
+    assert limits < price < research, "nothing to act on after the limits"
+    assert main.index('id="plan-faq"') < research
+    tail = main[research:]
+    assert 'href="/blog"' in tail and 'href="/pricing"' in tail
 
 
 # ----------------------------------------------------- the API front door
@@ -1265,17 +1237,23 @@ def test_the_hero_leads_with_the_api_and_a_one_field_key_form(client):
     assert "Assets = Liabilities + Equity" in flat_hero
     assert "flagged with the reason" in flat_hero
 
-    form = hero.split("<form", 1)[1].split("</form>", 1)[0]
+    # The header is the claim and nothing else. The demo command follows it, and
+    # the one key form follows that.
+    assert "<form" not in hero and "Get my free key" not in hero
+    assert body.index('class="codecard"') < body.index('id="free-key"')
+    block = body.split('id="free-key"', 1)[1].split("</section>", 1)[0]
+    form = block.split("<form", 1)[1].split("</form>", 1)[0]
     assert form.count("<input") == 1 and 'type="email"' in form
     assert ">Get my free key<" in form
+    assert "prove they balance" in block
 
     # Read from settings, never typed: production runs its own allowance.
     calls = get_settings().free_tier_monthly_calls
-    assert f"{calls:,} calls a month. No card, no password." in hero
-    assert ">API docs<" in hero and 'href="/api"' in hero
+    assert f"{calls:,} calls a month. No card, no password." in block
+    assert ">API docs<" in block and 'href="/api"' in block
     # "Asked" is what the server requires of accept_terms: the sentence sits
     # next to the form, and the script only sends it from a submit made there.
-    assert 'href="/terms"' in hero and 'href="/privacy"' in hero
+    assert 'href="/terms"' in block and 'href="/privacy"' in block
 
 
 def test_the_key_forms_work_without_script_and_the_key_panel_ships_hidden(client):
@@ -1283,13 +1261,11 @@ def test_the_key_forms_work_without_script_and_the_key_panel_ships_hidden(client
     body = client.get("/").text
 
     forms = re.findall(r"<form[^>]*data-keyform[^>]*>", body)
-    assert len(forms) == 2, "the hero's and the closing call to action's"
+    assert len(forms) == 1, "one key form, under the demo command"
     for tag in forms:
         # Blocked script: a GET to the dashboard, which has the sign-up form.
         assert 'action="/dashboard"' in tag and 'method="get"' in tag
-    assert sorted(re.findall(r'id="((?:hero|cta)-email)"', body)) == [
-        "cta-email", "hero-email",
-    ]
+    assert re.findall(r'id="((?:hero|cta)-email)"', body) == ["hero-email"]
 
     # Anything that needs script is hidden until script reveals it, so a
     # failed script leaves nothing dead on the page.
@@ -1427,25 +1403,22 @@ def _seed_flagged_blank_cheque() -> None:
     }, sector="Financials")
 
 
-def test_a_real_flagged_filing_is_drawn_beside_the_one_that_balances(client):
+def test_the_home_page_draws_one_filing_even_when_a_flagged_one_exists(client):
+    """"One example result": the balanced filing is drawn, and the flagged one
+    that used to sit beside it is the report's subject, linked from the
+    research notes, not a second panel."""
     _seed("JPM", _drawable(), sector="Financials")
     _seed_flagged_blank_cheque()
 
     body = client.get("/").text
-    stage = body.split('class="sec hero-bs stage two"', 1)[1].split("</section>", 1)[0]
+    stage = body.split('class="sec hero-bs stage one"', 1)[1].split("</section>", 1)[0]
 
-    assert stage.count('class="bs-panel') == 2
+    assert stage.count('class="bs-panel') == 1
     assert 'class="bs-panel ok"' in stage and ">Balances<" in stage
-    assert 'class="bs-panel flag"' in stage and ">Flagged, and here is why<" in stage
-    assert "Not read from this filing" in stage, "the gap is drawn, not hidden"
-    flag_note = stage.split('class="bs-panel flag"', 1)[1].split("</figure>", 1)[0]
-    flat = " ".join(flag_note.split())
-    assert "the filer's own stated total balances" in flat
-    assert "did not reach us" in flat
-    # A gap in what we read is not an accusation about the company.
-    for banned in ("fraud", "misstat", "red flag", "irregular"):
-        assert banned not in flat.lower(), banned
-    assert 'href="/company/AACB"' in stage
+    assert 'class="bs-panel flag"' not in body
+    assert "Flagged, and here is why" not in body
+    assert 'href="/company/AACB"' not in body
+    assert "One real filing, drawn" in stage
 
 
 def test_the_flagged_panel_is_left_out_when_the_filing_balances(client):
@@ -1484,8 +1457,8 @@ def test_the_line_by_line_tables_are_folded_not_deleted(client):
     body = client.get("/").text
     stage = body.split('class="sec hero-bs stage', 1)[1].split("</section>", 1)[0]
 
-    assert stage.count('<details class="bs-lines">') == 2
-    assert stage.count('<table class="legend">') == 4
+    assert stage.count('<details class="bs-lines">') == 1
+    assert stage.count('<table class="legend">') == 2
     assert "<summary>Line by line</summary>" in stage
     assert "open" not in re.search(r'<details class="bs-lines"[^>]*>', stage).group(0)
 
@@ -1659,7 +1632,7 @@ def test_the_footer_still_says_restatements(client):
     assert ">Restatements<" in footer
 
 
-def test_the_why_note_uses_only_what_the_published_report_says(client):
+def test_the_research_note_uses_only_what_the_published_report_says(client):
     """The three numbers in the note are the report's own, so they are checked
     against the post rather than trusted."""
     from pathlib import Path
@@ -1674,23 +1647,26 @@ def test_the_why_note_uses_only_what_the_published_report_says(client):
 
     _seed("JPM", _drawable(), sector="Financials")
     body = client.get("/").text
-    why = body.split('id="why"', 1)[1].split("</section>", 1)[0]
-    assert "Why we built this" in why and f"/blog/{hp._REPORT_SLUG}" in why
+    why = body.split('id="research"', 1)[1].split("</section>", 1)[0]
+    assert "<h2>Research</h2>" in why and f"/blog/{hp._REPORT_SLUG}" in why
     assert "Dominique" not in why and "Church" not in why and "I'm" not in why and " I " not in why
     assert "995" in why and "38,568" in why and "971" in why
     for invented in ("customers", "testimonial", "trusted", "rated", "stars", "solo", "years old", "founder"):
         assert invented not in why.lower(), invented
+    # the notes it links exist
+    for slug in ("what-a-failed-identity-check-means", "understanding-the-accounting-identity"):
+        assert f'href="/blog/{slug}"' in why
+        assert client.get(f"/blog/{slug}").status_code == 200
 
 
-def test_a_strip_after_how_it_works_offers_a_key_and_the_docs(client):
+def test_the_page_has_one_sign_up_and_no_second_strip_for_it(client):
     _seed("JPM", _drawable(), sector="Financials")
     body = client.get("/").text
-    strip = body.split('id="try"', 1)[1].split("</aside>", 1)[0]
 
-    assert body.index('id="how"') < body.index('id="try"') < body.index('id="pricing"')
-    assert ">Get free key<" in strip and 'href="#start"' in strip
-    assert ">API docs<" in strip and 'href="/api"' in strip
-    assert "prove they balance" in strip
+    assert 'id="try"' not in body and 'id="start"' not in body
+    assert "cta-strip" not in body
+    # the tagline now heads the one key form
+    assert body.index("prove they balance") > body.index('id="free-key"')
 
 
 def test_the_counts_on_the_page_are_computed_from_the_database(client):
@@ -1731,11 +1707,16 @@ def test_the_card_label_says_illustrative_for_seeded_rows(client):
     assert "illustrative, for " in client.get("/").text
 
 
-def test_the_search_box_is_back_on_the_home_page(client):
+def test_the_search_box_sits_under_the_example_it_leads_to(client):
     _seed("JPM", _drawable(), sector="Financials")
-    hero = client.get("/").text.split('<header class="hero">', 1)[1].split("</header>", 1)[0]
-    assert '<form class="search" action="/search" method="get" role="search">' in hero
-    assert 'id="q" name="q"' in hero
+    body = client.get("/").text
+    assert '<form class="search" action="/search" method="get" role="search">' in body
+    find = body.split('id="find"', 1)[1].split("</section>", 1)[0]
+    assert 'id="q" name="q"' in find
+    # not in the header any more: the header is the claim
+    hero = body.split('<header class="hero">', 1)[1].split("</header>", 1)[0]
+    assert 'id="q"' not in hero
+    assert body.index("hero-bs") < body.index('id="find"')
 
 
 def test_the_restored_sections_are_short_lists_from_live_counts(client):
@@ -1743,25 +1724,22 @@ def test_the_restored_sections_are_short_lists_from_live_counts(client):
     body = client.get("/").text
     sources = body.split('id="sources"', 1)[1].split("</section>", 1)[0]
     limits = body.split('id="limits"', 1)[1].split("</section>", 1)[0]
-    hard = body.split('id="hard"', 1)[1].split("</section>", 1)[0]
 
     assert sources.count("<li>") == 4
     assert "checked against assets = liabilities + equity" in sources
     assert limits.count("<li>") == 3 and "No predictions" in limits
-    assert hard.count('class="hardrow"') == 3
-    for block in hard.split('class="hardrow"')[1:]:
-        text = block.split("<p>", 1)[1].split("</p>", 1)[0]
-        assert len(text) < 240, "two or three lines, not a paragraph"
     assert "one time in five" not in " ".join(body.lower().split())
 
 
 def test_the_drawing_is_explained_against_the_real_filing(client):
+    """One explanation, attached to the real filing, and said once: the
+    standalone "counted twice" section that repeated it is gone."""
     _seed("JPM", _drawable(), sector="Financials")
     body = client.get("/").text
-    drawn = body.split('id="drawn"', 1)[1].split("</section>", 1)[0]
-    assert "Both columns are the same money, counted twice" in drawn
-    assert "In the drawing above" in drawn
-    assert body.index("hero-bs") < body.index('id="drawn"')
+    stage = body.split("hero-bs", 1)[1].split("</section>", 1)[0]
+    assert "Both columns are the same money, counted twice" in stage
+    assert body.count("Both columns are the same money, counted twice") == 1
+    assert 'id="drawn"' not in body
 
 
 def test_the_home_footer_speaks_as_the_company(client):

@@ -328,8 +328,18 @@
            whole claim is that reading is free. Whichever comes first: the
            reader has gone past the fold, or ten seconds have passed. */
         var fired = false;
+        /* The home page's demo command (#example) is the argument of the page.
+           A modal over it while somebody is reading it is the one thing this
+           sheet must not do, so there it waits until the card has scrolled out
+           of view. Every other page has no such card and is unaffected. */
+        function demoInView() {
+          var card = document.getElementById("example");
+          if (!card) return false;
+          var r = card.getBoundingClientRect();
+          return r.bottom > 0 && r.top < window.innerHeight;
+        }
         function go() {
-          if (fired) return;
+          if (fired || demoInView()) return;
           fired = true;
           window.removeEventListener("scroll", onScroll);
           window.clearTimeout(timer);

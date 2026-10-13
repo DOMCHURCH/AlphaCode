@@ -180,6 +180,7 @@ STYLED_SLUGS: tuple[str, ...] = (
     "what-i-got-wrong-about-sec-filings",
     "five-ways-a-balance-sheet-fails",
     "which-sec-balance-sheets-fail-the-identity-check",
+    "what-a-failed-identity-check-means",
 )
 
 # Posts written under the no-em-dash rule. Scoped rather than site-wide on
@@ -189,6 +190,7 @@ STYLED_SLUGS: tuple[str, ...] = (
 NO_EM_DASH_SLUGS: tuple[str, ...] = (
     "what-i-got-wrong-about-sec-filings",
     "five-ways-a-balance-sheet-fails",
+    "what-a-failed-identity-check-means",
 )
 
 

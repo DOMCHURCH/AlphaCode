@@ -2498,3 +2498,45 @@ nav.crumbs, body[data-bd="fluted"] nav.crumbs {
   background: none; border: 0; -webkit-backdrop-filter: none; backdrop-filter: none;
   position: static; padding: 0; margin-top: 14px;
 }
+
+/* ---- /blog: sections, filter and sort ------------------------------------------ */
+.blog-sec { margin-top: 40px; }
+.blog-sec[hidden], .blog-tools[hidden], .blog-jump[hidden] { display: none; }
+.blog-sec-h { margin: 0 0 6px; font: 600 24px/1.2 var(--disp); color: var(--ink); letter-spacing: -.01em; }
+.blog-sec .sec-sub { margin: 0 0 16px; color: var(--ink2); }
+.blog-jump { margin: 22px 0 0; font-size: 14.5px; color: var(--ink2); }
+.blog-tools { display: grid; gap: 12px; margin: 24px 0 0; }
+.blog-chips { display: flex; flex-wrap: wrap; gap: 8px; min-width: 0; }
+.blog-tools .tab { cursor: pointer; }
+.blog-tools .tab span { margin-left: 4px; color: var(--dim); font-family: var(--mono); font-size: 12px; }
+.blog-tools .tab.on span { color: var(--ink2); }
+.blog-tools .formnote { margin: 0; min-height: 1.4em; }
+@media (max-width: 620px) {
+  .blog-tools .tab { padding: 9px 14px; font-size: 13.5px; }
+  .blog-sec-h { font-size: 21px; }
+}
+
+/* ---- home: claim, demo command, free key -------------------------------------
+   One grid on a wide screen: the claim top left, the free key under it, the demo
+   command card on the right spanning both. On a phone they stack in DOM order,
+   which is the same order: claim, command, key. */
+.keyblock { margin: 0; min-width: 0; }
+.keyblock-h { margin: 0 0 16px; font: 600 clamp(20px, 2.2vw, 26px)/1.25 var(--disp); letter-spacing: -.01em; color: var(--ink); }
+.keyblock .keyform { margin-top: 0; }
+.keyblock .summary { margin: 14px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--ink2); }
+.keyblock-links { margin: 12px 0 0; font-size: 14px; color: var(--ink2); }
+.keyblock-links a { color: var(--ink2); border-bottom: 1px solid var(--edge); }
+.keyblock-links a:hover { color: var(--ink); border-bottom-color: var(--ink); }
+.find { margin-top: 0; }
+.find .sec-sub { margin-bottom: 14px; }
+@media (min-width: 901px) {
+  body[data-bd="fluted"] .intro {
+    align-items: start;
+    grid-template-areas: "hero card" "key card";
+    grid-template-rows: auto 1fr;
+    row-gap: 0;
+  }
+  body[data-bd="fluted"] .intro > .hero { grid-area: hero; padding-bottom: 6px; margin-bottom: 0; }
+  body[data-bd="fluted"] .intro > .codecard { grid-area: card; align-self: center; }
+  body[data-bd="fluted"] .intro > .keyblock { grid-area: key; align-self: start; margin-top: 18px; }
+}

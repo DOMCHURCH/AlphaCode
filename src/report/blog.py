@@ -49,10 +49,25 @@ class Post:
     # the article AND as FAQPage JSON-LD, from this one tuple, so the markup
     # can never claim an answer the page does not show (see `faq_ld`).
     faq: tuple[tuple[str, str], ...] = ()
+    # The one label the blog index files this post under; one of `SECTIONS`.
+    # Every post sets it, and tests/test_blog_index.py fails on a label that
+    # is not in the list, so a typo cannot make a post vanish from the index.
+    section: str = "Guides"
+
+
+# The index sections, in the order they are shown. The sentence under each
+# is what a reader sees when picking one.
+SECTIONS: tuple[tuple[str, str], ...] = (
+    ("Method", "How the identity check works and what it can tell apart."),
+    ("Data quality", "What goes wrong in SEC filing data, with counts."),
+    ("Comparisons", "How the SEC's own data sources differ from each other."),
+    ("Guides", "Working with SEC EDGAR data, step by step."),
+)
 
 
 _POST_XBRL_ACCURACY = Post(
     slug="sec-xbrl-data-wrong-one-in-five",
+    section="Data quality",
     # The subject is the PARSER, not the SEC. This post is linked directly
     # beneath the identity sentence on every flagged company page, and the
     # earlier title -- "Why SEC XBRL Data Is Wrong" -- read as a second
@@ -246,6 +261,7 @@ the one bug report we actually want.</p>
 
 _POST_BANK_BALANCE_SHEETS = Post(
     slug="why-bank-balance-sheets-are-different",
+    section="Guides",
     title="Why Bank Balance Sheets Are Different",
     seo_title="How to Read a Bank Balance Sheet (Deposits, Loans, Leverage)",
     description=(
@@ -361,6 +377,7 @@ hold in your head — it is the shape of the picture.</p>
 
 _POST_ACCOUNTING_IDENTITY = Post(
     slug="understanding-the-accounting-identity",
+    section="Method",
     # Phrased as the question people type ("accounting identity meaning",
     # "the balance sheet identity is"), and the post now answers it in its
     # first sentence -- the definition was in paragraph three (2026-09-25).
@@ -525,6 +542,7 @@ a closed identity drawn.</p>
 # the hub should meet the most recent thinking rather than the oldest.
 _POST_EDGAR_PIPELINE = Post(
     slug="build-scalable-sec-edgar-pipeline",
+    section="Guides",
     title="How to Build a Scalable SEC EDGAR Pipeline Under the 10 RPS Limit",
     seo_title="SEC EDGAR API Rate Limits: A Python Pipeline Under 10 RPS",
     description=(
@@ -769,6 +787,7 @@ data quality problem yet. You have one you cannot see.</p>
 
 _POST_DUPLICATE_TAGS = Post(
     slug="sec-xbrl-duplicate-tags",
+    section="Data quality",
     title="Why Your SEC Filing Data Is Wrong (And How to Check)",
     seo_title="SEC XBRL Duplicate Tags: How to Check Your Data",
     description=(
@@ -957,6 +976,7 @@ the bug report we actually want.</p>
 # the order here is the editorial decision rather than a detail of the loop.
 _POST_WHAT_I_GOT_WRONG = Post(
     slug="what-i-got-wrong-about-sec-filings",
+    section="Data quality",
     title="What We Got Wrong About SEC Filings",
     seo_title="What We Got Wrong About SEC Filings and XBRL Data",
     description=(
@@ -1112,6 +1132,7 @@ here</a>, and looking things up on the site stays free.</p>
 # gap MEANS once the right figures are in hand.
 _POST_FIVE_FAILURES = Post(
     slug="five-ways-a-balance-sheet-fails",
+    section="Method",
     title="The Five Ways a Balance Sheet Fails the Identity Check",
     # 48 characters. The headline names the number because the number is the
     # point of the piece; the title tag names the SEARCH, which is somebody
@@ -1414,6 +1435,7 @@ noticing. Send us the ticker and the period and we will look.</p>
 
 _POST_TOTAL_LIABILITIES = Post(
     slug="total-liabilities-from-sec-edgar",
+    section="Guides",
     title="Total Liabilities from SEC EDGAR: Why the Obvious Tag Is Often Empty",
     # 54 characters. The headline above keeps "Obvious" because the whole
     # point is that the obvious move fails; in a result list the reader has
@@ -1595,6 +1617,7 @@ usually find out about after they ship.</p>
 
 _POST_SUBMISSIONS_API = Post(
     slug="sec-submissions-api-reconciliation",
+    section="Guides",
     title="The SEC Submissions API: What It Returns, and What It Cannot Reconcile",
     # 56 characters. The query this answers was already reaching the site
     # ("sec edgar submissions api filing reconciliation", position 41) with no
@@ -1782,6 +1805,7 @@ number. <a href="/pricing">The free tier</a> covers the full universe.</p>
 
 _POST_POINT_IN_TIME = Post(
     slug="point-in-time-fundamentals-sec-edgar",
+    section="Guides",
     title="Point-in-Time Fundamentals from SEC EDGAR: Five Ways a Backtest Sees the Future",
     # 55 characters. The queries this is written for: "point in time
     # fundamentals", "lookahead bias fundamentals", "sec edgar backtest".
@@ -1912,6 +1936,7 @@ on the free tier. Every restatement across all companies is in one
 
 _POST_BULK_BALANCE_SHEETS = Post(
     slug="sec-balance-sheet-data-all-companies",
+    section="Comparisons",
     title=(
         "Balance Sheets for Every SEC Filer: Frames API, Financial Statement "
         "Data Sets or companyfacts.zip?"
@@ -2193,6 +2218,7 @@ update.</p>
 
 _POST_COMPANYFACTS_FIELDS = Post(
     slug="sec-companyfacts-fy-fp-frame",
+    section="Comparisons",
     title=(
         "SEC companyfacts: Why fy == 2024 Returns the Wrong Balance Sheet, "
         "and What to Filter On"
@@ -2463,6 +2489,7 @@ bulk routes</a> is the companion to this.</p>
 
 _POST_BALANCE_SHEET_CHECK = Post(
     slug="which-sec-balance-sheets-fail-the-identity-check",
+    section="Data quality",
     title="995 of 38,568 SEC Filings Failed Our Balance Sheet Check",
     # 60 characters. A result list shows the title tag, and the page it leads to
     # reports a count rather than a rate, so the count stays out of the tag and the
@@ -2950,7 +2977,365 @@ for example <a href="/company/NTWO">NTWO</a>, <a href="/company/APLD">APLD</a> a
 )
 
 
+_POST_FAILED_CHECK_MEANS = Post(
+    slug="what-a-failed-identity-check-means",
+    section="Data quality",
+    title=(
+        "Which SEC balance sheets fail the identity check, "
+        "and what that does and doesn't mean"
+    ),
+    # 48 characters, under the 60 a result list shows. The page title is the
+    # long question; the tag is the short one a reader would type.
+    seo_title="What a Failed Balance Sheet Identity Check Means",
+    description=(
+        "What it means when an SEC balance sheet fails Assets = Liabilities + "
+        "Equity: counts from 38,568 filings, two read on EDGAR, and how other "
+        "sources differ."
+    ),
+    summary=(
+        "How to read a failure of our check: three possible causes, two "
+        "filings read against EDGAR, and what the SEC's XBRL APIs, its data "
+        "sets, the filing itself and one commercial API do with the same "
+        "balance sheet."
+    ),
+    published="2026-10-13",
+    updated="2026-10-13",
+    minutes=9,
+    body="""
+<p class="lede">We run one test on every balance sheet we hold: does
+Assets = Liabilities + Equity? In a frozen copy of our database, 995 of 38,568
+testable filings failed it, about one in 39. This note is about what a failure does
+and does not mean. It is a statement about the figures we hold for a filing, not a
+finding that the company's accounts are wrong. In the 20 failures we read against
+EDGAR, the filing balanced on its own figures every time.</p>
+
+<p>The counts, four charts and a CSV of all 995 are in
+<a href="/blog/which-sec-balance-sheets-fail-the-identity-check">the report</a>. This
+note is its companion. It covers how to read a failure, what the SEC's own data
+sources do with the same filings, and where our check stops.</p>
+
+<ul>
+  <li><strong>995 of 38,568</strong> testable filings failed our check in a frozen copy
+  of our database taken on 9 October 2026 at 17:12 UTC. Another 728 could not be tested
+  and are in neither count.</li>
+  <li><strong>971 of the 995</strong> carry our <code>missing_tag</code> label: the
+  filer's own stated total of liabilities and equity agrees with its total assets, and
+  a line on the credit side did not reach our sum.</li>
+  <li><strong>0 of the 995</strong> carry <code>broken</code>, our label for a filing
+  whose own stated total disagrees with its own total assets.</li>
+  <li><strong>20 of 20</strong> failures we read against EDGAR balance on the filer's
+  own figures. That is a sample, and it does not speak for all 995.</li>
+</ul>
+
+<h2>The check</h2>
+
+<p>For one company and one period, total assets should equal total liabilities plus
+total equity, to within half of one percent of total assets. If the plain sum misses,
+we also try adding the lines that sit between or beside liabilities and equity:
+noncontrolling interest, temporary equity, redeemable preferred stock, redeemable
+noncontrolling interest and minority interest in an operating partnership. A filing
+that balances on any of those bases passes. The full definition is on
+<a href="/methodology">how we verify</a>.</p>
+
+<p>Figures are as filed. We do not restate them, and we do not adjust them to make a
+filing balance.</p>
+
+<h2>Method</h2>
+
+<p>Everything with a count in it comes from one frozen copy of our database, taken on
+9 October 2026 at 17:12 UTC, so the numbers do not move while you read them. The unit
+is a filing for one company and one period: a ticker and a period end, using the first
+filing our database holds for that period, kept only if it was filed 0 to 105 days
+after the period ended. A failure is a filing, not a company, and one company can fail
+in several periods. The report sets out the rules in full.</p>
+
+<p>The query below is the one saved with the report for its gap chart, run on that copy. The table is
+called <code>filings</code>. A row is testable when its <code>category</code> is not
+<code>not_testable</code>, and it failed when <code>flagged</code> is 1.</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Our label</th><th scope="col">Failed filings</th>
+        <th scope="col">What the check saw</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><code>missing_tag</code></td><td>971</td>
+        <td>A gap of at least one percent of total assets, and the filer's own stated
+        total agrees with its total assets.</td></tr>
+      <tr><td><code>rounding</code></td><td>14</td>
+        <td>A gap between half of one percent and one percent of total assets.</td></tr>
+      <tr><td><code>unexplained</code></td><td>10</td>
+        <td>A gap of at least one percent, and we hold no stated total to compare
+        with.</td></tr>
+      <tr><td><code>broken</code></td><td>0</td>
+        <td>The filer's own stated total disagrees with its own total assets.</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>The size of the gaps is the next thing to look at. This query counts the 995 failed
+filings by the gap as a share of total assets, on the same copy.</p>
+
+<pre class="code"><code>SELECT
+  CASE
+    WHEN drift_pct &lt;   1 THEN 1
+    WHEN drift_pct &lt;   2 THEN 2
+    WHEN drift_pct &lt;   5 THEN 3
+    WHEN drift_pct &lt;  10 THEN 4
+    WHEN drift_pct &lt;  50 THEN 5
+    WHEN drift_pct &lt; 100 THEN 6
+    ELSE 7
+  END                               AS bin_no,
+  CASE
+    WHEN drift_pct &lt;   1 THEN '0.5 to &lt;1'
+    WHEN drift_pct &lt;   2 THEN '1 to &lt;2'
+    WHEN drift_pct &lt;   5 THEN '2 to &lt;5'
+    WHEN drift_pct &lt;  10 THEN '5 to &lt;10'
+    WHEN drift_pct &lt;  50 THEN '10 to &lt;50'
+    WHEN drift_pct &lt; 100 THEN '50 to &lt;100'
+    ELSE '100 and over'
+  END                               AS bin,
+  COUNT(*)                          AS flagged,
+  MIN(drift_pct)                    AS min_drift,
+  MAX(drift_pct)                    AS max_drift
+FROM filings
+WHERE flagged = 1
+GROUP BY bin_no, bin
+ORDER BY bin_no;</code></pre>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Gap, percent of total assets</th>
+        <th scope="col">Failed filings</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>0.5 to under 1</td><td>14</td></tr>
+      <tr><td>1 to under 2</td><td>26</td></tr>
+      <tr><td>2 to under 5</td><td>80</td></tr>
+      <tr><td>5 to under 10</td><td>75</td></tr>
+      <tr><td>10 to under 50</td><td>178</td></tr>
+      <tr><td>50 to under 100</td><td>544</td></tr>
+      <tr><td>100 and over</td><td>78</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>For 622 of the 995 the gap is half or more of total assets. That is too large to be
+rounding. It looks like one large line missing from our sum, which is what we found in
+the 20 we read. We did not check it for the other 975.</p>
+
+<h2>What a failure can mean</h2>
+
+<p>A failure tells you that the figures we hold for a filing do not add up. The check
+cannot tell you why. There are three possible reasons, and only the first has evidence
+behind it here.</p>
+
+<ol>
+  <li><strong>The line is in the filing and our reader did not pick it up.</strong> This
+  is what we found in all 20 filings we read. In 19 of them the line is tagged under a
+  dimension or a custom concept that our reader does not use. In one, the lines are
+  standard but our ingest keeps only one of two. Two examples follow.</li>
+  <li><strong>The line is tagged in a way many data sources leave out.</strong> The
+  SEC's XBRL APIs say they aggregate facts that use a non-custom taxonomy and apply to
+  the entire filing entity. By that description, a line tagged under a class-of-stock
+  dimension, or with a company's own custom concept, is outside them. This is a
+  property of the tagging and of how a reader is built, and it says nothing about the
+  quality of the filer's accounts.</li>
+  <li><strong>The filing disagrees with itself.</strong> This is the case most readers
+  have in mind. Our label for it is <code>broken</code>: the filer's stated total of
+  liabilities and equity differs from its own total assets by more than the tolerance.
+  No filing in this copy carries it. That is a result for our check on this copy. It
+  does not show that no filing anywhere is inconsistent, and we did not look for other
+  kinds of inconsistency.</li>
+</ol>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)">Example: a blank-check company, NTWO</h3>
+
+<p>Newbury Street II Acquisition Corp (<a href="/company/NTWO">NTWO</a>) filed a
+<a href="https://www.sec.gov/Archives/edgar/data/2028027/000121390025110889/ea0264798-10q_newbury2.htm">10-Q
+for the period ended 30 September 2025</a> on 14 November 2025 (accession
+0001213900-25-110889). We read its
+<a href="https://www.sec.gov/Archives/edgar/data/2028027/000121390025110889/R2.htm">balance
+sheet page</a> on EDGAR on 13 October 2026. Total assets are 181,205,585. Total
+liabilities are 6,164,908 and the shareholders' deficit is -5,069,216. Between them
+sits a line the filing calls Class A ordinary shares subject to possible redemption,
+180,109,893. The filing's closing total of liabilities, those shares and the deficit
+is 181,205,585, equal to total assets. Without the Class A line, liabilities and
+equity come to 1,095,692, a gap of 180,109,893.</p>
+
+<p>The filing balances. Our figures for it did not, because the Class A line is tagged
+only under a class-of-stock dimension, and our reader keeps facts without dimensions.
+On the same date we read the SEC's companyfacts data for this company. It returns total
+assets, total liabilities and the shareholders' deficit for 30 September 2025, with the
+same values, and no value at that date for the tag the filing uses for the Class A
+line.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)">Example: two standard lines, one kept, SLG</h3>
+
+<p>SL Green Realty Corp (<a href="/company/SLG">SLG</a>) filed a
+<a href="https://www.sec.gov/Archives/edgar/data/1040971/000104097125000022/slg-20250331.htm">10-Q
+for the period ended 31 March 2025</a> on 1 May 2025 (accession 0001040971-25-000022).
+Its <a href="https://www.sec.gov/Archives/edgar/data/1040971/000104097125000022/R2.htm">balance
+sheet page</a>, which we read on 13 October 2026, shows amounts in thousands. In
+dollars, total assets are 11,410,623,000, total liabilities 6,972,478,000 and total
+equity 3,953,427,000. Two redeemable lines sit between liabilities and equity:
+noncontrolling interests in the operating partnership, 288,702,000, and preferred
+units, 196,016,000. The four figures add to total assets exactly.</p>
+
+<p>Both lines are standard us-gaap tags with no dimension, and the SEC's companyfacts
+data carries both for that date. Our ingest keeps one value per metric, and it kept
+288,702,000 and dropped 196,016,000. We count that as a gap in our own mapping. It
+is a judgement, because nothing about the filer's tagging is unusual.</p>
+
+<h2>The same filing in other sources</h2>
+
+<p>For each source below: what it does well, and where its figures can differ from the
+balance sheet in the filing. Each statement comes from the source's own documentation,
+read on 13 October 2026, apart from the two observations marked as ours. We did not run
+any other figures through these sources. Nothing here is a ranking: they are built for
+different jobs.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)"><a href="https://www.sec.gov/search-filings/edgar-application-programming-interfaces"
+  rel="noopener">SEC XBRL APIs: companyfacts and companyconcept</a></h3>
+
+<p><strong>What it does well.</strong> It comes straight from the SEC and needs no key.
+Companyfacts returns all the concepts data for one company in a single call, from
+10-Q, 10-K, 8-K, 20-F, 40-F, 6-K and their variants.</p>
+
+<p><strong>Where its figures can differ.</strong> The SEC says the APIs aggregate facts
+that use a non-custom taxonomy and apply to the entire filing entity, so a line tagged
+under a dimension or with a custom concept is outside them by that description. In the
+NTWO filing above we found no value for the Class A line (our observation, one
+filing). Facts come one concept at a time, so choosing which concepts make up a
+balance sheet is the reader's job.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)"><a href="https://www.sec.gov/search-filings/edgar-application-programming-interfaces"
+  rel="noopener">SEC XBRL frames</a></h3>
+
+<p><strong>What it does well.</strong> One call returns one fact for every reporting
+entity for a period, which makes a whole-market comparison one request.</p>
+
+<p><strong>Where its figures can differ.</strong> The SEC describes a frame as one fact
+for each entity that is last filed and most closely fits the calendar period asked for.
+It also says frame data is assembled from the dates that best align with a calendar
+quarter or year, and that users should be mindful of the different reporting start and
+end dates. So a value can come from a later filing than the first one for the period,
+and a fiscal period is fitted to a calendar one. Our
+<a href="/blog/sec-balance-sheet-data-all-companies">earlier note</a> shows a case; we
+did not re-run it for this one.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)"><a href="https://www.sec.gov/data-research/sec-markets-data/financial-statement-data-sets"
+  rel="noopener">SEC Financial Statement Data Sets</a></h3>
+
+<p><strong>What it does well.</strong> Bulk files of the numeric information from the
+face financials, presented without change from the as-filed reports, in a flattened
+format for comparing over time and across registrants.</p>
+
+<p><strong>Where its figures can differ.</strong> The SEC says it cannot guarantee the
+accuracy of the data sets, and that inaccuracies or errors may have been introduced
+when the data was extracted and compiled. They are updated quarterly. The SEC says they
+are not a substitute for the filings.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)">The filing on EDGAR itself</h3>
+
+<p><strong>What it does well.</strong> The 10-K or 10-Q and its XBRL are the primary
+record. The balance sheet a reader sees and the XBRL behind it come from one document,
+which is why we read both for the 20 failures.</p>
+
+<p><strong>Where its figures can differ.</strong> It is the reference, so there is
+nothing to differ from. The cost is reading it one filing at a time, and, as the two
+examples show, a line can appear on the statement while being tagged in a way a bulk
+reader skips.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)"><a href="https://massive.com/docs/rest/stocks/fundamentals/balance-sheets"
+  rel="noopener">Massive balance sheets API</a></h3>
+
+<p>This is the documentation formerly at polygon.io, which now redirects to
+massive.com.</p>
+
+<p><strong>What it does well.</strong> Balance sheet data for public companies,
+quarterly and annual, with records dating back to 29 March 2009, according to its
+documentation.</p>
+
+<p><strong>Where its figures can differ.</strong> The page says its
+<code>filing_date</code> is the date of the most recent SEC filing that included the
+period's data, which is not necessarily the date the period was first filed, because
+filings restate comparative data. So a row can describe a period as shown in a later
+filing. The page we read does not say whether figures are standardized. We did not test
+any Massive figures.</p>
+
+<h3 style="margin:28px 0 10px;font:600 19px/1.3 var(--disp);color:var(--ink)">BalanceProof</h3>
+
+<p><strong>What it does well.</strong> As-filed figures with the identity check shown
+beside them, and the reason when a filing fails.</p>
+
+<p><strong>Where its figures can differ.</strong> As above: 995 of the 38,568 testable
+filings in our copy did not balance on our figures, and in the 20 we read the shortfall
+was in what our reader picked up.</p>
+
+<p>Our own earlier notes go further on how the SEC sources differ from each other:
+<a href="/blog/sec-companyfacts-fy-fp-frame">what the fy, fp and frame fields mean</a>
+and <a href="/blog/sec-balance-sheet-data-all-companies">getting every company's balance
+sheet</a>.</p>
+
+<h2>What this does not show</h2>
+
+<ul>
+  <li><strong>It does not show that any company's accounts are wrong.</strong> The check
+  tests whether the figures we hold add up. A failure is our label for what the check
+  saw.</li>
+  <li><strong>It does not show why the other 975 failed.</strong> We read 20 of the
+  995, drawn at random. All 20 carry the <code>missing_tag</code> label, so the sample
+  says nothing directly about the 14 <code>rounding</code> or the 10
+  <code>unexplained</code> filings, and 20 cannot rule out a minority with a different
+  cause.</li>
+  <li><strong>Passing is not an audit.</strong> A balance sheet can pass with a wrong
+  number in it. The check cannot see a mistake that leaves
+  Assets = Liabilities + Equity intact, such as an amount recorded against the wrong
+  asset or two offsetting errors.</li>
+  <li><strong>It does not rank the other sources.</strong> We read their documentation
+  and ran no figures through them, apart from the two companyfacts observations above.
+  Where a table cell says a figure can differ, it repeats what the documentation says,
+  or marks an observation as ours.</li>
+  <li><strong>The counts describe our reader on one date.</strong> If the code that reads
+  filings changes, they will move. The failures are in a
+  <a href="/static/research/balance-sheet-check-2026-10/flagged-filings-2026-10-09.csv">CSV</a>
+  with links to the matching filings.</li>
+  <li><strong>It is not investment advice.</strong></li>
+</ul>
+
+<h2>What we could not verify</h2>
+
+<ul>
+  <li>The counts and the query results are copied from the output saved with the report.
+  The frozen copy itself was not available to run the queries again when we wrote this
+  note.</li>
+  <li>Documentation for two other fundamentals providers could not be retrieved, so they
+  are left out of the table.</li>
+  <li>We did not confirm whether any other source returns the Class A line for NTWO, or
+  both SLG lines. We checked the SEC's companyfacts data for NTWO and SLG only.</li>
+</ul>
+
+<h2>Try it</h2>
+
+<p>The demo endpoint needs no key and no card. Put any ticker after it, for example
+SLG:</p>
+
+<pre class="code"><code>curl https://balanceproof.dev/api/demo/SLG</code></pre>
+
+<p>On Windows PowerShell, use <code>curl.exe</code> in place of <code>curl</code>. Or use
+the box in <a href="/#demo">the demo section on the homepage</a>, or see the same check
+drawn on <a href="/company/SLG">SLG's page</a>. A free key, also with no card, is on the
+<a href="/dashboard">dashboard</a>. More notes like this one are on the
+<a href="/blog">blog index</a>, and the rest of the notes are listed at the end of this page.</p>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_FAILED_CHECK_MEANS,
     _POST_BALANCE_SHEET_CHECK,
     _POST_BULK_BALANCE_SHEETS,
     _POST_COMPANYFACTS_FIELDS,
@@ -2972,25 +3357,78 @@ def _nav_and_footer(nav: str) -> tuple[str, str]:
     from src.report.nav import render_footer
 
     return nav, render_footer(
-        'Written by Dominique Church. Source: '
+        'BalanceProof. Source: '
         '<a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
         ' rel="noopener">SEC Financial Statement Data Sets</a>.'
     )
 
 
+def _section_id(name: str) -> str:
+    """`Data quality` -> `data-quality`: the anchor, the filter key and the hash."""
+    return name.lower().replace(" ", "-")
+
+
+def posts_by_section() -> list[tuple[str, str, list[Post]]]:
+    """(section, what it covers, its posts), in `SECTIONS` order, newest first.
+
+    Sections with no post are dropped rather than shown empty. A post whose
+    label is not in `SECTIONS` is a test failure (test_blog_index), not
+    something to hide here.
+    """
+    out = []
+    for name, blurb in SECTIONS:
+        posts = sorted(
+            (p for p in POSTS if p.section == name),
+            key=lambda p: p.published,
+            reverse=True,
+        )
+        if posts:
+            out.append((name, blurb, posts))
+    return out
+
+
 def render_index(*, nav: str = "") -> str:
-    """The post list. Kept plain: one post does not need a grid."""
+    """The post list, in sections.
+
+    Every post is in the HTML, under its section's heading, whether or not the
+    script runs. The filter and sort buttons are built for the script and ship
+    `hidden`; without it the reader gets the jump links instead. Neither is a
+    `<nav>`: the site-wide `nav` rules style the header bar and would turn a
+    row of buttons into one.
+    """
     from src.report.schema import breadcrumb_ld
 
     nav_html, footer = _nav_and_footer(nav)
-    items = "".join(
+    groups = posts_by_section()
+    order = {p.slug: i for i, p in enumerate(POSTS)}
+
+    def item(p: Post) -> str:
+        return f"""
+        <li class="post-item" data-date="{escape(p.published)}" data-min="{p.minutes}" data-i="{order[p.slug]}">
+          <a class="post-link" href="/blog/{escape(p.slug)}">{escape(p.title)}</a>
+          <p class="post-desc">{escape(p.summary)}</p>
+          <p class="post-meta">{escape(p.section)} · {escape(p.published)} · {p.minutes} min read</p>
+        </li>"""
+
+    sections = "".join(
         f"""
-      <li class="post-item">
-        <a class="post-link" href="/blog/{escape(p.slug)}">{escape(p.title)}</a>
-        <p class="post-desc">{escape(p.summary)}</p>
-        <p class="post-meta">{escape(p.published)} · {p.minutes} min read</p>
-      </li>"""
-        for p in POSTS
+    <section class="blog-sec" id="{_section_id(name)}" data-section="{_section_id(name)}">
+      <h2 class="blog-sec-h">{escape(name)}</h2>
+      <p class="sec-sub">{escape(blurb)}</p>
+      <ul class="post-list">{"".join(item(p) for p in posts)}
+      </ul>
+    </section>"""
+        for name, blurb, posts in groups
+    )
+    total = sum(len(posts) for _n, _b, posts in groups)
+    jump = " · ".join(
+        f'<a href="#{_section_id(name)}">{escape(name)}</a>'
+        for name, _b, _p in groups
+    )
+    filters = "".join(
+        f'<button type="button" class="tab" data-filter="{_section_id(name)}"'
+        f' aria-pressed="false">{escape(name)} <span>{len(posts)}</span></button>'
+        for name, _b, posts in groups
     )
     body = f"""{nav_html}
 <main class="wrap" id="main">
@@ -3011,14 +3449,33 @@ def render_index(*, nav: str = "") -> str:
       never looks bad. It arrives as a plausible number from a real filing,
       which is why every note here ends in a check you can run yourself rather
       than a claim you have to take. Where there is code, it is the code this
-      site actually runs. Where there is a figure, it is counted live or it is
-      not published: the <a href="/methodology">methodology page</a> shows
-      what is checked and what is currently failing.</p>
-    <ul class="post-list">{items}</ul>
+      site actually runs. Where there is a figure, it comes from our database
+      with its date, or it is not published: the
+      <a href="/methodology">methodology page</a> shows what is checked and
+      what is currently failing.</p>
+
+    <p class="blog-jump" id="blog-jump">Sections: {jump}</p>
+    <div class="blog-tools" id="blog-tools" hidden>
+      <div class="blog-chips" role="group" aria-label="Show section">
+        <button type="button" class="tab on" data-filter="all"
+          aria-pressed="true">All <span>{total}</span></button>{filters}
+      </div>
+      <div class="blog-chips" role="group" aria-label="Order posts by">
+        <button type="button" class="tab on" data-sort="new"
+          aria-pressed="true">Newest</button>
+        <button type="button" class="tab" data-sort="old"
+          aria-pressed="false">Oldest</button>
+        <button type="button" class="tab" data-sort="short"
+          aria-pressed="false">Shortest read</button>
+      </div>
+      <p class="formnote" id="blog-status" role="status" aria-live="polite"></p>
+    </div>
+{sections}
   </section>
 {footer}
 </main>
-<script src="/static/nav.js?v={asset_version()}" defer></script>"""
+<script src="/static/nav.js?v={asset_version()}" defer></script>
+<script src="/static/blog.js?v={asset_version()}" defer></script>"""
 
     return shell(
         "SEC XBRL Data Notes — BalanceProof",
@@ -3126,6 +3583,10 @@ _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
         ("AAPL", "one balance sheet date under five filings, frame on the last"),
         ("WMT", "a January year-end that the frame calls calendar Q4"),
         ("NKE", "three different totals for one date, kept by companyfacts"),
+    ),
+    "what-a-failed-identity-check-means": (
+        ("NTWO", "a blank-check filing that balances, with the redemption line tagged only under a dimension"),
+        ("SLG", "two standard redeemable lines, of which our mapping kept one"),
     ),
     "which-sec-balance-sheets-fail-the-identity-check": (
         ("NTWO", "a blank-check company whose redemption line is tagged only under a dimension"),

@@ -973,7 +973,13 @@ def _key_form(slot: str, ticker: str) -> str:
 
 
 def _hero(free_calls: int, ticker: str) -> str:
-    """The claim, the sign-up, and the way to the docs.
+    """The claim, and nothing else.
+
+    What the product is, in a headline and a lede. The demo command comes next
+    (the code card), then the free key (`_key_block`), then one example result:
+    that is the order a reader decides in, and each of them used to compete with
+    a second copy of itself in this header (a docs button, a search box, a
+    sign-up line).
 
     The subline says "that can be tested" because some companies publish no
     total to test against (the strip below counts them out, and /methodology
@@ -983,22 +989,44 @@ def _hero(free_calls: int, ticker: str) -> str:
     so the phrase the page is known by is still the first thing under the
     headline, and three tests pin it.
     """
-    return f"""
+    return """
   <header class="hero">
     <h1 class="htitle">SEC balance sheets as an <span class="h-ital">API</span>.</h1>
     <p class="hlede">An API and MCP server for analysts, quants and developers who
       build on SEC filings. Every balance sheet is checked against Assets =
       Liabilities + Equity, and when one doesn't add up, it's flagged with the
       reason.</p>
+  </header>"""
+
+
+def _key_block(free_calls: int, ticker: str) -> str:
+    """The one free-key form on the page, under the demo command.
+
+    It used to be in the header, again as a closing call to action, and once
+    more as a strip with a button that scrolled to the closing one. One form,
+    where the reader has just seen the request it unlocks. The nav's "Get free
+    key" points at `#hero-email`, the field in here.
+    """
+    return f"""
+  <section class="keyblock" id="free-key" aria-labelledby="free-key-h">
+    <h2 class="keyblock-h" id="free-key-h">Balance sheets that prove they balance.</h2>
     {_key_form("hero", ticker)}
     <p class="summary">{free_calls:,} calls a month. No card, no password.</p>
     <p class="fineprint">By getting a key you accept the
       <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
-    <div class="api-cta hero-cta">
-      <a class="btn ghost" href="/api">API docs</a>
-    </div>
+    <p class="keyblock-links"><a href="/api">API docs</a> &middot;
+      <a href="/methodology">How we verify</a></p>
+  </section>"""
+
+
+def _find() -> str:
+    """Look up a company: the way in for a reader who wants the drawing, not the
+    JSON. It sits under the one example it leads to."""
+    return f"""
+  <section class="sec find" id="find" aria-label="Look up a company">
+    <p class="sec-sub">Or look up any company and see its balance sheet drawn.</p>
     <div class="hero-search">{search_form()}</div>
-  </header>"""
+  </section>"""
 
 
 # The hero drawing is full size, not a thumbnail. The brief for this page is
@@ -1060,38 +1088,11 @@ def _status_strip(stats: dict) -> str:
     return f'<div class="strip">{"".join(cells)}</div>'
 
 
-# The drawing is the page's second focal point, so it gets a stage: the real
-# balance sheet at a size you can read, and beside it the thing the product is
-# FOR -- a real filing that does not add up, drawn with the gap shown instead of
-# hidden. The line-by-line tables that used to run for twelve rows under a
-# single drawing are folded into a <details>: still in the page for search
-# engines and screen readers, no longer the longest thing on it.
+# The drawing is the page's one example result, so it gets a stage: the real
+# balance sheet at a size you can read. The line-by-line tables that used to run
+# for twelve rows under it are folded into a <details>: still in the page for
+# search engines and screen readers, no longer the longest thing on it.
 _STAGE_COLUMN_PX = 340.0
-
-# Filings offered as "flagged, and here is why", tried in order. Each is
-# VERIFIED when the page renders: the panel appears only if the filing still
-# fails the plain check AND the filer's own stated total balances, which is the
-# precise claim its caption makes (the gap is in what we read, not in the
-# company). A candidate that now balances, or that fails for another reason,
-# is skipped rather than shown under a caption that would be false.
-_FLAGGED_CANDIDATES = ("AACB",)
-
-
-def _flagged_example() -> View1 | None:
-    from src.company.view1 import build_view1
-    from src.report.company_facts import stated_agrees
-
-    for ticker in _FLAGGED_CANDIDATES:
-        try:
-            view = build_view1(ticker)
-        except Exception as exc:  # noqa: BLE001 - the page must not fall over
-            log.warning("home_flagged_failed", ticker=ticker, error=str(exc)[:200])
-            continue
-        if view is None or view.balances:
-            continue
-        if stated_agrees(view) and any(b.key == "unread_components" for b in view.claims):
-            return view
-    return None
 
 
 def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str = "") -> str:
@@ -1146,14 +1147,16 @@ def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str 
     </figure>"""
 
 
-def _hero_drawing(view: View1 | None, kind: str = "",
-                  flagged: View1 | None = None) -> str:
-    """A real company's real balance sheet, and -- when one can be verified --
-    a real filing that does not add up, side by side.
+def _hero_drawing(view: View1 | None, kind: str = "") -> str:
+    """One real company's real balance sheet, drawn.
 
     There is no placeholder when there is nothing to draw: the page falls back
     to the strip and the demo, which is a smaller page rather than a page
     showing a picture of nothing and calling it an example.
+
+    A second, flagged filing used to sit beside it, checked at render time and
+    captioned with a precise claim. It is the subject of the published report
+    now, which the research block links, and the page shows one result.
     """
     if view is None:
         return ""
@@ -1167,31 +1170,10 @@ def _hero_drawing(view: View1 | None, kind: str = "",
         caption=f"The two columns agree. {name} owns {money(total)}, and every "
                 "dollar of it is owed or owned.",
     )
-
-    bad = ""
-    if flagged is not None:
-        f = flagged.as_dict()
-        gap = next(b["value"] for b in f["claims"] if b["key"] == "unread_components")
-        fname = escape(f["company_name"] or f["ticker"])
-        bad = _drawing_panel(
-            flagged, tag="Flagged, and here is why", tone="flag",
-            caption=f"{fname}: the filer's own stated total balances. {money(gap)} "
-                    "of it did not reach us, so the drawing shows the gap instead "
-                    "of hiding it.",
-        )
-        title = "Real filings, drawn to scale"
-    else:
-        title = "One real filing, drawn"
-
-    cls = "two" if bad else "one"
-    flagged_link = (
-        f' See the other one on its <a href="/company/{escape(flagged.ticker)}">'
-        f"own page</a>." if flagged is not None else ""
-    )
     return f"""
-  <section class="sec hero-bs stage {cls}">
-    <div class="sec-head"><h2>{title}</h2></div>
-    <div class="stage-grid">{good}{bad}
+  <section class="sec hero-bs stage one">
+    <div class="sec-head"><h2>One real filing, drawn</h2></div>
+    <div class="stage-grid">{good}
     </div>
     <p class="plan-note">Left is what the company owns. Right is who has a claim
       on it: lenders first, then the owners.</p>
@@ -1199,7 +1181,7 @@ def _hero_drawing(view: View1 | None, kind: str = "",
       are the same height. A filing where they differ is flagged with the
       reason.
       <a href="/company/{ticker}">Open the full page for {ticker}</a>, or
-      <a href="/companies">browse every company</a>.{flagged_link}</p>
+      <a href="/companies">browse every company</a>.</p>
   </section>"""
 
 
@@ -1401,47 +1383,6 @@ def _pricing_summary(stats: dict | None = None) -> str:
   </section>"""
 
 
-def _drawn_explained() -> str:
-    """How to read the drawing above, in two sentences, attached to the REAL
-    filing rather than to a schematic: an invented company with round numbers
-    has no place beside real figures, so the explanation points at JPM's own
-    columns instead of drawing a made-up pair."""
-    return """
-  <section class="sec drawn-explained" id="drawn">
-    <h3 class="how-h">Both columns are the same money, counted twice</h3>
-    <p>In the drawing above, the left column is what the company owns and the
-      right is who has a claim on it: lenders first, then the owners. Every
-      band is drawn at the size the company reported, so the two columns are
-      the same height whenever the filing balances.</p>
-  </section>"""
-
-
-_HARD = (
-    ("Filings don't say things once",
-     "JPMorgan reports “total assets” twenty-three times in one filing: by "
-     "segment, by entity, by fair-value level. Exactly one of them is the "
-     "company, and the wrong one looks just as plausible."),
-    ("Point-in-time figures",
-     "A balance sheet is an instant; revenue covers three months. Read a "
-     "duration where an instant belongs and assets can come out negative."),
-    ("Every industry files differently",
-     "A bank reports loans and deposits, not inventory. Look for the retail "
-     "tags on a bank and you get an empty box."),
-)
-
-
-def _hard() -> str:
-    blocks = "".join(
-        f'<div class="hardrow"><h3>{escape(t)}</h3><p>{escape(b)}</p></div>'
-        for t, b in _HARD
-    )
-    return f"""
-  <section class="sec" id="hard">
-    <div class="sec-head"><h2>Why this is hard</h2></div>
-    <div class="hard">{blocks}</div>
-  </section>"""
-
-
 def _where_from(stats: dict) -> str:
     """Where the figures come from, as four short lines."""
     from src.company.stats import identity_breakdown
@@ -1544,30 +1485,19 @@ _REPORT_SLUG = "which-sec-balance-sheets-fail-the-identity-check"
 _REPORT_TESTED, _REPORT_FAILED, _REPORT_OURS = 38_568, 995, 971
 
 
-def _cta_strip(free_calls: int) -> str:
-    """A way in for the reader who has just understood the method and has not
-    yet reached the pricing."""
-    return f"""
-  <aside class="sec cta-strip" id="try">
-    <h2>Balance sheets that prove they balance.</h2>
-    <p class="sec-sub">A free key is {free_calls:,} calls a month. No card, no
-      password.</p>
-    <div class="api-cta">
-      <a class="btn" href="#start">Get free key</a>
-      <a class="btn ghost" href="/api">API docs</a>
-    </div>
-  </aside>"""
+def _research_note() -> str:
+    """The published report and the notes around it, in the company's voice
+    ("we", no name, no age), using only what the report says. The numbers are
+    the report's; the sentence about the 971 is the report's own label
+    (`missing_tag`) in plain words, and it is the honest half of the finding:
+    most failures are a line we did not read, not a mistake by the company.
 
-
-def _why_note() -> str:
-    """The reason this exists, in the company's voice ("we", no name, no age),
-    using only what the published report says. The numbers are the report's;
-    the sentence about the 971 is the report's own label (`missing_tag`) in
-    plain words, and it is the honest half of the finding: most failures are a
-    line we did not read, not a mistake by the company."""
+    This replaced "Why we built this" and the two sign-up blocks that bracketed
+    it: the page now ends on something to read, after the price.
+    """
     return f"""
-  <section class="sec why" id="why">
-    <div class="sec-head"><h2>Why we built this</h2></div>
+  <section class="sec why" id="research">
+    <div class="sec-head"><h2>Research</h2></div>
     <p class="why-p">We built BalanceProof to check every SEC balance sheet
       against Assets = Liabilities + Equity, and to say so when one doesn't add
       up.</p>
@@ -1578,25 +1508,15 @@ def _why_note() -> str:
       we read and not in the company.
       <a href="/blog/{_REPORT_SLUG}">Read the report</a>: the method, the charts
       and the filings themselves.</p>
+    <ul class="shortlist">
+      <li><a href="/blog/what-a-failed-identity-check-means">What a failed check
+        does and doesn't mean</a>, and how the SEC's own data sources differ.</li>
+      <li><a href="/blog/understanding-the-accounting-identity">The accounting
+        identity</a>, in plain terms.</li>
+    </ul>
+    <p class="method"><a href="/blog">All notes</a> &middot;
+      <a href="/pricing">Pricing</a></p>
   </section>"""
-
-
-def _closing_cta(free_calls: int, ticker: str) -> str:
-    """The sign-up again, for the reader who scrolled the whole page first."""
-    return f"""
-  <aside class="sec cta" id="start">
-    <div class="sec-head"><h2>Get your free API key</h2></div>
-    <p class="sec-sub">Take a company where you know the answer, call it, and
-      compare the response with EDGAR. {free_calls:,} calls a month, no card,
-      no password.</p>
-    {_key_form("cta", ticker)}
-    <p class="fineprint">By getting a key you accept the
-      <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
-    <div class="api-cta">
-      <a class="btn ghost" href="/api">API docs</a>
-      <a class="btn ghost" href="/methodology">How we verify</a>
-    </div>
-  </aside>"""
 
 
 def render_home(
@@ -1606,7 +1526,6 @@ def render_home(
     nav: str = "",
 ) -> str:
     """`pairs` is (suggestion, its view or None), in the order to show them."""
-    from src.company.stats import component_coverage
     from src.report.nav import render_disclaimer, render_footer
 
     # The source attribution, in the company's voice: BalanceProof, not a
@@ -1627,45 +1546,27 @@ def render_home(
     # the last place to show a gap.
     hero_pair = next(((sg, v) for sg, v in pairs if v is not None), None)
     hero_view = hero_pair[1] if hero_pair else None
-    hero_bs = _hero_drawing(
-        hero_view, hero_pair[0].kind if hero_pair else "",
-        _memo("flagged", _flagged_example),
-    )
+    # One filing, drawn. The flagged one that used to sit beside it is the
+    # report's subject now, and the research block links to that.
+    hero_bs = _hero_drawing(hero_view, hero_pair[0].kind if hero_pair else "")
     sample_ticker, sample = _memo(
         "sample", lambda: _pick_sample(hero_view)
     )
 
-    facts = headline_facts([v for _s, v in pairs], component_coverage())
-    # The gallery is the OTHER companies -- showing the hero's own drawing
-    # again a screen below itself reads as a bug rather than as a set. Unless
-    # it is the only one there is, in which case dropping it would leave an
-    # empty section and no way to reach the one page that exists.
-    #
-    # `skip` is compared by identity, so it must never be None: a card whose
-    # view failed to build is also None, and `v is not skip` would then drop
-    # every undrawable company from the gallery -- which is exactly the set
-    # that most needs to stay offered, since a bare card is the only way to
-    # reach a page that can say what is missing.
-    drawable = sum(1 for _s, v in pairs if v is not None)
-    skip = hero_view if (drawable > 1 and hero_view is not None) else object()
-    cards = "".join(
-        _card(s, v, fact)
-        for (s, v), fact in zip(pairs, facts, strict=True)
-        if v is not skip
-    )
-
-    if pairs:
-        gallery = f"""
-  <section class="sec">
-    <div class="sec-head"><h2>Other filings, same check</h2></div>
-    <p class="sec-sub">Every company is its own shape. A bank's
-      <a href="/blog/why-bank-balance-sheets-are-different">inverts the one
-      most people picture</a>.</p>
-    <div class="cards">{cards}</div>
-  </section>"""
-    else:
-        # Empty is a state to explain, not a blank page to leave.
-        gallery = """
+    # The order a first-time reader decides in: what it is (hero), the demo
+    # command (the card), the free key, one example result, then what it costs
+    # and what we have published. The strip sits under the key as the
+    # evidence; the explanation, the demo box and the two plain lists follow
+    # the example and come BEFORE the price, because asking for money before
+    # the product has been shown working is the order this page was fixed
+    # away from. `#how`, `#demo` and `#pricing` keep that relative order
+    # (tests/test_pricing_demo_recovery.py pins it). Read, never typed:
+    # production runs its own FREE_TIER_MONTHLY_CALLS and the copy must follow
+    # it.
+    from src.config.settings import get_settings as _gs
+    free_calls = _gs().free_tier_monthly_calls
+    # Empty is a state to explain, not a blank page to leave.
+    empty = "" if pairs else """
   <section class="sec">
     <div class="empty">
       <h2>No filed statements loaded yet</h2>
@@ -1674,45 +1575,32 @@ def render_home(
       <div class="sugg"><a href="/admin">Open admin</a></div>
     </div>
   </section>"""
-
-    # The order a first-time reader needs it in: the claim and the way in (hero),
-    # a real request and response beside it, the strip as the evidence, one
-    # real filing drawn, the live demo, three short steps, what it costs, and
-    # the way in again. `#demo`, `#how` and `#pricing` keep that relative order
-    # because tests/test_pricing_demo_recovery.py pins it. Read, never typed:
-    # production runs its own FREE_TIER_MONTHLY_CALLS and the copy must follow
-    # it.
-    from src.config.settings import get_settings as _gs
-    free_calls = _gs().free_tier_monthly_calls
     body = f"""
 <!-- No nav link to the explanation. It is further down THIS page, and a nav
      item reads as a separate destination. -->
 {nav}
 
 <main class="wrap" id="main">
-  <!-- The hero and the card share a row on a wide screen and stack on a phone,
-       hero first, so a phone meets the claim and the form before the sample.
-       The strip is NOT inside `.leadin`: its old `order: -1` there lifted it
-       above the hero, and it now sits below this block as the evidence. -->
+  <!-- Hero, card and key share a grid on a wide screen and stack on a phone in
+       this order: claim, demo command, free key. The strip is NOT inside
+       `.leadin`: its old `order: -1` there lifted it above the hero, and it now
+       sits below this block as the evidence. -->
   <div class="leadin intro">
   {_hero(free_calls, sample_ticker)}
   {_memo("card", lambda: _code_card(sample_ticker, sample))}
+  {_key_block(free_calls, sample_ticker)}
   </div>
   {_status_strip(stats or {})}
 {disclaimer}
+  {hero_bs}{empty}
+  {_find()}
   {_steps(stats or {})}
-  {hero_bs}
-  {_drawn_explained()}
-  {gallery}
   {_demo_section()}
-  {_cta_strip(free_calls)}
-  {_hard()}
-  {_pricing_summary(stats)}
-  {_plan_faq()}
   {_where_from(stats or {})}
   {_limits()}
-  {_why_note()}
-  {_closing_cta(free_calls, sample_ticker)}
+  {_pricing_summary(stats)}
+  {_plan_faq()}
+  {_research_note()}
 
 {footer}
 </main>
