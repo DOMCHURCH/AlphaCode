@@ -190,7 +190,7 @@ def test_every_internal_link_added_here_resolves(client):
     for ticker in ("JPM", "BAC", "GS", "WFC", "MSFT", "AAL", "WMT", "FCX",
                    "AAPL", "BLK", "KKR", "KO", "AMZN", "LCID",
                    "META", "XYZ", "TSLA", "SYK", "NKE",
-                   "NTWO", "APLD", "SLG"):
+                   "NTWO", "APLD", "SLG", "GOOG", "NVDA"):
         seed(ticker, sector="Financials" if ticker == "JPM" else None)
 
     pages = ["/company/JPM", "/blog"]

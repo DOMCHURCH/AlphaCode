@@ -2950,7 +2950,200 @@ for example <a href="/company/NTWO">NTWO</a>, <a href="/company/APLD">APLD</a> a
 )
 
 
+_POST_HYPERSCALER_BALANCE_SHEETS = Post(
+    slug="hyperscaler-balance-sheets-what-a-balance-check-shows",
+    title="Hyperscaler Balance Sheets: What a Balance Check Does and Doesn't Show",
+    seo_title="Hyperscaler Balance Sheets: What a Balance Check Shows",
+    description=(
+        "We ran a balance check on the latest SEC filings of Microsoft, "
+        "Alphabet, Meta and Nvidia. What the check shows, and what it cannot."
+    ),
+    summary=(
+        "The IMF says hyperscalers are borrowing more. We ran a balance check "
+        "on four AI spenders' last filed balance sheets, and write down what "
+        "that check can and cannot tell you about borrowing."
+    ),
+    published="2026-10-16",
+    updated="2026-10-16",
+    minutes=5,
+    faq=(
+        (
+            "What is a balance check?",
+            "A balance check tests whether a balance sheet adds up: total "
+            "assets should equal total liabilities plus equity. If the three "
+            "figures taken from a filing agree, they are consistent with each "
+            "other and were probably read correctly. It says nothing about "
+            "whether the company is healthy.",
+        ),
+        (
+            "Does a balanced balance sheet mean a company's borrowing is under control?",
+            "No. The equation holds for every correctly kept set of books, "
+            "whatever the company owes. The check shows that the numbers were "
+            "read correctly. How much a company has borrowed, and on what "
+            "terms, is a separate question that the filing's debt lines and "
+            "notes answer.",
+        ),
+        (
+            "Where do obligations that are not on the balance sheet show up?",
+            "Usually in the notes to the financial statements rather than on "
+            "the face of the balance sheet. Because those obligations are not "
+            "recorded as liabilities, they do not change the equation, so a "
+            "balance check cannot see them.",
+        ),
+    ),
+    body="""
+<p class="lede">The IMF's October 2026 Global Financial Stability Report puts the
+borrowing of the biggest AI spenders in front of a wide audience. Its
+accompanying blog says it in one line: "Hyperscalers are borrowing more;
+investors have been leveraging to invest in AI stocks." Third-quarter reporting
+has started: Goldman Sachs held its call on 13 October. Before the technology
+companies' new filings arrive, we ran our balance check on the last balance sheet that Microsoft,
+Alphabet, Meta and Nvidia filed, and wrote down what that check can tell you
+about borrowing and what it cannot.</p>
+
+<h2>What a balance check is</h2>
+
+<p>A balance sheet lists what a company owns (its assets), what it owes
+(liabilities) and what belongs to its shareholders (equity). Because of the way
+books are kept, what the company owns has to equal what it owes plus what its
+shareholders own. A balance check runs that test on the figures taken from a
+filing: do the three agree?</p>
+
+<p>If they do, the figures are consistent with each other and were very likely
+read correctly. If they do not, either we misread the filing or, rarely, there is
+a problem in it. A passing check is not a verdict on the company. The longer
+explanation is in <a href="/blog/understanding-the-accounting-identity">what the
+accounting identity is</a>.</p>
+
+<h2>Four filings, checked</h2>
+
+<p>These are the latest balance sheets we hold for the four companies, taken from
+the filings linked in the table. Microsoft's is an annual report, because its
+fiscal year ends in June; the other three are quarterly reports. Microsoft,
+Alphabet and Meta are commonly counted among the hyperscalers. Nvidia makes chips used in the build-out. Each of the four passed our check
+on the data we hold today.</p>
+
+<div class="tablewrap">
+  <table class="compare">
+    <thead>
+      <tr><th scope="col">Company</th><th scope="col">Period ended</th>
+        <th scope="col">Total assets</th><th scope="col">Total liabilities</th>
+        <th scope="col">Equity</th><th scope="col">Equity per $1 owned</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><a href="https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm" rel="noopener">Microsoft</a>
+        (10-K filed 2026-07-29)</td><td>2026-06-30</td><td>$758.38B</td>
+        <td>$315.99B</td><td>$442.39B</td><td>about 58 cents</td></tr>
+      <tr><td><a href="https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630.htm" rel="noopener">Alphabet</a>
+        (10-Q filed 2026-07-23)</td><td>2026-06-30</td><td>$921.98B</td>
+        <td>$281.50B</td><td>$640.48B</td><td>about 69 cents</td></tr>
+      <tr><td><a href="https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/meta-20260630.htm" rel="noopener">Meta</a>
+        (10-Q filed 2026-07-30)</td><td>2026-06-30</td><td>$449.96B</td>
+        <td>$188.74B</td><td>$261.22B</td><td>about 58 cents</td></tr>
+      <tr><td><a href="https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm" rel="noopener">Nvidia</a>
+        (10-Q filed 2026-08-26)</td><td>2026-07-26</td><td>$320.27B</td>
+        <td>$91.29B</td><td>$228.98B</td><td>about 71 cents</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<p>"Equity per $1 owned" is equity divided by total assets, said the way you would
+say it to a friend: of every dollar of assets, how many cents belong to the
+shareholders. Total liabilities are the figures the filers state themselves.
+Equity includes any noncontrolling interest. Not financial advice.</p>
+
+<h2>What this does not show</h2>
+
+<p><strong>Liabilities are not debt.</strong> Total liabilities count everything a
+company owes: supplier bills, taxes, leases and borrowings, among other things.
+Borrowing is a subset. Where a filer reports a long-term debt line, our API
+returns it as <code>liabilities.long_term_debt</code>, and the filing's notes
+describe the terms. We have left those figures out of this page on purpose.</p>
+
+<p><strong>The check cannot see what is not on the balance sheet.</strong> The
+equation holds for any correctly kept set of books, however much the company has
+committed to elsewhere. An obligation a company has not recorded as a liability
+does not move either side of the equation, so a passing check says nothing about
+it. Such arrangements are usually described in the notes to the financial
+statements, not on the face of the balance sheet. Press coverage of the IMF's
+report, such as <a href="https://asiatimes.com/2026/10/imf-warns-of-debt-fueled-ai-spending-as-bubble-fears-grow/" rel="noopener">this
+piece from Asia Times</a>, quotes an analyst on commitments that sit off the
+hyperscalers' balance sheets. That is the part of the story that a balance check
+is blind to.</p>
+
+<p><strong>Our check can be wrong too.</strong> As of 13 Oct 2026 we have tested
+38,568 filings, and 995 of them fail. A failure can be a misread on our
+side rather than a real accounting error, and telling the two apart is the point of
+the exercise. <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">The
+write-up of those failures</a> shows what they look like.</p>
+
+<h2>Run the same check on the next filings</h2>
+
+<p>When each company files its next quarterly report, its balance sheet will
+change. This script reads the latest balance sheet we hold for each of the four from
+our no-key demo endpoint and tests whether assets equal liabilities plus equity. For
+these four filings they agree exactly, to the precision each filer reports, so the
+script tests for exact equality. Other filings can be off by a rounding unit, and a
+wider run should allow for that. It prints the filing date and the result:</p>
+
+<pre class="code"><code class="language-python">import requests
+
+for ticker in ("MSFT", "GOOGL", "META", "NVDA"):
+    r = requests.get(f"https://balanceproof.dev/api/demo/{ticker}", timeout=30)
+    r.raise_for_status()
+    d = r.json()
+    assets = d["assets"]["total_assets"]["value"]
+    liabilities = d["liabilities"]["total_liabilities"]["value"]
+    equity = (d["equity"]["total_equity_incl_nci"]["value"]
+              or d["equity"]["shareholders_equity"]["value"])
+    balances = assets == liabilities + equity
+    print(ticker, d["filing_date"], balances)</code></pre>
+
+<p>With a free key, swap the request for the keyed endpoint and send the key in an
+<code>X-API-Key</code> header. The rest of the script is unchanged:</p>
+
+<pre class="code"><code class="language-python">r = requests.get(
+    f"https://balanceproof.dev/api/company/{ticker}",
+    headers={"X-API-Key": "YOUR_KEY"},
+    timeout=30,
+)</code></pre>
+
+<p>Run on 16 Oct 2026, both versions printed the filing dates in the table and
+<code>True</code> for all four. The demo is limited per address, so it suits a
+quick look rather than a loop. If you build AI agents, the same check is the
+<code>check_balance_sheet</code> tool in <a href="/mcp">our MCP server</a>. It
+returns a verdict and says on what basis it was reached. There is also a Python
+package, <code>pip install balanceproof</code>.</p>
+
+<h2>Where this fits</h2>
+
+<p>We cover about 6,246 companies (as of 13 Oct 2026). We check every filing we can
+test against the same equation, and we say so when one does not add up. For these
+four, the check passed. What each company owes, and to whom, is the next question,
+and the answer is in the filings, which are linked above and below.</p>
+
+<p><strong>Next step:</strong> <a href="/dashboard">get a free API key</a> (1,000
+calls per month, no card) and run the script on any ticker you are reading this
+earnings season. This is not investment advice.</p>
+
+<h2>Sources</h2>
+
+<ul>
+  <li>IMF, <a href="https://www.imf.org/en/publications/gfsr/issues/2026/10/13/global-financial-stability-report-october-2026" rel="noopener">Global Financial Stability Report, October 2026</a>.</li>
+  <li>IMF blog, <a href="https://www.imf.org/en/blogs/articles/2026/10/12/global-financial-markets-face-rising-risks-from-ai-bond-yields-and-cyberattacks" rel="noopener">Global Financial Markets Face Rising Risks From AI, Bond Yields, and Cyberattacks</a>, source of the quotation above.</li>
+  <li>Asia Times, <a href="https://asiatimes.com/2026/10/imf-warns-of-debt-fueled-ai-spending-as-bubble-fears-grow/" rel="noopener">IMF warns of debt-fueled AI spending as bubble fears grow</a>, 14 Oct 2026.</li>
+  <li>Goldman Sachs third-quarter 2026 earnings call, <a href="https://www.fool.com/earnings/call-transcripts/2026/10/13/goldman-sachs-gs-q3-2026-earnings-call-transcript/" rel="noopener">transcript</a>, 13 Oct 2026.</li>
+  <li>SEC EDGAR filings: <a href="https://www.sec.gov/Archives/edgar/data/789019/000119312526323660/msft-20260630.htm" rel="noopener">Microsoft 10-K</a>,
+  <a href="https://www.sec.gov/Archives/edgar/data/1652044/000165204426000071/goog-20260630.htm" rel="noopener">Alphabet 10-Q</a>,
+  <a href="https://www.sec.gov/Archives/edgar/data/1326801/000162828026050705/meta-20260630.htm" rel="noopener">Meta 10-Q</a>,
+  <a href="https://www.sec.gov/Archives/edgar/data/1045810/000104581026000075/nvda-20260726.htm" rel="noopener">Nvidia 10-Q</a>.</li>
+</ul>
+""",
+)
+
+
 POSTS: tuple[Post, ...] = (
+    _POST_HYPERSCALER_BALANCE_SHEETS,
     _POST_BALANCE_SHEET_CHECK,
     _POST_BULK_BALANCE_SHEETS,
     _POST_COMPANYFACTS_FIELDS,
@@ -3079,6 +3272,13 @@ def _fill_scale(prose: str) -> str:
 # is that the post is genuinely about what JPM's balance sheet looks like, and
 # nothing computable knows that.
 _POST_COMPANIES: dict[str, tuple[tuple[str, str], ...]] = {
+    # Alphabet is GOOG here because /company/GOOGL canonicalises to GOOG.
+    "hyperscaler-balance-sheets-what-a-balance-check-shows": (
+        ("MSFT", "an annual report, filed after its fiscal year ended in June"),
+        ("GOOG", "Alphabet, the same balance sheet under either share-class ticker"),
+        ("META", "the latest quarterly report the post checks"),
+        ("NVDA", "a supplier to the build-out, with the largest equity share of the four"),
+    ),
     "point-in-time-fundamentals-sec-edgar": (
         ("TSLA", "Q1 2024 net income, restated in its Q1 2025 10-Q"),
         ("AAPL", "a fourth quarter that exists only by subtraction"),
