@@ -157,7 +157,12 @@ df = client.panel(["AAPL", "MSFT"], ["revenue", "net_income"])</code></pre>
      "<code>/company/{ticker}</code> is built from. Add "
      "<code>?as_of=YYYY-MM-DD</code> (Pro and above) for the balance sheet "
      "exactly as it was public that day: only filings made by then, the "
-     "original figure before a restatement and the revision after.")}
+     "original figure before a restatement and the revision after. "
+     "<strong>What <code>filing_date</code> means:</strong> on a line item it "
+     "is the filing that first reported that value (a later filing that only "
+     "repeats it, as every 10-Q repeats the prior year end, does not move it; "
+     "a filing that reports a different value for the same period does); on "
+     "the sheet itself it is the filing that supplied total assets.")}
 {_ep("GET", "/api/company/{ticker}/history?years=N",
      "X-API-Key required · counts as one call",
      "Every filed balance sheet over past periods, newest first. How far back "
