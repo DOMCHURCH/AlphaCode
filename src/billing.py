@@ -1288,6 +1288,33 @@ def _reverse(obj: Any) -> dict[str, Any]:
     return _reverse_for(customer, reason=str(_field(obj, "reason", "") or "refund"))
 
 
+# Seconds, per network phase (connect, read, write). The SDK's own default is 80
+# with two retries, so a Stripe that stops answering would hold a webhook worker
+# for minutes -- long after Stripe has given up on the delivery and queued the
+# retry. A lookup made while a webhook waits gets a short, explicit bound and no
+# retries of its own: a failure raises, the event id is released, and Stripe's
+# redelivery is the retry.
+_LOOKUP_TIMEOUT_S = 10.0
+
+
+def _lookup_client():
+    """A Stripe client for lookups made inside a webhook, or None without a key.
+
+    Separate from the module-level SDK configuration on purpose: that one keeps
+    the SDK's defaults for every other call, and this one is bounded.
+    """
+    stripe = _sdk()
+    s = get_settings()
+    if stripe is None or not s.stripe_secret_key:
+        return None
+    return stripe.StripeClient(
+        s.stripe_secret_key,
+        stripe_version=s.stripe_api_version or None,
+        http_client=stripe.HTTPXClient(timeout=_LOOKUP_TIMEOUT_S),
+        max_network_retries=0,
+    )
+
+
 def _customer_of_dispute(obj: Any) -> str:
     """The Stripe customer behind a dispute, or "" if Stripe cannot say.
 
@@ -1309,15 +1336,15 @@ def _customer_of_dispute(obj: Any) -> str:
     if found:
         return found
 
-    stripe = _sdk()
-    if stripe is None or not get_settings().stripe_secret_key:
+    client = _lookup_client()
+    if client is None:
         return ""
     charge_id = _id_of(charge)
     if charge_id:
-        return _id_of(_field(stripe.Charge.retrieve(charge_id), "customer"))
+        return _id_of(_field(client.v1.charges.retrieve(charge_id), "customer"))
     intent_id = _id_of(_field(obj, "payment_intent"))
     if intent_id:
-        return _id_of(_field(stripe.PaymentIntent.retrieve(intent_id), "customer"))
+        return _id_of(_field(client.v1.payment_intents.retrieve(intent_id), "customer"))
     return ""
 
 
