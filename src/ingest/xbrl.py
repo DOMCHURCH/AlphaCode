@@ -298,6 +298,12 @@ CONCEPTS: tuple[Concept, ...] = (
         "revenue",
         (
             "RevenueFromContractWithCustomerExcludingAssessedTax",
+            # The same ASC 606 line for a filer whose revenue includes assessed
+            # tax (excise and sales taxes collected). Hooker Furnishings files
+            # only this one, so with it missing its revenue was either dropped
+            # (bulk data) or read from a different tag (frames): a -$522,000
+            # `Revenues` line instead of $63,250,000.
+            "RevenueFromContractWithCustomerIncludingAssessedTax",
             "Revenues",
             "SalesRevenueNet",
             # Banks: JPM and peers file revenue net of interest expense and

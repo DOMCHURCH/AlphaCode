@@ -172,3 +172,55 @@ def test_restatement_collapses_to_the_earliest_filing(tmp_path, monkeypatch):
     finally:
         get_settings.cache_clear()
         reset_engine_cache()
+
+
+# ---------------------------------------------------------------------------
+# Hooker Furnishings (HOFT), 10-Q for the quarter ended 2026-08-02. Its income
+# statement uses RevenueFromContractWithCustomerIncludingAssessedTax, which was
+# not in the revenue tag list: bulk data dropped the line and the frames route
+# read a -$522,000 `Revenues` line instead of $63,250,000.
+# ---------------------------------------------------------------------------
+SUB_HOFT = [
+    {"adsh": "h1", "cik": "0000320193", "name": "HOOKER FURNISHINGS", "form": "10-Q",
+     "period": "20260731", "filed": "20260911", "fp": "Q2"},
+]
+
+
+def _hoft_num(*tags_and_values):
+    return [
+        {"adsh": "h1", "tag": tag, "version": "us-gaap/2025", "ddate": "20260731",
+         "qtrs": "1", "uom": "USD", "value": value}
+        for tag, value in tags_and_values
+    ]
+
+
+def test_a_filer_that_reports_revenue_including_assessed_tax_gets_a_revenue_row():
+    num_tag = "RevenueFromContractWithCustomerIncludingAssessedTax"
+    sub, num = ds.parse_dataset(_zip(SUB_HOFT, _hoft_num((num_tag, "63250000"))))
+    rows, _ = xbrl.extract_facts(sub, num, CIK_MAP)
+    revenue = [r for r in rows if r["metric"] == "revenue"]
+    assert [(r["value"], r["source_tag"]) for r in revenue] == [(63_250_000.0, num_tag)], (
+        "revenue was dropped: the tag is missing from xbrl.CONCEPTS")
+
+
+def test_the_including_assessed_tax_tag_outranks_the_plain_revenues_line():
+    """Both on one filing: the ASC 606 revenue line beats the generic `Revenues`
+    line, as the Excluding variant already does (HOFT's `Revenues` is a -$522,000
+    adjustment, not its revenue)."""
+    sub, num = ds.parse_dataset(_zip(SUB_HOFT, _hoft_num(
+        ("Revenues", "-522000"),
+        ("RevenueFromContractWithCustomerIncludingAssessedTax", "63250000"),
+    )))
+    rows, _ = xbrl.extract_facts(sub, num, CIK_MAP)
+    revenue = [r for r in rows if r["metric"] == "revenue"]
+    assert [r["value"] for r in revenue] == [63_250_000.0]
+
+
+def test_the_revenue_tag_order_is_excluding_then_including_then_revenues():
+    c = next(c for c in xbrl.CONCEPTS if c.metric == "revenue")
+    assert c.tags[:3] == (
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "Revenues",
+    )
+    assert xbrl._TAG_RANK["RevenueFromContractWithCustomerIncludingAssessedTax"] < xbrl._TAG_RANK["Revenues"]
