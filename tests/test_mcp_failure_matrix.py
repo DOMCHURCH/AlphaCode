@@ -10,7 +10,8 @@ get_balance_sheet            T         T         -         -       T
 check_balance_sheet          T         T         -         -       T
 get_balance_sheet_history    T         T         T (years) -       T
 get_balance_sheet_changes    T         T         T         -       T
-get_financial_statements     T         T         T (as_of) T       T
+get_financial_statements     T         T         T (as_of, T       T
+                                                 years)
 get_exceptions               T         -(optional) T       T       T
 search_companies             F (no     T         -         -       T
                               match is
@@ -177,24 +178,58 @@ def test_a_plan_refusal_is_an_error_that_names_the_plan(client, tool, args):
     assert "https://balanceproof.dev/pricing" in text(r)
 
 
+YEARS_TOOLS = [
+    ("get_balance_sheet_history", "balance sheet history"),
+    ("get_financial_statements", "financial statements"),
+]
+
+
+@pytest.mark.parametrize("tool,what", YEARS_TOOLS)
 @pytest.mark.parametrize("years,plan_named", [(3, "Starter"), (7, "Pro"), (50, "Business")])
-def test_a_history_request_beyond_the_plan_is_a_refusal_naming_the_plan_that_covers_it(
-    client, years, plan_named
+def test_a_years_request_beyond_the_plan_is_a_refusal_naming_the_plan_that_covers_it(
+    client, tool, what, years, plan_named
 ):
     from src import accounts
 
     account, key = accounts.register("matrix-free@example.com")
     seed_company("CLAMPCO")
-    r = call(client, "get_balance_sheet_history", key=key, ticker="CLAMPCO", years=years)
+    r = call(client, tool, key=key, ticker="CLAMPCO", years=years)
     assert r["isError"] is True
-    assert f"needs the {plan_named} plan or above" in text(r)
-    assert "Leave `years` out" in text(r)
+    shown = text(r)
+    assert f"{years} years of {what} needs the {plan_named} plan or above" in shown
+    assert "this caller is on Free, which reaches back 1 year" in shown
+    assert "Leave `years` out" in shown
+    assert "https://balanceproof.dev/pricing" in shown
+    assert "structuredContent" not in r
 
 
-def test_a_history_request_within_the_plan_still_answers(client, pro):
+@pytest.mark.parametrize("tool,what", YEARS_TOOLS)
+def test_a_years_refusal_is_not_billed(client, tool, what):
+    from sqlalchemy import text as sql
+
+    from src.storage.db import session_scope
+
+    def used():
+        with session_scope() as s:
+            return s.execute(sql("SELECT COUNT(*) FROM demo_usage")).scalar() or 0
+
     seed_company("CLAMPCO")
-    r = call(client, "get_balance_sheet_history", key=pro, ticker="CLAMPCO", years=10)
-    assert r["isError"] is False
+    before = used()
+    r = call(client, tool, ticker="CLAMPCO", years=3)     # anonymous: Free's allowances
+    assert r["isError"] is True
+    assert used() == before, "a refused request was billed"
+
+    served = call(client, tool, ticker="CLAMPCO")
+    assert served["isError"] is False
+    assert used() == before + 1, "the control: an answered call is billed once"
+
+
+@pytest.mark.parametrize("tool,what", YEARS_TOOLS)
+def test_a_years_request_within_the_plan_or_none_at_all_still_answers(client, pro, tool, what):
+    seed_company("CLAMPCO")
+    for args in ({}, {"years": 10}):
+        r = call(client, tool, key=pro, ticker="CLAMPCO", **args)
+        assert r["isError"] is False, (tool, args, text(r))
 
 
 @pytest.mark.parametrize("tool,args", [
@@ -274,4 +309,10 @@ def seed_company(ticker):
                             ("total_equity", 400.0)]:
             s.add(Fundamental(ticker=ticker, metric=metric, value=val,
                               period_end=dt.date(2026, 6, 30), fiscal_period="Q2",
+                              filing_date=dt.date(2026, 8, 1), source="sec"))
+        # An annual income statement, so get_financial_statements has something
+        # to return rather than "not covered".
+        for metric, val in [("revenue", 1000e6), ("cogs", 600e6), ("gross_profit", 400e6)]:
+            s.add(Fundamental(ticker=ticker, metric=metric, value=val,
+                              period_end=dt.date(2026, 6, 30), fiscal_period="FY",
                               filing_date=dt.date(2026, 8, 1), source="sec"))

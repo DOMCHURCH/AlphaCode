@@ -888,10 +888,11 @@ def _clamp_years(args: dict[str, Any], cap: int | None, tier: str) -> tuple[int 
     return asked, allowed, note
 
 
-def _history_refusal(asked: int, cap: int | None, tier: str) -> str:
-    """The plan refusal for asking `get_balance_sheet_history` for more years
-    than the caller's plan reaches. Same shape as `_plan_refusal`, plus the way
-    to get an answer today."""
+def _history_refusal(asked: int, cap: int | None, tier: str,
+                     what: str = "balance sheet history") -> str:
+    """The plan refusal for asking `get_balance_sheet_history` or
+    `get_financial_statements` for more years than the caller's plan reaches.
+    Same shape as `_plan_refusal`, plus the way to get an answer today."""
     from src import plans
 
     need = next(
@@ -901,7 +902,7 @@ def _history_refusal(asked: int, cap: int | None, tier: str) -> str:
     )
     have = f"{cap} year{'s' if cap != 1 else ''}"
     return (
-        f"{asked} years of balance sheet history needs the {plans.TIER_NAMES[need]} "
+        f"{asked} years of {what} needs the {plans.TIER_NAMES[need]} "
         f"plan or above (this caller is on {plans.TIER_NAMES.get(tier, 'Free')}, "
         f"which reaches back {have}). Leave `years` out to get the {have} your "
         "plan includes. Upgrade at https://balanceproof.dev/pricing."
@@ -1014,6 +1015,13 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
             raise _ToolFailure("as_of cannot be in the future.")
     cap = plans.allowance(_tier_of(m), "history_years")
     asked, allowed, clamp_note = _clamp_years(args, cap, _tier_of(m))
+    if clamp_note:
+        # Same rule as get_balance_sheet_history: an explicit request for more
+        # years than the plan reaches is a refusal, unbilled (raised before
+        # m.spend). Leaving `years` out returns what the plan includes.
+        raise _ToolFailure(
+            _history_refusal(asked, cap, _tier_of(m), "financial statements")
+        )
     out = statements(ticker, period, allowed, as_of)
     if out is None:
         raise _ToolFailure(_not_covered(ticker, "income statement or cash flow"))
@@ -1034,7 +1042,7 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
             + (" Try period=quarterly, or " if period == "annual" else " ")
             + "see https://balanceproof.dev/pricing for longer history."
         )
-        return f"{clamp_note} {text}".strip(), jsonable_encoder(out)
+        return text, jsonable_encoder(out)
 
     def _num(d: dict[str, Any] | None, k: str) -> str:
         v = (d or {}).get(k)
@@ -1060,7 +1068,7 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
         f"{sm['tested']} checks passed, {sm['failed']} failed."
     )
     return (
-        (clamp_note + " " if clamp_note else "") + head + "\n" + "\n".join(lines) + more,
+        head + "\n" + "\n".join(lines) + more,
         jsonable_encoder(out),
     )
 
