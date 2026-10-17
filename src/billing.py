@@ -1284,12 +1284,56 @@ def _reverse(obj: Any) -> dict[str, Any]:
     email to an operator who has a grant switch. A dispute WON can be put back
     with `/admin/grant-access`.
     """
+    customer = _id_of(_field(obj, "customer"))
+    return _reverse_for(customer, reason=str(_field(obj, "reason", "") or "refund"))
+
+
+def _customer_of_dispute(obj: Any) -> str:
+    """The Stripe customer behind a dispute, or "" if Stripe cannot say.
+
+    A Dispute object has NO `customer` field: it carries the `charge` (and
+    usually the `payment_intent`) that was disputed, and the customer lives on
+    those. A refund event is different -- its object is the Charge itself, which
+    does carry `customer` -- so `_reverse` can read it directly and a dispute
+    cannot.
+
+    The charge is read inline when Stripe expanded it, otherwise fetched. A
+    Stripe that errors RAISES, deliberately: `_dispatch` hands the event id back
+    and Stripe redelivers, which is what a chargeback wants. Swallowing the
+    error would answer 200 and leave a customer holding access for money that
+    has been taken back. Only a dispute that names nothing we can look up
+    returns "".
+    """
+    charge = _field(obj, "charge")
+    found = _id_of(_field(charge, "customer")) if not isinstance(charge, str) else ""
+    if found:
+        return found
+
+    stripe = _sdk()
+    if stripe is None or not get_settings().stripe_secret_key:
+        return ""
+    charge_id = _id_of(charge)
+    if charge_id:
+        return _id_of(_field(stripe.Charge.retrieve(charge_id), "customer"))
+    intent_id = _id_of(_field(obj, "payment_intent"))
+    if intent_id:
+        return _id_of(_field(stripe.PaymentIntent.retrieve(intent_id), "customer"))
+    return ""
+
+
+def _dispute(obj: Any) -> dict[str, Any]:
+    """A chargeback opened: find who it belongs to, then take the access back."""
+    customer = _customer_of_dispute(obj)
+    return _reverse_for(customer, reason=str(_field(obj, "reason", "") or "dispute"))
+
+
+def _reverse_for(customer: str, *, reason: str) -> dict[str, Any]:
     from src import accounts
 
-    customer = _id_of(_field(obj, "customer"))
     email = _email_for(customer=customer)
     if not email:
-        log.info("stripe_reversal_unknown_customer", customer=customer or "-")
+        # Loud, not info: for a dispute this is money gone with access intact.
+        log.warning("stripe_reversal_unknown_customer", customer=customer or "-", reason=reason)
         return {"status": "unknown_customer"}
 
     accounts.apply_admin_action(email, "revoke_pro")
@@ -1300,7 +1344,7 @@ def _reverse(obj: Any) -> dict[str, Any]:
     log.warning(
         "stripe_payment_REVERSED",
         email=email, customer=customer or "-",
-        reason=str(_field(obj, "reason", "") or "refund"),
+        reason=reason,
     )
     return {
         "status": "reversed",
@@ -1612,7 +1656,7 @@ _HANDLERS = {
     # access should stop while the money is held, and a dispute won is one
     # `/admin/grant-access` call to put back.
     "charge.refunded": _reverse,
-    "charge.dispute.created": _reverse,
+    "charge.dispute.created": _dispute,
 }
 
 

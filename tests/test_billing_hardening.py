@@ -228,10 +228,15 @@ def test_an_immediate_cancellation_does_not_confiscate_paid_time(client):
 # 05 -- money going back
 # ---------------------------------------------------------------------------
 
-@pytest.mark.parametrize("kind", ["charge.refunded", "charge.dispute.created"])
+@pytest.mark.parametrize("kind", ["charge.refunded"])
 def test_a_reversed_payment_takes_the_access_back(client, kind):
     """Both were unhandled, so a chargeback left a stranger with full access
-    and the money reversed, and no code path would ever have noticed."""
+    and the money reversed, and no code path would ever have noticed.
+
+    Refunds only: a refund event IS the Charge, which carries `customer`. A
+    dispute does not, and this test used to hand it one that Stripe never
+    sends. Disputes are tested with a real Dispute shape in
+    test_billing_audit_a.py."""
     key = register(client)
     post_event(client, checkout_event(plan="pro"))
     post_event(client, checkout_event(event_id="evt_d", plan="dataset"))
