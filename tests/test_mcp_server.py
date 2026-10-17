@@ -564,14 +564,27 @@ def test_an_unknown_ticker_is_still_not_billed(client):
     assert _count("demo_usage") == 0
 
 
-def test_a_longer_history_than_the_plan_allows_says_it_was_cut(client):
+def test_a_longer_history_than_the_plan_allows_is_a_plan_refusal(client):
+    """Asking for more years than the plan reaches is refused, like as_of, and
+    is not billed. Leaving `years` out still returns what the plan includes."""
     _seed_totals("HSTT", **APPLE)
+    before = _count("demo_usage")
     result = _call(client, "get_balance_sheet_history", ticker="HSTT", years=3)
     text = _text(result)
-    assert "You asked for 3 years; the free plan reaches back 1 year, so 1 year is shown." in text
-    assert result["structuredContent"]["years_asked"] == 3
-    assert result["structuredContent"]["years_allowed"] == 1
-    assert "- 2026-06-30" in text and "assets $383.27B" in text
+    assert result["isError"] is True
+    assert "3 years of balance sheet history needs the Starter plan or above" in text
+    assert "this caller is on Free, which reaches back 1 year" in text
+    assert "Leave `years` out" in text
+    assert "https://balanceproof.dev/pricing" in text
+    assert "structuredContent" not in result
+    assert _count("demo_usage") == before, "a refused request was billed"
+
+    # The same caller, without `years` (or within the plan), gets data.
+    for args in ({}, {"years": 1}):
+        ok = _call(client, "get_balance_sheet_history", ticker="HSTT", **args)
+        assert ok["isError"] is False
+        assert ok["structuredContent"]["years_allowed"] == 1
+        assert "- 2026-06-30" in _text(ok) and "assets $383.27B" in _text(ok)
 
 
 def test_history_lists_each_period_with_its_totals_in_the_text(client):

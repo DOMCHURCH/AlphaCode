@@ -8,7 +8,7 @@ not a failure. `None` in the table means the failure cannot happen for that tool
                             ticker    input     refusal   date    error
 get_balance_sheet            T         T         -         -       T
 check_balance_sheet          T         T         -         -       T
-get_balance_sheet_history    T         T         -(clamps) -       T
+get_balance_sheet_history    T         T         T (years) -       T
 get_balance_sheet_changes    T         T         T         -       T
 get_financial_statements     T         T         T (as_of) T       T
 get_exceptions               T         -(optional) T       T       T
@@ -177,15 +177,24 @@ def test_a_plan_refusal_is_an_error_that_names_the_plan(client, tool, args):
     assert "https://balanceproof.dev/pricing" in text(r)
 
 
-def test_a_history_request_beyond_the_plan_is_clamped_and_says_so_not_refused(client, pro):
-    """The plan cuts the window; the caller still gets data, with a note."""
+@pytest.mark.parametrize("years,plan_named", [(3, "Starter"), (7, "Pro"), (50, "Business")])
+def test_a_history_request_beyond_the_plan_is_a_refusal_naming_the_plan_that_covers_it(
+    client, years, plan_named
+):
     from src import accounts
 
     account, key = accounts.register("matrix-free@example.com")
     seed_company("CLAMPCO")
-    r = call(client, "get_balance_sheet_history", key=key, ticker="CLAMPCO", years=50)
+    r = call(client, "get_balance_sheet_history", key=key, ticker="CLAMPCO", years=years)
+    assert r["isError"] is True
+    assert f"needs the {plan_named} plan or above" in text(r)
+    assert "Leave `years` out" in text(r)
+
+
+def test_a_history_request_within_the_plan_still_answers(client, pro):
+    seed_company("CLAMPCO")
+    r = call(client, "get_balance_sheet_history", key=pro, ticker="CLAMPCO", years=10)
     assert r["isError"] is False
-    assert "plan reaches back" in text(r)
 
 
 @pytest.mark.parametrize("tool,args", [

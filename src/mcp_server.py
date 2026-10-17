@@ -878,6 +878,26 @@ def _clamp_years(args: dict[str, Any], cap: int | None, tier: str) -> tuple[int 
     return asked, allowed, note
 
 
+def _history_refusal(asked: int, cap: int | None, tier: str) -> str:
+    """The plan refusal for asking `get_balance_sheet_history` for more years
+    than the caller's plan reaches. Same shape as `_plan_refusal`, plus the way
+    to get an answer today."""
+    from src import plans
+
+    need = next(
+        (t for t in plans.TIER_ORDER
+         if (reach := plans.allowance(t, "history_years")) is None or reach >= asked),
+        "business",
+    )
+    have = f"{cap} year{'s' if cap != 1 else ''}"
+    return (
+        f"{asked} years of balance sheet history needs the {plans.TIER_NAMES[need]} "
+        f"plan or above (this caller is on {plans.TIER_NAMES.get(tier, 'Free')}, "
+        f"which reaches back {have}). Leave `years` out to get the {have} your "
+        "plan includes. Upgrade at https://balanceproof.dev/pricing."
+    )
+
+
 def _tool_get_history(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     from src import plans
     from src.company.history import history
@@ -887,6 +907,11 @@ def _tool_get_history(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
         raise _ToolFailure(_NO_TICKER)
     cap = plans.allowance(_tier_of(m), "history_years")
     asked, allowed, clamp_note = _clamp_years(args, cap, _tier_of(m))
+    if clamp_note:
+        # An explicit request for more years than the plan reaches is a plan
+        # refusal, like as_of or the exceptions feed. Not billed: raised before
+        # m.spend. Leaving `years` out still returns what the plan includes.
+        raise _ToolFailure(_history_refusal(asked, cap, _tier_of(m)))
     out = history(ticker, allowed)
     if out is None:
         raise _ToolFailure(_not_covered(ticker, "balance sheets"))
@@ -894,10 +919,10 @@ def _tool_get_history(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     out["years_allowed"] = cap
     out["years_asked"] = asked
     payload = jsonable_encoder(out)
-    note = clamp_note or ("" if cap is None else (
+    note = "" if cap is None else (
         f"Your plan reaches back {cap} year{'s' if cap != 1 else ''}; "
         "more history is on higher plans at https://balanceproof.dev/pricing."
-    ))
+    )
     lines = []
     for sheet in payload.get("balance_sheets", [])[:8]:
         t = _sheet_totals(sheet)
