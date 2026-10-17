@@ -687,7 +687,7 @@ def test_pricing_is_a_real_page_and_answers_the_dataset_vs_api_question(client):
     html = r.text
 
     # The comparison, and the four rows that carry the actual differentiation.
-    assert "Static (as of download date)" in html
+    assert "As of each download (built when you ask)" in html
     assert "Current (updates as filings land)" in html
     assert "One-time analysis" in html
     assert "Ongoing automation" in html
@@ -706,17 +706,25 @@ def test_every_plan_is_buyable_from_the_pricing_page(client):
     assert 'href="/dashboard#billing" data-plan=' in html
 
 
-def test_the_dataset_page_states_its_snapshot_date_and_that_it_is_static(client):
+def test_the_dataset_page_says_how_the_download_works_and_how_current_it_is(client):
     """The one property that decides whether the dataset is the right purchase.
 
-    It used to be nowhere a buyer could read before paying, which is how
-    somebody buys a photograph believing they bought a window.
+    It used to be nowhere a buyer could read before paying, and when it was
+    written down it described a static file that the code does not produce: the
+    download is built from the database on every request, so a copy you save
+    stops changing but a second download is newer.
     """
-    html = client.get("/dataset").text
+    html = " ".join(client.get("/dataset").text.split())   # the markup wraps lines
 
-    assert "static snapshot" in html.lower()
-    assert "will never update" in html
-    assert "For the most current data, use the API" in html
+    assert "Built when you download it" in html
+    assert "The copy you save does not change" in html
+    assert "download again for a file that includes them" in html
+    assert "For the latest filing the day it lands, use" in html
+    assert "static snapshot" not in html.lower() and "will never update" not in html
+    # The two honest limits: older filings can carry SEC's month-end date, and
+    # the one column that is not blank only when two copies disagree.
+    assert "month-end date" in html and "up to 15 days" in html
+    assert "period_note" in html
     # Size and rows, so a large download is a decision rather than a surprise.
     assert "File size" in html and "Rows" in html
 

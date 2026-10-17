@@ -2185,8 +2185,8 @@ flagged with the reason instead of adjusted
 companies' periodic reports, not every filer. Every company page is free to
 read, the <a href="/api">API</a> gives a free key 1,000 calls a month, and the
 <a href="/dataset">full dataset</a> is one as-reported CSV of {FACTS}
-rows with a <code>restated</code> flag, $79.99 once, a snapshot that does not
-update.</p>
+rows with a <code>restated</code> flag, $79.99 once, built from the database
+each time you download it.</p>
 """,
 )
 

@@ -22,7 +22,9 @@ file now applies the same rule before it resolves restatements, per ticker:
 * a rounded row whose real-dated twin (same filing, same source, same metric)
   carries the SAME value is dropped -- the twin stands for it;
 * a rounded row whose twin carries a DIFFERENT value stays, under its rounded
-  date, and is counted (`Collapse.conflicts`) -- neither figure is guessed at;
+  date, and is counted (`Collapse.conflicts`) -- neither figure is guessed at.
+  Both copies carry a `period_note` ("value differs from the <date> row"), the
+  file's last column and blank everywhere else;
 * a rounded row with NO twin for that metric is re-dated to the real period end
   rather than dropped, so no figure is lost.
 
@@ -52,8 +54,8 @@ import csv
 import datetime as dt
 import io
 import time
-from collections import Counter
-from collections.abc import Iterator, Sequence
+from collections import Counter, defaultdict
+from collections.abc import Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
@@ -83,10 +85,20 @@ PROVENANCE: dict[str, str] = {
     "X-Dataset-Source": "SEC EDGAR XBRL, as reported",
     "X-Dataset-Grain": "one row per company, metric and period; latest filing wins",
     "X-Dataset-Reconciliation": "Reconciled using A = L + E; exceptions flagged, not hidden",
-    "X-Dataset-Static": "static snapshot; it does not update",
+    "X-Dataset-Freshness": (
+        "built from the database when you request it; a copy you save does not change"
+    ),
+    "X-Dataset-Period-Ends": (
+        "the real period end where the filing reports one; filings loaded only from "
+        "SEC bulk data sets keep SEC's month-end date, up to 15 days from the actual one"
+    ),
     "X-Dataset-About": "https://balanceproof.dev/dataset",
 }
 
+# `period_note` is LAST on purpose: a reader that takes the first nine columns by
+# position reads this file exactly as it read the last one. Blank on every row
+# except the two copies of a figure whose value differs between the month-end
+# date and the real date (see `Collapse.conflicts`).
 COLUMNS = (
     "ticker",
     "metric",
@@ -97,6 +109,7 @@ COLUMNS = (
     "source",
     "restated",
     "ingested_at",
+    "period_note",
 )
 
 
@@ -113,6 +126,7 @@ def _fmt(v: object) -> object:
 
 
 _TICKER, _METRIC, _VALUE, _PERIOD, _FISCAL, _FILED, _SOURCE = range(7)  # SELECT order
+_COUNT_CHUNK = 150  # tickers per query in `file_row_count`
 _MISSING = object()
 
 
@@ -124,8 +138,9 @@ class Collapse:
     source and metric) carries the same value. `redated`: rounded rows with no
     twin for that metric, written under the real period end instead. `conflicts`:
     rounded rows kept under their rounded date because the twin's value differs.
-    A conflict is not marked in the file: both figures are there, one under each
-    date, and nothing in the row says which pair it belongs to.
+    Both figures are written, one under each date, and both rows carry a
+    `period_note` naming the other date, so a pair is recognisable from either
+    side.
 
     These are counts of RAW rows touched, before the latest-filing rule picks a
     winner, so they are not the same as how much shorter the file got.
@@ -141,8 +156,13 @@ class Collapse:
         self.conflicts += other.conflicts
 
 
-def _twin_map(rows: Sequence[tuple[Any, ...]]) -> dict[tuple[dt.date, dt.date], dt.date]:
+def _twin_map(
+    filed_periods: Iterable[tuple[dt.date, dt.date]],
+) -> dict[tuple[dt.date, dt.date], dt.date]:
     """{(filing_date, rounded month end): real period end} for ONE ticker.
+
+    Takes (filing_date, period_end) pairs, so it can be fed from the rows being
+    written or from a bare list of distinct dates (`file_row_count`).
 
     The pairing rule of `src.company.periods` (a month end with a non-month-end
     date 1 to 15 days away in the same filing is that date's rounded copy), kept
@@ -152,8 +172,8 @@ def _twin_map(rows: Sequence[tuple[Any, ...]]) -> dict[tuple[dt.date, dt.date], 
     month ends, means guessing which is "the" twin.
     """
     dates: dict[dt.date, set[dt.date]] = {}
-    for r in rows:
-        dates.setdefault(r[_FILED], set()).add(r[_PERIOD])
+    for filed, period_end in filed_periods:
+        dates.setdefault(filed, set()).add(period_end)
     out: dict[tuple[dt.date, dt.date], dt.date] = {}
     for filed, period_ends in dates.items():
         twins = filing_twins(period_ends)
@@ -172,16 +192,28 @@ def _source_rank(source: str | None) -> int:
         return 0
 
 
-def _collapse_ticker(rows: Sequence[tuple[Any, ...]]) -> tuple[list[tuple[Any, ...]], Collapse]:
+def _collapse_ticker(
+    rows: Sequence[tuple[Any, ...]],
+    twin: dict[tuple[dt.date, dt.date], dt.date] | None = None,
+) -> tuple[list[tuple[Any, ...]], Collapse]:
     """One ticker's raw rows -> (the rows to write, what was collapsed).
 
     Rounded rows are first merged into their real-dated twin, re-dated, or kept
     as conflicts (see `Collapse`); then the latest filing wins per
     (metric, period_end), source preference breaking a same-day tie. The result
-    is ordered by (metric, period_end), the order the file has always had.
+    is ordered by (metric, period_end), the order the file has always had, and
+    every row gains a trailing `period_note`: blank, or on the two copies of a
+    conflicting figure, "value differs from the <other date> row".
+
+    `twin` is for a caller that has already worked the pairing out from ALL of
+    the ticker's dates and is passing only some of its rows (`file_row_count`):
+    recomputing it from a subset could miss an ambiguity and pair wrongly.
     """
     stats = Collapse()
-    twin = _twin_map(rows)
+    if twin is None:
+        twin = _twin_map((r[_FILED], r[_PERIOD]) for r in rows)
+    # row key -> (note, key of the row it disagrees with)
+    notes: dict[tuple[Any, ...], tuple[str, tuple[Any, ...]]] = {}
     if not twin:
         kept = list(rows)  # a calendar-aligned filer: nothing to collapse
     else:
@@ -201,14 +233,27 @@ def _collapse_ticker(rows: Sequence[tuple[Any, ...]]) -> tuple[list[tuple[Any, .
             else:
                 kept.append(r)
                 stats.conflicts += 1
+                rounded = r[_PERIOD]
+                k_rounded = (r[_METRIC], rounded, r[_FILED], r[_SOURCE])
+                k_real = (r[_METRIC], real, r[_FILED], r[_SOURCE])
+                notes[k_rounded] = (f"value differs from the {real.isoformat()} row", k_real)
+                notes[k_real] = (f"value differs from the {rounded.isoformat()} row", k_rounded)
 
     kept.sort(key=lambda r: (r[_METRIC], r[_PERIOD], r[_FILED], _source_rank(r[_SOURCE]), r[_SOURCE] or ""))
-    out: list[tuple[Any, ...]] = []
+    winners: list[tuple[Any, ...]] = []
     for r in kept:
-        if out and (out[-1][_METRIC], out[-1][_PERIOD]) == (r[_METRIC], r[_PERIOD]):
-            out[-1] = r  # a later filing, or a preferred source on the same day
+        if winners and (winners[-1][_METRIC], winners[-1][_PERIOD]) == (r[_METRIC], r[_PERIOD]):
+            winners[-1] = r  # a later filing, or a preferred source on the same day
         else:
-            out.append(r)
+            winners.append(r)
+    # A note is only true while the row it points at is in the file too: a later
+    # filing can replace one side of a pair, and the survivor then has nothing
+    # left to disagree with.
+    written = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]) for r in winners}
+    out = []
+    for r in winners:
+        note, partner = notes.get((r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]), ("", None))
+        out.append(r + (note if partner in written else "",))
     return out, stats
 
 
@@ -335,9 +380,11 @@ def _source_rank_sql():
 # cannot be read (blog posts, llms.txt). NOT a source of truth: facts_label()
 # and home_page.companies_label() are, and every page prefers them. These two
 # exist so the fallback is one place to update, not two literals in two files.
-# Last checked against the live site on 2026-10-08 (6,246 companies, 2,014,821 facts).
+# FALLBACK_COMPANIES: last checked against the live site on 2026-10-08 (6,246 companies).
+# FALLBACK_FACTS: 2026-10-17, when the file was 1,257,194 rows (the table holds
+# 2,016,659, which is NOT what the file contains).
 FALLBACK_COMPANIES = "6,246"
-FALLBACK_FACTS = "2M"
+FALLBACK_FACTS = "1.3M"
 
 _COUNT_TTL_S = 900.0
 _SHAPE_TTL_S = 900.0
@@ -377,29 +424,91 @@ def facts_label() -> str:
     return str(n)
 
 
-def row_count() -> int:
-    """How many facts the download contains. Shown on the dashboard so a buyer
-    knows what they are paying for before they pay for it.
+def file_row_count() -> int:
+    """How many rows `iter_csv` writes, worked out without writing them.
 
-    Memoised for fifteen minutes. `count(*)` over a million-plus rows is a
-    sequential scan on Postgres, and this figure is decoration on a page that
-    should feel instant -- it changes four times a year, when a quarter loads.
-    A stale count for a quarter of an hour is invisible; a page that waits half
-    a second for it on every view is not.
+    The table holds about 60% more rows than the file: restated figures and
+    several sources for one figure collapse to one row per (ticker, metric,
+    period_end), and the canonical-period pass removes the month-end copies on
+    top of that. Quoting the table's size as the file's was a 38% overstatement.
+
+    Exact, not an estimate, and by construction the same rule: the base is the
+    number of distinct (ticker, metric, period_end) -- the file's grain before
+    the period pass -- and the period pass is applied by `_collapse_ticker`
+    itself, so the two cannot drift. Only tickers that have a month-end/real-date
+    twin are touched, and only the rows on those twin dates are fetched; the
+    pairing is still worked out from ALL of a ticker's dates, so an ambiguity
+    elsewhere in a filing is seen. `test_dataset_canonical_periods` holds this
+    equal to the number of rows the stream actually produces.
+    """
+    from sqlalchemy import func
+
+    with session_scope() as session:
+        base = int(session.execute(
+            select(func.count()).select_from(
+                select(Fundamental.ticker, Fundamental.metric, Fundamental.period_end)
+                .distinct().subquery()
+            )
+        ).scalar_one())
+
+        dates: dict[str, list[tuple[dt.date, dt.date]]] = defaultdict(list)
+        for ticker, filed, period_end in session.execute(
+            select(Fundamental.ticker, Fundamental.filing_date, Fundamental.period_end)
+            .distinct()
+        ):
+            dates[ticker].append((filed, period_end))
+
+        twins = {t: tw for t, pairs in dates.items() if (tw := _twin_map(pairs))}
+        involved = {
+            t: {m for (_, m) in tw} | set(tw.values()) for t, tw in twins.items()
+        }
+
+        # A few hundred tickers have a twin; fetching them a chunk at a time keeps
+        # this to a handful of round trips instead of one per ticker. A chunk's
+        # query asks for the union of its tickers' twin dates, so each ticker's
+        # rows are narrowed back to its own before they are used.
+        removed = 0
+        tickers = sorted(twins)
+        for i in range(0, len(tickers), _COUNT_CHUNK):
+            chunk = tickers[i:i + _COUNT_CHUNK]
+            wanted = set().union(*(involved[t] for t in chunk))
+            by_ticker: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
+            for row in session.execute(
+                select(
+                    Fundamental.ticker, Fundamental.metric, Fundamental.value,
+                    Fundamental.period_end, Fundamental.fiscal_period,
+                    Fundamental.filing_date, Fundamental.source,
+                    Fundamental.restated, Fundamental.ingested_at,
+                ).where(Fundamental.ticker.in_(chunk), Fundamental.period_end.in_(wanted))
+            ):
+                if row[_PERIOD] in involved[row[_TICKER]]:
+                    by_ticker[row[_TICKER]].append(tuple(row))
+            for t in chunk:
+                rows = by_ticker.get(t, [])
+                before = len({(r[_METRIC], r[_PERIOD]) for r in rows})
+                out, _ = _collapse_ticker(rows, twins[t])
+                removed += before - len(out)
+    return base - removed
+
+
+def row_count() -> int:
+    """How many rows the download contains (`file_row_count`), not how many the
+    table holds. Shown on the dashboard so a buyer knows what they are paying
+    for before they pay for it.
+
+    Memoised for fifteen minutes. Working the count out reads every distinct
+    (ticker, metric, period) once, and this figure is decoration on a page that
+    should feel instant -- it changes when a quarter loads. A stale count for a
+    quarter of an hour is invisible; a page that waits for it on every view is
+    not.
     """
     global _count_cache
-    from sqlalchemy import func
 
     now = time.monotonic()
     if _count_cache is not None and now - _count_cache[0] < _COUNT_TTL_S:
         return _count_cache[1]
 
-    with session_scope() as session:
-        n = int(
-            session.execute(
-                select(func.count()).select_from(Fundamental)
-            ).scalar_one()
-        )
+    n = file_row_count()
     _count_cache = (now, n)
     return n
 
@@ -467,7 +576,7 @@ def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
     writer = csv.writer(buf, lineterminator="\n")
     seen = 0
     for row in session.execute(stmt):  # type: ignore[attr-defined]
-        writer.writerow([_fmt(v) for v in row])
+        writer.writerow([_fmt(v) for v in row] + [""])  # + the blank `period_note`
         seen += 1
     if not seen:
         return 0.0
@@ -488,12 +597,10 @@ def shape() -> Shape:
     if _shape_cache is not None and now - _shape_cache[0] < _SHAPE_TTL_S:
         return _shape_cache[1]
 
+    # The file's row count, not the table's (see `file_row_count`); shared with
+    # `row_count` so the page, the dashboard and the copy quote one number.
+    rows = row_count()
     with session_scope() as session:
-        rows = int(
-            session.execute(
-                select(func.count()).select_from(Fundamental)
-            ).scalar_one()
-        )
         generated = session.execute(
             select(func.max(Fundamental.ingested_at))
         ).scalar_one()

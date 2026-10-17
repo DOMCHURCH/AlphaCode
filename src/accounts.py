@@ -903,8 +903,9 @@ def require_paid_download(account: Account) -> None:
         detail=(
             f"Payment required. The full dataset is a one-time "
             f"{price_label(s.dataset_price_usd)}, paid by card through Stripe: "
-            f"buy it at /dataset. It is a static snapshot -- for live data, "
-            f"the API is /pricing. Trouble paying? Contact {where}, quoting "
+            f"buy it at /dataset. Each download is built from the database "
+            f"when you request it -- for live queries, the API is /pricing. "
+            f"Trouble paying? Contact {where}, quoting "
             f"your API key."
         ),
     )

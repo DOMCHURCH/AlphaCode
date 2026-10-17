@@ -105,10 +105,12 @@ def render_dashboard(
         'Source: <a href="https://www.sec.gov/dera/data/financial-statement-data-sets"'
         f' rel="noopener">SEC Financial Statement Data Sets</a>. Questions: {contact}.'
     )
-    # " as of 8 September 2026" -- the STATIC-ness of the dataset is the
-    # thing the buy button cannot say on its own, and the date is what makes it
-    # concrete rather than a disclaimer.
-    as_of_clause = f", as of {escape(dataset_as_of)}" if dataset_as_of else ""
+    # ", with data loaded through 8 September 2026" -- how the dataset is built
+    # (fresh per download, then fixed) is the thing the buy button cannot say on
+    # its own, and the date is what makes it concrete rather than a disclaimer.
+    as_of_clause = (
+        f", with data loaded through {escape(dataset_as_of)}" if dataset_as_of else ""
+    )
     api_tab = render_api_tab()
     from src.report.dashboard_features import (
         plans_json, render_buy_cards, render_feature_panels,
@@ -340,7 +342,7 @@ def render_dashboard(
         </thead>
         <tbody>
           <tr><th scope="row">Data freshness</th>
-              <td>Static (as of download date)</td>
+              <td>As of each download (built when you ask)</td>
               <td>Current (updates as filings land)</td></tr>
           <tr><th scope="row">Access method</th>
               <td>One CSV download</td>
@@ -349,7 +351,7 @@ def render_dashboard(
               <td>One-time analysis</td>
               <td>Ongoing automation</td></tr>
           <tr><th scope="row">Updates</th>
-              <td><span class="no" aria-label="no">&#10007;</span> No (buy again)</td>
+              <td>Only when you download again (included)</td>
               <td><span class="yes" aria-label="yes">&#10003;</span> Yes (as filings land)</td></tr>
           <tr><th scope="row">Automation</th>
               <td><span class="no" aria-label="no">&#10007;</span> Manual</td>
@@ -360,8 +362,9 @@ def render_dashboard(
         </tbody>
       </table>
     </div>
-      <p class="plan-note">The dataset is {facts} as one CSV{as_of_clause}, and
-        does not update. <a href="/dataset">What is in it</a>.</p>
+      <p class="plan-note">The dataset is {facts} as one CSV, built from the
+        database each time you download it{as_of_clause}. A copy you save does
+        not change. <a href="/dataset">What is in it</a>.</p>
     </details>
     <p class="plan-note">Paid plans go through Stripe. Your card details are
       entered on Stripe's page and never reach this site. Payment history will

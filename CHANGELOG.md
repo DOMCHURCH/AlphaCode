@@ -15,6 +15,14 @@ What you will see:
 - `/api/verify` builds its SEC filing link from the sheet's `filing_date`; for historical sheets it now points to the filing that carried the balance sheet, not a later filing that repeated a figure.
 - A real restatement still takes the date of the filing that introduced the new value.
 
+### The dataset CSV: one row per real quarter, one new column, and what the pages say
+
+- **Month-end copies are gone from the file.** A quarter loaded by both SEC routes used to be written twice (Apple's 2026-03-28 and 2026-03-31, total assets in both). The file now applies the same rule as the API: a month-end row whose real-dated twin (same filing, source and metric) has the same value is dropped; one with no twin is re-dated to the real period end, not dropped. On the live table that removed 7,560 rows and re-dated 2,534; the file is 1,257,194 rows, down from 1,264,751.
+- **New last column, `period_note`.** Blank on every row except the two copies of a figure whose value differs between the month-end date and the real date (9 such pairs today); each says "value differs from the <other date> row". It is the last column, so a reader that takes the first nine by position sees the file it saw before.
+- **Filings loaded only from SEC's bulk data sets keep SEC's month-end date**, up to 15 days from the actual period end. The pricing page, the dataset page and the response headers now say so.
+- **The pages describe how the download works.** Each download is built from the database when it is requested, so downloading again later includes any filings loaded since; a copy you save does not change. The old copy ("static snapshot", "never updates", "buy again") was wrong. The header `X-Dataset-Static` is replaced by `X-Dataset-Freshness` and `X-Dataset-Period-Ends`.
+- **Row counts are the file's.** The pages quoted the table's size (about 2.0M); the file is about 1.3M. `facts_label()` feeds the same number to the home page, `/api`, the blog and `llms.txt`, so those drop too.
+
 ### Other changes in this release
 
 - **Period ends.** SEC's bulk datasets round a period end to the nearest month end (Apple's 2026-06-27 reads 06-30). The real date is kept and every read path treats a rounded copy and its real-dated twin as one period. Read-side only: no data was rewritten.

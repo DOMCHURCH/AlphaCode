@@ -313,3 +313,141 @@ def test_a_re_dated_row_keeps_everything_but_its_date(db):
     row = next(r for r in stream() if r["metric"] == "total_equity" and r["period_end"] == real.isoformat())
     assert (row["value"], row["fiscal_period"], row["filing_date"], row["source"]) == (
         "400.0", "Q2", filed.isoformat(), "sec")
+
+
+# ---------------------------------------------------------------------------
+# The conflict marker: a trailing `period_note`
+# ---------------------------------------------------------------------------
+
+def test_the_file_has_the_old_nine_columns_in_order_then_period_note(db):
+    from src.dataset import COLUMNS
+
+    assert COLUMNS[:9] == ("ticker", "metric", "value", "period_end", "fiscal_period",
+                           "filing_date", "source", "restated", "ingested_at")
+    assert COLUMNS[9] == "period_note"
+    seed_filer("AAPL")
+    from src.dataset import iter_csv
+
+    assert next(iter(csv.reader(io.StringIO("".join(iter_csv()))))) == list(COLUMNS)
+
+
+def test_both_copies_of_a_conflicting_figure_carry_a_note_and_nothing_else_does(db):
+    for t in QUARTERS:
+        seed_filer(t, conflict=(t == "DE"))
+    add("COST", "total_assets", 500.0, D(2026, 5, 31), D(2026, 6, 20))
+    out = stream()
+    noted = [r for r in out if r["period_note"]]
+    assert sorted((r["ticker"], r["metric"], r["period_end"], r["period_note"]) for r in noted) == [
+        ("DE", "investment_securities", "2026-07-31", "value differs from the 2026-08-02 row"),
+        ("DE", "investment_securities", "2026-08-02", "value differs from the 2026-07-31 row"),
+    ]
+    assert [r for r in out if r["ticker"] == "COST" and r["period_note"]] == []
+
+
+def test_a_note_disappears_when_a_later_filing_replaces_one_side_of_the_pair(db):
+    """The survivor has nothing left to disagree with, so it must not say it does."""
+    add("T", "investment_securities", 1350.0, ROUNDED, FILED)
+    add("T", "investment_securities", 1303.0, REAL, FILED)
+    add("T", "investment_securities", 1310.0, REAL, D(2026, 8, 1))   # restates the real-dated one
+    rows = [r for r in stream() if r["metric"] == "investment_securities"]
+    assert sorted((r["period_end"], r["value"], r["period_note"]) for r in rows) == [
+        ("2026-03-28", "1310.0", ""), ("2026-03-31", "1350.0", "")]
+
+
+def test_the_response_headers_describe_how_the_download_works_in_plain_ascii():
+    from src.dataset import PROVENANCE
+
+    assert "X-Dataset-Static" not in PROVENANCE
+    assert "built from the database when you request it" in PROVENANCE["X-Dataset-Freshness"]
+    assert "month-end date" in PROVENANCE["X-Dataset-Period-Ends"]
+    for k, v in PROVENANCE.items():
+        assert v.isascii() and "\n" not in v and "snapshot" not in v.lower(), k
+
+
+# ---------------------------------------------------------------------------
+# The row count the pages quote is the file's, exactly
+# ---------------------------------------------------------------------------
+
+def test_the_row_count_equals_the_number_of_rows_the_download_writes(db):
+    """Twins, a conflict, a calendar-aligned filer with a restatement, an ambiguous
+    month end, and a re-dated row that then loses to a later filing: whatever the
+    mix, `file_row_count` is the length of the stream, not an estimate of it."""
+    from src.dataset import file_row_count, row_count, reset_count_cache
+
+    for t in QUARTERS:
+        seed_filer(t, conflict=(t == "DE"))
+    add("COST", "total_assets", 100.0, D(2026, 2, 28), D(2026, 3, 20))
+    add("COST", "total_assets", 105.0, D(2026, 2, 28), D(2026, 6, 20))
+    add("COST", "total_equity", 40.0, D(2026, 5, 31), D(2026, 6, 20))
+    for d in (D(2026, 4, 30), D(2026, 4, 25), D(2026, 5, 5)):          # ambiguous
+        add("AMBI", "total_assets", 100.0, d, FILED)
+    # AAPL's newest quarter: equity exists only under the rounded date in the
+    # filing, so it is re-dated -- and a later filing restates it on the real date.
+    add("AAPL", "total_equity", 999.0, D(2026, 3, 28), D(2026, 8, 1))
+
+    reset_count_cache()
+    assert file_row_count() == len(stream())
+    assert row_count() == len(stream())
+
+
+def test_the_row_count_is_not_the_size_of_the_table(db):
+    from src.dataset import file_row_count
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+    from sqlalchemy import func, select
+
+    seed_filer("AAPL")
+    add("AAPL", "total_assets", 1100.0, QUARTERS["AAPL"][0][0], D(2026, 9, 1))   # a restatement
+    with session_scope() as s:
+        table = s.execute(select(func.count()).select_from(Fundamental)).scalar_one()
+    assert file_row_count() < table
+
+
+def test_the_pages_that_quote_a_row_count_quote_the_files(db):
+    from src import dataset
+
+    seed_filer("AAPL")
+    dataset.reset_count_cache()
+    shape = dataset.shape()
+    assert shape.rows == len(stream())
+
+
+def test_the_pricing_and_dataset_pages_quote_the_rows_the_file_has(db):
+    """The pages used to quote the table (about 60% more rows than the file). With
+    a restatement in the table, the table is bigger than the file; the page must
+    carry the file's number."""
+    from fastapi.testclient import TestClient
+
+    from src import dataset
+    from src.api import app
+
+    seed_filer("AAPL")
+    add("AAPL", "total_assets", 1100.0, QUARTERS["AAPL"][0][0], D(2026, 9, 1))   # restated
+    dataset.reset_count_cache()
+    rows = len(stream())
+    with TestClient(app) as c:
+        pricing = c.get("/pricing").text
+        page = c.get("/dataset").text
+    assert f"{rows:,} rows as one CSV file" in pricing
+    assert f"{rows:,} rows, one CSV" in page
+
+
+def test_no_page_calls_the_download_a_static_or_never_refreshed_snapshot():
+    """The code builds the file from the live table on every request
+    (`dataset.iter_csv`; `billing.py` says "your download always streams the
+    current data"). Copy that says otherwise is the bug this guards."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    banned = ("static snapshot", "will never update", "never refreshed", "buy it again",
+              "buy again", "no updates", "snapshot never changes", "static (as of download")
+    hits = []
+    for base in (root / "src" / "report", root / "static_seo"):
+        for p in base.rglob("*"):
+            if p.suffix in {".py", ".txt", ".md", ".html"} and "research" not in p.parts:
+                text = p.read_text(encoding="utf-8", errors="ignore").lower()
+                hits += [(p.name, w) for w in banned if w in text]
+    for name in ("accounts.py", "dataset.py", "api.py"):
+        text = (root / "src" / name).read_text(encoding="utf-8", errors="ignore").lower()
+        hits += [(name, w) for w in banned if w in text]
+    assert hits == []

@@ -5066,7 +5066,7 @@ _INDEX_ENDPOINTS: tuple[str, ...] = (
     "/pricing  (plans, dataset vs API, FAQ)",
     "/blog  (notes)",
     "/llms.txt", "/llms-full.txt", "/financial-data.txt",
-    "/dataset  (what is in the CSV, and its snapshot date)",
+    "/dataset  (what is in the CSV, and how current it is)",
     "POST /api/billing/checkout",
     "POST /admin/simulate-purchase  (admin secret; no money moves)",
 )

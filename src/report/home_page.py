@@ -1321,7 +1321,7 @@ def _plan_bullets() -> dict[str, tuple[str, ...]]:
             "SEC filing link on every figure",
         ),
         "Dataset": (
-            "One-time download, no updates",
+            "One-time purchase, repeat downloads included",
             f"{rows} rows as one CSV file" if rows else "Every filed figure as one CSV file",
             "Open it in Excel or pandas",
         ),
