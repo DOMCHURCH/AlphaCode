@@ -711,7 +711,7 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
         filer_totals_agree = True
         filer_note = (
             "The filer's own stated total for liabilities plus equity equals "
-            "its total assets, so the filing balances as filed; the shortfall "
+            "its total assets, so the filing balances as reported; the shortfall "
             "is in what this dataset read, not in the filing."
         )
     else:

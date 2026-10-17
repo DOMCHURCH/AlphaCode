@@ -217,3 +217,16 @@ def test_as_of_is_only_promised_where_the_tool_accepts_it():
         t["name"] for t in mcp_server.TOOLS if "as_of" in t["inputSchema"]["properties"]
     ]
     assert with_as_of == ["get_financial_statements"]
+
+
+def test_no_text_in_the_mcp_module_says_as_filed():
+    """"As filed" reads as "the original, unrevised figure". Where the filer's own
+    stated totals are meant, the note says "as reported"."""
+    import inspect
+
+    import src.mcp_server as mcp_server
+
+    source = inspect.getsource(mcp_server).lower()
+    assert "as filed" not in source
+    assert "as-filed" not in source
+    assert "the filing balances as reported; the shortfall" in source
