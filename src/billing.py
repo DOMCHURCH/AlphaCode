@@ -1049,6 +1049,22 @@ def _renew(obj: Any) -> dict[str, Any]:
         # before this code existed, and neither is fixed by a three-day retry.
         _note_lost("renewal_unknown_customer", customer=customer or "-")
         return {"status": "unknown_customer"}
+    current = _superseded_by(email, subscription)
+    if current:
+        # The payment is for a subscription this account has moved off. It must
+        # not touch the live one's id, tier or expiry. The money did arrive, so
+        # say so loudly: the old subscription is still billing and wants
+        # cancelling.
+        log.warning(
+            "stripe_renewal_superseded",
+            email=email, renewed=subscription, current=current,
+        )
+        return {
+            "status": "superseded",
+            "email": email,
+            "renewed": subscription,
+            "current": current,
+        }
     if subscription:
         _attach_ids(email, subscription=subscription)
     # Extended by the length of the period that was just paid for, read off the
@@ -1107,6 +1123,26 @@ def _subscription_id_of(email: str) -> str:
             select(ApiUser).where(ApiUser.email == email)
         ).scalar_one_or_none()
         return str(row.stripe_subscription_id or "") if row is not None else ""
+
+
+def _superseded_by(email: str, subscription: str) -> str:
+    """The subscription this account is on NOW, if it is not `subscription`; else "".
+
+    A customer can hold two subscriptions for a while (monthly, then an annual
+    bought through a second checkout). `_attach_ids` moves the stored id to the
+    newest, so an event about the OLDER one finds the right person by customer
+    id and would then write that subscription's tier and expiry over the live
+    one. `_cancel` already refuses this; `_renew` and `_subscription_updated`
+    assign from the event, so they need the same refusal.
+
+    An empty stored id, or an event without a subscription id, is not a
+    conflict: those are the repair paths (ids never stored, ids forgotten on
+    cancel).
+    """
+    if not subscription:
+        return ""
+    current = _subscription_id_of(email)
+    return current if current and current != subscription else ""
 
 
 def _ends_in_the_future(subscription_obj: Any) -> bool:
@@ -1438,6 +1474,21 @@ def _subscription_updated(obj: Any) -> dict[str, Any]:
         # `_cancel` owns the ending of a subscription. Acting here as well
         # would revoke twice and race with it.
         return {"status": "ignored", "subscription_status": status}
+
+    current = _superseded_by(email, subscription)
+    if current:
+        # The tail of an older subscription. Its price and period are not the
+        # ones this account is paying for.
+        log.info(
+            "stripe_update_superseded",
+            email=email, updated=subscription, current=current,
+        )
+        return {
+            "status": "superseded",
+            "email": email,
+            "updated": subscription,
+            "current": current,
+        }
 
     tier, plan = _tier_of_price(_price_id_of(obj))
     period_end = _period_end_of(obj)
