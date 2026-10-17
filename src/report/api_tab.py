@@ -103,8 +103,9 @@ def render_api_tab() -> str:
     <div class="banner live" id="api-live" role="note">
       <span class="banner-tick" aria-hidden="true">&#8635;</span>
       <span>Every call answers from the current database — including the latest
-        loaded filings. The <a href="/dataset">full dataset</a> is the same
-        data frozen at one moment; this is not.</span>
+        loaded filings. The <a href="/dataset">full dataset</a> is a file built
+        from the same database when you download it; a copy you save stops
+        changing, and this does not.</span>
     </div>
 
     <!-- ---- how to use the key ---- -->
@@ -156,8 +157,9 @@ print(data["assets"])</code></pre>
     <!-- Its own element, not `#dl-note`: the script writes progress and errors
          into that one with textContent, which would eat this link the first
          time the button was pressed. -->
-    <p class="plan-note">A one-time static snapshot, fixed at the moment it is
-      generated — <a href="/dataset">what is in it</a>.</p>
+    <p class="plan-note">One purchase, repeat downloads included. Each file is
+      built from the database when you ask for it — <a href="/dataset">what is
+      in it</a>.</p>
 
     <!-- Regeneration is session-only. The reason to press it is that the key
          leaked, and a leaked key able to rotate itself locks out its owner. -->

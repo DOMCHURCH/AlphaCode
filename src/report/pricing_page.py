@@ -3,11 +3,13 @@
 This page exists because of a specific confusion: the dataset and the API read
 as the same product at two prices, so a buyer looks at $79.99 once against $49
 a month and concludes the cheap one is the same thing. It is not. **The dataset
-is a photograph and the API is a window.** One is a file that stops being true
-the moment the next quarter lands; the other is a call that is true when you
-make it. Everything on this page is arranged to make that difference the first
-thing read and the last thing remembered, because a buyer who gets it wrong
-bought the wrong product and finds out a month later.
+is a file and the API is a query.** One is the whole database as a CSV, built
+when you ask for it and then yours to keep, a copy that stops changing the
+moment it is saved; the other is a call that is true when you make it, so a
+program can ask again every morning. Everything on this page is arranged to
+make that difference the first thing read and the last thing remembered,
+because a buyer who gets it wrong bought the wrong product and finds out a
+month later.
 
 The card copy lives here rather than in the templates that show it. The home
 page and this page must not be able to disagree about what a plan is -- and
@@ -248,7 +250,7 @@ def plan_matrix_table() -> str:
     rows = [
         ("API calls a month",
          lambda t: "Custom" if t == "enterprise" else f"{tier_limit(t):,}"),
-        ("Balance sheet, income statement and cash flow, every period checked",
+        ("Balance sheet, income statement and cash flow, each period checked when the filing reports the lines (otherwise not_testable)",
          lambda t: yes),
         ("History depth", lambda t: cell(t, "history_years", years)),
         ("What changed, and restatements per company",
@@ -402,11 +404,11 @@ def plan_cards(
               'href="mailto:' + SUPPORT_EMAIL + '?subject=Enterprise%20enquiry"')
     dataset = card(
         "Full dataset", dataset_price, " once",
-        f"Static snapshot of all company data as of {dataset_as_of}",
+        f"All company data as one CSV, built when you download it (loaded through {dataset_as_of})",
         over.get("Dataset") or (
-            "One-time download. No updates.",
+            "One-time purchase. Repeat downloads included.",
             f"{dataset_rows} rows as one CSV file",
-            "The snapshot never changes",
+            "A copy you save never changes",
         ),
         "Buy the dataset", True, "dataset",
     )
@@ -433,7 +435,7 @@ def plan_cards(
         "Free", "$0", "", "Unlimited: look up as many companies as you like",
         over.get("Free") or (
             "Every balance sheet, no account needed",
-            "Income statement and cash flow, every period checked",
+            "Income statement and cash flow, each period checked when the filing reports the lines (otherwise not_testable)",
             f"{free_limit:,} keyed API calls a month",
             "Works with Claude and other AI tools",
         ),
@@ -491,7 +493,7 @@ def coverage_line() -> str:
 def comparison_table(
     *, dataset_price: str, pro_price: str, pro_limit: int
 ) -> str:
-    """The five rows that separate a snapshot from a subscription.
+    """The five rows that separate a bulk file from a subscription.
 
     A table rather than two columns of prose because the reader's question is
     comparative -- "which of these two" -- and prose makes them hold one
@@ -522,7 +524,7 @@ def comparison_table(
         </thead>
         <tbody>
           <tr><th scope="row">Data freshness</th>
-              <td>Static (as of download date)</td>
+              <td>As of each download (built when you ask)</td>
               <td>Current (updates as filings land)</td></tr>
           <tr><th scope="row">Access method</th>
               <td>One CSV download</td>
@@ -531,7 +533,7 @@ def comparison_table(
               <td>One-time analysis</td>
               <td>Ongoing automation</td></tr>
           <tr><th scope="row">Updates</th>
-              <td>{no} No (buy again)</td>
+              <td>Only when you download again (included)</td>
               <td>{yes} Yes (as filings land)</td></tr>
           <tr><th scope="row">Automation</th>
               <td>{no} Manual</td>
@@ -573,13 +575,14 @@ def faq(
     rows = (
         (
             "What&rsquo;s the difference between the dataset and the API?",
-            f"""<p>The dataset is a <strong>photograph</strong>; the API is a
-              <strong>window</strong>. For {escape(dataset_price)} you download one
-              CSV containing every filed figure in the database at the moment you
-              buy it. That file never changes again: when Apple files its next
-              10-Q, your copy still ends at the quarter before. The API answers
-              from the current database, so a later call includes any filings
-              added since.</p>
+            f"""<p>The dataset is a <strong>file</strong>; the API is a
+              <strong>query</strong>. For {escape(dataset_price)} you download one
+              CSV built from the database at the moment you ask for it. A copy
+              you save never changes: when Apple files its next 10-Q, that copy
+              still ends at the quarter before. Download again later and the new
+              file includes it, because each download is built fresh. The API
+              answers from the current database every time, so a program can
+              ask again each morning and always have the latest filing.</p>
             <p>Buy the dataset if the analysis has an end: a study, a model you
               are fitting once, a spreadsheet. Buy Pro if the thing you are
               building has to keep being right: a dashboard, a screen that runs
@@ -587,14 +590,22 @@ def faq(
             True,
         ),
         (
-            "Can I buy the dataset and get updates?",
-            f"""<p>No. A dataset purchase is one download of one snapshot, and
-              it stays yours forever, but it is never refreshed. To get a later
-              snapshot you buy the dataset again at {escape(dataset_price)}.</p>
-            <p>If you find yourself wanting a second copy, Pro at
-              {escape(pro_price)}/month is almost certainly the cheaper answer, and
-              it gives you the data without a re-download: the API is already
-              current through the latest filing day every time you call it.</p>""",
+            "Does the dataset update after I buy it?",
+            f"""<p>A file you have saved never changes, and nothing is sent to you
+              when new filings land. But the download is built from our database
+              each time you request it, so downloading again later gives you a
+              file that includes the filings loaded since, at no extra charge.
+              Data is added when new filings are loaded, not on a schedule you
+              can rely on.</p>
+            <p>If you need the latest filing the moment it lands, rather than
+              whenever you next download, Pro at {escape(pro_price)}/month is the
+              better fit: the API is current through the latest filing day every
+              time you call it.</p>
+            <p>Where SEC&rsquo;s bulk data sets rounded a period end to the month
+              end and the filing also reports the real date, the real date is
+              used. Filings loaded only from the bulk data sets still carry
+              SEC&rsquo;s month-end date, which can be up to 15 days from the
+              actual period end.</p>""",
             False,
         ),
         (
@@ -615,9 +626,9 @@ def faq(
             f"""<p>Anything that needs as-reported balance-sheet figures on a
               schedule. In practice that has been screens that rank companies on
               a filed ratio, dashboards that redraw when a 10-Q lands, backtests
-              that need the figure as it was reported rather than as it was later
-              restated, and research notebooks that pull a peer group in one
-              loop.</p>
+              that need the value that was known on a past date (the
+              <code>as_of</code> parameter, Pro and above), and research
+              notebooks that pull a peer group in one loop.</p>
             <p>Pro is {compact(pro_limit)} calls a month, which is roughly 330 a
               day, comfortably a few hundred companies refreshed daily. If your
               use needs more than that, email {contact} before you build against
@@ -706,17 +717,19 @@ def render_pricing(
     <div class="split">
       <div class="split-half">
         <span class="plan-name">The dataset</span>
-        <p class="split-lede">A photograph.</p>
-        <p class="split-body">One CSV, downloaded once, containing every filed
-          figure as of {escape(dataset_as_of)}. It is yours forever and it never
-          changes: the filings that land next quarter are not in it. No key, no
-          calls, no code: open it in Excel, load it into pandas, keep it.</p>
+        <p class="split-lede">A file.</p>
+        <p class="split-body">One CSV, built when you download it, containing
+          every filed figure loaded through {escape(dataset_as_of)}. The copy you
+          save is yours forever and never changes; download again later and the
+          new file includes the filings loaded since. Downloading needs the
+          account key your purchase was made against; after that there are no
+          calls and no code: open it in Excel, load it into pandas, keep it.</p>
         <p class="split-for"><b>Best for:</b> one-time analysis, research,
           Excel work.</p>
       </div>
       <div class="split-half">
         <span class="plan-name">The API</span>
-        <p class="split-lede">A window.</p>
+        <p class="split-lede">A query.</p>
         <p class="split-body">A live query against the same database this site
           draws from. The answer is current through the latest filing day when
           you ask it. One header, one key, JSON back.</p>
@@ -797,19 +810,28 @@ def render_pricing(
         ),
         (
             "What's the difference between the SEC dataset and the API?",
-            "The dataset is a static CSV snapshot of every filed figure at the "
-            "moment you buy it, for one-time analysis in Excel or pandas. The "
-            "API answers from the current database, so a later call includes "
+            "The dataset is a CSV of every filed figure, built from the "
+            "database at the moment you download it, for one-time analysis in "
+            "Excel or pandas. A copy you save never changes. The API answers "
+            "from the current database every time, so a later call includes "
             "any filings added since. Buy the dataset if the analysis has "
             "an end; buy the API if what you are building has to keep being "
             "right.",
         ),
         (
-            "Can I buy the SEC dataset and get updates?",
-            "No. A dataset purchase is one download of one snapshot and it is "
-            "never refreshed. To get a later snapshot you buy it again. If you "
-            "find yourself wanting a second copy, the Pro API is cheaper and "
-            "is current through the latest filing day every time you call it.",
+            "Does the SEC dataset update after I buy it?",
+            "A file you have saved never changes, and nothing is sent to you "
+            "when new filings land. But the download is built from our database "
+            "each time you request it, so downloading again later gives you a "
+            "file that includes the filings loaded since, at no extra charge. "
+            "Data is added when new filings are loaded, not on a schedule you "
+            "can rely on. If you need the latest filing the moment it lands, "
+            "the Pro API is current through the latest filing day every time "
+            "you call it. Where SEC's bulk data sets rounded a period end to "
+            "the month end and the filing also reports the real date, the real "
+            "date is used; filings loaded only from the bulk data sets still "
+            "carry SEC's month-end date, which can be up to 15 days from the "
+            "actual period end.",
         ),
         (
             "How do I use the BalanceProof API key?",
@@ -819,11 +841,11 @@ def render_pricing(
         ),
         (
             "What can I build with a balance sheet API?",
-            "Anything needing as-reported balance-sheet figures on a schedule: "
-            "screens that rank companies on a filed ratio, dashboards that "
-            "redraw when a 10-Q lands, backtests that need the figure as it "
-            "was reported rather than as it was later restated, and research "
-            "notebooks that pull a peer group in one loop.",
+            "Anything needing as-reported balance-sheet figures on a "
+            "schedule: screens that rank companies on a filed ratio, dashboards "
+            "that redraw when a 10-Q lands, backtests that need the value that "
+            "was known on a past date (the as_of parameter, Pro and above), and "
+            "research notebooks that pull a peer group in one loop.",
         ),
     ]
     return shell(

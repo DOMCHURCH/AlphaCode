@@ -12,6 +12,32 @@ source preference breaks a same-day tie, and the figures are reconciled
 against A = L + E at ingest. `restated` and `source` ride along on every row
 so the choice is auditable rather than merely asserted.
 
+ONE QUARTER, ONE PERIOD END. SEC's bulk datasets round every period end to the
+nearest month end (Apple's 2026-03-28 arrives as 2026-03-31) and the XBRL frames
+carry the real date, so a filing loaded by both routes is stored twice under two
+dates -- and the one-row-per-period rule above, keyed on the raw date, kept both.
+The API already treats the real date as canonical (`src.company.periods`); the
+file now applies the same rule before it resolves restatements, per ticker:
+
+* a rounded row whose real-dated twin (same filing, same source, same metric)
+  carries the SAME value is dropped -- the twin stands for it;
+* a rounded row whose twin carries a DIFFERENT value stays, under its rounded
+  date, and is counted (`Collapse.conflicts`) -- neither figure is guessed at.
+  Both copies carry a `period_note` ("value differs from the <date> row"), the
+  file's last column and blank everywhere else;
+* a rounded row with NO twin for that metric is re-dated to the real period end
+  rather than dropped, so no figure is lost;
+* the exception is a FLOW metric (income statement, cash flow) where one copy
+  is the fiscal year (`fiscal_period` FY) and the other a quarter: a year and
+  its fourth quarter end on the same day, so they look like twins and are not.
+  Never paired; both are written under their own dates, and the fiscal-year row's
+  `period_note` says "fiscal-year value; the fourth-quarter value is the <date>
+  row".
+
+A month end that has no real-dated twin in its own filing (a filing loaded only
+from the bulk datasets) is untouched: it still carries SEC's date. The API also
+aliases across filings, so such a row can still differ between this file and
+`/api`; `scripts/fix_period_ends.py` and a re-load are what close that gap.
 
 This is the paid artefact: every as-reported fact in the `fundamentals` table,
 which is what "1.24M cleaned facts" refers to. There is no separate "cleaned"
@@ -33,13 +59,18 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import threading
 import time
-from collections.abc import Iterator
+from collections import Counter, defaultdict
+from collections.abc import Callable, Iterable, Iterator, Sequence
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import structlog
 from sqlalchemy import select
 
+from src.company.periods import filing_twins
+from src.ingest import xbrl
 from src.storage.db import session_scope
 from src.storage.models import Fundamental
 
@@ -62,10 +93,23 @@ PROVENANCE: dict[str, str] = {
     "X-Dataset-Source": "SEC EDGAR XBRL, as reported",
     "X-Dataset-Grain": "one row per company, metric and period; latest filing wins",
     "X-Dataset-Reconciliation": "Reconciled using A = L + E; exceptions flagged, not hidden",
-    "X-Dataset-Static": "static snapshot; it does not update",
+    "X-Dataset-Freshness": (
+        "built from the database when you request it; a copy you save does not change"
+    ),
+    "X-Dataset-Period-Ends": (
+        "the real period end where the filing reports one; filings loaded only from "
+        "SEC bulk data sets keep SEC's month-end date, up to 15 days from the actual one"
+    ),
+    "X-Dataset-Eps-Coverage": (
+        "eps_diluted is available for the most recent quarter only until history is loaded"
+    ),
     "X-Dataset-About": "https://balanceproof.dev/dataset",
 }
 
+# `period_note` is LAST on purpose: a reader that takes the first nine columns by
+# position reads this file exactly as it read the last one. Blank on every row
+# except the two copies of a figure whose value differs between the month-end
+# date and the real date (see `Collapse.conflicts`).
 COLUMNS = (
     "ticker",
     "metric",
@@ -76,6 +120,7 @@ COLUMNS = (
     "source",
     "restated",
     "ingested_at",
+    "period_note",
 )
 
 
@@ -91,8 +136,202 @@ def _fmt(v: object) -> object:
     return "" if v is None else v
 
 
-def iter_csv() -> Iterator[str]:
+_TICKER, _METRIC, _VALUE, _PERIOD, _FISCAL, _FILED, _SOURCE = range(7)  # SELECT order
+_SOURCE_TAG = 9  # after ingested_at (8): carried for tie-breaks, never written to the file
+_COUNT_CHUNK = 150  # tickers per query in `file_row_count`
+
+# Income-statement and cash-flow metrics: figures over a DURATION (a quarter, a
+# year), as opposed to balance-sheet instants. The same list the ingest uses.
+_FLOW_METRICS = frozenset(c.metric for c in xbrl.CONCEPTS if c.kind == xbrl.DURATION)
+_MISSING = object()
+
+
+@dataclass
+class Collapse:
+    """What the canonical-period pass did, counted the way the code does it.
+
+    `removed`: rounded rows dropped because their real-dated twin (same filing,
+    source and metric) carries the same value. `redated`: rounded rows with no
+    twin for that metric, written under the real period end instead. `conflicts`:
+    rounded rows kept under their rounded date because the twin's value differs.
+    Both figures are written, one under each date, and both rows carry a
+    `period_note` naming the other date, so a pair is recognisable from either
+    side. `fy_vs_quarter`: pairs of a FLOW metric (income statement, cash flow)
+    where one row is the fiscal year and the other a quarter, which are two
+    different durations ending on the same day and not two copies of one figure:
+    never paired, both written under their own dates, the fiscal-year row noting
+    where the fourth quarter is. `bulk_preferred`: twin pairs whose two copies use
+    DIFFERENT XBRL tags and different values; the month-end-dated copy (the SEC
+    bulk data sets: the tag on the face of the statement) is kept, re-dated to the
+    real period end, and the real-dated frames copy (best-ranked tag across all
+    facts, often a note-level subset) is dropped.
+
+    These are counts of RAW rows touched, before the latest-filing rule picks a
+    winner, so they are not the same as how much shorter the file got.
+    """
+
+    removed: int = 0
+    redated: int = 0
+    conflicts: int = 0
+    fy_vs_quarter: int = 0
+    bulk_preferred: int = 0
+
+    def add(self, other: Collapse) -> None:
+        self.removed += other.removed
+        self.redated += other.redated
+        self.conflicts += other.conflicts
+        self.fy_vs_quarter += other.fy_vs_quarter
+        self.bulk_preferred += other.bulk_preferred
+
+
+def _twin_map(
+    filed_periods: Iterable[tuple[dt.date, dt.date]],
+) -> dict[tuple[dt.date, dt.date], dt.date]:
+    """{(filing_date, rounded month end): real period end} for ONE ticker.
+
+    Takes (filing_date, period_end) pairs, so it can be fed from the rows being
+    written or from a bare list of distinct dates (`file_row_count`).
+
+    The pairing rule of `src.company.periods` (a month end with a non-month-end
+    date 1 to 15 days away in the same filing is that date's rounded copy), kept
+    per filing rather than per date so a twin in one filing never reaches into
+    another. Ambiguous cases are left alone, as `scripts/fix_period_ends.py`
+    leaves them: two equally near real dates, or one real date claimed by two
+    month ends, means guessing which is "the" twin.
+    """
+    dates: dict[dt.date, set[dt.date]] = {}
+    for filed, period_end in filed_periods:
+        dates.setdefault(filed, set()).add(period_end)
+    out: dict[tuple[dt.date, dt.date], dt.date] = {}
+    for filed, period_ends in dates.items():
+        twins = filing_twins(period_ends)
+        claimed = Counter(real for reals in twins.values() for real in set(reals))
+        for month_end, reals in twins.items():
+            if len(reals) == 1 and claimed[reals[0]] == 1:
+                out[(filed, month_end)] = reals[0]
+    return out
+
+
+def _tags_differ(a: tuple[Any, ...], b: tuple[Any, ...]) -> bool:
+    """Both rows name the XBRL tag they were read from, and the tags are not the same.
+
+    A missing tag (rows loaded before the column existed) is not evidence of a
+    different concept, so it never triggers the bulk preference.
+    """
+    ta = a[_SOURCE_TAG] if len(a) > _SOURCE_TAG else None
+    tb = b[_SOURCE_TAG] if len(b) > _SOURCE_TAG else None
+    return bool(ta) and bool(tb) and ta != tb
+
+
+def _source_rank(source: str | None) -> int:
+    """Most-preferred highest, the same ranking `balancesheet` and `pit` use."""
+    try:
+        return len(SOURCE_PREFERENCE) - SOURCE_PREFERENCE.index(source)  # type: ignore[arg-type]
+    except ValueError:
+        return 0
+
+
+def _collapse_ticker(
+    rows: Sequence[tuple[Any, ...]],
+    twin: dict[tuple[dt.date, dt.date], dt.date] | None = None,
+) -> tuple[list[tuple[Any, ...]], Collapse]:
+    """One ticker's raw rows -> (the rows to write, what was collapsed).
+
+    Rounded rows are first merged into their real-dated twin, re-dated, or kept
+    as conflicts (see `Collapse`); then the latest filing wins per
+    (metric, period_end), source preference breaking a same-day tie. The result
+    is ordered by (metric, period_end), the order the file has always had, and
+    every row gains a trailing `period_note`: blank, or on the two copies of a
+    conflicting figure, "value differs from the <other date> row".
+
+    `twin` is for a caller that has already worked the pairing out from ALL of
+    the ticker's dates and is passing only some of its rows (`file_row_count`):
+    recomputing it from a subset could miss an ambiguity and pair wrongly.
+    """
+    stats = Collapse()
+    if twin is None:
+        twin = _twin_map((r[_FILED], r[_PERIOD]) for r in rows)
+    # row key -> (note, key of the row it disagrees with)
+    notes: dict[tuple[Any, ...], tuple[str, tuple[Any, ...]]] = {}
+    drop: set[int] = set()  # id()s of real-dated rows superseded by their bulk twin
+    if not twin:
+        kept = list(rows)  # a calendar-aligned filer: nothing to collapse
+    else:
+        value_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_VALUE] for r in rows}
+        fp_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_FISCAL] for r in rows}
+        row_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r for r in rows}
+        kept = []
+        for r in rows:
+            real = twin.get((r[_FILED], r[_PERIOD]))
+            if real is None:
+                kept.append(r)
+                continue
+            other = value_at.get((r[_METRIC], real, r[_FILED], r[_SOURCE]), _MISSING)
+            if other is _MISSING:
+                kept.append(r[:_PERIOD] + (real,) + r[_PERIOD + 1:])
+                stats.redated += 1
+                continue
+            k_here = (r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE])
+            k_there = (r[_METRIC], real, r[_FILED], r[_SOURCE])
+            fy_here, fy_there = r[_FISCAL] == "FY", fp_at[k_there] == "FY"
+            if r[_METRIC] in _FLOW_METRICS and fy_here != fy_there:
+                # A fiscal year and a quarter end on the same day. They are two
+                # durations, not two copies of one figure, so they are never paired
+                # (whatever their values): both are written under their own dates
+                # and the fiscal-year row says where the fourth quarter is.
+                kept.append(r)
+                stats.fy_vs_quarter += 1
+                fy_key, q_key, q_date = (
+                    (k_here, k_there, real) if fy_here else (k_there, k_here, r[_PERIOD])
+                )
+                notes[fy_key] = (
+                    f"fiscal-year value; the fourth-quarter value is the {q_date.isoformat()} row",
+                    q_key,
+                )
+            elif other == r[_VALUE]:
+                stats.removed += 1
+            elif _tags_differ(r, row_at[k_there]):
+                # Same filing, same source, two different XBRL concepts, two values.
+                # `r` is the month-end copy (bulk route); the other is the frames
+                # copy. Keep the balance-sheet / income-statement line the company
+                # published, under the real period end; drop the other.
+                kept.append(r[:_PERIOD] + (real,) + r[_PERIOD + 1:])
+                drop.add(id(row_at[k_there]))
+                stats.bulk_preferred += 1
+            else:
+                kept.append(r)
+                stats.conflicts += 1
+                rounded = r[_PERIOD]
+                k_rounded = (r[_METRIC], rounded, r[_FILED], r[_SOURCE])
+                k_real = (r[_METRIC], real, r[_FILED], r[_SOURCE])
+                notes[k_rounded] = (f"value differs from the {real.isoformat()} row", k_real)
+                notes[k_real] = (f"value differs from the {rounded.isoformat()} row", k_rounded)
+
+    if drop:
+        kept = [x for x in kept if id(x) not in drop]
+    kept.sort(key=lambda r: (r[_METRIC], r[_PERIOD], r[_FILED], _source_rank(r[_SOURCE]), r[_SOURCE] or ""))
+    winners: list[tuple[Any, ...]] = []
+    for r in kept:
+        if winners and (winners[-1][_METRIC], winners[-1][_PERIOD]) == (r[_METRIC], r[_PERIOD]):
+            winners[-1] = r  # a later filing, or a preferred source on the same day
+        else:
+            winners.append(r)
+    # A note is only true while the row it points at is in the file too: a later
+    # filing can replace one side of a pair, and the survivor then has nothing
+    # left to disagree with.
+    written = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]) for r in winners}
+    out = []
+    for r in winners:
+        note, partner = notes.get((r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]), ("", None))
+        out.append(r[:_SOURCE_TAG] + (note if partner in written else "",))
+    return out, stats
+
+
+def iter_csv(collapse: Collapse | None = None) -> Iterator[str]:
     """Yield the dataset as CSV text, header first.
+
+    `collapse`, when given, is filled in with what the canonical-period pass did
+    across the whole file (see `Collapse`); the same totals are logged.
 
     The generator opens its OWN session and holds it for the life of the
     stream. It has to: this runs after the endpoint has returned, while
@@ -115,17 +354,19 @@ def iter_csv() -> Iterator[str]:
     writer.writerow(COLUMNS)
     yield drain()
 
-    # Ordered so the WINNER of each (ticker, metric, period) arrives LAST:
-    # ascending filing_date, then source rank ASCENDING. That is the same rule
-    # `pit.get_fundamentals` and `balancesheet._resolve_restatements` apply,
-    # expressed in SQL, which is the whole point -- the file somebody pays for
-    # and the figures on the site must be the same numbers.
+    # Rows arrive grouped by ticker -- the unit `_collapse_ticker` works on,
+    # because a rounded date and its real twin are found by comparing the dates
+    # of one filing across ALL its metrics. Within a ticker the order is
+    # irrelevant to the result (it is re-sorted there), but it is kept explicit
+    # so the stream is the same on every run. A ticker is a few hundred rows,
+    # so holding one at a time keeps the memory bound the module promises.
     #
-    # It used to be an unfiltered dump: four rows for one company and period,
-    # two different values for `total_assets`, and no column telling the buyer
-    # which one the drawing used. `restated=True` and the source ranking are
-    # both carried through so the resolution is auditable rather than merely
-    # asserted.
+    # The winner of each (ticker, metric, period) is the latest filing, with
+    # source preference breaking a same-day tie: the rule `pit.get_fundamentals`
+    # and `balancesheet._resolve_restatements` apply, so the file somebody pays
+    # for and the figures on the site are the same numbers. `restated=True` and
+    # the source are carried through so the resolution is auditable rather than
+    # merely asserted.
     stmt = (
         select(
             Fundamental.ticker,
@@ -137,6 +378,7 @@ def iter_csv() -> Iterator[str]:
             Fundamental.source,
             Fundamental.restated,
             Fundamental.ingested_at,
+            Fundamental.source_tag,
         )
         .order_by(
             Fundamental.ticker,
@@ -157,26 +399,34 @@ def iter_csv() -> Iterator[str]:
 
     rows = 0
     written = 0
-    # The last row of each run wins. Held rather than emitted immediately, so
-    # a restatement arriving later in the same run replaces it and only one
-    # row per (ticker, metric, period) ever reaches the file.
-    held: tuple[Any, ...] | None = None
-    held_key: tuple[Any, Any, Any] | None = None
+    total = collapse if collapse is not None else Collapse()
+    group: list[tuple[Any, ...]] = []
+
+    def flush() -> None:
+        nonlocal written
+        out, stats = _collapse_ticker(group)
+        for r in out:
+            writer.writerow([_fmt(v) for v in r])
+        written += len(out)
+        total.add(stats)
+        group.clear()
+
     with session_scope() as session:
         for chunk in session.execute(stmt).partitions(_CHUNK):
             for row in chunk:
-                key = (row[0], row[1], row[3])
-                if held_key is not None and key != held_key:
-                    writer.writerow([_fmt(v) for v in held])
-                    written += 1
-                held, held_key = tuple(row), key
+                if group and row[_TICKER] != group[0][_TICKER]:
+                    flush()
+                group.append(tuple(row))
             rows += len(chunk)
             yield drain()
-        if held is not None:
-            writer.writerow([_fmt(v) for v in held])
-            written += 1
+        if group:
+            flush()
             yield drain()
-    log.info("dataset_streamed", rows=rows, written=written)
+    log.info(
+        "dataset_streamed", rows=rows, written=written,
+        twins_collapsed=total.removed, redated=total.redated,
+        conflicts=total.conflicts,
+    )
 
 
 def _source_rank_sql():
@@ -201,13 +451,115 @@ def _source_rank_sql():
 # cannot be read (blog posts, llms.txt). NOT a source of truth: facts_label()
 # and home_page.companies_label() are, and every page prefers them. These two
 # exist so the fallback is one place to update, not two literals in two files.
-# Last checked against the live site on 2026-10-08 (6,246 companies, 2,014,821 facts).
+# FALLBACK_COMPANIES: last checked against the live site on 2026-10-08 (6,246 companies).
+# FALLBACK_FACTS: 2026-10-17, when the file was 1,257,194 rows (the table holds
+# 2,016,659, which is NOT what the file contains).
 FALLBACK_COMPANIES = "6,246"
-FALLBACK_FACTS = "2M"
+FALLBACK_FACTS = "1.3M"
 
-_COUNT_TTL_S = 900.0
-_SHAPE_TTL_S = 900.0
-_count_cache: tuple[float, int] | None = None
+class CountUnavailable(RuntimeError):
+    """There is no count yet and the request that is working it out has not
+    finished. Callers already treat any exception from `facts_label`/`shape` as
+    "use the fallback copy", which is the right answer for a reader who arrived
+    in the first seconds after a deploy."""
+
+
+class _Memo:
+    """One expensive, slow-moving value, safe to ask for on every page view.
+
+    The count behind these pages takes seconds to work out and changes when a
+    quarter loads, so what matters is that no READER ever pays for it twice:
+
+    * fresh (younger than `ttl_s`): returned at once;
+    * stale: the old value is returned at once and ONE background thread
+      recomputes it -- a page view never waits on a refresh, and a refresh that
+      fails keeps the old value and is retried after `retry_s`;
+    * cold (nothing yet): the first request computes it, and requests that
+      arrive meanwhile wait for THAT computation rather than starting their own
+      (six simultaneous cold requests used to run six full queries). They wait
+      at most `cold_wait_s`, then raise `CountUnavailable` so the page renders
+      with its fallback instead of hanging.
+
+    `reset` also invalidates a computation already in flight, so a stale result
+    cannot land after a test (or an admin cache clear) asked for a fresh one.
+    """
+
+    def __init__(self, ttl_s: float, *, retry_s: float = 60.0, cold_wait_s: float = 3.0) -> None:
+        self.ttl_s, self.retry_s, self.cold_wait_s = ttl_s, retry_s, cold_wait_s
+        self.refreshing = False
+        self._value: Any = None
+        self._at: float | None = None
+        self._gen = 0
+        self._state = threading.Lock()   # guards the fields above
+        self._flight = threading.Lock()  # held by whoever is computing
+
+    def get(self, compute: Callable[[], Any]) -> Any:
+        with self._state:
+            at, value = self._at, self._value
+        if at is not None:
+            if time.monotonic() - at >= self.ttl_s:
+                self._refresh_in_background(compute)
+            return value
+        if not self._flight.acquire(timeout=self.cold_wait_s):
+            raise CountUnavailable("the first count is still being worked out")
+        try:
+            with self._state:
+                if self._at is not None:  # filled while this request waited
+                    return self._value
+                gen = self._gen
+            value = compute()
+            self._store(value, gen)
+            return value
+        finally:
+            self._flight.release()
+
+    def _store(self, value: Any, gen: int) -> None:
+        with self._state:
+            if gen == self._gen:
+                self._value, self._at = value, time.monotonic()
+
+    def _refresh_in_background(self, compute: Callable[[], Any]) -> None:
+        with self._state:
+            if self.refreshing:
+                return
+            self.refreshing = True
+            gen = self._gen
+        threading.Thread(
+            target=self._refresh, args=(compute, gen), daemon=True, name="dataset-count-refresh"
+        ).start()
+
+    def _refresh(self, compute: Callable[[], Any], gen: int) -> None:
+        try:
+            with self._flight:
+                value = compute()
+            self._store(value, gen)
+        except Exception as exc:  # noqa: BLE001 - keep serving the old value
+            log.warning("dataset_count_refresh_failed", error=str(exc)[:200])
+            with self._state:
+                if gen == self._gen and self._at is not None:
+                    self._at = time.monotonic() - self.ttl_s + self.retry_s
+        finally:
+            with self._state:
+                self.refreshing = False
+
+    def reset(self) -> None:
+        with self._state:
+            self._value, self._at = None, None
+            self._gen += 1
+
+    def age(self, seconds: float) -> None:
+        """Test/diagnostic helper: pretend the value is `seconds` older."""
+        with self._state:
+            if self._at is not None:
+                self._at -= seconds
+
+
+# An hour: the count moves when a quarter loads, and a refresh is a few seconds
+# of database work that should not recur every fifteen minutes under traffic.
+_COUNT_TTL_S = 3600.0
+_SHAPE_TTL_S = 3600.0
+_count_memo = _Memo(_COUNT_TTL_S)
+_shape_memo = _Memo(_SHAPE_TTL_S)
 
 
 def facts_label() -> str:
@@ -243,38 +595,101 @@ def facts_label() -> str:
     return str(n)
 
 
-def row_count() -> int:
-    """How many facts the download contains. Shown on the dashboard so a buyer
-    knows what they are paying for before they pay for it.
+def file_row_count() -> int:
+    """How many rows `iter_csv` writes, worked out without writing them.
 
-    Memoised for fifteen minutes. `count(*)` over a million-plus rows is a
-    sequential scan on Postgres, and this figure is decoration on a page that
-    should feel instant -- it changes four times a year, when a quarter loads.
-    A stale count for a quarter of an hour is invisible; a page that waits half
-    a second for it on every view is not.
+    The table holds about 60% more rows than the file: restated figures and
+    several sources for one figure collapse to one row per (ticker, metric,
+    period_end), and the canonical-period pass removes the month-end copies on
+    top of that. Quoting the table's size as the file's was a 38% overstatement.
+
+    Exact, not an estimate, and by construction the same rule: the base is the
+    number of distinct (ticker, metric, period_end) -- the file's grain before
+    the period pass -- and the period pass is applied by `_collapse_ticker`
+    itself, so the two cannot drift. Only tickers that have a month-end/real-date
+    twin are touched, and only the rows on those twin dates are fetched; the
+    pairing is still worked out from ALL of a ticker's dates, so an ambiguity
+    elsewhere in a filing is seen. `test_dataset_canonical_periods` holds this
+    equal to the number of rows the stream actually produces.
     """
-    global _count_cache
     from sqlalchemy import func
 
-    now = time.monotonic()
-    if _count_cache is not None and now - _count_cache[0] < _COUNT_TTL_S:
-        return _count_cache[1]
-
     with session_scope() as session:
-        n = int(
-            session.execute(
-                select(func.count()).select_from(Fundamental)
-            ).scalar_one()
-        )
-    _count_cache = (now, n)
-    return n
+        base = int(session.execute(
+            select(func.count()).select_from(
+                select(Fundamental.ticker, Fundamental.metric, Fundamental.period_end)
+                .distinct().subquery()
+            )
+        ).scalar_one())
+
+        dates: dict[str, list[tuple[dt.date, dt.date]]] = defaultdict(list)
+        for ticker, filed, period_end in session.execute(
+            select(Fundamental.ticker, Fundamental.filing_date, Fundamental.period_end)
+            .distinct()
+        ):
+            dates[ticker].append((filed, period_end))
+
+        twins = {t: tw for t, pairs in dates.items() if (tw := _twin_map(pairs))}
+        involved = {
+            t: {m for (_, m) in tw} | set(tw.values()) for t, tw in twins.items()
+        }
+
+        # A few hundred tickers have a twin; fetching them a chunk at a time keeps
+        # this to a handful of round trips instead of one per ticker. A chunk's
+        # query asks for the union of its tickers' twin dates, so each ticker's
+        # rows are narrowed back to its own before they are used.
+        removed = 0
+        tickers = sorted(twins)
+        for i in range(0, len(tickers), _COUNT_CHUNK):
+            chunk = tickers[i:i + _COUNT_CHUNK]
+            wanted = set().union(*(involved[t] for t in chunk))
+            by_ticker: dict[str, list[tuple[Any, ...]]] = defaultdict(list)
+            for row in session.execute(
+                select(
+                    Fundamental.ticker, Fundamental.metric, Fundamental.value,
+                    Fundamental.period_end, Fundamental.fiscal_period,
+                    Fundamental.filing_date, Fundamental.source,
+                    Fundamental.restated, Fundamental.ingested_at, Fundamental.source_tag,
+                ).where(Fundamental.ticker.in_(chunk), Fundamental.period_end.in_(wanted))
+            ):
+                if row[_PERIOD] in involved[row[_TICKER]]:
+                    by_ticker[row[_TICKER]].append(tuple(row))
+            for t in chunk:
+                rows = by_ticker.get(t, [])
+                before = len({(r[_METRIC], r[_PERIOD]) for r in rows})
+                out, _ = _collapse_ticker(rows, twins[t])
+                removed += before - len(out)
+    return base - removed
+
+
+def row_count() -> int:
+    """How many rows the download contains (`file_row_count`), not how many the
+    table holds. Shown on the dashboard so a buyer knows what they are paying
+    for before they pay for it.
+
+    Memoised for an hour with a single-flight, stale-while-revalidate policy
+    (`_Memo`): working the count out reads every distinct (ticker, metric,
+    period) once, a few seconds of database work, and this figure is decoration
+    on pages that should feel instant. No page view waits on a refresh, and
+    simultaneous cold requests share one computation. Filled once at boot
+    (`warm`) so the first visitors find it ready.
+
+    Raises `CountUnavailable` only in the first seconds of a process's life,
+    when another request is still computing the first value.
+    """
+    return _count_memo.get(file_row_count)
 
 
 def reset_count_cache() -> None:
     """Test helper: forget the memoised count so a new database is counted."""
-    global _count_cache, _shape_cache
-    _count_cache = None
-    _shape_cache = None
+    _count_memo.reset()
+    _shape_memo.reset()
+
+
+def warm() -> None:
+    """Fill the row count and the shape ahead of the first reader (called once
+    at boot, off the request path). `shape()` computes `row_count()` itself."""
+    shape()
 
 
 class Shape(NamedTuple):
@@ -300,9 +715,6 @@ class Shape(NamedTuple):
                 return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
             n /= 1024
         return f"{n:.1f} GB"
-
-
-_shape_cache: tuple[float, Shape] | None = None
 
 
 def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
@@ -333,7 +745,7 @@ def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
     writer = csv.writer(buf, lineterminator="\n")
     seen = 0
     for row in session.execute(stmt):  # type: ignore[attr-defined]
-        writer.writerow([_fmt(v) for v in row])
+        writer.writerow([_fmt(v) for v in row] + [""])  # + the blank `period_note`
         seen += 1
     if not seen:
         return 0.0
@@ -341,25 +753,23 @@ def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
 
 
 def shape() -> Shape:
-    """Rows, size and freshness in one query pass, memoised like `row_count`.
+    """Rows, size and freshness, memoised like `row_count` (same `_Memo`: an
+    hour, one computation however many requests ask, stale served while one
+    background refresh runs).
 
-    Same fifteen minutes and the same reasoning: these change when a quarter
-    loads, four times a year, and they decorate a page that should feel
+    These change when a quarter loads, and they decorate pages that should feel
     instant.
     """
-    global _shape_cache
+    return _shape_memo.get(_build_shape)
+
+
+def _build_shape() -> Shape:
     from sqlalchemy import func
 
-    now = time.monotonic()
-    if _shape_cache is not None and now - _shape_cache[0] < _SHAPE_TTL_S:
-        return _shape_cache[1]
-
+    # The file's row count, not the table's (see `file_row_count`); shared with
+    # `row_count` so the page, the dashboard and the copy quote one number.
+    rows = row_count()
     with session_scope() as session:
-        rows = int(
-            session.execute(
-                select(func.count()).select_from(Fundamental)
-            ).scalar_one()
-        )
         generated = session.execute(
             select(func.max(Fundamental.ingested_at))
         ).scalar_one()
@@ -369,11 +779,9 @@ def shape() -> Shape:
         per_row = _sample_bytes_per_row(session) if rows else 0.0
 
     header = len(",".join(COLUMNS).encode("utf-8")) + 1
-    built = Shape(
+    return Shape(
         rows=rows,
         bytes_estimate=int(header + per_row * rows),
         generated=generated,
         newest_filing=newest,
     )
-    _shape_cache = (now, built)
-    return built

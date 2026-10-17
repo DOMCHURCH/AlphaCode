@@ -98,18 +98,20 @@ def test_the_home_page_prices_come_from_settings_not_the_copy(client):
     assert "10 API calls" not in html
 
 
-def test_the_home_page_separates_the_snapshot_from_the_live_api(client):
+def test_the_home_page_separates_the_bulk_file_from_the_live_api(client):
     """The dataset and the API used to read as one product at two prices, so a
     buyer picked on price and got the wrong one. Each card now says what its
     data DOES, and the words are the differentiator rather than decoration."""
     html = client.get("/pricing").text  # the cards live here; / carries a summary
 
     # Em-dash retired site-wide 2026-09-22. What is guarded here is the
-    # photograph-vs-window distinction, not the punctuation: each card must
-    # still say, in words, whether its data moves.
-    assert "Static snapshot of all company data as of" in html
-    assert "One-time download. No updates." in html
-    assert "The snapshot never changes" in html
+    # file-vs-query distinction, not the punctuation: each card must still say,
+    # in words, whether its data moves -- and for the dataset the true answer is
+    # "built when you download it, then a saved copy stays put".
+    assert "built when you download it (loaded through" in html
+    assert "One-time purchase. Repeat downloads included." in html
+    assert "A copy you save never changes" in html
+    assert "Static snapshot" not in html and "never refreshed" not in html
     assert "Current through the latest SEC filing day" in html
     assert "Updates as new filings land, so you get the latest available filings" in html
 

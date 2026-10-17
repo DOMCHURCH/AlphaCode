@@ -289,7 +289,12 @@ def test_the_download_carries_its_provenance_on_the_response(client):
     from src.dataset import PROVENANCE
 
     assert "A = L + E" in PROVENANCE["X-Dataset-Reconciliation"]
-    assert "99.9%" in PROVENANCE["X-Dataset-Reconciliation"]
+    assert "exceptions flagged" in PROVENANCE["X-Dataset-Reconciliation"]
+    # This used to demand "99.9%". That accuracy claim was removed on purpose
+    # (commit f6332f9, "remove accuracy percentage claims pending audit") and the
+    # content-accuracy test bans decimal percentages in copy: a header that says
+    # what was done is right; one that quotes an unaudited percentage is not.
+    assert "%" not in PROVENANCE["X-Dataset-Reconciliation"]
     assert "latest filing wins" in PROVENANCE["X-Dataset-Grain"]
 
 

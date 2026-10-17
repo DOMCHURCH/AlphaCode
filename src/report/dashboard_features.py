@@ -49,9 +49,10 @@ def render_feature_panels() -> str:
     <div id="hist-out"></div>
 
     <h3 class="feat-h">Income statement and cash flow</h3>
-    <p class="plan-note">Each period is checked: revenue minus cost of revenue
-      against gross profit, and the cash-flow sections against the change in
-      cash. A figure marked * is worked out from filed ones (Q4 is the year
+    <p class="plan-note">Each period is checked when the filing reports the lines
+      the check needs; where it does not, the check returns not_testable instead
+      of passing. The checks: revenue minus cost of revenue against gross profit,
+      and the cash-flow sections against the change in cash. A figure marked * is worked out from filed ones (Q4 is the year
       minus nine months).</p>
     <div class="pickrow" role="group" aria-label="Period">
       <button type="button" class="btn ghost pick" data-st-period="annual" aria-pressed="true">Annual</button>

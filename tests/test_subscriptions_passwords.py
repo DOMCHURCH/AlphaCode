@@ -527,7 +527,7 @@ def test_the_comparison_table_reads_from_settings(client):
 
     assert "$79.99" in table and "$49" in table
     assert "10k" in table
-    assert "Static (as of download date)" in table
+    assert "As of each download (built when you ask)" in table
     assert "Current (updates as filings land)" in table
 
 

@@ -535,9 +535,20 @@ def test_eps_is_kept_despite_not_being_plain_usd():
     assert report.dropped_non_usd == 0
 
 
-def test_a_usd_eps_row_is_dropped_as_the_wrong_unit():
-    """The check is per concept in BOTH directions: a plain-USD EPS is wrong."""
+def test_a_plain_usd_eps_row_is_kept_because_that_is_how_sec_labels_it():
+    """This used to assert the opposite ("a plain-USD EPS is the wrong unit"), which
+    dropped every EPS fact from every real bulk file: SEC writes per-share facts as
+    `USD` (2026q3: 24,767 rows, none `USD/shares`)."""
     num = _df([_num(tag="EarningsPerShareDiluted", qtrs="1", uom="USD", value="3.24")],
+              NUM_COLS)
+    rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
+    assert [r["value"] for r in rows if r["metric"] == "eps_diluted"] == [3.24]
+    assert report.dropped_non_usd == 0
+
+
+def test_a_foreign_currency_eps_row_is_dropped_as_the_wrong_unit():
+    """The unit is still checked: an EPS in CAD or CNY is not comparable."""
+    num = _df([_num(tag="EarningsPerShareDiluted", qtrs="1", uom="CAD", value="3.24")],
               NUM_COLS)
     rows, report = xbrl.extract_facts(_df(JPM_SUB, SUB_COLS), num, CIK_MAP)
     assert rows == []

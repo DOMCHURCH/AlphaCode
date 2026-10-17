@@ -1886,7 +1886,8 @@ another reason not to read them as the filer's own results.</p>
 <p>BalanceProof applies all of the above: every figure carries its filing date,
 <code>as_of</code> returns only what was filed by that day, Q4 and quarterly
 cash flow are derived and labelled as derived, and each period is checked
-against its own totals.</p>
+against its own totals when the filing reports the lines the check needs (where
+it does not, the check returns not_testable instead of passing).</p>
 
 <pre class="code"><code>curl -H "X-API-Key: YOUR_KEY" \\
   "https://balanceproof.dev/api/company/TSLA/statements?period=quarterly&amp;as_of=2025-04-01"</code></pre>
@@ -2185,8 +2186,8 @@ flagged with the reason instead of adjusted
 companies' periodic reports, not every filer. Every company page is free to
 read, the <a href="/api">API</a> gives a free key 1,000 calls a month, and the
 <a href="/dataset">full dataset</a> is one as-reported CSV of {FACTS}
-rows with a <code>restated</code> flag, $79.99 once, a snapshot that does not
-update.</p>
+rows, each dated by the filing that reported it, $79.99 once, built from the
+database each time you download it.</p>
 """,
 )
 
@@ -2453,8 +2454,9 @@ come back side by side, because the filer's stated total is the referee:</p>
 writing; it moves when Apple files. A free key reads any of the 6,000+
 companies and one year of history, longer series are on paid plans, and
 <code>as_of</code> returns what had been filed by a past date (Pro and above).
-The figures are as reported, with a <code>restated</code> flag when a later
-filing changed one. If you are building across all companies at once, the
+Figures are as reported to the SEC. When a later filing revises a figure, the
+default view shows the revised value under the later filing's date;
+<code>as_of</code> queries return the value known on the date you ask. If you are building across all companies at once, the
 <a href="/blog/sec-balance-sheet-data-all-companies">comparison of the SEC's
 bulk routes</a> is the companion to this.</p>
 """,

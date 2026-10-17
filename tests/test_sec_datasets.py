@@ -172,3 +172,118 @@ def test_restatement_collapses_to_the_earliest_filing(tmp_path, monkeypatch):
     finally:
         get_settings.cache_clear()
         reset_engine_cache()
+
+
+# ---------------------------------------------------------------------------
+# Hooker Furnishings (HOFT), 10-Q for the quarter ended 2026-08-02. Its income
+# statement uses RevenueFromContractWithCustomerIncludingAssessedTax, which was
+# not in the revenue tag list: bulk data dropped the line and the frames route
+# read a -$522,000 `Revenues` line instead of $63,250,000.
+# ---------------------------------------------------------------------------
+SUB_HOFT = [
+    {"adsh": "h1", "cik": "0000320193", "name": "HOOKER FURNISHINGS", "form": "10-Q",
+     "period": "20260731", "filed": "20260911", "fp": "Q2"},
+]
+
+
+def _hoft_num(*tags_and_values):
+    return [
+        {"adsh": "h1", "tag": tag, "version": "us-gaap/2025", "ddate": "20260731",
+         "qtrs": "1", "uom": "USD", "value": value}
+        for tag, value in tags_and_values
+    ]
+
+
+def test_a_filer_that_reports_revenue_including_assessed_tax_gets_a_revenue_row():
+    num_tag = "RevenueFromContractWithCustomerIncludingAssessedTax"
+    sub, num = ds.parse_dataset(_zip(SUB_HOFT, _hoft_num((num_tag, "63250000"))))
+    rows, _ = xbrl.extract_facts(sub, num, CIK_MAP)
+    revenue = [r for r in rows if r["metric"] == "revenue"]
+    assert [(r["value"], r["source_tag"]) for r in revenue] == [(63_250_000.0, num_tag)], (
+        "revenue was dropped: the tag is missing from xbrl.CONCEPTS")
+
+
+def test_the_including_assessed_tax_tag_outranks_the_plain_revenues_line():
+    """Both on one filing: the ASC 606 revenue line beats the generic `Revenues`
+    line, as the Excluding variant already does (HOFT's `Revenues` is a -$522,000
+    adjustment, not its revenue)."""
+    sub, num = ds.parse_dataset(_zip(SUB_HOFT, _hoft_num(
+        ("Revenues", "-522000"),
+        ("RevenueFromContractWithCustomerIncludingAssessedTax", "63250000"),
+    )))
+    rows, _ = xbrl.extract_facts(sub, num, CIK_MAP)
+    revenue = [r for r in rows if r["metric"] == "revenue"]
+    assert [r["value"] for r in revenue] == [63_250_000.0]
+
+
+def test_the_revenue_tag_order_is_excluding_then_including_then_revenues():
+    c = next(c for c in xbrl.CONCEPTS if c.metric == "revenue")
+    assert c.tags[:3] == (
+        "RevenueFromContractWithCustomerExcludingAssessedTax",
+        "RevenueFromContractWithCustomerIncludingAssessedTax",
+        "Revenues",
+    )
+    assert xbrl._TAG_RANK["RevenueFromContractWithCustomerIncludingAssessedTax"] < xbrl._TAG_RANK["Revenues"]
+
+
+# ---------------------------------------------------------------------------
+# EPS unit. In SEC's real bulk files `EarningsPerShareDiluted` is uom `USD`
+# (2026q3: 24,767 rows `USD`, none `USD/shares`; the rest are foreign currencies),
+# but the concept demanded `USD/shares`, so the bulk route dropped every EPS fact.
+# Lines below are shaped like the real ones (Carpenter Technology 10-K, filed
+# 2026-08-12, fiscal year ended 2026-06-30; General Mills, fiscal year ended
+# 2026-05-31).
+# ---------------------------------------------------------------------------
+SUB_EPS = [
+    {"adsh": "0000017843-26-000034", "cik": "0000320193", "name": "CARPENTER TECHNOLOGY CORP",
+     "form": "10-K", "period": "20260630", "filed": "20260812", "fp": "FY"},
+    {"adsh": "0001628280-26-046466", "cik": "1045810", "name": "GENERAL MILLS INC",
+     "form": "10-K", "period": "20260531", "filed": "20260701", "fp": "FY"},
+]
+
+
+def _eps(adsh, ddate, qtrs, uom, value, segments=""):
+    return {"adsh": adsh, "tag": "EarningsPerShareDiluted", "version": "us-gaap/2026",
+            "ddate": ddate, "qtrs": qtrs, "uom": uom, "value": value, "segments": segments}
+
+
+def test_bulk_eps_with_the_real_uom_usd_produces_an_annual_row():
+    num = [
+        _eps("0000017843-26-000034", "20260630", "4", "USD", "10.5200"),   # the fiscal year
+        _eps("0000017843-26-000034", "20260630", "1", "USD", "3.2300"),    # its fourth quarter
+        _eps("0001628280-26-046466", "20260531", "4", "USD", "-0.1600"),
+        _eps("0001628280-26-046466", "20260531", "1", "USD", "-3.7400"),
+    ]
+    sub, n = ds.parse_dataset(_zip(SUB_EPS, num))
+    rows, report = xbrl.extract_facts(sub, n, CIK_MAP)
+    eps = {r["ticker"]: r for r in rows if r["metric"] == "eps_diluted"}
+    assert len(eps) == 2, "EPS was dropped as a non-USD unit"
+    # The year wins over its fourth quarter (same key, quarter ranks after the year).
+    assert sorted(r["value"] for r in eps.values()) == [-0.16, 10.52]
+    assert all(r["fiscal_period"] == "FY" for r in eps.values())
+    assert report.dropped_non_usd == 0
+
+
+def test_bulk_eps_labelled_usd_per_shares_is_still_accepted():
+    sub, n = ds.parse_dataset(_zip(SUB_EPS[:1], [_eps("0000017843-26-000034", "20260630", "4", "USD/shares", "10.5200")]))
+    rows, _ = xbrl.extract_facts(sub, n, CIK_MAP)
+    assert [r["value"] for r in rows if r["metric"] == "eps_diluted"] == [10.52]
+
+
+def test_eps_in_a_foreign_currency_is_still_refused():
+    num = [_eps("0000017843-26-000034", "20260630", "4", cur, "9.9000") for cur in ("CNY", "CAD", "HKD")]
+    sub, n = ds.parse_dataset(_zip(SUB_EPS[:1], num))
+    rows, report = xbrl.extract_facts(sub, n, CIK_MAP)
+    assert [r for r in rows if r["metric"] == "eps_diluted"] == []
+    assert report.dropped_non_usd == 3
+
+
+def test_a_dimensional_eps_row_is_still_not_the_companys_eps():
+    """TWIN-style restatement scenarios carry the same tag with a segments value."""
+    num = [
+        _eps("0000017843-26-000034", "20260630", "4", "USD", "9.0000", segments="Restatement=ScenarioPreviouslyReported;"),
+        _eps("0000017843-26-000034", "20260630", "4", "USD", "10.5200"),
+    ]
+    sub, n = ds.parse_dataset(_zip(SUB_EPS[:1], num))
+    rows, _ = xbrl.extract_facts(sub, n, CIK_MAP)
+    assert [r["value"] for r in rows if r["metric"] == "eps_diluted"] == [10.52]

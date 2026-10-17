@@ -1691,7 +1691,10 @@ async def backfill_filings(
 
     Writes the same metrics under the same names and the same `source="sec"` as
     the bulk path, so a fact loaded by either route lands on one natural key.
-    Returns the number of fundamental rows written.
+    Where the bulk path already holds that key, the bulk row is kept (see
+    `save_fundamentals(keep_bulk=True)`): this route fills gaps ahead of the bulk
+    dataset, it does not replace it. Returns the number of fundamental rows
+    written (attempted; rows kept as they were are not subtracted).
     """
     s = get_settings()
     as_of = as_of or dt.date.today()
@@ -1749,7 +1752,12 @@ async def backfill_filings(
         log.info("frames_quarter_swept", **report)
         for j in range(0, len(rows), 5000):
             with session_scope() as session:
-                total += repository.save_fundamentals(session, rows[j : j + 5000])
+                # keep_bulk: this sweep re-runs every few hours over filings the
+                # bulk quarter has already loaded; it must fill gaps, not replace
+                # the authoritative rows.
+                total += repository.save_fundamentals(
+                    session, rows[j : j + 5000], keep_bulk=True
+                )
         events = sec_frames.earnings_from_rows(rows)
         for j in range(0, len(events), 5000):
             with session_scope() as session:

@@ -2,17 +2,19 @@
 
 The dataset was previously a button on a dashboard tab with a price next to it.
 That is enough to sell it and not enough to sell it HONESTLY: the one property
-that decides whether it is the right purchase — that it is a snapshot, fixed at
-the moment of download and never updated — was nowhere a buyer could read it
-before paying.
+that decides whether it is the right purchase — that the file is built from the
+database when it is requested, and a copy you save then stops changing — was
+nowhere a buyer could read it before paying.
 
 So this page states, above the button, the three facts somebody wants and could
 not previously get:
 
-* **when the data in it was last added to**, which is not the same as today;
+* **how current the data in it is**: it is built fresh on each download, and
+  holds what was loaded through the date shown, which is not the same as today;
 * **how many rows and roughly how large the file is**, so a download is a
   decision rather than a surprise;
-* **that it is static**, said plainly and not in small print.
+* **how it works**, said plainly and not in small print: built per request, a
+  saved copy never changes, and no refresh is pushed to you.
 
 The size is an estimate and is labelled as one. `dataset.iter_csv` streams the
 file and never assembles it, so there is nothing on disk with a size to read —
@@ -75,21 +77,26 @@ def render_dataset(
   <header class="hero">
     <h1 class="htitle">The full dataset</h1>
     <p class="hlede">Every as-reported fact behind every drawing on this site,
-      as one CSV. Bought once, downloaded as often as you like, and fixed at
-      the moment it was generated.</p>
+      as one CSV. Bought once, downloaded as often as you like, and built from
+      the database each time you ask for it.</p>
   </header>
 
-  <!-- The disclaimer is the FIRST thing under the heading, not a footnote.
-       Somebody who reads only this box has read the thing that decides whether
-       this is the right purchase for them. -->
-  <section class="sec" id="static-warning">
-    <div class="banner warn" role="note">
-      <span class="banner-tick" aria-hidden="true">&#9888;</span>
-      <span><strong>This is a static snapshot.</strong> It contains the data as
-        of {escape(as_of)} and will never update. When new filings land, this
-        file does not change. You would buy a fresh copy.
-        <a href="/pricing#compare">For the most current data, use the API</a>,
-        which reflects the latest filings every time you call it.</span>
+  <!-- How the download works is the FIRST thing under the heading, not a
+       footnote. Somebody who reads only this box has read the thing that decides
+       whether this is the right purchase for them. It is a plain note, not a
+       warning: nothing here is wrong with the product, it is just not what a
+       reader might assume. -->
+  <section class="sec" id="how-it-works">
+    <div class="banner note" role="note">
+      <span class="banner-tick" aria-hidden="true">i</span>
+      <span><strong>Built when you download it.</strong> Each download is
+        generated from our database at that moment, so it holds everything
+        loaded through {escape(as_of)}. The copy you save does not change
+        afterwards, and nothing is sent to you when new filings land: download
+        again for a file that includes them.
+        <a href="/pricing#compare">For the latest filing the day it lands, use
+        the API</a>, which answers from the current database every time you
+        call it.</span>
     </div>
   </section>
 
@@ -97,9 +104,9 @@ def render_dataset(
     <div class="sec-head"><h2>What you get</h2></div>
     <div class="tiles">
       <div class="tile">
-        <span class="tlabel">Generated</span>
+        <span class="tlabel">Loaded through</span>
         <b class="tval sm">{escape(as_of)}</b>
-        <span class="tsub">the data does not change after this date</span>
+        <span class="tsub">built fresh on every download</span>
       </div>
       <div class="tile">
         <span class="tlabel">Rows</span>
@@ -137,13 +144,13 @@ def render_dataset(
       <div class="buy">
         <span class="plan-name">Full dataset</span>
         <p class="plan-price">{escape(dataset_price)}<small> once</small></p>
-        <p class="plan-line">{escape(row_label)} rows, one CSV, no updates.</p>
+        <p class="plan-line">{escape(row_label)} rows, one CSV, repeat downloads included.</p>
         <button type="button" class="btn" id="ds-buy-btn">Buy the dataset</button>
       </div>
       <div class="buy">
         <span class="plan-name">Pro</span>
         <p class="plan-price">{escape(pro_price)}<small>/month</small></p>
-        <p class="plan-line">Current data instead of a snapshot, queried by API.</p>
+        <p class="plan-line">The latest filing the day it lands, queried by API.</p>
         <a class="btn" href="/pricing">Compare them first</a>
       </div>
     </div>
@@ -152,12 +159,33 @@ def render_dataset(
   <section class="sec" id="ds-notes">
     <div class="sec-head"><h2>Before you buy</h2></div>
     <ul class="notelist">
-      <li><b>It does not update.</b> There is no refresh, no delta and no
-        subscription attached to a dataset purchase. A later snapshot is another
-        purchase.</li>
-      <li><b>It is as-reported, not restated.</b> Each row is the figure as it
-        appeared in the filing, which is the point: it is what a backtest needs
-        and what a restated feed cannot give you.</li>
+      <li><b>A copy you save does not change.</b> Nothing is pushed to you: no
+        refresh, no delta and no subscription comes with a dataset purchase. The
+        download is built from the database each time you request it, so
+        downloading again later includes any filings loaded since, at no extra
+        charge. Data is added when new filings are loaded, not on a schedule you
+        can rely on.</li>
+      <li><b>Older filings can carry SEC&rsquo;s month-end date.</b> Where
+        SEC&rsquo;s bulk data sets rounded a period end to the month end and the
+        filing also reports the real date, the real date is used. Filings loaded
+        only from the bulk data sets still carry SEC&rsquo;s month-end date,
+        which can be up to 15 days from the actual period end.</li>
+      <li><b>Where two copies of a figure disagree, both are kept.</b> The last
+        column, <code>period_note</code>, is blank except on the two rows of a
+        figure whose value differs between a month-end date and the real date;
+        each names the other&rsquo;s date. Neither value is guessed at.</li>
+      <li><b>Each figure is the value reported in a filing, dated by that
+        filing.</b> The <code>filing_date</code> column is the filing that
+        reported the value shown. When a later filing changes a figure, the file
+        carries the later value under the later filing&rsquo;s date; the earlier
+        value is not in it. The site&rsquo;s
+        <a href="/restatements">restatements</a> page lists material revisions
+        (a change of 1% or more to a headline figure) from the last 90 days;
+        longer history is in the API&rsquo;s exceptions feed on the Business
+        plan.</li>
+      <li><b>Diluted EPS covers the most recent quarter only.</b> The
+        <code>eps_diluted</code> metric is available for the most recent quarter
+        only until history is loaded.</li>
       <li><b>It is a large file.</b> Leave the tab open while it streams; it is
         generated row by row rather than served from disk.</li>
       <li><b>Questions before paying?</b> Email {contact}. The

@@ -86,7 +86,8 @@ ORG_NAME = "BalanceProof"
 # is, where it comes from, what state it is in.
 ORG_DESCRIPTION = (
     "Reconciled balance sheets, income statements and cash flows from SEC "
-    "EDGAR XBRL filings, each checked against its own totals, served as clean "
+    "EDGAR XBRL filings, each checked against its own totals where the filing "
+    "reports the lines the check needs, served as clean "
     "JSON through a REST API and as a bulk CSV download."
 )
 
@@ -633,7 +634,7 @@ def software_ld() -> str:
             "featureList": [
                 f"Reconciled balance sheets for {_companies()} US-listed companies",
                 "Validated against Assets = Liabilities + Equity",
-                "As-reported figures, never restated",
+                "Figures as reported to the SEC; as_of returns the value known on a past date",
                 "JSON responses, API key authentication",
                 "OpenAPI specification",
             ],

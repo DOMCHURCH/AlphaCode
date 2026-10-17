@@ -39,7 +39,7 @@ Data-Source-URL: https://www.sec.gov/edgar/sec-api-documentation
 Data-Source-Type: primary-regulatory-filing
 Jurisdiction: US
 Filing-Basis: as-reported
-Restatement-Policy: none — a figure is served as it was filed for that period and is not revised when a later filing restates it
+Restatement-Policy: when a later filing revises a figure, the default view shows the revised value under the later filing's date; as_of queries return the value known on the date asked
 Vendor-Aggregation: none — no commercial data aggregator is in the pipeline
 Estimation: none — no value is modelled, interpolated, or filled forward
 

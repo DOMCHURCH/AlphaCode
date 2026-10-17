@@ -390,3 +390,48 @@ def test_the_cursor_guard_refuses_writes_hidden_inside_a_read():
     for stmt in bad:
         with pytest.raises(RuntimeError, match="not a read"):
             _guard(None, None, stmt, None, None, False)
+
+
+# ---------------------------------------------------------------------------
+# pair_reports: which copy is bulk, whether values differ, what DELETE_DUP must keep
+# ---------------------------------------------------------------------------
+
+def _prow(i, metric, value, pe, fp, tag, filed=dt.date(2026, 5, 1)):
+    return {"id": i, "ticker": "T", "metric": metric, "value": value, "period_end": pe,
+            "fiscal_period": fp, "filing_date": filed, "source": "sec", "restated": False,
+            "source_tag": tag, "ingested_at": None}
+
+
+def _reports(rounded_rows, real_rows):
+    pair = fix.Pair("T", dt.date(2026, 5, 1), dt.date(2026, 3, 31), dt.date(2026, 3, 28))
+    rows = {("T", pair.filing_date, pair.rounded_pe): rounded_rows,
+            ("T", pair.filing_date, pair.real_pe): real_rows}
+    ok, _excluded, _delete, _twin = fix.classify([pair], rows)
+    return fix.pair_reports([pair], rows, ok)[0]
+
+
+def test_the_month_end_copy_with_a_fiscal_period_is_the_bulk_copy():
+    r = _reports([_prow(1, "total_assets", 100.0, dt.date(2026, 3, 31), "Q2", "Assets")],
+                 [_prow(2, "total_assets", 100.0, dt.date(2026, 3, 28), None, "Assets")])
+    assert r.bulk_copy == "rounded" and r.deletable and r.values_differ == 0
+    assert r.keep.startswith("real-dated copy")          # equal value and tag: lossless
+
+
+def test_equal_values_with_different_tags_must_keep_the_bulk_copy_not_the_frames_tag():
+    r = _reports([_prow(1, "revenue", 100.0, dt.date(2026, 3, 31), "Q2", "Revenues")],
+                 [_prow(2, "revenue", 100.0, dt.date(2026, 3, 28), None, "RevenueFromContractWithCustomerExcludingAssessedTax")])
+    assert r.deletable and r.tags_differ_equal == 1
+    assert r.keep.startswith("bulk copy (rounded)") and "re-date" in r.keep
+
+
+def test_a_pair_whose_values_differ_is_not_deletable_and_keeps_both():
+    r = _reports([_prow(1, "cogs", 43_151_000.0, dt.date(2026, 3, 31), "Q2", "CostOfGoodsAndServicesSold")],
+                 [_prow(2, "cogs", 4_269_000.0, dt.date(2026, 3, 28), None, "CostOfRevenue")])
+    assert not r.deletable and r.values_differ == 1 and r.bulk_copy == "rounded"
+    assert r.keep.startswith("both")
+
+
+def test_mixed_fiscal_periods_are_ambiguous_not_guessed():
+    r = _reports([_prow(1, "a", 1.0, dt.date(2026, 3, 31), "Q2", "A"), _prow(3, "b", 1.0, dt.date(2026, 3, 31), None, "B")],
+                 [_prow(2, "a", 1.0, dt.date(2026, 3, 28), None, "A"), _prow(4, "b", 1.0, dt.date(2026, 3, 28), None, "B")])
+    assert r.bulk_copy == "ambiguous"

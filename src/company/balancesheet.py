@@ -112,12 +112,18 @@ def _recency(f: Any) -> tuple[dt.date, int, int]:
     """Sort key for "which filing of this metric is the one to show".
 
     Later filing wins; on a tie, the more-preferred source wins; on a further tie
-    the row carrying the real period end wins over its month-end-rounded twin
-    (see src/company/periods.py), which would otherwise be decided by row order.
-    Returned as a tuple so `max()` orders on all three without a second pass.
+    the MONTH-END-dated copy of a twin pair wins over the real-dated one (see
+    src/company/periods.py). That copy came from the SEC bulk data sets, which
+    carry only the tags a filer presents on its financial statements; the real-
+    dated copy came from the frames route, which sees every fact including note-
+    level lines and picks the best-ranked tag, often a subset (KO marketable
+    securities 2,842M on the balance sheet, 2,625M in the note). The balance
+    sheet is what the company published, so it wins. Without this the choice was
+    decided by row order. Returned as a tuple so `max()` orders on all three
+    without a second pass.
     """
     rank = {s: i for i, s in enumerate(_SOURCE_PREFERENCE)}
-    return (f.filing_date, -rank.get(f.source, 99), 0 if is_month_end(f.period_end) else 1)
+    return (f.filing_date, -rank.get(f.source, 99), 1 if is_month_end(f.period_end) else 0)
 
 
 def _resolve_restatements(rows: list[Any]) -> dict[str, Any]:
