@@ -12,6 +12,24 @@ source preference breaks a same-day tie, and the figures are reconciled
 against A = L + E at ingest. `restated` and `source` ride along on every row
 so the choice is auditable rather than merely asserted.
 
+ONE QUARTER, ONE PERIOD END. SEC's bulk datasets round every period end to the
+nearest month end (Apple's 2026-03-28 arrives as 2026-03-31) and the XBRL frames
+carry the real date, so a filing loaded by both routes is stored twice under two
+dates -- and the one-row-per-period rule above, keyed on the raw date, kept both.
+The API already treats the real date as canonical (`src.company.periods`); the
+file now applies the same rule before it resolves restatements, per ticker:
+
+* a rounded row whose real-dated twin (same filing, same source, same metric)
+  carries the SAME value is dropped -- the twin stands for it;
+* a rounded row whose twin carries a DIFFERENT value stays, under its rounded
+  date, and is counted (`Collapse.conflicts`) -- neither figure is guessed at;
+* a rounded row with NO twin for that metric is re-dated to the real period end
+  rather than dropped, so no figure is lost.
+
+A month end that has no real-dated twin in its own filing (a filing loaded only
+from the bulk datasets) is untouched: it still carries SEC's date. The API also
+aliases across filings, so such a row can still differ between this file and
+`/api`; `scripts/fix_period_ends.py` and a re-load are what close that gap.
 
 This is the paid artefact: every as-reported fact in the `fundamentals` table,
 which is what "1.24M cleaned facts" refers to. There is no separate "cleaned"
@@ -34,12 +52,15 @@ import csv
 import datetime as dt
 import io
 import time
-from collections.abc import Iterator
+from collections import Counter
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
 from typing import Any, NamedTuple
 
 import structlog
 from sqlalchemy import select
 
+from src.company.periods import filing_twins
 from src.storage.db import session_scope
 from src.storage.models import Fundamental
 
@@ -91,8 +112,111 @@ def _fmt(v: object) -> object:
     return "" if v is None else v
 
 
-def iter_csv() -> Iterator[str]:
+_TICKER, _METRIC, _VALUE, _PERIOD, _FISCAL, _FILED, _SOURCE = range(7)  # SELECT order
+_MISSING = object()
+
+
+@dataclass
+class Collapse:
+    """What the canonical-period pass did, counted the way the code does it.
+
+    `removed`: rounded rows dropped because their real-dated twin (same filing,
+    source and metric) carries the same value. `redated`: rounded rows with no
+    twin for that metric, written under the real period end instead. `conflicts`:
+    rounded rows kept under their rounded date because the twin's value differs.
+    A conflict is not marked in the file: both figures are there, one under each
+    date, and nothing in the row says which pair it belongs to.
+
+    These are counts of RAW rows touched, before the latest-filing rule picks a
+    winner, so they are not the same as how much shorter the file got.
+    """
+
+    removed: int = 0
+    redated: int = 0
+    conflicts: int = 0
+
+    def add(self, other: Collapse) -> None:
+        self.removed += other.removed
+        self.redated += other.redated
+        self.conflicts += other.conflicts
+
+
+def _twin_map(rows: Sequence[tuple[Any, ...]]) -> dict[tuple[dt.date, dt.date], dt.date]:
+    """{(filing_date, rounded month end): real period end} for ONE ticker.
+
+    The pairing rule of `src.company.periods` (a month end with a non-month-end
+    date 1 to 15 days away in the same filing is that date's rounded copy), kept
+    per filing rather than per date so a twin in one filing never reaches into
+    another. Ambiguous cases are left alone, as `scripts/fix_period_ends.py`
+    leaves them: two equally near real dates, or one real date claimed by two
+    month ends, means guessing which is "the" twin.
+    """
+    dates: dict[dt.date, set[dt.date]] = {}
+    for r in rows:
+        dates.setdefault(r[_FILED], set()).add(r[_PERIOD])
+    out: dict[tuple[dt.date, dt.date], dt.date] = {}
+    for filed, period_ends in dates.items():
+        twins = filing_twins(period_ends)
+        claimed = Counter(real for reals in twins.values() for real in set(reals))
+        for month_end, reals in twins.items():
+            if len(reals) == 1 and claimed[reals[0]] == 1:
+                out[(filed, month_end)] = reals[0]
+    return out
+
+
+def _source_rank(source: str | None) -> int:
+    """Most-preferred highest, the same ranking `balancesheet` and `pit` use."""
+    try:
+        return len(SOURCE_PREFERENCE) - SOURCE_PREFERENCE.index(source)  # type: ignore[arg-type]
+    except ValueError:
+        return 0
+
+
+def _collapse_ticker(rows: Sequence[tuple[Any, ...]]) -> tuple[list[tuple[Any, ...]], Collapse]:
+    """One ticker's raw rows -> (the rows to write, what was collapsed).
+
+    Rounded rows are first merged into their real-dated twin, re-dated, or kept
+    as conflicts (see `Collapse`); then the latest filing wins per
+    (metric, period_end), source preference breaking a same-day tie. The result
+    is ordered by (metric, period_end), the order the file has always had.
+    """
+    stats = Collapse()
+    twin = _twin_map(rows)
+    if not twin:
+        kept = list(rows)  # a calendar-aligned filer: nothing to collapse
+    else:
+        value_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_VALUE] for r in rows}
+        kept = []
+        for r in rows:
+            real = twin.get((r[_FILED], r[_PERIOD]))
+            if real is None:
+                kept.append(r)
+                continue
+            other = value_at.get((r[_METRIC], real, r[_FILED], r[_SOURCE]), _MISSING)
+            if other is _MISSING:
+                kept.append(r[:_PERIOD] + (real,) + r[_PERIOD + 1:])
+                stats.redated += 1
+            elif other == r[_VALUE]:
+                stats.removed += 1
+            else:
+                kept.append(r)
+                stats.conflicts += 1
+
+    kept.sort(key=lambda r: (r[_METRIC], r[_PERIOD], r[_FILED], _source_rank(r[_SOURCE]), r[_SOURCE] or ""))
+    out: list[tuple[Any, ...]] = []
+    for r in kept:
+        if out and (out[-1][_METRIC], out[-1][_PERIOD]) == (r[_METRIC], r[_PERIOD]):
+            out[-1] = r  # a later filing, or a preferred source on the same day
+        else:
+            out.append(r)
+    return out, stats
+
+
+def iter_csv(collapse: Collapse | None = None) -> Iterator[str]:
     """Yield the dataset as CSV text, header first.
+
+    `collapse`, when given, is filled in with what the canonical-period pass did
+    across the whole file (see `Collapse`); the same totals are logged.
 
     The generator opens its OWN session and holds it for the life of the
     stream. It has to: this runs after the endpoint has returned, while
@@ -115,17 +239,19 @@ def iter_csv() -> Iterator[str]:
     writer.writerow(COLUMNS)
     yield drain()
 
-    # Ordered so the WINNER of each (ticker, metric, period) arrives LAST:
-    # ascending filing_date, then source rank ASCENDING. That is the same rule
-    # `pit.get_fundamentals` and `balancesheet._resolve_restatements` apply,
-    # expressed in SQL, which is the whole point -- the file somebody pays for
-    # and the figures on the site must be the same numbers.
+    # Rows arrive grouped by ticker -- the unit `_collapse_ticker` works on,
+    # because a rounded date and its real twin are found by comparing the dates
+    # of one filing across ALL its metrics. Within a ticker the order is
+    # irrelevant to the result (it is re-sorted there), but it is kept explicit
+    # so the stream is the same on every run. A ticker is a few hundred rows,
+    # so holding one at a time keeps the memory bound the module promises.
     #
-    # It used to be an unfiltered dump: four rows for one company and period,
-    # two different values for `total_assets`, and no column telling the buyer
-    # which one the drawing used. `restated=True` and the source ranking are
-    # both carried through so the resolution is auditable rather than merely
-    # asserted.
+    # The winner of each (ticker, metric, period) is the latest filing, with
+    # source preference breaking a same-day tie: the rule `pit.get_fundamentals`
+    # and `balancesheet._resolve_restatements` apply, so the file somebody pays
+    # for and the figures on the site are the same numbers. `restated=True` and
+    # the source are carried through so the resolution is auditable rather than
+    # merely asserted.
     stmt = (
         select(
             Fundamental.ticker,
@@ -157,26 +283,34 @@ def iter_csv() -> Iterator[str]:
 
     rows = 0
     written = 0
-    # The last row of each run wins. Held rather than emitted immediately, so
-    # a restatement arriving later in the same run replaces it and only one
-    # row per (ticker, metric, period) ever reaches the file.
-    held: tuple[Any, ...] | None = None
-    held_key: tuple[Any, Any, Any] | None = None
+    total = collapse if collapse is not None else Collapse()
+    group: list[tuple[Any, ...]] = []
+
+    def flush() -> None:
+        nonlocal written
+        out, stats = _collapse_ticker(group)
+        for r in out:
+            writer.writerow([_fmt(v) for v in r])
+        written += len(out)
+        total.add(stats)
+        group.clear()
+
     with session_scope() as session:
         for chunk in session.execute(stmt).partitions(_CHUNK):
             for row in chunk:
-                key = (row[0], row[1], row[3])
-                if held_key is not None and key != held_key:
-                    writer.writerow([_fmt(v) for v in held])
-                    written += 1
-                held, held_key = tuple(row), key
+                if group and row[_TICKER] != group[0][_TICKER]:
+                    flush()
+                group.append(tuple(row))
             rows += len(chunk)
             yield drain()
-        if held is not None:
-            writer.writerow([_fmt(v) for v in held])
-            written += 1
+        if group:
+            flush()
             yield drain()
-    log.info("dataset_streamed", rows=rows, written=written)
+    log.info(
+        "dataset_streamed", rows=rows, written=written,
+        twins_collapsed=total.removed, redated=total.redated,
+        conflicts=total.conflicts,
+    )
 
 
 def _source_rank_sql():
