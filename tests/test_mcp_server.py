@@ -486,7 +486,10 @@ def test_balance_sheet_text_alone_carries_the_three_totals(client):
     assert "Total assets $383.27B ($383,266,000,000)" in text
     assert "Total liabilities $275.75B ($275,746,000,000)" in text
     assert "Shareholders' equity $107.52B ($107,520,000,000)" in text
-    assert "not restated" in text
+    # The latest filing's value is shown, so the text must not promise the
+    # original ("not restated"); it says a revised value replaces the original.
+    assert "where a later filing revised one, the revised value is shown" in text
+    assert "not restated" not in text
 
 
 def test_check_text_alone_carries_the_verdict_and_the_totals(client):

@@ -169,3 +169,27 @@ def test_an_unexpected_exception_is_logged_but_not_shown_to_the_caller(client, m
     # The detail is not lost: it is in the log, where an operator reads it.
     spy.exception.assert_called()
     assert secret in str(spy.exception.call_args)
+
+
+# ---------------------------------------------------------------------------
+# Wording: the latest filing's value is shown, so nothing may say "not restated"
+# ---------------------------------------------------------------------------
+
+def test_no_mcp_string_promises_figures_are_not_restated():
+    """`balancesheet._resolve_restatements` shows the LATEST filing's value, so a
+    revised figure replaces the original. Copy that says otherwise is false for
+    exactly the filings a buyer of this product cares about."""
+    import src.mcp_server as mcp_server
+
+    strings = [mcp_server._INSTRUCTIONS] + [t["description"] for t in mcp_server.TOOLS]
+    for s in strings:
+        assert "not restated" not in s
+        assert "as-filed" not in s
+
+
+def test_the_instructions_and_description_say_a_revised_value_is_shown():
+    import src.mcp_server as mcp_server
+
+    assert "revised value is shown" in mcp_server._INSTRUCTIONS
+    tool = next(t for t in mcp_server.TOOLS if t["name"] == "get_balance_sheet")
+    assert "revised value is shown" in tool["description"]

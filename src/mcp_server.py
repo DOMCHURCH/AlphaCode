@@ -170,7 +170,8 @@ TOOLS: list[dict[str, Any]] = [
         "description": (
             "The filed balance sheet for one US public company, as reported to "
             "the SEC: assets, liabilities and equity line items with the period "
-            "end and filing date. Figures are as-filed, not restated. Use this "
+            "end and filing date. Figures are as reported to the SEC; where a "
+            "later filing revised one, the revised value is shown. Use this "
             "when the user wants the numbers. If they want to know whether the "
             "numbers can be TRUSTED, use check_balance_sheet instead."
         ),
@@ -651,8 +652,9 @@ def _tool_get_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, Any
         f"{name} ({ticker}) balance sheet as filed, period ending "
         f"{sheet.period_end}, filed {sheet.filing_date}. "
         f"{_totals_sentence(_sheet_totals(payload))} "
-        "Figures are as-reported to the SEC, not restated. Every line item is "
-        "in the structured result.",
+        "Figures are as reported to the SEC; where a later filing revised one, "
+        "the revised value is shown. Every line item is in the structured "
+        "result.",
         payload,
     )
 
@@ -1265,8 +1267,9 @@ _INSTRUCTIONS = (
     "reports when a filing does NOT reconcile, and why, rather than returning "
     "a number either way. Resolve a company name with search_companies, read "
     "figures with get_balance_sheet, and use check_balance_sheet for any "
-    "question about whether the data can be trusted. Figures are as-filed and "
-    "not restated. This is not investment advice.\n\n"
+    "question about whether the data can be trusted. Figures are as reported "
+    "to the SEC; where a later filing revised a figure, the revised value is "
+    "shown. This is not investment advice.\n\n"
     "Access: with no key this connector runs on a shared demo allowance, "
     "rate-limited per address. A free API key at "
     "https://balanceproof.dev/dashboard raises that to a monthly quota tied "
