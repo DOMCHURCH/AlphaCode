@@ -341,7 +341,8 @@ def _xbrl_faq() -> tuple[tuple[str, str], ...]:
         (
             "How do I know a balance sheet from the API is right?",
             "Each one is checked against the accounting identity Assets = "
-            "Liabilities + Equity before it is published. A filing that does "
+            "Liabilities + Equity when the filing reports the lines needed, and "
+            "marked not testable instead of passing when it does not. A filing that does "
             "not balance is published with the reason, such as a "
             "noncontrolling interest, a component that was not read, or a "
             "filing whose own totals disagree, instead of being adjusted.",
@@ -361,12 +362,12 @@ XBRL_BALANCE_SHEET_API = Landing(
     seo_title="XBRL Balance Sheet API for SEC Filings — BalanceProof",
     description=(
         "A REST API for SEC XBRL balance sheets as JSON, each checked against "
-        "Assets = Liabilities + Equity. Free key, no card. Real response below."
+        "Assets = Liabilities + Equity where it can be. Free key, no card. Real response below."
     ),
     lede=(
         "Send a ticker, get the latest balance sheet from the company's SEC "
         "XBRL filing as JSON, checked against Assets = Liabilities + Equity "
-        "before it is served."
+        "before it is served, where the filing reports the lines needed."
     ),
     updated="2026-10-09",
     body=_xbrl_body,
@@ -504,7 +505,8 @@ periods of {sample["periods"]}.</p>
 <h2>What the free key is</h2>
 <p>A key from the <a href="/dashboard">dashboard</a>, with no card. It reads
 SEC balance sheets for {escape(filers)} as JSON, each checked against
-Assets = Liabilities + Equity before it is served, and it gives you
+Assets = Liabilities + Equity before it is served where the filing reports the
+lines needed, and it gives you
 <strong>{free_calls} calls a month</strong>. Calls are counted per calendar
 month and reset on the first, whatever day you signed up. A call that fails on
 our side is not counted. Past the limit the API answers
@@ -563,7 +565,8 @@ def _free_faq() -> tuple[tuple[str, str], ...]:
             "Is there a free SEC fundamentals API?",
             f"Yes. A free BalanceProof key gives {_free_calls()} calls a month "
             "of SEC balance sheets as JSON, with no card, and each balance "
-            "sheet is checked against Assets = Liabilities + Equity.",
+            "sheet is checked against Assets = Liabilities + Equity when it "
+            "reports the lines needed.",
         ),
         (
             "What does the free plan include?",
@@ -593,7 +596,7 @@ FREE_SEC_FUNDAMENTALS_API = Landing(
     seo_title="Free SEC Fundamentals API, No Card — BalanceProof",
     description=(
         "A free key for SEC balance sheets as JSON, each checked against "
-        "A = L + E. No card. Exactly what Free includes and what needs a paid plan."
+        "A = L + E where it can be. No card. Exactly what Free includes and what needs a paid plan."
     ),
     lede=(
         "A free key reads SEC balance sheets as JSON with no card. This page "
@@ -787,7 +790,7 @@ MCP_SERVER = Landing(
     seo_title="MCP Server for SEC Balance Sheets — BalanceProof",
     description=(
         "Connect Claude or any MCP client to SEC balance sheets checked against "
-        "A = L + E. Remote server, free key, one command to set up."
+        "A = L + E where testable. Remote server, free key, one command to set up."
     ),
     lede=(
         "A remote MCP server that gives an AI client SEC balance sheets and a "

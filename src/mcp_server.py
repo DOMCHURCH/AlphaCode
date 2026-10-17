@@ -158,6 +158,14 @@ _FIGURES_NOTE = (
     "known on the date you ask."
 )
 
+# The balance-sheet check's coverage in one sentence, shared by the server
+# instructions and the tool descriptions so the two cannot drift.
+CHECK_SENTENCE = (
+    "Each filing is checked against Assets = Liabilities + Equity when it "
+    "reports the lines needed; where it does not, it is marked not testable "
+    "instead of passing."
+)
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "search_companies",
@@ -1380,10 +1388,10 @@ def _dispatch(
 
 _INSTRUCTIONS = (
     "BalanceProof serves US public company balance sheets taken from SEC "
-    "EDGAR, checked against the accounting identity "
-    "Assets = Liabilities + Equity. Each period is checked when the filing "
-    "reports the lines the check needs; where it does not, the check returns "
-    "not_testable instead of passing. Its distinguishing feature is that it "
+    "EDGAR. " + CHECK_SENTENCE + " Income statements and cash flows follow the "
+    "same rule: each period is checked when the filing reports the lines the "
+    "check needs, and the check returns not_testable otherwise. Its "
+    "distinguishing feature is that it "
     "reports when a filing does NOT reconcile, and why, rather than returning "
     "a number either way. Resolve a company name with search_companies, read "
     "figures with get_balance_sheet, and use check_balance_sheet for any "

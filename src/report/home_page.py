@@ -272,11 +272,12 @@ def _compact(n: int) -> str:
 # The method, in three sentences, kept as parts so the hero can take a subset
 # without a second copy of the words drifting away from this one.
 _METHOD_IDENTITY = (
-    "Every filing is reconciled against the accounting identity "
-    "(Assets = Liabilities + Equity)."
+    "Each filing is checked against Assets = Liabilities + Equity when it "
+    "reports the lines needed; where it does not, it is marked not testable "
+    "instead of passing."
 )
 _METHOD_AS_FILED = (
-    "Every figure is pulled as-filed and checked before it is stored."
+    "Every figure is pulled as filed, and the check runs before it is stored."
 )
 _METHOD_FLAGGED = (
     # "never silently fudged" is the site's standing phrase for this: it is
@@ -308,7 +309,7 @@ def product_definition(with_name: bool = True) -> str:
 
     `with_name` prepends `schema.PRODUCT_CLAUSE`, so the paragraph names the
     product it is defining. /about needs that: the definition is the whole of
-    its lede and a paragraph opening "Every filing is reconciled" defines
+    its lede and a paragraph that opens on the method defines
     nothing. The home page passes False, because the lede immediately above
     opens on the very same clause and printing it twice is what made the two
     paragraphs read as one paragraph rendered twice on a phone.
@@ -975,10 +976,10 @@ def _key_form(slot: str, ticker: str) -> str:
 def _hero(free_calls: int, ticker: str) -> str:
     """The claim, the sign-up, and the way to the docs.
 
-    The subline says "that can be tested" because some companies publish no
-    total to test against (the strip below counts them out, and /methodology
-    names the case). "Every balance sheet is checked" would be the one sentence
-    on this page that its own figures contradict. "They prove they balance" is
+    The subline says "when it reports the lines needed" because some companies
+    publish no total to test against (the strip below counts them out, and
+    /methodology names the case). An unqualified claim that all of them are
+    checked would be the one sentence on this page that its own figures contradict. "They prove they balance" is
     the site's standing tagline, which used to be the H1; it opens the subline
     so the phrase the page is known by is still the first thing under the
     headline, and three tests pin it.
@@ -987,9 +988,9 @@ def _hero(free_calls: int, ticker: str) -> str:
   <header class="hero">
     <h1 class="htitle">SEC balance sheets as an <span class="h-ital">API</span>.</h1>
     <p class="hlede">An API and MCP server for analysts, quants and developers who
-      build on SEC filings. Every balance sheet is checked against Assets =
-      Liabilities + Equity, and when one doesn't add up, it's flagged with the
-      reason.</p>
+      build on SEC filings. Each balance sheet is checked against Assets =
+      Liabilities + Equity when it reports the lines needed, and when one
+      doesn't add up, it's flagged with the reason.</p>
     {_key_form("hero", ticker)}
     <p class="summary">{free_calls:,} calls a month. No card, no password.</p>
     <p class="fineprint">By getting a key you accept the
@@ -1569,9 +1570,9 @@ def _why_note() -> str:
     return f"""
   <section class="sec why" id="why">
     <div class="sec-head"><h2>Why we built this</h2></div>
-    <p class="why-p">We built BalanceProof to check every SEC balance sheet
+    <p class="why-p">We built BalanceProof to check SEC balance sheets
       against Assets = Liabilities + Equity, and to say so when one doesn't add
-      up.</p>
+      up or can't be tested.</p>
     <p class="why-p">When we ran that check across {fmt_int(_REPORT_TESTED)} filings
       in a frozen copy of our database, {fmt_int(_REPORT_FAILED)} failed. In
       {fmt_int(_REPORT_OURS)} of them the filer's own total agrees with its assets
@@ -1735,8 +1736,8 @@ def render_home(
         "SEC EDGAR Balance Sheet API, Checked — BalanceProof",
         body,
         description=(
-            "A free SEC EDGAR balance sheet API that checks every filing "
-            f"against A = L + E and shows the reason when one fails.{scale}"
+            "A free SEC EDGAR balance sheet API that checks filings "
+            f"against A = L + E where it can and shows the reason when one fails.{scale}"
         ),
         canonical="/",
         ld=organization_ld() + software_ld(),

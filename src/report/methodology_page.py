@@ -17,12 +17,12 @@ from src.report.home_page import shell
 
 _HEAD = """
   <header class="mhead">
-    <h1>How we verify every number</h1>
+    <h1>How we check the numbers</h1>
     <p class="lede">Every balance sheet must satisfy
       <strong>Assets = Liabilities + Equity</strong>. It is not a statistic, it
-      is double-entry bookkeeping. A filing that does not balance has an
-      error, either in the filing or in how we read it, and this page says
-      which, for every company we cover.</p>
+      is double-entry bookkeeping. Each filing is checked against Assets = Liabilities + Equity when it reports the lines needed; where it does not, it is marked not testable instead of passing. A filing that
+      does not balance has an error, either in the filing or in how we read
+      it, and this page says which, for the filings we can test.</p>
   </header>
 """
 
@@ -290,18 +290,21 @@ def render_methodology(*, nav: str = "") -> str:
         f'<script src="/static/nav.js?v={asset_version()}" defer></script>'
     )
     return shell(
-        "How We Verify Every Number — BalanceProof",
+        "How We Check the Numbers — BalanceProof",
         body,
         description=(
-            "Every SEC filing is verified against A = L + E. Filings that do "
-            "not balance are flagged with the reason, never silently fudged. "
-            "The counts are public."
+            "Each filing is checked against A = L + E when it reports the "
+            "lines needed; otherwise it is marked not testable. Filings that "
+            "do not balance are flagged with the reason, never silently "
+            "fudged. The counts are public."
         ),
         canonical="/methodology",
         ld=breadcrumb_ld([("Home", "/"), ("Methodology", "/methodology")])
         + webpage_ld(
-            "How we verify every number",
-            "Every balance sheet is checked against the accounting identity. "
+            "How we check the numbers",
+            "Each filing is checked against the accounting identity when it "
+            "reports the lines needed, and marked not testable instead of "
+            "passing when it does not. "
             "Filings that reconcile are published with their figures; filings "
             "that do not are published with the reason.",
             "/methodology",

@@ -69,7 +69,7 @@ def test_the_company_page_never_says_an_untestable_filing_was_checked(client, ti
 
     html = client.get(f"/company/{ticker}").text
 
-    assert "Verified against A = L + E" not in html
+    assert "Checked against A = L + E" not in html
     assert "Checked: A = L + E" not in html
     assert "The check, written out" not in html
     assert "Not testable: " in html
@@ -81,7 +81,7 @@ def test_the_company_page_still_says_it_for_a_filing_that_was(client):
 
     html = client.get("/company/FULLY").text
 
-    assert "Verified against A = L + E" in html or "Checked: A = L + E" in html
+    assert "Checked against A = L + E" in html or "Checked: A = L + E" in html
     assert "The check, written out" in html
     assert "Not testable" not in html
 
@@ -97,7 +97,7 @@ def test_the_snippet_description_drops_the_claim_when_all_three_figures_are_deri
     untested = _company_meta(_view("AEONLY").as_dict())
     tested = _company_meta(_view("FULLY").as_dict())
 
-    assert "Checked: A = L + E" not in untested and "Verified" not in untested
+    assert "Checked: A = L + E" not in untested and "Checked against" not in untested
     assert "Checked: A = L + E" in tested
 
 

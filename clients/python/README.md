@@ -1,9 +1,10 @@
 # balanceproof
 
 Python client for [BalanceProof](https://balanceproof.dev): US public-company
-fundamentals from SEC EDGAR, where every balance sheet, income statement and
-cash flow is checked against its own totals, and a filing that does not add up
-is flagged with the reason instead of passed through.
+fundamentals from SEC EDGAR, where each balance sheet, income statement and
+cash flow is checked against its own totals when the filing reports the lines
+needed (otherwise it is marked not testable instead of passing), and a filing
+that does not add up is flagged with the reason instead of passed through.
 
 ```bash
 pip install "balanceproof[pandas]"

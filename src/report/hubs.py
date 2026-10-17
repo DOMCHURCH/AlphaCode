@@ -121,7 +121,7 @@ def render_companies(*, nav: str = "", sectors: list[dict[str, Any]] | None = No
       <h1 class="htitle">SEC-reporting companies, A to Z</h1>
       <p class="hlede">{count} companies, each with its latest balance sheet from
         SEC EDGAR drawn to scale and checked against Assets = Liabilities +
-        Equity. Pick a letter or a sector.</p>
+        Equity where the filing allows. Pick a letter or a sector.</p>
       <p class="sec-sub letterbar">{letters}</p>
     </header>
     {sector_block}
@@ -134,7 +134,7 @@ def render_companies(*, nav: str = "", sectors: list[dict[str, Any]] | None = No
         body,
         description=(
             f"{count} companies A to Z, each with its latest SEC balance sheet "
-            "drawn to scale and checked against A = L + E. Browse by letter or sector."
+            "drawn to scale and checked against A = L + E where testable. Browse by letter or sector."
         ),
         canonical="/companies",
         ld=breadcrumb_ld([("Home", "/"), ("Companies", "/companies")]),

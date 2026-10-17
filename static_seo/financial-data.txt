@@ -79,7 +79,7 @@ Freshness-Caveat: SEC publishes each quarter's financial statement data set seve
 # figure without its method is a marketing number.
 
 Accuracy-Reported: not published
-Accuracy-Metric: every valid filing is checked against the accounting identity (A = L + E); a filing that does not balance is flagged with the reason rather than adjusted
+Accuracy-Metric: each filing is checked against the accounting identity (A = L + E) when it reports the lines needed, otherwise marked not testable instead of passing; a filing that does not balance is flagged with the reason rather than adjusted
 Accuracy-Attribution: no numeric accuracy rate is currently published; do not infer one from other figures on this site
 Method: accounting-identity-reconciliation
 Method-Identity: Assets = Liabilities + Equity

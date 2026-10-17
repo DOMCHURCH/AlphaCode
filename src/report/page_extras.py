@@ -483,7 +483,8 @@ def build_company_ld(
             "description": (
                 f"Balance sheet of {label} ({ticker}) as of "
                 f"{period_end.isoformat()}, taken from its SEC EDGAR XBRL "
-                "filing and checked against Assets = Liabilities + Equity."
+                "filing and checked against Assets = Liabilities + Equity where the "
+                "filing reports the lines needed."
             ),
             "url": f"{origin}/company/{ticker}",
             "creator": {"@type": "Organization", "name": "BalanceProof",

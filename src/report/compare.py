@@ -109,8 +109,9 @@ number anyway, with nothing attached to say how confident it is &mdash; and a
 figure that is quietly a segment instead of a company looks exactly like one
 that is right.</p>
 
-<p>BalanceProof checks every balance sheet against
-<strong>Assets = Liabilities + Equity</strong> before publishing it. A filing
+<p>BalanceProof checks each balance sheet against
+<strong>Assets = Liabilities + Equity</strong> when it reports the lines needed,
+and marks it not testable instead of passing it when it does not. A filing
 that reconciles is published with its figures. A filing that does not is
 published <em>with the reason</em>: a noncontrolling interest reported as a
 separate line, mezzanine equity outside permanent equity, rounding inside one
@@ -283,7 +284,7 @@ PAGES: tuple[Page, ...] = (
             Row("Scope", "SEC balance sheets, reconciled", "Broad: fundamentals, prices, options, news, ESG", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
-            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published"),
+            Row("Accuracy method", "Checked against A = L + E when the filing reports the lines needed, otherwise marked not testable; exceptions flagged", "Not published"),
             Row("Coverage", "{COVERAGE}", "Wider — many asset classes and vendors", False),
             Row("Latency", LATENCY + "; EDGAR swept every 6h", "Varies by feed and plan — check their site"),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Quote-based, tiered by feed — check their site"),
@@ -294,8 +295,8 @@ PAGES: tuple[Page, ...] = (
             "<b>You only need balance sheets, and you need them right.</b> "
             "Paying for prices, options and news you will not call is a tax on "
             "the one endpoint you wanted.",
-            "<b>You need to defend the number.</b> Every figure here reconciles "
-            "against A = L + E and every response is as-reported, so you can "
+            "<b>You need to defend the number.</b> Each filing here is checked "
+            "against A = L + E when it reports the lines needed, and every response is as-reported, so you can "
             "tie a row back to the filing in front of a risk committee.",
             "<b>You want to start today.</b> Free tier, no card, no call.",
             "<b>You want the whole thing as a file.</b> $79.99 once, no "
@@ -335,7 +336,7 @@ PAGES: tuple[Page, ...] = (
             Row("Selection method", "A = L + E, published and testable", "Returns the tags as filed"),
             Row("Duplicate-tag handling", "Resolved to the consolidated figure", "Yours to resolve"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
-            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not applicable — it is not selecting for you"),
+            Row("Accuracy method", "Checked against A = L + E when the filing reports the lines needed, otherwise marked not testable; exceptions flagged", "Not applicable — it is not selecting for you"),
             Row("Coverage", "{COVERAGE}", "Every EDGAR filing, all form types", False),
             Row("Latency", LATENCY, "Real-time filing stream — faster to the document", False),
             Row("Price", "Free tier · $49/mo · $490/yr · $79.99 one-off", "Tiered by call volume — check their site"),
@@ -384,7 +385,7 @@ PAGES: tuple[Page, ...] = (
             Row("Asset classes", "SEC fundamentals only: balance sheet, income, cash flow", "Equities, FX, rates, ETFs, indices and more", False),
             Row("Selection method", "A = L + E, published and testable", "Not publicly documented"),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
-            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
+            Row("Accuracy method", "Checked against A = L + E when the filing reports the lines needed, otherwise marked not testable; exceptions flagged", "Not published as a figure"),
             Row("Coverage", "{COVERAGE}", "Global, many asset classes", False),
             Row("Latency", LATENCY, "Real-time market data — a different problem", False),
             Row("SLA", "None. A small, independent company.", "Contractual, with support", False),
@@ -514,11 +515,10 @@ handed a silently adjusted number.</p>
 
 <h2>What BalanceProof is, plainly</h2>
 
-<p>One reconciled dataset: {COVERAGE_PROSE}, every one checked
-against A = L + E before it is stored.
-Every valid filing reconciles against that test, and the exceptions are
-flagged rather than hidden. The income statement and cash flow come checked
-the same way, point-in-time with <code>as_of</code>, and every restatement and
+<p>One checked dataset: {COVERAGE_PROSE}, each filing checked
+against A = L + E when it reports the lines needed and marked not testable
+instead of passing where it does not. Exceptions are flagged rather than
+hidden. The income statement and cash flow are checked the same way, point-in-time with <code>as_of</code>, and every restatement and
 failed check across all companies is one feed. Free tier with no card, plans
 from $19 a month (CAD), or $79.99 once for the whole thing as a CSV. From
 Python: <code>pip install balanceproof</code>.</p>
@@ -554,7 +554,7 @@ you already know.</p>
             Row("Entry price", "Free, then $49/mo", "Check their site"),
             Row("Bulk file", "$79.99 one-off", "Higher plans", False),
             Row("Tells you when it is unsure", "Yes — every exception is flagged with its reason, and the counts are public at /methodology", "No — a figure is returned either way"),
-            Row("Accuracy method", "Every valid filing checked against A = L + E; exceptions flagged", "Not published as a figure"),
+            Row("Accuracy method", "Checked against A = L + E when the filing reports the lines needed, otherwise marked not testable; exceptions flagged", "Not published as a figure"),
             Row("Latency", LATENCY, "Varies by feed — check their site"),
             Row("Coverage", "{FILERS}", "Wider, including non-SEC", False),
         ),
@@ -647,8 +647,8 @@ vendor. That comparison is the only one with an authority behind it.</p>
             "is {FREE_CALLS} calls a month with no card, which is enough to run "
             "against what you already serve and see whether anything "
             "disagrees. That is the actual use case here, not replacement.",
-            "<b>You need to defend a number.</b> Every figure reconciles "
-            "against A = L + E or is flagged with the reason it does not, so "
+            "<b>You need to defend a number.</b> Each filing is checked "
+            "against A = L + E when it reports the lines needed, and is flagged with the reason it does not reconcile or marked not testable, so "
             "a row ties back to the filing in front of somebody who asks.",
             "<b>Redeemable equity matters to you.</b> Some filings only close "
             "once mezzanine equity is counted as its own block \u2014 "
@@ -1030,7 +1030,7 @@ the category where the fault is ours rather than the filer&rsquo;s.</p>
         ),
         rows=(
             Row("Scope", "SEC balance sheets, reconciled", "Prices, news, crypto, forex, fundamentals", False),
-            Row("What the quality process targets", "Whether the statement reconciles: A = L + E on each filing", "Error-checking, anomaly monitoring, redundant feeds \u2014 their words"),
+            Row("What the quality process targets", "Whether the statement reconciles: A = L + E on each filing that reports the lines needed", "Error-checking, anomaly monitoring, redundant feeds \u2014 their words"),
             Row("Published as a testable rule", "Yes \u2014 the identity is arithmetic you can rerun", "Described, not specified \u2014 check their site"),
             Row("Per-figure exception reason", "Yes, named on the company's own page", "Check their site"),
             Row("Stated coverage", "{COVERAGE}", "80,000+ assets, 20+ years of fundamentals \u2014 their figures", False),
@@ -1127,12 +1127,12 @@ being read on the wrong terms, the identity is.</p>
     ),
     Page(
         slug="compare/balanceproof-vs-financial-datasets-ai",
-        h1="BalanceProof vs Financial Datasets AI: Sampling vs Every Filing",
+        h1="BalanceProof vs Financial Datasets AI: Sampling vs a Test on Each Filing",
         seo_title="BalanceProof vs Financial Datasets AI (2026)",
         description=(
             "Both publish a verification method. One audits a sample against "
-            "EDGAR; the other tests every filing against A = L + E. What that "
-            "buys you."
+            "EDGAR; the other tests each testable filing against A = L + E. "
+            "What that buys you."
         ),
         rival="Financial Datasets AI",
         updated="2026-09-19",
@@ -1145,8 +1145,8 @@ being read on the wrong terms, the identity is.</p>
         ),
         rows=(
             Row("Positioning", "A verification layer over SEC balance sheets", "\u201cThe first platform designed for AI agents\u201d \u2014 their words"),
-            Row("Verification method", "Every filing tested against A = L + E", "Sampling: 1,000 companies, 20,000 data points per audit cycle, checked against EDGAR \u2014 their figures"),
-            Row("What the check covers", "Every balance sheet served, every load", "A sample, per cycle"),
+            Row("Verification method", "Each filing tested against A = L + E when it reports the lines needed", "Sampling: 1,000 companies, 20,000 data points per audit cycle, checked against EDGAR \u2014 their figures"),
+            Row("What the check covers", "Each balance sheet served that reports the lines needed, every load; the rest are marked not testable", "A sample, per cycle"),
             Row("Result published per company", "Yes \u2014 pass, or the exception and its reason", "Check their site"),
             Row("Stated scope", "{COVERAGE}", "27,530 stocks, 75 sectors, 30+ years \u2014 their figures", False),
             Row("Statements covered", "Balance sheets only", "Balance sheets, cash flow, earnings, insider trades, segments", False),
@@ -1157,8 +1157,9 @@ being read on the wrong terms, the identity is.</p>
             "company.</b> Auditing 1,000 companies establishes that the data is "
             "good in general. It cannot tell you whether the filing you are "
             "about to publish a number from reconciles, because your company "
-            "may not be in the sample. Every filing here is tested, and the "
-            "answer travels with the response.",
+            "may not be in the sample. Each filing here is tested when it reports the "
+            "lines needed, and the answer travels with the response; one that "
+            "cannot be tested says so.",
             "<b>The identity needs no sampling because it is free.</b> Checking "
             "A = L + E costs one subtraction per filing, so there is no reason "
             "to do it on a subset \u2014 the economics that make sampling "

@@ -486,7 +486,7 @@ def coverage_line() -> str:
     return (
         f'<p class="sec-sub">Coverage: {companies:,} US-listed '
         f"{plural(companies, 'company', 'companies')}, {facts} as-reported "
-        "facts, every balance sheet reconciled against A = L + E.</p>"
+        "facts, each balance sheet checked against A = L + E where the filing allows.</p>"
     )
 
 
@@ -854,7 +854,7 @@ def render_pricing(
         description=(
             f"{free_calls:,} free API calls a month, no card. Paid plans for "
             "more calls, history and alerts, or the full dataset once. "
-            "Prices in CAD, every figure checked."
+            "Prices in CAD, figures as filed."
         ),
         canonical="/pricing",
         ld=pricing_ld(all_tiers=True)

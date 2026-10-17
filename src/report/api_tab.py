@@ -73,7 +73,7 @@ def render_api_tab() -> str:
         in place of <code>curl</code>, on one line.</p>
       <p class="sec-sub">Then:
         <a href="/api">read the API reference</a>, or
-        <a href="/methodology">see how the numbers are verified</a>.</p>
+        <a href="/methodology">see how the numbers are checked</a>.</p>
     </div>
     <p class="sec-sub" id="next-nokey" hidden>Generate a key to get started.</p>
 

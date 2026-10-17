@@ -554,9 +554,9 @@ def test_the_home_page_carries_a_quotable_definition(client):
     # where it is that section's thesis rather than a second lede. What must
     # not change is that it is still on the page exactly once: it is the
     # sentence an assistant lifts when asked what this product does.
-    assert "Every filing is reconciled against the accounting identity" in body
+    assert "Each filing is checked against Assets = Liabilities + Equity" in body
     assert body.count(
-        "Every filing is reconciled against the accounting identity"
+        "Each filing is checked against Assets = Liabilities + Equity"
     ) == 1, "the method sentence must appear once, not once per section"
     assert body.index('class="hlede"') < body.index('id="how"'), (
         "the lede comes before the explanation"
@@ -565,7 +565,7 @@ def test_the_home_page_carries_a_quotable_definition(client):
     # sentence, wherever that sentence lives. It now opens "How it works"
     # rather than the hero, so that is where this looks for it.
     method = body.split('id="how"', 1)[1].split("</p>", 1)[0]
-    assert "Every filing is reconciled against the accounting identity" in method
+    assert "Each filing is checked against Assets = Liabilities + Equity" in method
     assert "companies covered" not in method
     assert "reconcile directly" not in method
 

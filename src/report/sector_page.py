@@ -291,7 +291,7 @@ def render_sector(data: dict[str, Any], *, nav: str = "", others: list[dict[str,
         if unclassified else
         f"Every {sector.lower()} company covered here, ranked by total assets. "
         "Each one is drawn to scale and checked against the accounting "
-        "identity, and the link goes to the filing behind it."
+        "identity where the filing reports the lines needed, and the link goes to the filing behind it."
     )
 
     nav_others = ""

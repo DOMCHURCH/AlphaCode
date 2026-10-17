@@ -88,8 +88,8 @@ def render_api(
   <header class="hero">
     <h1 class="htitle">SEC Filings API Reference</h1>
     <p class="hlede">Every balance sheet on this site, as JSON. One header, one
-      key, no SDK. Every figure is reconciled against A = L + E before it is
-      stored. <a href="/blog/sec-xbrl-data-wrong-one-in-five">Here is why that
+      key, no SDK. Each filing is checked against A = L + E when it reports the
+      lines needed, and marked not testable instead of passing when it does not. <a href="/blog/sec-xbrl-data-wrong-one-in-five">Here is why that
       matters</a>. Filed figures only: nothing here is derived, scored or
       predicted.</p>
   </header>
@@ -319,7 +319,7 @@ curl -sS -o /dev/null -w "%{{http_code}}\\n" \\
         body,
         description=(
             "SEC XBRL balance sheets over REST. One X-API-Key header, JSON "
-            f"back, no SDK. Checked against A = L + E. {_scale_clause()}"
+            f"back, no SDK. Checked against A = L + E where the filing allows. {_scale_clause()}"
         ),
         canonical="/api",
         ld=software_ld() + breadcrumb_ld([("Home", "/"), ("API", "/api")]),

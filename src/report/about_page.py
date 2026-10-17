@@ -28,13 +28,12 @@ _BODY = """
       somewhere.</p>
 
     <h2>The method</h2>
-    <p>Every balance sheet is tested against the accounting identity before it
-      is stored. A filing that reconciles is published with its figures. A
+    <p>Each filing is checked against Assets = Liabilities + Equity when it reports the lines needed; where it does not, it is marked not testable instead of passing. A filing that reconciles is published with its figures. A
       filing that does not is published with the reason: noncontrolling
       interests, mezzanine equity, rounding, or a genuinely broken filing. It
       is never quietly adjusted until it balances. The counts are public and
-      the categories are named: <a href="/methodology">how we verify every
-      number</a>. How many filings fail and why is in
+      the categories are named: <a href="/methodology">how we check the
+      numbers</a>. How many filings fail and why is in
       <a href="/blog/which-sec-balance-sheets-fail-the-identity-check">the report on 38,568 balance sheets</a>.</p>
 
     <h2>What it does not do</h2>

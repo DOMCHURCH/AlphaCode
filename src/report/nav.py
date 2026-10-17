@@ -205,7 +205,7 @@ def render_signin_prompt(
         on this site into data you can use.</p>
       <ul class="sp-perks">
         <li><b>{calls} API calls a month</b>, free, for all 6,000+ companies</li>
-        <li><b>Every figure as JSON</b>, already checked against A&nbsp;=&nbsp;L&nbsp;+&nbsp;E</li>
+        <li><b>Every figure as JSON</b>, checked against A&nbsp;=&nbsp;L&nbsp;+&nbsp;E where the filing allows</li>
         <li><b>Works with Claude</b> and other AI tools through MCP</li>
       </ul>
       <form class="search sp-form" id="sp-form" novalidate>

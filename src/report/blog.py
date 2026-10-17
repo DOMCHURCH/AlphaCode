@@ -209,8 +209,8 @@ free one we tried disagreed with the filing somewhere, and the paid ones wanted
 enterprise money to tell us what the SEC publishes for free.</p>
 
 <p>So <a href="/">BalanceProof</a> is the reconciler, running over every filing,
-with the result behind an API. Every figure is checked against A = L + E before
-it is stored. Across <strong>{COMPANIES} companies and {FACTS} data points</strong>
+with the result behind an API. Each filing is checked against A = L + E when it
+reports the lines needed, before it is stored. Across <strong>{COMPANIES} companies and {FACTS} data points</strong>
 that reconciles to the accounting identity — against the silent failure you get from taking the
 first tag.</p>
 
@@ -512,7 +512,7 @@ tag out of twenty-three candidates, and the identity catches that every
 time.</p>
 
 <p>Across {COMPANIES} companies the reconciliation closes on about
-<strong>every valid filing</strong>. The exceptions are flagged with the reason rather
+<strong>every filing that can be tested</strong>. The exceptions are flagged with the reason rather
 than quietly adjusted — <a href="/methodology">the methodology page</a> lists
 which reasons, and <a href="/company/WMT">WMT</a> and
 <a href="/company/FCX">FCX</a> are ordinary worked examples if you want to see
@@ -748,8 +748,8 @@ which for us was about three bans and a month of wrong numbers.</p>
 
 <p>Do not build it if you want balance sheets. We did, and the result is
 <a href="/">BalanceProof</a>: the reconciler above running over every filing, with
-the result behind an API. Every figure is checked against A = L + E before it
-is stored, and the filings that genuinely do not balance are flagged as such
+the result behind an API. Each filing is checked against A = L + E when it
+reports the lines needed, before it is stored, and the filings that genuinely do not balance are flagged as such
 rather than quietly adjusted. Across {COMPANIES} companies and {FACTS} data
 points, that check is the whole product.</p>
 
@@ -1375,7 +1375,7 @@ hundred filings instead of one. A bucket that fills up is a specification.</p>
 
 <h2>How this runs on BalanceProof</h2>
 
-<p>Every filing is reconciled before it is stored. The plain identity first;
+<p>Each filing is checked when it reports the lines needed, before it is stored; one that cannot be tested is marked not testable. The plain identity first;
 where that does not close, the noncontrolling interest and the mezzanine block
 are tried singly and together, and whichever basis closes with the smallest
 remaining gap is the one recorded. The company page names that basis in words,

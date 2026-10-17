@@ -112,7 +112,7 @@ preferring the filer's own stated `LiabilitiesAndStockholdersEquity` over a
 reconstructed `liabilities + equity` wherever it exists. The stated total is the
 filer's arithmetic; reconstructing it substitutes ours.
 
-**Every valid filing now reconciles to the identity, and the ones that do not are flagged with the reason.**
+**Each filing is checked against the identity when it reports the lines needed. The ones that do not reconcile are flagged with the reason, and the ones that cannot be tested are marked not testable.**
 
 ### 3. Industry-specific tags
 

@@ -214,8 +214,9 @@ def test_mcp_and_rest_use_the_sites_classifier(client):
 # ---------------------------------------------------------------------------
 
 SENTENCE = (
-    "Each period is checked when the filing reports the lines the check needs; "
-    "where it does not, the check returns not_testable instead of passing."
+    "Each filing is checked against Assets = Liabilities + Equity when it "
+    "reports the lines needed; where it does not, it is marked not testable "
+    "instead of passing."
 )
 
 

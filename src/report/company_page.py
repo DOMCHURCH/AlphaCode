@@ -448,9 +448,9 @@ def _company_meta(d: dict[str, Any]) -> str:
     # The name is built LAST, against whatever the rest of the sentence left,
     # so the bound holds however wide the figure prints.
     # Said only of a filing that could be checked: a not-testable one has
-    # nothing to be verified against.
+    # nothing to be checked against.
     testable = d.get("identity_status") != "not_testable"
-    checked = " Verified against A = L + E." if testable else ""
+    checked = " Checked against A = L + E." if testable else ""
     rest = (
         f" ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
         f"scale.{size} As filed.{checked}"
