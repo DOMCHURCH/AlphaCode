@@ -114,17 +114,19 @@ def _band(block: dict[str, Any], px_per_pct: float) -> str:
         # must not be what gets ellipsised. The legend carries the full name.
         label = f'<span class="bl one">Equity <b>{money(block["value"])}</b></span>'
     elif block["label_style"] == "full":
+        name = block.get("short_label") or block["label"]
         # The name gets its own line and is ellipsised there. Left to wrap, a
         # two-word name turns a two-line label into a three-line one and the
         # band clips it -- so the label the reader sees depends on how long the
         # word happens to be, which is not a thing the drawing should encode.
         label = (
-            f'<span class="bl"><span class="bn">{escape(block["label"])}</span>'
+            f'<span class="bl"><span class="bn">{escape(name)}</span>'
             f'<span class="bv">{money(block["value"])}</span></span>'
         )
     elif block["label_style"] == "compact":
+        name = block.get("short_label") or block["label"]
         label = (
-            f'<span class="bl one">{escape(block["label"])} '
+            f'<span class="bl one">{escape(name)} '
             f'<b>{money(block["value"])}</b></span>'
         )
     else:

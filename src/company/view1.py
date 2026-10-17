@@ -99,6 +99,9 @@ class Block:
     tone: int = 0        # 0..5, position within its colour family
     is_remainder: bool = False
     note: str | None = None
+    # What the drawing's band says when the full label will not fit (a phone-width column ellipsises
+    # "Equity incl. noncontrolling interest" to "Equity inclq..."). The legend and the prose keep `label`.
+    short_label: str = ""
 
     @property
     def label_style(self) -> str:
@@ -189,7 +192,7 @@ class View1:
                     "key": b.key, "label": b.label, "value": b.value,
                     "pct": round(b.pct, 3), "kind": b.kind, "tone": b.tone,
                     "is_remainder": b.is_remainder, "note": b.note,
-                    "label_style": b.label_style,
+                    "label_style": b.label_style, "short_label": b.short_label,
                 }
                 for b in bs
             ]
@@ -428,7 +431,8 @@ def build_view1(
         view.missing_components += missing_liab
 
         view.claims.append(
-            Block(key="equity", label=EQUITY_LABELS[view.equity_basis], value=total_equity,
+            Block(key="equity", label=EQUITY_LABELS[view.equity_basis],
+                  short_label=EQUITY_BAND_LABELS[view.equity_basis], value=total_equity,
                   pct=pct(abs(total_equity)), kind="equity")
         )
         if total_equity < 0:
@@ -475,6 +479,8 @@ def build_view1(
 EQUITY_INCL_NCI_LABEL = "Equity incl. noncontrolling interest"
 EQUITY_PARENT_LABEL = "Shareholders' equity"
 EQUITY_LABELS = {"incl_nci": EQUITY_INCL_NCI_LABEL, "parent": EQUITY_PARENT_LABEL}
+# The same two, short enough for a band on a phone. The parent-only label already fits.
+EQUITY_BAND_LABELS = {"incl_nci": "Equity incl. NCI", "parent": ""}
 
 IDENTITY_TOLERANCE = 0.005
 

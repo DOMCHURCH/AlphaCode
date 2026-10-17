@@ -564,6 +564,7 @@ def _model_payload(view: Any) -> dict[str, Any]:
         for block in payload.get(side, []):
             block.pop("tone", None)
             block.pop("label_style", None)
+            block.pop("short_label", None)
     # The equity block already carries its own label (view1 names it for what the figure is).
     payload["total_equity_label"] = next(
         (b.label for b in view.claims if b.key == "equity"), _EQUITY_PARENT

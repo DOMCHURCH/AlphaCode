@@ -775,3 +775,23 @@ def test_the_ask_context_uses_the_honest_equity_label(client):
     context = build_context(build_view1("NCIX"))
     assert "Equity incl. noncontrolling interest: $320 = 32.0%" in context
     assert "Shareholders' equity" not in context
+
+
+def test_the_drawing_band_uses_a_short_equity_label_and_the_legend_keeps_the_full_one(client):
+    _seed_label_company("NCIX", _NCI_ROWS)
+    _seed_label_company("PARX", _PARENT_ROWS)
+    nci_html = client.get("/company/NCIX").text
+    assert '<span class="bn">Equity incl. NCI</span>' in nci_html            # band: short
+    assert "Equity incl. noncontrolling interest" in nci_html                  # legend and prose: full
+    parent_html = client.get("/company/PARX").text
+    assert "Equity incl. NCI" not in parent_html                               # parent-only keeps its own label in the band
+
+
+def test_the_short_band_label_never_reaches_the_mcp_payload(client):
+    _seed_label_company("NCIX", _NCI_ROWS)
+    from src.mcp_server import _model_payload
+    from src.company.view1 import build_view1
+
+    payload = _model_payload(build_view1("NCIX"))
+    assert all("short_label" not in b for b in payload["assets"] + payload["claims"])
+    assert next(b for b in payload["claims"] if b["key"] == "equity")["label"] == "Equity incl. noncontrolling interest"
