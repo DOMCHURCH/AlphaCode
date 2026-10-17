@@ -29,8 +29,16 @@ def client(tmp_path, monkeypatch):
     from src.config.settings import get_settings
     from src.storage.db import init_db, reset_engine_cache
 
+    from src.dataset import reset_count_cache
+
     get_settings.cache_clear()
     reset_engine_cache()
+    # The row count is memoised for the life of the process. Without this, a test
+    # that ran earlier (on an empty database) leaves a cached 0 behind and
+    # `facts_label()` here reads "" -- the "order-dependent" failure this test
+    # showed in a full run and never alone. Every other module that touches the
+    # count resets it the same way.
+    reset_count_cache()
     init_db()
 
     from src.api import app
@@ -40,6 +48,7 @@ def client(tmp_path, monkeypatch):
 
     get_settings.cache_clear()
     reset_engine_cache()
+    reset_count_cache()
 
 
 def seed(n: int, *, start: int = 0) -> None:
