@@ -1892,16 +1892,22 @@ def _refresh_page_extras(force: bool = False) -> int:
     # it describes data that no longer exists.
     reset_sector_cache()
     try:
-        from sqlalchemy import func, select
+        from sqlalchemy import select
 
+        from src.company.periods import newest_periods
         from src.storage.db import session_scope
         from src.storage.models import CompanyPageExtras, Fundamental
 
         with session_scope() as session:
-            newest = session.execute(
-                select(Fundamental.ticker, func.max(Fundamental.period_end))
-                .group_by(Fundamental.ticker)
-            ).all()
+            # The CANONICAL newest period, not `max(period_end)`: the page stores
+            # `view.period_end`, which is the real date (src/company/periods.py),
+            # and the raw max is the month-end-rounded copy wherever SEC rounded
+            # forward -- compared raw, every such page would look stale on every
+            # reload until the rounded rows are deleted.
+            newest = sorted(newest_periods(session.execute(
+                select(Fundamental.ticker, Fundamental.period_end, Fundamental.filing_date)
+                .distinct()
+            ).all()).items())
             built = dict(session.execute(
                 select(
                     CompanyPageExtras.ticker, CompanyPageExtras.source_period_end
