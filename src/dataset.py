@@ -26,7 +26,13 @@ file now applies the same rule before it resolves restatements, per ticker:
   Both copies carry a `period_note` ("value differs from the <date> row"), the
   file's last column and blank everywhere else;
 * a rounded row with NO twin for that metric is re-dated to the real period end
-  rather than dropped, so no figure is lost.
+  rather than dropped, so no figure is lost;
+* the exception is a FLOW metric (income statement, cash flow) where one copy
+  is the fiscal year (`fiscal_period` FY) and the other a quarter: a year and
+  its fourth quarter end on the same day, so they look like twins and are not.
+  Never paired; both are written under their own dates, and the fiscal-year row's
+  `period_note` says "fiscal-year value; the fourth-quarter value is the <date>
+  row".
 
 A month end that has no real-dated twin in its own filing (a filing loaded only
 from the bulk datasets) is untouched: it still carries SEC's date. The API also
@@ -64,6 +70,7 @@ import structlog
 from sqlalchemy import select
 
 from src.company.periods import filing_twins
+from src.ingest import xbrl
 from src.storage.db import session_scope
 from src.storage.models import Fundamental
 
@@ -128,6 +135,10 @@ def _fmt(v: object) -> object:
 
 _TICKER, _METRIC, _VALUE, _PERIOD, _FISCAL, _FILED, _SOURCE = range(7)  # SELECT order
 _COUNT_CHUNK = 150  # tickers per query in `file_row_count`
+
+# Income-statement and cash-flow metrics: figures over a DURATION (a quarter, a
+# year), as opposed to balance-sheet instants. The same list the ingest uses.
+_FLOW_METRICS = frozenset(c.metric for c in xbrl.CONCEPTS if c.kind == xbrl.DURATION)
 _MISSING = object()
 
 
@@ -141,7 +152,11 @@ class Collapse:
     rounded rows kept under their rounded date because the twin's value differs.
     Both figures are written, one under each date, and both rows carry a
     `period_note` naming the other date, so a pair is recognisable from either
-    side.
+    side. `fy_vs_quarter`: pairs of a FLOW metric (income statement, cash flow)
+    where one row is the fiscal year and the other a quarter, which are two
+    different durations ending on the same day and not two copies of one figure:
+    never paired, both written under their own dates, the fiscal-year row noting
+    where the fourth quarter is.
 
     These are counts of RAW rows touched, before the latest-filing rule picks a
     winner, so they are not the same as how much shorter the file got.
@@ -150,11 +165,13 @@ class Collapse:
     removed: int = 0
     redated: int = 0
     conflicts: int = 0
+    fy_vs_quarter: int = 0
 
     def add(self, other: Collapse) -> None:
         self.removed += other.removed
         self.redated += other.redated
         self.conflicts += other.conflicts
+        self.fy_vs_quarter += other.fy_vs_quarter
 
 
 def _twin_map(
@@ -219,6 +236,7 @@ def _collapse_ticker(
         kept = list(rows)  # a calendar-aligned filer: nothing to collapse
     else:
         value_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_VALUE] for r in rows}
+        fp_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_FISCAL] for r in rows}
         kept = []
         for r in rows:
             real = twin.get((r[_FILED], r[_PERIOD]))
@@ -229,6 +247,24 @@ def _collapse_ticker(
             if other is _MISSING:
                 kept.append(r[:_PERIOD] + (real,) + r[_PERIOD + 1:])
                 stats.redated += 1
+                continue
+            k_here = (r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE])
+            k_there = (r[_METRIC], real, r[_FILED], r[_SOURCE])
+            fy_here, fy_there = r[_FISCAL] == "FY", fp_at[k_there] == "FY"
+            if r[_METRIC] in _FLOW_METRICS and fy_here != fy_there:
+                # A fiscal year and a quarter end on the same day. They are two
+                # durations, not two copies of one figure, so they are never paired
+                # (whatever their values): both are written under their own dates
+                # and the fiscal-year row says where the fourth quarter is.
+                kept.append(r)
+                stats.fy_vs_quarter += 1
+                fy_key, q_key, q_date = (
+                    (k_here, k_there, real) if fy_here else (k_there, k_here, r[_PERIOD])
+                )
+                notes[fy_key] = (
+                    f"fiscal-year value; the fourth-quarter value is the {q_date.isoformat()} row",
+                    q_key,
+                )
             elif other == r[_VALUE]:
                 stats.removed += 1
             else:

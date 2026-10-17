@@ -67,14 +67,14 @@ def db(tmp_path, monkeypatch):
     reset_engine_cache()
 
 
-def add(ticker, metric, value, period, filed, *, source="sec"):
+def add(ticker, metric, value, period, filed, *, source="sec", fp="Q2"):
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
 
     with session_scope() as s:
         s.add(Fundamental(
             ticker=ticker, metric=metric, value=value, period_end=period,
-            fiscal_period="Q2", filing_date=filed, source=source,
+            fiscal_period=fp, filing_date=filed, source=source,
         ))
 
 
@@ -100,9 +100,9 @@ def stream(collapse=None):
     return list(csv.DictReader(io.StringIO(text)))
 
 
-def tup(metric, value, period, filed, *, source="sec", ticker="T"):
+def tup(metric, value, period, filed, *, source="sec", ticker="T", fp="Q2"):
     """A row in the SELECT order `_collapse_ticker` takes."""
-    return (ticker, metric, value, period, "Q2", filed, source, False, None)
+    return (ticker, metric, value, period, fp, filed, source, False, None)
 
 
 REAL, ROUNDED, FILED = D(2026, 3, 28), D(2026, 3, 31), D(2026, 5, 1)
@@ -482,3 +482,106 @@ def test_the_compare_pages_make_no_claim_that_figures_are_not_restated():
     rows = [r for page in compare.PAGES for r in page.rows]
     labels = [r.label if hasattr(r, "label") else r[0] for r in rows]
     assert not any("not restated" in str(x).lower() for x in labels)
+
+
+# ---------------------------------------------------------------------------
+# A fiscal year and its fourth quarter are not twins (UFI, 10-K filed 2026-08-26)
+# ---------------------------------------------------------------------------
+
+UFI_FILED = D(2026, 8, 26)
+UFI_ROUNDED, UFI_REAL = D(2026, 6, 30), D(2026, 6, 28)
+# (metric, fiscal-year value on the rounded date, quarter value on the real date)
+UFI = (("revenue", 531_303_000.0, 144_224_000.0),
+       ("gross_profit", 30_456_000.0, 14_341_000.0),
+       ("net_income", -24_562_000.0, -1_193_000.0))
+
+
+def _ufi_rows(*, fy_on_rounded=True):
+    rows = []
+    for metric, year, quarter in UFI:
+        fy_date, q_date = (UFI_ROUNDED, UFI_REAL) if fy_on_rounded else (UFI_REAL, UFI_ROUNDED)
+        rows.append(tup(metric, year, fy_date, UFI_FILED, fp="FY", ticker="UFI"))
+        rows.append(tup(metric, quarter, q_date, UFI_FILED, fp=None, ticker="UFI"))
+    return rows
+
+
+def test_a_fiscal_year_and_its_fourth_quarter_are_written_under_their_own_dates():
+    from src.dataset import Collapse, _collapse_ticker
+
+    out, stats = _collapse_ticker(_ufi_rows())
+    assert len(out) == 6, "one of the two durations was dropped"
+    by = {(r[1], r[3]): r for r in out}
+    for metric, year, quarter in UFI:
+        assert by[(metric, UFI_ROUNDED)][2] == year and by[(metric, UFI_REAL)][2] == quarter
+        assert by[(metric, UFI_ROUNDED)][-1] == (
+            "fiscal-year value; the fourth-quarter value is the 2026-06-28 row")
+        assert by[(metric, UFI_REAL)][-1] == "", "the quarter row carries no note"
+    assert stats == Collapse(removed=0, redated=0, conflicts=0, fy_vs_quarter=3)
+
+
+def test_the_pairing_rule_does_not_depend_on_which_date_the_fiscal_year_sits_on():
+    from src.dataset import _collapse_ticker
+
+    out, stats = _collapse_ticker(_ufi_rows(fy_on_rounded=False))
+    by = {(r[1], r[3]): r for r in out}
+    assert len(out) == 6 and stats.fy_vs_quarter == 3
+    # Here the fiscal year is on the real date and the quarter on the rounded one.
+    assert by[("revenue", UFI_REAL)][-1] == (
+        "fiscal-year value; the fourth-quarter value is the 2026-06-30 row")
+    assert by[("revenue", UFI_ROUNDED)][-1] == ""
+
+
+def test_a_fiscal_year_and_a_quarter_with_equal_values_are_still_not_paired():
+    """Zero in a year and zero in its fourth quarter are two figures, not one."""
+    from src.dataset import _collapse_ticker
+
+    out, stats = _collapse_ticker([
+        tup("income_tax", 0.0, UFI_ROUNDED, UFI_FILED, fp="FY"),
+        tup("income_tax", 0.0, UFI_REAL, UFI_FILED, fp=None),
+    ])
+    assert len(out) == 2 and stats.removed == 0 and stats.fy_vs_quarter == 1
+
+
+def test_an_instant_metric_with_a_fy_copy_and_a_blank_copy_is_still_a_conflict():
+    """The exception is for flows only: total assets on one day is one figure."""
+    from src.dataset import Collapse, _collapse_ticker
+
+    out, stats = _collapse_ticker([
+        tup("total_assets", 100.0, UFI_ROUNDED, UFI_FILED, fp="FY"),
+        tup("total_assets", 101.0, UFI_REAL, UFI_FILED, fp=None),
+    ])
+    assert len(out) == 2
+    assert stats == Collapse(conflicts=1)
+    assert all(r[-1].startswith("value differs from the") for r in out)
+
+
+def test_two_quarter_copies_of_a_flow_that_disagree_are_still_a_conflict():
+    from src.dataset import Collapse, _collapse_ticker
+
+    out, stats = _collapse_ticker([
+        tup("revenue", 100.0, UFI_ROUNDED, UFI_FILED, fp="Q2"),
+        tup("revenue", 90.0, UFI_REAL, UFI_FILED, fp=None),
+    ])
+    assert stats == Collapse(conflicts=1) and len(out) == 2
+
+
+def test_the_ufi_filing_streams_both_durations_through_the_real_generator(db):
+    from src.dataset import Collapse
+
+    for metric, year, quarter in UFI:
+        add("UFI", metric, year, UFI_ROUNDED, UFI_FILED, fp="FY")
+        add("UFI", metric, quarter, UFI_REAL, UFI_FILED, fp=None)
+    done = Collapse()
+    out = stream(done)
+    assert done.fy_vs_quarter == 3 and done.conflicts == 0
+    assert len(out) == 6
+    rev = {r["period_end"]: r for r in out if r["metric"] == "revenue"}
+    assert rev["2026-06-30"]["value"] == "531303000.0" and rev["2026-06-28"]["value"] == "144224000.0"
+    assert rev["2026-06-30"]["fiscal_period"] == "FY" and rev["2026-06-28"]["fiscal_period"] == ""
+    assert rev["2026-06-30"]["period_note"].startswith("fiscal-year value;")
+    assert rev["2026-06-28"]["period_note"] == ""
+    # and the live count the pages quote is still the stream's length
+    from src.dataset import file_row_count, reset_count_cache
+
+    reset_count_cache()
+    assert file_row_count() == len(out)
