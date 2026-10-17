@@ -179,7 +179,10 @@ def render_dataset(
         reported the value shown. When a later filing changes a figure, the file
         carries the later value under the later filing&rsquo;s date; the earlier
         value is not in it. The site&rsquo;s
-        <a href="/restatements">restatements</a> page lists those changes.</li>
+        <a href="/restatements">restatements</a> page lists material revisions
+        (a change of 1% or more to a headline figure) from the last 90 days;
+        longer history is in the API&rsquo;s exceptions feed on the Business
+        plan.</li>
       <li><b>It is a large file.</b> Leave the tab open while it streams; it is
         generated row by row rather than served from disk.</li>
       <li><b>Questions before paying?</b> Email {contact}. The

@@ -731,6 +731,7 @@ def test_the_dataset_page_says_how_the_download_works_and_how_current_it_is(clie
     assert "as-reported, not restated" not in html.lower()
     assert "Each figure is the value reported in a filing, dated by that filing" in html
     assert "the earlier value is not in it" in html
+    assert "a change of 1% or more to a headline figure" in html and "last 90 days" in html
     # Size and rows, so a large download is a decision rather than a surprise.
     assert "File size" in html and "Rows" in html
 
