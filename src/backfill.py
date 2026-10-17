@@ -1734,6 +1734,13 @@ async def backfill_filings(
     for i, (year, q) in enumerate(qs):
         try:
             rows, report = await sec_frames.sweep_quarter(year, q, index, cik_map)
+        except xbrl.ExtractionError as exc:
+            # Same stance as the bulk load: a rejection rate this high means the
+            # parse is wrong, and writing the survivors leaves the table
+            # half-right, which is worse than leaving this quarter out.
+            log.error("frames_extraction_invalid", year=year, quarter=q, error=str(exc))
+            _update_state(phase="error", last_error=f"{year}q{q}: {str(exc)[:300]}")
+            raise
         except sec_frames.SECUnavailable as exc:
             _update_state(phase="error", last_error=str(exc)[:300])
             log.error("frames_sweep_failed", year=year, quarter=q, error=str(exc)[:200])

@@ -49,7 +49,14 @@ import structlog
 
 from src.config.settings import get_settings
 from src.ingest.sec_cache import cache_dir
-from src.ingest.xbrl import CONCEPTS, DURATION, INSTANT, coerce_float
+from src.ingest.xbrl import (
+    CONCEPTS,
+    DURATION,
+    INSTANT,
+    ExtractionReport,
+    coerce_float,
+    validate_facts,
+)
 
 log = structlog.get_logger(__name__)
 
@@ -425,7 +432,15 @@ async def sweep_quarter(
     await asyncio.gather(*(one(*req) for req in requests))
 
     joined, dropped = join_filing_dates(raw, index, cik_to_ticker)
-    rows = collapse_alias_rows(joined)
+    collapsed = collapse_alias_rows(joined)
+    # The same rules the bulk path applies before it stores anything: total
+    # assets must be positive, no asset component may exceed the total, and a
+    # balance sheet that does not reconcile or a 100x scale jump is flagged.
+    # These rows write `source="sec"` onto the same natural key as the bulk
+    # path's, so they must clear the same bar. Raises `ExtractionError` when
+    # the rejection rate says the parse itself is wrong.
+    validation = ExtractionReport()
+    rows = validate_facts(collapsed, validation)
     report = {
         "quarter": f"{year}q{quarter}",
         "frames_requested": len(requests),
@@ -433,6 +448,9 @@ async def sweep_quarter(
         "frames_missing": frames_missing,
         "facts_seen": len(raw),
         "rows_kept": len(rows),
+        "rows_rejected": len(collapsed) - len(rows),
+        "rejected_periods": validation.rejected_periods,
+        "validation_flags": len(validation.flags),
         "dropped": dropped,
         "errors": errors[:5],
     }
