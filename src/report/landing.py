@@ -626,7 +626,7 @@ _TOOL_BLURB = {
     "check_balance_sheet": "does Assets = Liabilities + Equity hold on the filing, and if not, by how much and why",
     "get_balance_sheet_history": "past balance sheets, newest first",
     "get_balance_sheet_changes": "what moved since the previous period, and figures that differ between filings",
-    "get_financial_statements": "income statement and cash flow, each period checked",
+    "get_financial_statements": "income statement and cash flow; each period is checked when the filing reports the lines the check needs, otherwise not_testable",
     "get_exceptions": "filings that fail the check and figures that differ between filings, across every company",
     "get_api_key": "create a free key from inside the chat, after asking for your email and your agreement to the terms",
 }

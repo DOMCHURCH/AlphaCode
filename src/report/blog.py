@@ -1886,7 +1886,8 @@ another reason not to read them as the filer's own results.</p>
 <p>BalanceProof applies all of the above: every figure carries its filing date,
 <code>as_of</code> returns only what was filed by that day, Q4 and quarterly
 cash flow are derived and labelled as derived, and each period is checked
-against its own totals.</p>
+against its own totals when the filing reports the lines the check needs (where
+it does not, the check returns not_testable instead of passing).</p>
 
 <pre class="code"><code>curl -H "X-API-Key: YOUR_KEY" \\
   "https://balanceproof.dev/api/company/TSLA/statements?period=quarterly&amp;as_of=2025-04-01"</code></pre>

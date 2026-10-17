@@ -25,7 +25,9 @@ LABELS = {
     "current_liabilities": "Current liabilities", "long_term_debt": "Long-term debt",
     "revenue": "Revenue", "net_income": "Net income",
     "operating_income": "Operating income", "operating_cash_flow": "Operating cash flow",
-    "eps_diluted": "Diluted EPS",
+    # Diluted EPS is stored for the most recent quarter only until history is loaded, so a
+    # revision can only appear for that quarter. Drop the parenthesis once history is in.
+    "eps_diluted": "Diluted EPS (most recent quarter only)",
 }
 
 

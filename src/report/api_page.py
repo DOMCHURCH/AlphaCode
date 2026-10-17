@@ -170,7 +170,9 @@ df = client.panel(["AAPL", "MSFT"], ["revenue", "net_income"])</code></pre>
      "is loaded. The response says how far back the data actually goes.")}
 {_ep("GET", "/api/company/{ticker}/statements?period=annual|quarterly",
      "X-API-Key required · counts as one call · as_of Pro and above",
-     "Income statement and cash flow per period, each checked: revenue minus "
+     "Income statement and cash flow per period. Each period is checked when the "
+     "filing reports the lines the check needs; where it does not, the check "
+     "returns not_testable instead of passing. The checks: revenue minus "
      "cost of revenue against gross profit, and operating + investing + "
      "financing + FX against the change in cash, with the gap when it fails. "
      "Q4, and Q2/Q3 cash flow, are worked out from the filed year and "

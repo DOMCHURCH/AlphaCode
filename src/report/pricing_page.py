@@ -250,7 +250,7 @@ def plan_matrix_table() -> str:
     rows = [
         ("API calls a month",
          lambda t: "Custom" if t == "enterprise" else f"{tier_limit(t):,}"),
-        ("Balance sheet, income statement and cash flow, every period checked",
+        ("Balance sheet, income statement and cash flow, each period checked when the filing reports the lines (otherwise not_testable)",
          lambda t: yes),
         ("History depth", lambda t: cell(t, "history_years", years)),
         ("What changed, and restatements per company",
@@ -435,7 +435,7 @@ def plan_cards(
         "Free", "$0", "", "Unlimited: look up as many companies as you like",
         over.get("Free") or (
             "Every balance sheet, no account needed",
-            "Income statement and cash flow, every period checked",
+            "Income statement and cash flow, each period checked when the filing reports the lines (otherwise not_testable)",
             f"{free_limit:,} keyed API calls a month",
             "Works with Claude and other AI tools",
         ),

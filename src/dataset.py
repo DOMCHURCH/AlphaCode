@@ -100,6 +100,9 @@ PROVENANCE: dict[str, str] = {
         "the real period end where the filing reports one; filings loaded only from "
         "SEC bulk data sets keep SEC's month-end date, up to 15 days from the actual one"
     ),
+    "X-Dataset-Eps-Coverage": (
+        "eps_diluted is available for the most recent quarter only until history is loaded"
+    ),
     "X-Dataset-About": "https://balanceproof.dev/dataset",
 }
 

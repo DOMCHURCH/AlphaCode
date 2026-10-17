@@ -1301,7 +1301,7 @@ def _plan_bullets() -> dict[str, tuple[str, ...]]:
     feed, bulk = cell("pro", "exceptions_feed"), cell("pro", "bulk_verify")
     return {
         "Free": (
-            "Balance sheet, income statement and cash flow, every period checked",
+            "Balance sheet, income statement and cash flow, each period checked when the filing reports the lines (otherwise not_testable)",
             years(cell("free", "history_years")),
             "MCP server for Claude, ChatGPT and Cursor",
         ),

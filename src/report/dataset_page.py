@@ -183,6 +183,9 @@ def render_dataset(
         (a change of 1% or more to a headline figure) from the last 90 days;
         longer history is in the API&rsquo;s exceptions feed on the Business
         plan.</li>
+      <li><b>Diluted EPS covers the most recent quarter only.</b> The
+        <code>eps_diluted</code> metric is available for the most recent quarter
+        only until history is loaded.</li>
       <li><b>It is a large file.</b> Leave the tab open while it streams; it is
         generated row by row rather than served from disk.</li>
       <li><b>Questions before paying?</b> Email {contact}. The

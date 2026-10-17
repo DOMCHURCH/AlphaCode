@@ -585,3 +585,49 @@ def test_the_ufi_filing_streams_both_durations_through_the_real_generator(db):
 
     reset_count_cache()
     assert file_row_count() == len(out)
+
+
+# ---------------------------------------------------------------------------
+# Coverage honesty: the check is not run on lines a filing does not report, and
+# diluted EPS is stored for the most recent quarter only until history is loaded.
+# ---------------------------------------------------------------------------
+
+def test_no_page_says_every_period_is_checked_without_saying_when():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    banned = ("every period checked", "every period is checked", "each period checked,",
+              "yes, every period", "each period is checked: revenue")
+    hits = []
+    for base in (root / "src" / "report", root / "static_seo"):
+        for p in base.rglob("*"):
+            if p.suffix in {".py", ".txt", ".md", ".html"} and "research" not in p.parts:
+                text = p.read_text(encoding="utf-8", errors="ignore").lower()
+                hits += [(p.name, w) for w in banned if w in text]
+    assert hits == []
+
+
+def test_the_api_docs_and_llms_txt_say_what_happens_when_the_lines_are_missing():
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    llms = (root / "static_seo" / "llms.txt").read_text(encoding="utf-8")
+    assert "when the filing reports the lines the check needs" in llms
+    assert "not_testable instead of passing" in llms
+    assert "diluted EPS, available for the most recent quarter only until history is loaded" in llms
+
+
+def test_eps_coverage_is_stated_on_the_dataset_page_the_headers_and_the_restatements_label(db):
+    from fastapi.testclient import TestClient
+
+    from src.api import app
+    from src.dataset import PROVENANCE
+    from src.report.restatements_page import LABELS
+
+    assert "most recent quarter only" in PROVENANCE["X-Dataset-Eps-Coverage"]
+    assert PROVENANCE["X-Dataset-Eps-Coverage"].isascii()
+    assert LABELS["eps_diluted"] == "Diluted EPS (most recent quarter only)"
+    with TestClient(app) as c:
+        page = " ".join(c.get("/dataset").text.split())
+    assert "Diluted EPS covers the most recent quarter only" in page
+    assert "available for the most recent quarter only until history is loaded" in page
