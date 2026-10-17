@@ -1,0 +1,44 @@
+name: tests
+
+# The Python suite (tests/, ~1,800 tests). e2e.yml runs the browser tests; nothing
+# ran these, so a red test could ship. Railway deploys claude/new-session-8fhpvp
+# and e2e.yml only fires on main, which meant the deployed branch had no checks at
+# all.
+on:
+  push:
+    branches: [main, claude/new-session-8fhpvp]
+  pull_request:
+    branches: [main, claude/new-session-8fhpvp]
+  workflow_dispatch:
+
+# A newer push to the same ref makes the older run pointless.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    # The suite takes about ten minutes on a laptop; leave room, not a blank cheque.
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          # nixpacks.toml builds the service on python311.
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install
+        run: pip install -r requirements-dev.txt
+
+      - name: Run the suite
+        # No secrets and none needed: every test builds its own SQLite file and
+        # sets the settings it reads, and nothing dials out. The Stripe, SEC and
+        # mail calls are replaced in the tests.
+        run: python -m pytest -p no:cacheprovider
