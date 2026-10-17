@@ -107,8 +107,14 @@ def _upsert(
     conflict_cols: Sequence[str],
     update_cols: Sequence[str] | None = None,
     chunk: int = 2000,
+    update_where: Any = None,
 ) -> int:
     """Dialect-aware ON CONFLICT DO UPDATE. Works on Postgres and SQLite.
+
+    `update_where`, if given, is a condition on the EXISTING row: a conflicting
+    row is only updated when it holds. A row that fails it is left exactly as it
+    is (neither inserted nor updated). Used to stop one source overwriting a row
+    another source owns; see `save_fundamentals(keep_bulk=True)`.
 
     Returns the number of rows actually written (executed), and records
     attempted-vs-written in the ledger even when a batch raises -- so a swallowed
@@ -142,11 +148,22 @@ def _upsert(
                 stmt = stmt.on_conflict_do_update(
                     index_elements=list(conflict_cols),
                     set_={c: stmt.excluded[c] for c in cols},
+                    where=update_where,
                 )
             else:
                 stmt = stmt.on_conflict_do_nothing(index_elements=list(conflict_cols))
-            session.execute(stmt)
+            result = session.execute(stmt)
             written += len(batch)
+            if update_where is not None:
+                # A row the condition refused is not counted in rowcount. Said
+                # out loud, because "written" above still counts it as executed
+                # (the write ledger must not read a protected row as a failure).
+                rc = result.rowcount
+                if rc is not None and 0 <= rc < len(batch):
+                    log.info(
+                        "upsert_kept_existing",
+                        table=model.__tablename__, kept=len(batch) - rc, of=len(batch),
+                    )
         return written
     finally:
         _record_write(model.__tablename__, attempted, written)
@@ -166,8 +183,23 @@ def save_bars(session: Session, rows: Sequence[dict[str, Any]]) -> int:
     return _upsert(session, DailyBar, list(rows), ["ticker", "date"])
 
 
-def save_fundamentals(session: Session, rows: Sequence[dict[str, Any]]) -> int:
+def save_fundamentals(
+    session: Session, rows: Sequence[dict[str, Any]], *, keep_bulk: bool = False
+) -> int:
     """Persist as-reported fundamentals, one row per natural key per load.
+
+    `keep_bulk=True` is for the XBRL frames route. A stored row whose
+    `fiscal_period` is set is a row the SEC bulk datasets wrote (they set it;
+    the frames route never does), and the bulk datasets are the authoritative
+    record -- so a frames row on the same natural key is dropped instead of
+    overwriting its value and tag. Without this the frames sweep, which re-runs
+    every few hours over filings the bulk quarter has already loaded, replaces
+    them (and, where a 10-K reports its fourth quarter on the year-end date,
+    replaces the ANNUAL figure with the quarter's, still labelled FY). The test
+    is the one column both routes already disagree on, so it needs no schema
+    change; its limit is a bulk row SEC published with a blank `fp` (about 1 in
+    11,000 filings), which is indistinguishable from a frames row and stays
+    overwritable.
 
     SEC's bulk num.txt carries the same (ticker, metric, period_end) fact more
     than once in a single quarter's file: amended filings (10-K/A, 10-Q/A) repeat
@@ -197,6 +229,7 @@ def save_fundamentals(session: Session, rows: Sequence[dict[str, Any]]) -> int:
         Fundamental,
         collapsed,
         ["ticker", "metric", "period_end", "source", "filing_date"],
+        update_where=Fundamental.fiscal_period.is_(None) if keep_bulk else None,
     )
 
 

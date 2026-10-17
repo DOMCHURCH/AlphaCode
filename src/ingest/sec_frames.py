@@ -315,6 +315,13 @@ def join_filing_dates(
             "filing_date": entry["filed"],
             "source": "sec",
             "restated": False,
+            # A frames fact carries no fiscal period (no `fp` in the payload, and
+            # none can be derived without the filer's year end). NULL is the
+            # contract: it is how a frames row is told from a bulk row, and
+            # `save_fundamentals(keep_bulk=True)` relies on it. Stated here, as a
+            # key, so that if one of these rows ever DOES overwrite a labelled
+            # row the label is cleared instead of left describing another figure.
+            "fiscal_period": None,
             "tag_rank": r.get("tag_rank", 0),
             **({"source_tag": r["source_tag"]} if r.get("source_tag") else {}),
         })
