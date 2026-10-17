@@ -430,6 +430,7 @@ def test_the_pricing_and_dataset_pages_quote_the_rows_the_file_has(db):
         page = c.get("/dataset").text
     assert f"{rows:,} rows as one CSV file" in pricing
     assert f"{rows:,} rows, one CSV" in page
+    assert "Downloading needs the account key" in " ".join(pricing.split())
 
 
 def test_no_page_calls_the_download_a_static_or_never_refreshed_snapshot():
@@ -440,7 +441,7 @@ def test_no_page_calls_the_download_a_static_or_never_refreshed_snapshot():
 
     root = Path(__file__).resolve().parents[1]
     banned = ("static snapshot", "will never update", "never refreshed", "buy it again",
-              "buy again", "no updates", "snapshot never changes", "static (as of download")
+              "buy again", "no updates", "snapshot never changes", "static (as of download", "no key, no calls")
     hits = []
     for base in (root / "src" / "report", root / "static_seo"):
         for p in base.rglob("*"):

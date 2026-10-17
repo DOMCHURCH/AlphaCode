@@ -53,9 +53,10 @@ from __future__ import annotations
 import csv
 import datetime as dt
 import io
+import threading
 import time
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any, NamedTuple
 
@@ -386,9 +387,109 @@ def _source_rank_sql():
 FALLBACK_COMPANIES = "6,246"
 FALLBACK_FACTS = "1.3M"
 
-_COUNT_TTL_S = 900.0
-_SHAPE_TTL_S = 900.0
-_count_cache: tuple[float, int] | None = None
+class CountUnavailable(RuntimeError):
+    """There is no count yet and the request that is working it out has not
+    finished. Callers already treat any exception from `facts_label`/`shape` as
+    "use the fallback copy", which is the right answer for a reader who arrived
+    in the first seconds after a deploy."""
+
+
+class _Memo:
+    """One expensive, slow-moving value, safe to ask for on every page view.
+
+    The count behind these pages takes seconds to work out and changes when a
+    quarter loads, so what matters is that no READER ever pays for it twice:
+
+    * fresh (younger than `ttl_s`): returned at once;
+    * stale: the old value is returned at once and ONE background thread
+      recomputes it -- a page view never waits on a refresh, and a refresh that
+      fails keeps the old value and is retried after `retry_s`;
+    * cold (nothing yet): the first request computes it, and requests that
+      arrive meanwhile wait for THAT computation rather than starting their own
+      (six simultaneous cold requests used to run six full queries). They wait
+      at most `cold_wait_s`, then raise `CountUnavailable` so the page renders
+      with its fallback instead of hanging.
+
+    `reset` also invalidates a computation already in flight, so a stale result
+    cannot land after a test (or an admin cache clear) asked for a fresh one.
+    """
+
+    def __init__(self, ttl_s: float, *, retry_s: float = 60.0, cold_wait_s: float = 3.0) -> None:
+        self.ttl_s, self.retry_s, self.cold_wait_s = ttl_s, retry_s, cold_wait_s
+        self.refreshing = False
+        self._value: Any = None
+        self._at: float | None = None
+        self._gen = 0
+        self._state = threading.Lock()   # guards the fields above
+        self._flight = threading.Lock()  # held by whoever is computing
+
+    def get(self, compute: Callable[[], Any]) -> Any:
+        with self._state:
+            at, value = self._at, self._value
+        if at is not None:
+            if time.monotonic() - at >= self.ttl_s:
+                self._refresh_in_background(compute)
+            return value
+        if not self._flight.acquire(timeout=self.cold_wait_s):
+            raise CountUnavailable("the first count is still being worked out")
+        try:
+            with self._state:
+                if self._at is not None:  # filled while this request waited
+                    return self._value
+                gen = self._gen
+            value = compute()
+            self._store(value, gen)
+            return value
+        finally:
+            self._flight.release()
+
+    def _store(self, value: Any, gen: int) -> None:
+        with self._state:
+            if gen == self._gen:
+                self._value, self._at = value, time.monotonic()
+
+    def _refresh_in_background(self, compute: Callable[[], Any]) -> None:
+        with self._state:
+            if self.refreshing:
+                return
+            self.refreshing = True
+            gen = self._gen
+        threading.Thread(
+            target=self._refresh, args=(compute, gen), daemon=True, name="dataset-count-refresh"
+        ).start()
+
+    def _refresh(self, compute: Callable[[], Any], gen: int) -> None:
+        try:
+            with self._flight:
+                value = compute()
+            self._store(value, gen)
+        except Exception as exc:  # noqa: BLE001 - keep serving the old value
+            log.warning("dataset_count_refresh_failed", error=str(exc)[:200])
+            with self._state:
+                if gen == self._gen and self._at is not None:
+                    self._at = time.monotonic() - self.ttl_s + self.retry_s
+        finally:
+            with self._state:
+                self.refreshing = False
+
+    def reset(self) -> None:
+        with self._state:
+            self._value, self._at = None, None
+            self._gen += 1
+
+    def age(self, seconds: float) -> None:
+        """Test/diagnostic helper: pretend the value is `seconds` older."""
+        with self._state:
+            if self._at is not None:
+                self._at -= seconds
+
+
+# An hour: the count moves when a quarter loads, and a refresh is a few seconds
+# of database work that should not recur every fifteen minutes under traffic.
+_COUNT_TTL_S = 3600.0
+_SHAPE_TTL_S = 3600.0
+_count_memo = _Memo(_COUNT_TTL_S)
+_shape_memo = _Memo(_SHAPE_TTL_S)
 
 
 def facts_label() -> str:
@@ -496,28 +597,29 @@ def row_count() -> int:
     table holds. Shown on the dashboard so a buyer knows what they are paying
     for before they pay for it.
 
-    Memoised for fifteen minutes. Working the count out reads every distinct
-    (ticker, metric, period) once, and this figure is decoration on a page that
-    should feel instant -- it changes when a quarter loads. A stale count for a
-    quarter of an hour is invisible; a page that waits for it on every view is
-    not.
+    Memoised for an hour with a single-flight, stale-while-revalidate policy
+    (`_Memo`): working the count out reads every distinct (ticker, metric,
+    period) once, a few seconds of database work, and this figure is decoration
+    on pages that should feel instant. No page view waits on a refresh, and
+    simultaneous cold requests share one computation. Filled once at boot
+    (`warm`) so the first visitors find it ready.
+
+    Raises `CountUnavailable` only in the first seconds of a process's life,
+    when another request is still computing the first value.
     """
-    global _count_cache
-
-    now = time.monotonic()
-    if _count_cache is not None and now - _count_cache[0] < _COUNT_TTL_S:
-        return _count_cache[1]
-
-    n = file_row_count()
-    _count_cache = (now, n)
-    return n
+    return _count_memo.get(file_row_count)
 
 
 def reset_count_cache() -> None:
     """Test helper: forget the memoised count so a new database is counted."""
-    global _count_cache, _shape_cache
-    _count_cache = None
-    _shape_cache = None
+    _count_memo.reset()
+    _shape_memo.reset()
+
+
+def warm() -> None:
+    """Fill the row count and the shape ahead of the first reader (called once
+    at boot, off the request path). `shape()` computes `row_count()` itself."""
+    shape()
 
 
 class Shape(NamedTuple):
@@ -543,9 +645,6 @@ class Shape(NamedTuple):
                 return f"{n:.0f} {unit}" if unit == "bytes" else f"{n:.1f} {unit}"
             n /= 1024
         return f"{n:.1f} GB"
-
-
-_shape_cache: tuple[float, Shape] | None = None
 
 
 def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
@@ -584,18 +683,18 @@ def _sample_bytes_per_row(session: object, sample: int = 500) -> float:
 
 
 def shape() -> Shape:
-    """Rows, size and freshness in one query pass, memoised like `row_count`.
+    """Rows, size and freshness, memoised like `row_count` (same `_Memo`: an
+    hour, one computation however many requests ask, stale served while one
+    background refresh runs).
 
-    Same fifteen minutes and the same reasoning: these change when a quarter
-    loads, four times a year, and they decorate a page that should feel
+    These change when a quarter loads, and they decorate pages that should feel
     instant.
     """
-    global _shape_cache
-    from sqlalchemy import func
+    return _shape_memo.get(_build_shape)
 
-    now = time.monotonic()
-    if _shape_cache is not None and now - _shape_cache[0] < _SHAPE_TTL_S:
-        return _shape_cache[1]
+
+def _build_shape() -> Shape:
+    from sqlalchemy import func
 
     # The file's row count, not the table's (see `file_row_count`); shared with
     # `row_count` so the page, the dashboard and the copy quote one number.
@@ -610,11 +709,9 @@ def shape() -> Shape:
         per_row = _sample_bytes_per_row(session) if rows else 0.0
 
     header = len(",".join(COLUMNS).encode("utf-8")) + 1
-    built = Shape(
+    return Shape(
         rows=rows,
         bytes_estimate=int(header + per_row * rows),
         generated=generated,
         newest_filing=newest,
     )
-    _shape_cache = (now, built)
-    return built

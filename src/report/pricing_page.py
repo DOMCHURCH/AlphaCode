@@ -721,8 +721,9 @@ def render_pricing(
         <p class="split-body">One CSV, built when you download it, containing
           every filed figure loaded through {escape(dataset_as_of)}. The copy you
           save is yours forever and never changes; download again later and the
-          new file includes the filings loaded since. No key, no calls, no code:
-          open it in Excel, load it into pandas, keep it.</p>
+          new file includes the filings loaded since. Downloading needs the
+          account key your purchase was made against; after that there are no
+          calls and no code: open it in Excel, load it into pandas, keep it.</p>
         <p class="split-for"><b>Best for:</b> one-time analysis, research,
           Excel work.</p>
       </div>

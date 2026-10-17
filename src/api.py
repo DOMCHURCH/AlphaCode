@@ -120,6 +120,28 @@ async def _warm(app: FastAPI) -> None:
         await asyncio.sleep(_WARM_GAP_S)
 
 
+async def _warm_dataset_count() -> None:
+    """Work out the dataset's row count and size once, at boot, off the request path.
+
+    A few seconds of database work (`dataset.file_row_count`) that the pricing
+    page, the dataset page, the dashboard, the home page, `/api`, the blog and
+    llms.txt all quote. Memoised for an hour afterwards, so this is what keeps
+    the first visitor after a deploy from being the one who pays for it. Not
+    delayed like the whole-universe walks in `_warm`: it is one read, not a
+    stampede. SQLite (dev, tests) is skipped -- counting there is instant, and a
+    boot-time count would race whatever a test seeds next.
+    """
+    if get_settings().is_sqlite:
+        return
+    from src import dataset
+
+    try:
+        await asyncio.to_thread(dataset.warm)
+        log.info("warm_done", step="dataset_count")
+    except Exception as exc:  # noqa: BLE001 - the pages have fallback copy
+        log.warning("warm_skipped", step="dataset_count", error=str(exc)[:200])
+
+
 async def _boot(app: FastAPI) -> None:
     """Migrate the DB off the critical path.
 
@@ -181,6 +203,7 @@ async def _boot(app: FastAPI) -> None:
     # company, so it is warmed once here rather than on a reader's request; the
     # page renders without it and simply omits the line until it lands.
     asyncio.create_task(_warm(app))
+    asyncio.create_task(_warm_dataset_count())
 
     # The data keeps itself current from here. Started after init_db so the
     # first tick reads a migrated schema, and as a background task so a slow
