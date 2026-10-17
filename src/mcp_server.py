@@ -592,7 +592,9 @@ def _tool_search_companies(args: dict[str, Any], _m: _Metered) -> tuple[str, Any
 
     query = str(args.get("query") or "").strip()
     if not query:
-        return "No query given.", {"matches": []}
+        raise _ToolFailure(
+            "No query given. Pass a company name or a ticker symbol to look up."
+        )
 
     res = lookup.resolve(query)
 
@@ -602,10 +604,11 @@ def _tool_search_companies(args: dict[str, Any], _m: _Metered) -> tuple[str, Any
             {"resolved": res.ticker, "matches": [{"ticker": res.ticker}]},
         )
     if res.kind == "no_names":
-        return (
+        # The tool cannot answer a name query here, which is a failure and not
+        # an empty result: nothing was searched.
+        raise _ToolFailure(
             "Company names are not loaded on this deployment, so only exact "
-            "ticker symbols can be resolved.",
-            {"matches": []},
+            "ticker symbols can be resolved."
         )
 
     rows = [
@@ -804,11 +807,13 @@ def _tool_get_api_key(args: dict[str, Any], _m: Any) -> tuple[str, Any]:
     from src.api import _enforce_rate, _register_gate
 
     email = str(args.get("email") or "").strip()
+    # Every refusal below is raised, so a caller sees `isError: true` -- no key
+    # was created, and a model that reads a refusal as success tells the user
+    # they have one.
     if args.get("accept_terms") is not True:
-        return (
+        raise _ToolFailure(
             "We cannot create a key until you have agreed to the terms at "
-            "https://balanceproof.dev/terms. Say so and we will try again.",
-            None,
+            "https://balanceproof.dev/terms. Say so and we will try again."
         )
 
     # Before the validity check, so a loop cannot probe this for free with
@@ -816,22 +821,21 @@ def _tool_get_api_key(args: dict[str, Any], _m: Any) -> tuple[str, Any]:
     try:
         _enforce_rate(_register_gate, "registration")
     except HTTPException as exc:
-        return str(exc.detail), None
+        raise _ToolFailure(str(exc.detail)) from None
 
     address = accounts.normalise_email(email)
     if not accounts.valid_email(address):
-        return "That does not look like an email address.", None
+        raise _ToolFailure("That does not look like an email address.")
 
     try:
         account, plaintext = accounts.register(address)
     except accounts.EmailTaken:
-        return (
+        raise _ToolFailure(
             "That address is already registered, so a new key cannot be "
             "issued for it here -- keys are never re-sent, because that would "
             "turn this into a way to look up somebody else's. Sign in at "
-            "https://balanceproof.dev/dashboard and regenerate yours there.",
-            None,
-        )
+            "https://balanceproof.dev/dashboard and regenerate yours there."
+        ) from None
 
     log.info("mcp_user_registered", email=address)
     return (
@@ -1026,6 +1030,23 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     )
 
 
+def _has_filings(ticker: str) -> bool:
+    """Whether any fundamentals are stored for this ticker (same canonical form
+    the balance-sheet tools resolve)."""
+    from sqlalchemy import select
+
+    from src.company.lookup import canonical_ticker
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental
+
+    with session_scope() as s:
+        return s.execute(
+            select(Fundamental.ticker)
+            .where(Fundamental.ticker == canonical_ticker(ticker))
+            .limit(1)
+        ).first() is not None
+
+
 def _tool_get_exceptions(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     from src import plans
     from src.company import exceptions
@@ -1048,6 +1069,10 @@ def _tool_get_exceptions(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     ticker = _clean(str(args.get("ticker") or "")) or None
     out = exceptions.feed(since=since, kind=kind, ticker=ticker,
                           attribution=attribution, limit=100)
+    if ticker and not out["total"] and not _has_filings(ticker):
+        # "0 events" for a company that is not covered reads as a clean bill of
+        # health. An unknown ticker is a failure, like it is on every other tool.
+        raise _ToolFailure(_not_covered(ticker, "balance sheets"))
     m.spend(ticker or "exceptions")
     return (
         f"{out['total']} event(s)" + (f" since {out['since']}" if out["since"] else "")
@@ -1215,10 +1240,20 @@ def _dispatch(
         if name == "get_api_key":
             try:
                 text, structured = impl(args, None)
-            except Exception as exc:  # noqa: BLE001 - must still say why
+            except _ToolFailure as exc:
+                # A refusal this tool chose to give (terms not agreed, address
+                # taken, malformed, rate limited): the text is ours to show.
+                return _result(req_id, _tool_result(str(exc), is_error=True))
+            except Exception as exc:  # noqa: BLE001 - must still say that it failed
+                # Detail to the log only. The caller is not shown an exception
+                # string from account creation (driver messages, SQL, paths).
                 log.exception("mcp_signup_failed", error=str(exc))
                 return _result(req_id, _tool_result(
-                    f"Could not create a key: {exc}", is_error=True))
+                    "Could not create a key because something went wrong on "
+                    "our side. Try again in a moment, or sign up at "
+                    "https://balanceproof.dev/dashboard.",
+                    is_error=True,
+                ))
             return _result(req_id, _tool_result(text, structured))
 
         # Authorisation and metering happen here, once, for every tool -- not
