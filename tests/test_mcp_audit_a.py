@@ -230,3 +230,61 @@ def test_no_text_in_the_mcp_module_says_as_filed():
     assert "as filed" not in source
     assert "as-filed" not in source
     assert "the filing balances as reported; the shortfall" in source
+
+
+# ---------------------------------------------------------------------------
+# Claims about checks and about EPS
+# ---------------------------------------------------------------------------
+
+CHECKED = (
+    "Each period is checked when the filing reports the lines the check needs; "
+    "where it does not, the check returns not_testable instead of passing."
+)
+EPS = "Diluted EPS is available for the most recent quarter only."
+
+
+def test_the_statements_description_states_what_is_checked_and_what_is_not():
+    import src.mcp_server as mcp_server
+
+    description = next(
+        t["description"] for t in mcp_server.TOOLS if t["name"] == "get_financial_statements"
+    )
+    assert CHECKED in description
+    assert EPS in description
+    # The universal wording it replaced.
+    assert "each period checked" not in description.lower()
+
+
+def test_no_mcp_text_says_every_filing_or_period_is_checked():
+    import src.mcp_server as mcp_server
+
+    strings = [mcp_server._INSTRUCTIONS] + [t["description"] for t in mcp_server.TOOLS]
+    for s in strings:
+        low = s.lower()
+        assert "every filing checked" not in low
+        assert "each period checked" not in low
+        assert "every period checked" not in low
+        assert "every balance sheet is" not in low
+
+
+def test_the_not_testable_claim_is_true_for_statements(client):
+    """The sentence in the tool description is a promise about the output, so
+    this pins the output: a period whose filing lacks the lines reports
+    not_testable, never passed."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    with session_scope() as s:
+        s.add(UniverseSnapshot(as_of_date=dt.date.today(), ticker="REVONLY", name="Revenue Only Co"))
+        s.add(Fundamental(ticker="REVONLY", metric="revenue", value=1000e6,
+                          period_end=dt.date(2026, 6, 30), fiscal_period="FY",
+                          filing_date=dt.date(2026, 8, 1), source="sec"))
+
+    r = call(client, "get_financial_statements", key=pro_key(), ticker="REVONLY")
+    assert r["isError"] is False
+    periods = r["structuredContent"]["periods"]
+    assert periods, "the fixture must produce a period"
+    for p in periods:
+        statuses = {c["check"]: c["status"] for c in p["checks"]}
+        assert statuses == {"gross_profit": "not_testable", "cash_flow": "not_testable"}
+        assert all(c["status"] != "passed" for c in p["checks"])

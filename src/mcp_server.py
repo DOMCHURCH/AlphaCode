@@ -266,9 +266,12 @@ TOOLS: list[dict[str, Any]] = [
         "name": "get_financial_statements",
         "description": (
             "Income statement and cash flow for one US public company, annual "
-            "or quarterly, newest first, each period checked: revenue - cost of "
-            "revenue = gross profit, and operating + investing + financing + FX "
-            "= change in cash (failures come with the gap). Q4 and Q2/Q3 cash "
+            "or quarterly, newest first. Each period is checked when the filing "
+            "reports the lines the check needs; where it does not, the check "
+            "returns not_testable instead of passing. The checks are revenue - "
+            "cost of revenue = gross profit, and operating + investing + "
+            "financing + FX = change in cash (failures come with the gap). "
+            "Diluted EPS is available for the most recent quarter only. Q4 and Q2/Q3 cash "
             "flow are derived from filed year and year-to-date figures and "
             "listed in `derived`. `as_of` (Pro and above) returns only what was "
             "public on that date, for backtests without lookahead."
@@ -1340,7 +1343,7 @@ def _dispatch(
 
 _INSTRUCTIONS = (
     "BalanceProof serves US public company balance sheets taken from SEC "
-    "EDGAR, with every filing checked against the accounting identity "
+    "EDGAR, checked against the accounting identity "
     "Assets = Liabilities + Equity. Its distinguishing feature is that it "
     "reports when a filing does NOT reconcile, and why, rather than returning "
     "a number either way. Resolve a company name with search_companies, read "
