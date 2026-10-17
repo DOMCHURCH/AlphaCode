@@ -104,6 +104,30 @@ class Excluded:
     differing: int = 0        # rows whose twin holds a different value
 
 
+@dataclass(frozen=True)
+class PairReport:
+    """What a month-end/real-date pair is, for the owner deciding what DELETE_DUP may do.
+
+    `bulk_copy` says which side is the SEC bulk row: the bulk files carry only the tags
+    on the face of the statements, with month-end-rounded dates, and set `fiscal_period`;
+    the frames route writes the real date and leaves `fiscal_period` blank. `rounded`
+    when every rounded-side row has it set and every real-side row has it blank,
+    `real` for the reverse, `ambiguous` for anything mixed.
+    """
+
+    pair: Pair
+    rounded_rows: int
+    real_rows: int
+    shared: int               # (source, metric) present on both sides
+    values_differ: int        # of those, different values
+    tags_differ_equal: int    # of those, equal values but different source_tag
+    orphans: int              # rounded-side rows with no real-dated counterpart
+    bulk_copy: str            # rounded | real | ambiguous
+    deletable: bool
+    keep: str                 # which copy a DELETE_DUP must keep
+    note: str
+
+
 @dataclass
 class Plan:
     filings: int = 0                                     # (ticker, filing_date) groups scanned
@@ -113,6 +137,7 @@ class Plan:
     delete_rows: list[dict] = field(default_factory=list)   # full rows, rounded side
     twin_id: dict[int, int] = field(default_factory=dict)   # deleted id -> surviving twin id
     lone_month_ends: int = 0                             # month ends with no twin (left alone)
+    reports: list[PairReport] = field(default_factory=list)   # one per unambiguous pair
     triples: list[tuple[str, dt.date, dt.date]] = field(default_factory=list)
 
     @property
@@ -215,6 +240,44 @@ def classify(pairs: list[Pair], rows) -> tuple[list[Pair], list[Excluded], list[
     return ok, excluded, delete_rows, twin_id
 
 
+def pair_reports(pairs: list[Pair], rows, ok: list[Pair]) -> list[PairReport]:
+    """One PairReport per pair. Pure: reads the rows already fetched, changes nothing."""
+    deletable = set(ok)
+    out: list[PairReport] = []
+    for p in pairs:
+        rounded = {(r["source"], r["metric"]): r for r in rows.get((p.ticker, p.filing_date, p.rounded_pe), [])}
+        real = {(r["source"], r["metric"]): r for r in rows.get((p.ticker, p.filing_date, p.real_pe), [])}
+        shared = [k for k in rounded if k in real]
+        differ = [k for k in shared if not values_equal(rounded[k]["value"], real[k]["value"])]
+        tags = [k for k in shared if k not in differ
+                and (rounded[k].get("source_tag") or None) != (real[k].get("source_tag") or None)]
+        orphans = sum(1 for k in rounded if k not in real)
+        if rounded and real and all(r["fiscal_period"] is not None for r in rounded.values()) \
+                and all(r["fiscal_period"] is None for r in real.values()):
+            bulk = "rounded"
+        elif rounded and real and all(r["fiscal_period"] is None for r in rounded.values()) \
+                and all(r["fiscal_period"] is not None for r in real.values()):
+            bulk = "real"
+        else:
+            bulk = "ambiguous"
+        can_delete = p in deletable
+        if not can_delete:
+            keep = "both (pair is not deletable)"
+            note = ("values differ; the read side prefers the bulk copy" if differ
+                    else "rounded-side rows have no real-dated twin and would be lost")
+        elif tags:
+            keep = f"bulk copy ({bulk}) -- re-date it, do not delete it" if bulk != "ambiguous" \
+                else "ambiguous -- decide by hand"
+            note = (f"{len(tags)} metric(s) have equal values but different tags; deleting the rounded row "
+                    "would keep the frames tag in place of the tag on the company's statement")
+        else:
+            keep = "real-dated copy (equal values and tags: lossless)"
+            note = ""
+        out.append(PairReport(p, len(rounded), len(real), len(shared), len(differ), len(tags), orphans,
+                              bulk, can_delete, keep, note))
+    return out
+
+
 def verify_plan(plan: Plan) -> None:
     """Hard invariants. The rounded row is the one deleted; the real one survives."""
     ids = plan.delete_ids
@@ -231,11 +294,12 @@ def verify_plan(plan: Plan) -> None:
 def build_plan(conn: Connection, tickers: set[str] | None = None) -> Plan:
     triples = load_triples(conn, tickers)
     pairs, ambiguous, lone = find_pairs(triples)
-    ok, excluded, delete_rows, twin_id = classify(pairs, _rows_for(conn, pairs))
+    fetched = _rows_for(conn, pairs)
+    ok, excluded, delete_rows, twin_id = classify(pairs, fetched)
     plan = Plan(
         filings=len({(t, f) for t, f, _ in triples}), tickers=len({t for t, _, _ in triples}),
         ok=ok, excluded=ambiguous + excluded, delete_rows=delete_rows, twin_id=twin_id,
-        lone_month_ends=lone, triples=triples)
+        lone_month_ends=lone, triples=triples, reports=pair_reports(pairs, fetched, ok))
     verify_plan(plan)
     return plan
 
@@ -284,6 +348,22 @@ def render_report(plan: Plan, show: list[str] | None = None) -> str:
             p = e.pair
             out.append(f"  {p.ticker:6} filed {p.filing_date}  {p.rounded_pe} -> {p.real_pe}  {e.reason}"
                        f"  {', '.join(e.metrics[:6])}{' ...' if len(e.metrics) > 6 else ''}  {e.details}")
+    if plan.reports:
+        rs = plan.reports
+        by_bulk: dict[str, int] = defaultdict(int)
+        for r in rs:
+            by_bulk[r.bulk_copy] += 1
+        out += ["", f"which copy is bulk, for each of the {len(rs):,} unambiguous pairs "
+                    "(--pairs-csv writes one line per pair):",
+                "  bulk copy is the " + ", ".join(f"{k} copy: {v:,}" for k, v in sorted(by_bulk.items())),
+                f"  pairs where some value differs between the copies: {sum(1 for r in rs if r.values_differ):,}"
+                f" ({sum(r.values_differ for r in rs):,} metric rows)",
+                f"  pairs with equal values but different tags: {sum(1 for r in rs if r.tags_differ_equal and not r.values_differ):,}",
+                "  what a DELETE_DUP must keep:"]
+        keeps: dict[str, int] = defaultdict(int)
+        for r in rs:
+            keeps[r.keep] += 1
+        out += [f"    {n:>5,} pairs  {k}" for k, n in sorted(keeps.items(), key=lambda kv: -kv[1])]
     for ticker in show or []:
         out += ["", f"{ticker}: latest two filings"]
         filings = sorted({f for t, f, _ in plan.triples if t == ticker}, reverse=True)[:2]
@@ -322,6 +402,20 @@ def write_exclusions_csv(plan: Plan, path: Path) -> None:
             p = e.pair
             w.writerow([p.ticker, p.filing_date, p.rounded_pe, p.real_pe, e.reason,
                         ";".join(e.metrics), e.rows, e.matched, e.orphans, e.differing, e.details])
+
+
+def write_pairs_csv(plan: Plan, path: Path) -> None:
+    """One line per unambiguous pair: which copy is bulk, whether values differ, which copy to keep."""
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["ticker", "filing_date", "rounded_pe", "real_pe", "bulk_copy", "rounded_rows", "real_rows",
+                    "shared_metrics", "values_differ", "equal_values_different_tags", "orphan_rows",
+                    "deletable", "delete_dup_must_keep", "note"])
+        for r in plan.reports:
+            p = r.pair
+            w.writerow([p.ticker, p.filing_date, p.rounded_pe, p.real_pe, r.bulk_copy, r.rounded_rows, r.real_rows,
+                        r.shared, r.values_differ, r.tags_differ_equal, r.orphans,
+                        "yes" if r.deletable else "no", r.keep, r.note])
 
 
 # ---- --apply --------------------------------------------------------------------------------------------------------
@@ -378,6 +472,8 @@ def main(argv: list[str] | None = None, *, input_fn=None, interactive: bool | No
     ap.add_argument("--tickers", help="comma-separated; restrict the scan")
     ap.add_argument("--show", help="comma-separated tickers: show their latest two filings")
     ap.add_argument("--exclusions-csv", help="write every excluded pair here")
+    ap.add_argument("--pairs-csv", help="write one line per pair: which copy is bulk, whether values differ, "
+                                        "which copy a DELETE_DUP must keep (dry run output; changes nothing)")
     ap.add_argument("--apply", action="store_true", help="WRITES. Needs the confirmations described in the docstring.")
     ap.add_argument("--railway-backup-confirmed", help="id/date of the Railway backup you verified exists")
     ap.add_argument("--backup-path", help="CSV to write the deleted rows to (must not exist)")
@@ -411,6 +507,9 @@ def main(argv: list[str] | None = None, *, input_fn=None, interactive: bool | No
             plan = build_plan(conn, tickers)
             conn.rollback()
         print(render_report(plan, show), file=out)
+        if args.pairs_csv:
+            write_pairs_csv(plan, Path(args.pairs_csv))
+            print(f"\nper-pair report written to {args.pairs_csv}", file=out)
         if args.exclusions_csv:
             write_exclusions_csv(plan, Path(args.exclusions_csv))
             print(f"\nexcluded pairs written to {args.exclusions_csv}", file=out)
