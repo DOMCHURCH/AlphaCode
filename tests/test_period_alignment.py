@@ -151,20 +151,23 @@ def test_two_real_quarters_91_days_apart_stay_two_periods(db):
     assert older.assets["total_assets"].value == 900.0
 
 
-def test_when_twins_disagree_the_real_dated_row_wins_the_tie(db):
+def test_when_twins_disagree_the_month_end_bulk_row_wins_the_tie(db):
     """Same filing, same source, two rows for one metric: row order must not decide
-    which value is shown. The real-dated row is the one the frames API vouches for."""
+    which value is shown. The month-end-dated row is the SEC bulk copy, the figure on
+    the company's own statement; the real-dated row is the frames copy, which can be a
+    note-level subset (this used to prefer the real-dated row; see
+    test_bulk_vs_frames_preference.py for the evidence and the real cases)."""
     from src.company.balancesheet import get_balance_sheet
 
     ticker, real, rounded, filed = AAPL
     put(ticker, rounded, filed, liabilities=111.0)
     put(ticker, real, filed, liabilities=222.0)
-    assert get_balance_sheet(ticker).liabilities["total_liabilities"].value == 222.0
+    assert get_balance_sheet(ticker).liabilities["total_liabilities"].value == 111.0
     # ... and the same if the real row was written first
     ticker2, real2, rounded2, filed2 = DEERE
     put(ticker2, real2, filed2, liabilities=222.0)
     put(ticker2, rounded2, filed2, liabilities=111.0)
-    assert get_balance_sheet(ticker2).liabilities["total_liabilities"].value == 222.0
+    assert get_balance_sheet(ticker2).liabilities["total_liabilities"].value == 111.0
 
 
 def test_a_later_filing_still_beats_an_earlier_one_across_the_rounding(db):
