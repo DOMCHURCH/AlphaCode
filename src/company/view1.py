@@ -169,6 +169,12 @@ class View1:
     # minority interest" is a different statement from "this balances" and the
     # page says which one it means.
     identity_basis: str = ""
+    # WHICH equity figure `total_equity` is: "incl_nci" when it is the filer's
+    # combined total (it includes the noncontrolling interest), "parent" when it
+    # is the parent-only figure. The two differ for any company with a
+    # noncontrolling interest, so a label saying "Shareholders' equity" over the
+    # combined total is wrong.
+    equity_basis: str = "parent"
     # The noncontrolling interest, where the filer reported one. Carried so the
     # note can name the figure that closed the gap.
     minority_interest: float | None = None
@@ -345,6 +351,9 @@ def build_view1(
         stated_rhs=stated_rhs,
         total_equity=total_equity,
         liabilities_derived_from=liabilities_derived_from,
+    )
+    view.equity_basis = (
+        "incl_nci" if (equity_incl is not None and total_equity == equity_incl) else "parent"
     )
 
     pct = lambda v: v / total_assets * 100.0  # noqa: E731

@@ -174,10 +174,14 @@ def render_signin_prompt(
 
     s = get_settings()
     calls = f"{s.free_tier_monthly_calls:,}"
-    pro = escape(price_label(s.pro_price_usd))
-    half = escape(price_label(
+    # Prices are Canadian dollars (the pricing page says so; Stripe charges CAD), so the panel says so
+    # too: "CA$49", the form brand.md uses. A bare "$49" here read as US dollars.
+    cad = lambda amount: "CA" + price_label(amount)  # noqa: E731
+    pro = escape(cad(s.pro_price_usd))
+    half = escape(cad(
         round(s.pro_price_usd * (100 - s.signin_offer_percent) / 100, 2)
     ))
+    pro_calls = f"{s.pro_tier_monthly_calls:,}"
     # Two views in one sheet. `sp-ask` is the offer of a free account;
     # `sp-deal` is shown once, in its place, when a reader says no -- and only
     # if `/api/signin-prompt` reports an offer, since the code and its label
@@ -228,10 +232,11 @@ def render_signin_prompt(
     <div class="sp-view" id="sp-deal" hidden>
       <p class="sp-eyebrow">Before you go</p>
       <h2 id="sp-deal-title">{escape(s.signin_offer_label)}</h2>
-      <p class="sp-lede">Pro is 10,000 calls a month for building on the
+      <p class="sp-lede">Pro is {pro_calls} calls a month for building on the
         data: dashboards, screens, anything that has to stay current.</p>
       <p class="sp-price"><s>{pro}</s> <b>{half}</b> <span>first month,
-        then {pro}/month. Cancel any time, 14-day refund.</span></p>
+        then {pro}/month, in Canadian dollars. Cancel any time, 14-day
+        refund.</span></p>
       <a class="btn sp-claim" id="sp-claim"
         href="/login?next=%2Fdashboard%3Fplan%3Dpro%23billing">Claim the
         discount</a>

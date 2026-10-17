@@ -118,7 +118,9 @@ def test_the_panel_prints_the_discounted_price_from_the_percent(client):
     html = client.get("/").text
     sheet = html.split('id="signin-prompt"', 1)[1]
     assert 'id="sp-deal"' in sheet and 'id="sp-no"' in sheet
-    assert "<s>$49</s> <b>$24.50</b>" in sheet
+    # Canadian dollars, labelled as such (brand.md writes "CA$49"); a bare "$49" read as US dollars.
+    assert "<s>CA$49</s> <b>CA$24.50</b>" in sheet
+    assert "in Canadian dollars" in sheet
 
 
 # --- checkout ----------------------------------------------------------------

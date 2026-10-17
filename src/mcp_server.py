@@ -470,6 +470,124 @@ def _clean(ticker: str) -> str:
     return (ticker or "").strip().lstrip("$").upper()
 
 
+class _ToolFailure(Exception):
+    """A tool that cannot answer. Reported as `isError: true` so a client and its
+    model see a failure rather than an answer that happens to be empty. Raised
+    before `m.spend`, so a failed lookup never costs the caller a call."""
+
+
+_NO_TICKER = (
+    "No ticker given. Pass a ticker symbol such as AAPL; if you only have a "
+    "company name, call search_companies first."
+)
+
+
+def _not_covered(ticker: str, what: str = "balance sheet") -> str:
+    reason = (
+        "its filings report no total for assets" if "balance sheet" in what
+        else "it reports no income statement or cash flow"
+    )
+    return (
+        f"No filed {what} found for {ticker}. It may not be a covered company, "
+        f"it may trade under a different ticker, or {reason}. Retrying the same "
+        "ticker will not help; call "
+        "search_companies with the company name to look the ticker up."
+    )
+
+
+def _money(v: float | int | None, long: bool = True) -> str:
+    """A dollar amount in the two forms brand.md approves: "$383.27B ($383,266,000,000)".
+
+    Billions and trillions to two decimals, millions to a whole number, anything
+    smaller in full. The long form follows unless `long` is False (the compact
+    lines of a multi-period answer), so a model can quote either and a reader
+    can check it against the filing.
+    """
+    if v is None:
+        return "not reported"
+    sign = "-" if v < 0 else ""
+    a = abs(float(v))
+    full = f"{sign}${a:,.0f}"
+    tail = f" ({full})" if long else ""
+    if a >= 1e12:
+        return f"{sign}${a / 1e12:.2f}T{tail}"
+    if a >= 1e9:
+        return f"{sign}${a / 1e9:.2f}B{tail}"
+    if a >= 1e6:
+        return f"{sign}${a / 1e6:,.0f}M{tail}"
+    return full
+
+
+_EQUITY_INCL_NCI = "Equity incl. noncontrolling interest"
+_EQUITY_PARENT = "Shareholders' equity"
+
+
+def _line_value(group: Any, key: str) -> float | None:
+    """One concept's value from a balance sheet's `assets` / `liabilities` / `equity` dict."""
+    c = (group or {}).get(key)
+    if not c or c.get("missing"):
+        return None
+    return c.get("value")
+
+
+def _sheet_totals(sheet: dict[str, Any]) -> dict[str, Any]:
+    """Total assets, total liabilities and the equity figure, from a balance-sheet payload.
+
+    The equity figure is `total_equity_incl_nci` when the filing has one, else
+    `shareholders_equity`; the label says which, because they differ for any
+    company with a noncontrolling interest (Mastercard: $5,606M against $5,611M).
+    """
+    incl = _line_value(sheet.get("equity"), "total_equity_incl_nci")
+    parent = _line_value(sheet.get("equity"), "shareholders_equity")
+    nci = _line_value(sheet.get("equity"), "minority_interest")
+    return {
+        "assets": _line_value(sheet.get("assets"), "total_assets"),
+        "liabilities": _line_value(sheet.get("liabilities"), "total_liabilities"),
+        "equity": incl if incl is not None else parent,
+        "equity_label": _EQUITY_INCL_NCI if incl is not None else _EQUITY_PARENT,
+        "nci_separate": nci if incl is None else None,
+    }
+
+
+def _model_payload(view: Any) -> dict[str, Any]:
+    """`view.as_dict()` without the fields that only exist to draw the site's chart.
+
+    `mode`, `claims_span_pct` and each block's `tone` and `label_style` say how
+    wide a bar is and which colour it gets. A model reading a balance check has
+    no use for them and they bury the verdict. The equity block is labelled for
+    what the figure is: with a combined total on file it INCLUDES the
+    noncontrolling interest, and calling that "Shareholders' equity" was wrong
+    for any company that has one.
+    """
+    payload = view.as_dict()
+    for k in ("mode", "claims_span_pct"):
+        payload.pop(k, None)
+    for side in ("assets", "claims"):
+        for block in payload.get(side, []):
+            block.pop("tone", None)
+            block.pop("label_style", None)
+    label = _EQUITY_INCL_NCI if getattr(view, "equity_basis", "") == "incl_nci" else _EQUITY_PARENT
+    payload["total_equity_label"] = label
+    for block in payload.get("claims", []):
+        if block.get("key") == "equity":
+            block["label"] = label
+    return payload
+
+
+def _totals_sentence(t: dict[str, Any]) -> str:
+    s = (
+        f"Total assets {_money(t['assets'])}. "
+        f"Total liabilities {_money(t['liabilities'])}. "
+        f"{t['equity_label']} {_money(t['equity'])}."
+    )
+    if t.get("nci_separate") is not None:
+        s += (
+            f" Noncontrolling interest {_money(t['nci_separate'])} is reported "
+            "as a separate line."
+        )
+    return s
+
+
 def _tool_search_companies(args: dict[str, Any], _m: _Metered) -> tuple[str, Any]:
     from src.company import lookup
 
@@ -517,15 +635,11 @@ def _tool_get_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, Any
 
     ticker = _clean(str(args.get("ticker") or ""))
     if not ticker:
-        return "No ticker given.", None
+        raise _ToolFailure(_NO_TICKER)
 
     sheet = get_balance_sheet(ticker)
     if sheet is None:
-        return (
-            f"No filed balance sheet for {ticker}. It may not be a covered "
-            "company, or it reports no total for assets.",
-            None,
-        )
+        raise _ToolFailure(_not_covered(ticker))
 
     m.spend(ticker)
 
@@ -533,10 +647,14 @@ def _tool_get_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, Any
     payload["source"] = "SEC Financial Statement Data Sets (as reported)"
 
     name = sheet.company_name or ticker
+    # The three totals are IN the text, not only in the structured payload: a
+    # client that shows a model just the text still shows it the numbers.
     return (
         f"{name} ({ticker}) balance sheet as filed, period ending "
-        f"{sheet.period_end}, filed {sheet.filing_date}. Figures are "
-        "as-reported to the SEC, not restated.",
+        f"{sheet.period_end}, filed {sheet.filing_date}. "
+        f"{_totals_sentence(_sheet_totals(payload))} "
+        "Figures are as-reported to the SEC, not restated. Every line item is "
+        "in the structured result.",
         payload,
     )
 
@@ -546,32 +664,51 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
 
     ticker = _clean(str(args.get("ticker") or ""))
     if not ticker:
-        return "No ticker given.", None
+        raise _ToolFailure(_NO_TICKER)
 
     view = build_view1(ticker)
     if view is None:
-        return (
-            f"No filed balance sheet for {ticker} to check. It may not be a "
-            "covered company, or it reports no total for assets.",
-            None,
-        )
+        raise _ToolFailure(_not_covered(ticker, "balance sheet to check"))
 
     m.spend(ticker)
 
     from src.report.company_facts import stated_agrees
 
-    payload = view.as_dict()
+    payload = _model_payload(view)
     name = view.company_name or ticker
     period = view.period_end
-    # Only meaningful when the plain check failed; said separately so a client
-    # reading the structured data does not have to infer it from `notes`.
+    # Whether the FILER's own stated total settles a failed check. It only means
+    # something when the plain check failed, so it is three-valued:
+    #   null  - the filing balances as read; there was nothing to settle.
+    #   true  - it failed as read, but the filer's stated liabilities-plus-equity
+    #           equals its total assets, so the gap is in what this dataset read.
+    #   false - it failed as read and the filer's stated total does not settle it.
+    # It used to be a plain boolean, so every balanced filing carried `false`,
+    # which reads as "the filer's totals disagree" -- the opposite of the truth.
     # The band is drawn only when the components fall SHORT of the stated total;
     # if they overshoot it the shortfall wording would be backwards.
-    filer_totals_agree = (
-        (not view.balances) and stated_agrees(view)
-        and any(b.key == "unread_components" for b in view.claims)
-    )
+    filer_totals_agree: bool | None
+    if view.balances:
+        filer_totals_agree = None
+        filer_note = (
+            "Not applicable: the filing balances as read, so there was no "
+            "difference to settle against the filer's stated total."
+        )
+    elif stated_agrees(view) and any(b.key == "unread_components" for b in view.claims):
+        filer_totals_agree = True
+        filer_note = (
+            "The filer's own stated total for liabilities plus equity equals "
+            "its total assets, so the filing balances as filed; the shortfall "
+            "is in what this dataset read, not in the filing."
+        )
+    else:
+        filer_totals_agree = False
+        filer_note = (
+            "The filer's stated total does not settle the difference. Read the "
+            "notes before drawing any conclusion."
+        )
     payload["filer_totals_agree"] = filer_totals_agree
+    payload["filer_totals_note"] = filer_note
 
     # The three outcomes are genuinely different claims and the text says
     # which one it is making. "Balances once you add the minority interest"
@@ -620,6 +757,16 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
             "drawing any conclusion about the company."
         )
 
+    # The three totals the verdict is about, in the text, so a client that shows
+    # only the text still shows what was checked.
+    verdict += "\n" + _totals_sentence({
+        "assets": view.total_assets,
+        "liabilities": view.total_liabilities,
+        "equity": view.total_equity,
+        "equity_label": payload["total_equity_label"],
+    })
+    if view.liabilities_derived_from:
+        verdict += f" (Liabilities derived: {view.liabilities_derived_from}.)"
     if view.missing_components:
         verdict += (
             "\nNot every component was reported: "
@@ -703,32 +850,67 @@ def _tier_of(m: _Metered) -> str:
     return "free" if m.anonymous else str(m.account.tier)
 
 
+def _clamp_years(args: dict[str, Any], cap: int | None, tier: str) -> tuple[int | None, int | None, str]:
+    """(years asked for, years allowed, a sentence when the plan cut the request).
+
+    The free plan reaches back one year and a longer request used to be cut to
+    that with nothing said: the result carried `years_requested: 1` and the
+    caller never learned it had asked for more.
+    """
+    try:
+        asked = int(args["years"]) if args.get("years") else None
+    except (TypeError, ValueError):
+        asked = None
+    wanted = asked if asked is not None else cap
+    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    note = ""
+    if cap is not None and asked is not None and asked > cap:
+        note = (
+            f"You asked for {asked} years; the {tier} plan reaches back {cap} "
+            f"year{'s' if cap != 1 else ''}, so {cap} "
+            f"year{'s are' if cap != 1 else ' is'} shown. More history is on "
+            "higher plans: https://balanceproof.dev/pricing."
+        )
+    return asked, allowed, note
+
+
 def _tool_get_history(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     from src import plans
     from src.company.history import history
 
     ticker = _clean(str(args.get("ticker") or ""))
     if not ticker:
-        return "No ticker given.", None
+        raise _ToolFailure(_NO_TICKER)
     cap = plans.allowance(_tier_of(m), "history_years")
-    try:
-        wanted = int(args["years"]) if args.get("years") else cap
-    except (TypeError, ValueError):
-        wanted = cap
-    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    asked, allowed, clamp_note = _clamp_years(args, cap, _tier_of(m))
     out = history(ticker, allowed)
     if out is None:
-        return f"No filed balance sheets for {ticker}.", None
+        raise _ToolFailure(_not_covered(ticker, "balance sheets"))
     m.spend(ticker)
     out["years_allowed"] = cap
+    out["years_asked"] = asked
     payload = jsonable_encoder(out)
-    note = "" if cap is None else (
-        f" Your plan reaches back {cap} year{'s' if cap != 1 else ''}; "
+    note = clamp_note or ("" if cap is None else (
+        f"Your plan reaches back {cap} year{'s' if cap != 1 else ''}; "
         "more history is on higher plans at https://balanceproof.dev/pricing."
+    ))
+    lines = []
+    for sheet in payload.get("balance_sheets", [])[:8]:
+        t = _sheet_totals(sheet)
+        filed = ((sheet.get("assets") or {}).get("total_assets") or {}).get("filing_date")
+        lines.append(
+            f"- {sheet['period_end']}" + (f" (filed {filed})" if filed else "")
+            + f": assets {_money(t['assets'], long=False)}, liabilities "
+            f"{_money(t['liabilities'], long=False)}, {t['equity_label'].lower()} "
+            f"{_money(t['equity'], long=False)}"
+        )
+    more = (
+        f"\n(Showing the newest {len(lines)} of {out['periods']}; all are in the structured result.)"
+        if out["periods"] > len(lines) else ""
     )
     return (
-        f"{out['periods']} balance sheet(s) for {ticker}; the database holds "
-        f"periods back to {out['available_from']}.{note}",
+        f"{out['periods']} balance sheet(s) for {ticker}; the data goes back to "
+        f"{out['available_from']}. {note}\n" + "\n".join(lines) + more,
         payload,
     )
 
@@ -784,7 +966,7 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
 
     ticker = _clean(str(args.get("ticker") or ""))
     if not ticker:
-        return "No ticker given.", None
+        raise _ToolFailure(_NO_TICKER)
     period = "quarterly" if args.get("period") == "quarterly" else "annual"
     try:
         as_of = _date_arg(args.get("as_of"))
@@ -798,19 +980,54 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
         if as_of > dt.date.today():
             return "as_of cannot be in the future.", None
     cap = plans.allowance(_tier_of(m), "history_years")
-    try:
-        wanted = int(args["years"]) if args.get("years") else cap
-    except (TypeError, ValueError):
-        wanted = cap
-    allowed = wanted if cap is None or (wanted is not None and wanted <= cap) else cap
+    asked, allowed, clamp_note = _clamp_years(args, cap, _tier_of(m))
     out = statements(ticker, period, allowed, as_of)
     if out is None:
-        return f"No filed income statement or cash flow for {ticker}.", None
+        raise _ToolFailure(_not_covered(ticker, "income statement or cash flow"))
     m.spend(ticker)
+    out["years_asked"] = asked
+    out["years_allowed"] = cap
     sm = out["checks_summary"]
-    return (
+    if not out["periods"]:
+        # `years` is a calendar window back from today, so a filer whose last
+        # annual period ended more than a year ago has nothing inside it. Say so,
+        # and say where the newest period is, instead of returning an empty list.
+        full = statements(ticker, period, None, as_of)
+        newest = full["periods"][0]["period_end"] if full and full["periods"] else None
+        text = (
+            f"No {period} period for {ticker} ended in the last {allowed} "
+            f"year{'s' if allowed != 1 else ''}"
+            + (f"; the newest {period} period ended {newest}, outside that window." if newest else ".")
+            + (" Try period=quarterly, or " if period == "annual" else " ")
+            + "see https://balanceproof.dev/pricing for longer history."
+        )
+        return f"{clamp_note} {text}".strip(), jsonable_encoder(out)
+
+    def _num(d: dict[str, Any] | None, k: str) -> str:
+        v = (d or {}).get(k)
+        return _money(v, long=False) if v is not None else "n/a"
+
+    lines = []
+    for p in out["periods"][:8]:
+        checks = [c for c in p.get("checks", []) if c.get("status") != "not_testable"]
+        ok = sum(1 for c in checks if c.get("status") == "passed")
+        inc, cf = p.get("income_statement"), p.get("cash_flow")
+        lines.append(
+            f"- {p['period_end']}" + (f" {p['fiscal_period']}" if p.get("fiscal_period") else "")
+            + f": revenue {_num(inc, 'revenue')}, gross profit {_num(inc, 'gross_profit')}, "
+            f"net income {_num(inc, 'net_income')}, operating cash flow {_num(cf, 'operating_cash_flow')}; "
+            f"checks {ok}/{len(checks)} passed"
+        )
+    more = (
+        f"\n(Showing the newest {len(lines)} of {len(out['periods'])}; all are in the structured result.)"
+        if len(out["periods"]) > len(lines) else ""
+    )
+    head = (
         f"{len(out['periods'])} {period} period(s) for {ticker}: {sm['passed']} of "
-        f"{sm['tested']} checks passed, {sm['failed']} failed.",
+        f"{sm['tested']} checks passed, {sm['failed']} failed."
+    )
+    return (
+        (clamp_note + " " if clamp_note else "") + head + "\n" + "\n".join(lines) + more,
         jsonable_encoder(out),
     )
 
@@ -1022,6 +1239,13 @@ def _dispatch(
 
         try:
             text, structured = impl(args, metered)
+        except _ToolFailure as exc:
+            # A failure the tool chose to report (unknown ticker, no ticker):
+            # `isError: true`, and still the plan, so the caller sees what it has left.
+            return _result(req_id, _tool_result(
+                str(exc), is_error=True,
+                meta={"balanceproof/plan": metered.plan()},
+            ))
         except Exception as exc:  # noqa: BLE001 - a tool error must still say why
             log.exception("mcp_tool_failed", tool=name, error=str(exc))
             return _result(req_id, _tool_result(

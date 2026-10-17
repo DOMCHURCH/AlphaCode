@@ -336,15 +336,13 @@ def test_check_reports_a_filing_that_balances(client):
     assert result["structuredContent"]["balances"] is True
 
 
-def test_an_unknown_ticker_is_an_answer_not_an_error(client):
-    """"We do not cover that company" is a successful query with a negative
-    result, so it is NOT flagged `isError`.
-
-    The distinction is not pedantry. `isError` tells a model the call failed
-    and is worth correcting and retrying; a coverage miss is neither, and
-    flagging it sends the model round a loop it cannot win. What matters is
-    that the text says plainly that nothing was found, and that it arrives as
-    a normal result rather than a JSON-RPC error the model never sees.
+def test_an_unknown_ticker_is_reported_as_an_error_that_says_what_to_do(client):
+    """"We do not cover that company" is flagged `isError`, by the owner's
+    decision (2026-10-16). It used to be a plain answer, on the argument that
+    `isError` sends a model round a retry loop it cannot win. The answer to that
+    is the text: it says retrying the same ticker will not help and names the
+    tool that will (search_companies). It still arrives as a normal result
+    rather than a JSON-RPC error, so the model sees it.
     """
     r = rpc(client, "tools/call", {
         "name": "check_balance_sheet", "arguments": {"ticker": "NOSUCH"},
@@ -352,8 +350,14 @@ def test_an_unknown_ticker_is_an_answer_not_an_error(client):
     assert r.status_code == 200
     assert "error" not in r.json()
     result = r.json()["result"]
-    assert result["isError"] is False
-    assert "No filed balance sheet" in result["content"][0]["text"]
+    assert result["isError"] is True
+    text = result["content"][0]["text"]
+    assert "No filed balance sheet" in text
+    assert "NOSUCH" in text
+    assert "Retrying the same ticker will not help" in text
+    assert "search_companies" in text
+    assert "structuredContent" not in result
+    assert result["_meta"]["balanceproof/plan"]["tier"] == "demo"
 
 
 def test_unknown_tool_name_is_reported_to_the_model(client):
@@ -436,3 +440,189 @@ def test_a_bad_api_key_is_refused_rather_than_silently_demoted(client):
     ).json()["result"]
     assert result["isError"] is True
     assert "not recognised" in result["content"][0]["text"]
+
+
+# ---------------------------------------------------------------------------
+# Launch prep (2026-10-16): the numbers are in the text, the labels are honest,
+# and a failure says it failed
+# ---------------------------------------------------------------------------
+
+
+def _text(result):
+    """What a text-only client shows a model: the content text and nothing else."""
+    return "\n".join(c["text"] for c in result["content"] if c["type"] == "text")
+
+
+def _call(client, name, **arguments):
+    return rpc(client, "tools/call", {"name": name, "arguments": arguments}).json()["result"]
+
+
+def _seed_totals(ticker, assets, liabilities, equity, *, incl=None, nci=None,
+                 period=dt.date(2026, 6, 30), filed=dt.date(2026, 7, 31), fp="Q3"):
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    rows = [("total_assets", assets), ("total_liabilities", liabilities), ("total_equity", equity)]
+    if incl is not None:
+        rows.append(("total_equity_incl_nci", incl))
+    if nci is not None:
+        rows.append(("minority_interest", nci))
+    with session_scope() as s:
+        if period == dt.date(2026, 6, 30):
+            s.add(UniverseSnapshot(as_of_date=dt.date.today(), ticker=ticker, name=f"{ticker} Co"))
+        for metric, val in rows:
+            s.add(Fundamental(ticker=ticker, metric=metric, value=val, period_end=period,
+                              fiscal_period=fp, filing_date=filed, source="sec"))
+
+
+APPLE = dict(assets=383_266_000_000.0, liabilities=275_746_000_000.0, equity=107_520_000_000.0)
+MASTERCARD = dict(assets=57_691_000_000.0, liabilities=52_085_000_000.0, equity=5_611_000_000.0,
+                  incl=5_606_000_000.0, nci=-5_000_000.0)
+
+
+def test_balance_sheet_text_alone_carries_the_three_totals(client):
+    _seed_totals("APTT", **APPLE)
+    text = _text(_call(client, "get_balance_sheet", ticker="APTT"))
+    assert "Total assets $383.27B ($383,266,000,000)" in text
+    assert "Total liabilities $275.75B ($275,746,000,000)" in text
+    assert "Shareholders' equity $107.52B ($107,520,000,000)" in text
+    assert "not restated" in text
+
+
+def test_check_text_alone_carries_the_verdict_and_the_totals(client):
+    _seed_totals("APTT", **APPLE)
+    text = _text(_call(client, "check_balance_sheet", ticker="APTT"))
+    assert "balances for the period ending" in text
+    assert "Total assets $383.27B ($383,266,000,000)" in text
+    assert "Total liabilities $275.75B ($275,746,000,000)" in text
+    assert "Shareholders' equity $107.52B ($107,520,000,000)" in text
+
+
+def test_an_equity_figure_that_includes_the_nci_is_labelled_that_way(client):
+    _seed_totals("MAXX", **MASTERCARD)
+    check = _call(client, "check_balance_sheet", ticker="MAXX")
+    text = _text(check)
+    assert "Equity incl. noncontrolling interest $5.61B ($5,606,000,000)" in text, text
+    assert "Shareholders' equity" not in text
+    structured = check["structuredContent"]
+    assert structured["total_equity_label"] == "Equity incl. noncontrolling interest"
+    equity_block = next(b for b in structured["claims"] if b["key"] == "equity")
+    assert equity_block["label"] == "Equity incl. noncontrolling interest"
+    assert equity_block["value"] == 5_606_000_000.0
+    sheet_text = _text(_call(client, "get_balance_sheet", ticker="MAXX"))
+    assert "Equity incl. noncontrolling interest $5.61B ($5,606,000,000)" in sheet_text
+
+
+def test_a_parent_only_equity_figure_keeps_the_shareholders_equity_label(client):
+    _seed_totals("APTT", **APPLE)
+    structured = _call(client, "check_balance_sheet", ticker="APTT")["structuredContent"]
+    assert structured["total_equity_label"] == "Shareholders' equity"
+    assert next(b for b in structured["claims"] if b["key"] == "equity")["label"] == "Shareholders' equity"
+
+
+def test_check_payload_carries_no_chart_rendering_fields(client):
+    _seed_totals("APTT", **APPLE)
+    structured = _call(client, "check_balance_sheet", ticker="APTT")["structuredContent"]
+    assert "mode" not in structured
+    assert "claims_span_pct" not in structured
+    for block in structured["assets"] + structured["claims"]:
+        assert "tone" not in block
+        assert "label_style" not in block
+    # what a reader does need is still there
+    for key in ("balances", "identity_basis", "imbalance_pct", "total_assets",
+                "total_liabilities", "total_equity", "missing_components", "notes"):
+        assert key in structured
+
+
+def test_filer_totals_agree_is_null_when_the_filing_simply_balances(client):
+    _seed_totals("APTT", **APPLE)
+    structured = _call(client, "check_balance_sheet", ticker="APTT")["structuredContent"]
+    assert structured["balances"] is True
+    assert structured["filer_totals_agree"] is None
+    assert structured["filer_totals_note"].startswith("Not applicable")
+
+
+@pytest.mark.parametrize("tool", [
+    "get_balance_sheet", "check_balance_sheet", "get_balance_sheet_history",
+    "get_financial_statements",
+])
+def test_every_ticker_tool_reports_an_unknown_ticker_as_an_error(client, tool):
+    result = _call(client, tool, ticker="NOSUCH")
+    assert result["isError"] is True
+    text = _text(result)
+    assert "NOSUCH" in text and "search_companies" in text
+    missing = _call(client, tool)
+    assert missing["isError"] is True
+    assert "No ticker given" in _text(missing)
+
+
+def test_an_unknown_ticker_is_still_not_billed(client):
+    _call(client, "get_balance_sheet", ticker="NOSUCH")
+    assert _count("demo_usage") == 0
+
+
+def test_a_longer_history_than_the_plan_allows_says_it_was_cut(client):
+    _seed_totals("HSTT", **APPLE)
+    result = _call(client, "get_balance_sheet_history", ticker="HSTT", years=3)
+    text = _text(result)
+    assert "You asked for 3 years; the free plan reaches back 1 year, so 1 year is shown." in text
+    assert result["structuredContent"]["years_asked"] == 3
+    assert result["structuredContent"]["years_allowed"] == 1
+    assert "- 2026-06-30" in text and "assets $383.27B" in text
+
+
+def test_history_lists_each_period_with_its_totals_in_the_text(client):
+    _seed_totals("HSTT", **APPLE)
+    _seed_totals("HSTT", assets=371_082_000_000.0, liabilities=264_591_000_000.0,
+                 equity=106_491_000_000.0, period=dt.date(2026, 3, 31),
+                 filed=dt.date(2026, 5, 1), fp="Q2")
+    text = _text(_call(client, "get_balance_sheet_history", ticker="HSTT"))
+    assert "2 balance sheet(s) for HSTT" in text
+    assert "- 2026-06-30 (filed 2026-07-31): assets $383.27B, liabilities $275.75B" in text
+    assert "- 2026-03-31 (filed 2026-05-01): assets $371.08B, liabilities $264.59B" in text
+
+
+def _seed_old_annual(ticker="OLDA"):
+    """A filer whose only annual period ended more than a year ago."""
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    fy, filed = dt.date(2024, 12, 31), dt.date(2025, 2, 15)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(as_of_date=dt.date.today(), ticker=ticker, name="Old Annual Co"))
+        for metric, val in [("revenue", 1000e6), ("cogs", 600e6), ("gross_profit", 400e6)]:
+            s.add(Fundamental(ticker=ticker, metric=metric, value=val, period_end=fy,
+                              fiscal_period="FY", filing_date=filed, source="sec"))
+
+
+def test_an_empty_annual_window_says_why_and_where_the_data_is(client):
+    _seed_old_annual()
+    result = _call(client, "get_financial_statements", ticker="OLDA", period="annual")
+    assert result["isError"] is False
+    text = _text(result)
+    assert "No annual period for OLDA ended in the last 1 year" in text
+    assert "the newest annual period ended 2024-12-31, outside that window" in text
+    assert "period=quarterly" in text
+    assert result["structuredContent"]["periods"] == []
+
+
+def test_statements_text_lists_each_period_with_its_numbers(client):
+    from src.storage.db import session_scope
+    from src.storage.models import Fundamental, UniverseSnapshot
+
+    q, filed = dt.date(2026, 3, 31), dt.date(2026, 5, 1)
+    with session_scope() as s:
+        s.add(UniverseSnapshot(as_of_date=dt.date.today(), ticker="STQQ", name="Statement Q Co"))
+        for metric, val in [("revenue", 96_221e6), ("cogs", 24_079e6), ("gross_profit", 72_142e6),
+                            ("net_income", 59_688e6), ("operating_cash_flow", 24_077e6),
+                            ("investing_cash_flow", -8_695e6), ("financing_cash_flow", -6_176e6),
+                            ("cash_change", 9_206e6)]:
+            s.add(Fundamental(ticker="STQQ", metric=metric, value=val, period_end=q,
+                              fiscal_period="Q1", filing_date=filed, source="sec"))
+    with session_scope() as s:   # a fiscal year on file, so the quarter can be placed in it
+        for metric, val in [("revenue", 380_000e6), ("cogs", 95_000e6), ("gross_profit", 285_000e6)]:
+            s.add(Fundamental(ticker="STQQ", metric=metric, value=val, period_end=dt.date(2025, 12, 31),
+                              fiscal_period="FY", filing_date=dt.date(2026, 2, 15), source="sec"))
+    text = _text(_call(client, "get_financial_statements", ticker="STQQ", period="quarterly"))
+    assert "- 2026-03-31 Q1: revenue $96.22B, gross profit $72.14B, net income $59.69B, operating cash flow $24.08B; checks 2/2 passed" in text, text
+    assert "checks" in text
