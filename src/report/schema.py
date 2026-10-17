@@ -633,7 +633,7 @@ def software_ld() -> str:
             "featureList": [
                 f"Reconciled balance sheets for {_companies()} US-listed companies",
                 "Validated against Assets = Liabilities + Equity",
-                "As-reported figures, never restated",
+                "Figures as reported to the SEC; as_of returns the value known on a past date",
                 "JSON responses, API key authentication",
                 "OpenAPI specification",
             ],

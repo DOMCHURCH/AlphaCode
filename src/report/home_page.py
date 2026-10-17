@@ -1465,8 +1465,9 @@ def _where_from(stats: dict) -> str:
          "Sets</a>, plus its XBRL frames API. Nothing scraped, bought or estimated."),
         ("Freshness", "Every load starts from the last filing already held, so "
          "a gap of any length closes on the next run."),
-        ("As reported", "Where a figure was filed twice, the earliest filing "
-         "wins: what the company said at the time."),
+        ("As reported", "Figures are as reported to the SEC. When a later filing "
+         "revises one, the default view shows the revised value under the later "
+         "filing's date; as_of returns the value known on a past date."),
         ("The check", escape(check)),
     )
     lis = "".join(f"<li><b>{t}.</b> {b}</li>" for t, b in items)

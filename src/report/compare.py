@@ -432,7 +432,7 @@ PAGES: tuple[Page, ...] = (
         ),
         rows=(
             Row("Resolves duplicate XBRL tags", "Yes — A = L + E", "Ask. Most do not document it"),
-            Row("As-reported, not restated", "Yes, with filing dates", "Ask — many silently serve restated"),
+            Row("Filing date on every figure", "Yes — the filing that reported the value", "Ask — not all give one"),
             Row("Point-in-time queries", "Yes — <code>as_of=</code> returns only what was filed by that date", "Ask"),
             Row("Income statement and cash flow, checked", "Yes — gross profit and the cash-flow identity, per period", "Rare"),
             Row("Feed of restatements and failed checks", "Yes — every company, as JSON or CSV", "Not offered"),
@@ -866,7 +866,7 @@ decision on it; it is one <code>curl -I</code>.</p>
             Row("Says when a figure is missing and why", "Yes — published as its own category, including where the line was never tagged", "Very rare"),
             Row("Handles mezzanine equity", "Yes, as its own block", "Ask \u2014 this is where SPACs and biotechs break"),
             Row("Handles noncontrolling interest", "Yes, added explicitly and said out loud", "Ask"),
-            Row("As-reported, not restated", "Yes, with filing dates", "Ask"),
+            Row("Point-in-time (as_of) history", "Yes, with filing dates", "Ask"),
             Row("Free tier without a call", "{FREE_CALLS}/month, no card", "Varies"),
         ),
         choose_us=(
@@ -1361,7 +1361,7 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
             Row("Balance sheet reconciles as served", "Yes \u2014 or the exception is named", "Test it: pull A, L and E for fifty filers"),
             Row("Tells you the basis it reconciled on", "Yes \u2014 plain, NCI, mezzanine, or both", "Ask"),
             Row("Handles redeemable equity", "Yes, as its own block", "Test it on a SPAC or a biotech"),
-            Row("As-reported, not restated", "Yes, with filing dates", "Ask \u2014 many serve restated silently"),
+            Row("Filing date on every figure", "Yes \u2014 the filing that reported the value", "Ask \u2014 not all give one"),
             Row("Names the filings it cannot read", "Yes, by ticker, with the reason", "Rare"),
             Row("Point-in-time (as_of) for backtests", "Yes — only what was filed by that date", "Ask"),
             Row("Income statement and cash flow, checked", "Yes, every period", "Rare"),

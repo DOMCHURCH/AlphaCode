@@ -452,3 +452,33 @@ def test_no_page_calls_the_download_a_static_or_never_refreshed_snapshot():
         text = (root / "src" / name).read_text(encoding="utf-8", errors="ignore").lower()
         hits += [(name, w) for w in banned if w in text]
     assert hits == []
+
+
+def test_no_page_says_figures_are_never_restated_or_that_the_earliest_filing_wins():
+    """The default view shows the latest filing's value (a revision wins), under that
+    filing's date; `as_of` returns what was known on the date asked. Copy that says
+    figures are "not restated", "never revised" or that the earliest filing wins is
+    the opposite of what the code does. (src/mcp_server.py is checked elsewhere.)"""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    banned = ("not restated", "never restated", "not revised", "earliest filing wins",
+              "as it was later restated", "restated flag", "flag when a later")
+    hits = []
+    for base in (root / "src" / "report", root / "static_seo"):
+        for p in base.rglob("*"):
+            if p.suffix in {".py", ".txt", ".md", ".html"} and "research" not in p.parts:
+                text = p.read_text(encoding="utf-8", errors="ignore").lower()
+                hits += [(p.name, w) for w in banned if w in text]
+    for name in ("api.py", "dataset.py", "accounts.py"):
+        text = (root / "src" / name).read_text(encoding="utf-8", errors="ignore").lower()
+        hits += [(name, w) for w in banned if w in text]
+    assert hits == []
+
+
+def test_the_compare_pages_make_no_claim_that_figures_are_not_restated():
+    from src.report import compare
+
+    rows = [r for page in compare.PAGES for r in page.rows]
+    labels = [r.label if hasattr(r, "label") else r[0] for r in rows]
+    assert not any("not restated" in str(x).lower() for x in labels)

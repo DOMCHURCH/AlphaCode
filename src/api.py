@@ -4331,7 +4331,7 @@ def restatements_page(request: Request) -> HTMLResponse:
 
 @app.get("/dataset", response_class=HTMLResponse)
 def dataset_page(request: Request) -> HTMLResponse:
-    """What is in the CSV, when it was generated, and that it never updates.
+    """What is in the CSV, how current it is, and how the download works.
 
     Public, and deliberately so: everything on it is a reason to buy or a
     reason not to, and putting that behind the purchase is how somebody buys

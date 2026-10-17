@@ -626,9 +626,9 @@ def faq(
             f"""<p>Anything that needs as-reported balance-sheet figures on a
               schedule. In practice that has been screens that rank companies on
               a filed ratio, dashboards that redraw when a 10-Q lands, backtests
-              that need the figure as it was reported rather than as it was later
-              restated, and research notebooks that pull a peer group in one
-              loop.</p>
+              that need the value that was known on a past date (the
+              <code>as_of</code> parameter, Pro and above), and research
+              notebooks that pull a peer group in one loop.</p>
             <p>Pro is {compact(pro_limit)} calls a month, which is roughly 330 a
               day, comfortably a few hundred companies refreshed daily. If your
               use needs more than that, email {contact} before you build against
@@ -841,11 +841,11 @@ def render_pricing(
         ),
         (
             "What can I build with a balance sheet API?",
-            "Anything needing as-reported balance-sheet figures on a schedule: "
-            "screens that rank companies on a filed ratio, dashboards that "
-            "redraw when a 10-Q lands, backtests that need the figure as it "
-            "was reported rather than as it was later restated, and research "
-            "notebooks that pull a peer group in one loop.",
+            "Anything needing as-reported balance-sheet figures on a "
+            "schedule: screens that rank companies on a filed ratio, dashboards "
+            "that redraw when a 10-Q lands, backtests that need the value that "
+            "was known on a past date (the as_of parameter, Pro and above), and "
+            "research notebooks that pull a peer group in one loop.",
         ),
     ]
     return shell(
