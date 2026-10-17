@@ -725,6 +725,12 @@ def test_the_dataset_page_says_how_the_download_works_and_how_current_it_is(clie
     # the one column that is not blank only when two copies disagree.
     assert "month-end date" in html and "up to 15 days" in html
     assert "period_note" in html
+    # The note is neutral, not an amber warning, and it does not claim the file
+    # is "not restated": the file keeps the latest filing's value, and says so.
+    assert 'class="banner note"' in html and 'class="banner warn"' not in html
+    assert "as-reported, not restated" not in html.lower()
+    assert "Each figure is the value reported in a filing, dated by that filing" in html
+    assert "the earlier value is not in it" in html
     # Size and rows, so a large download is a decision rather than a surprise.
     assert "File size" in html and "Rows" in html
 

@@ -427,17 +427,14 @@
 .faq-a strong{color:var(--ink)}
 .faq-a .code{margin:12px 0}
 
-/* ---- the static-snapshot warning ------------------------------------------
-   The one property that decides whether the dataset is the right purchase, so
-   it is amber rather than blue: this is not a confirmation, it is a caveat a
-   buyer must read BEFORE paying. Still pressed rather than shouted -- the site
-   spends colour on data, and this is the only exception it makes. */
-.banner.warn{align-items:flex-start}
-/* --yellow is the site's existing warning tint, used on the drawings. The
-   glyph goes to ink rather than the usual --bg: white on #F3C218 is well under
-   any contrast floor, and this is the one banner that has to be read. */
-.banner.warn .banner-tick{background:var(--yellow);color:var(--ink);margin-top:1px}
-.banner.warn strong{color:var(--ink)}
+/* ---- a plain note ---------------------------------------------------------
+   How the dataset download works, said above the button. It is information a
+   buyer should read before paying, not a warning, so it takes the site's
+   ordinary banner (the default blue tick) rather than a tint of its own. Only
+   the alignment changes: the text runs to several lines, so the tick sits at
+   the first one. */
+.banner.note{align-items:flex-start}
+.banner.note .banner-tick{margin-top:1px}
 .banner.live .banner-tick{background:var(--blue)}
 
 /* ---- worked examples ---- */

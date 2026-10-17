@@ -81,12 +81,14 @@ def render_dataset(
       the database each time you ask for it.</p>
   </header>
 
-  <!-- The disclaimer is the FIRST thing under the heading, not a footnote.
-       Somebody who reads only this box has read the thing that decides whether
-       this is the right purchase for them. -->
-  <section class="sec" id="static-warning">
-    <div class="banner warn" role="note">
-      <span class="banner-tick" aria-hidden="true">&#9888;</span>
+  <!-- How the download works is the FIRST thing under the heading, not a
+       footnote. Somebody who reads only this box has read the thing that decides
+       whether this is the right purchase for them. It is a plain note, not a
+       warning: nothing here is wrong with the product, it is just not what a
+       reader might assume. -->
+  <section class="sec" id="how-it-works">
+    <div class="banner note" role="note">
+      <span class="banner-tick" aria-hidden="true">i</span>
       <span><strong>Built when you download it.</strong> Each download is
         generated from our database at that moment, so it holds everything
         loaded through {escape(as_of)}. The copy you save does not change
@@ -172,9 +174,12 @@ def render_dataset(
         column, <code>period_note</code>, is blank except on the two rows of a
         figure whose value differs between a month-end date and the real date;
         each names the other&rsquo;s date. Neither value is guessed at.</li>
-      <li><b>It is as-reported, not restated.</b> Each row is the figure as it
-        appeared in the filing, which is the point: it is what a backtest needs
-        and what a restated feed cannot give you.</li>
+      <li><b>Each figure is the value reported in a filing, dated by that
+        filing.</b> The <code>filing_date</code> column is the filing that
+        reported the value shown. When a later filing changes a figure, the file
+        carries the later value under the later filing&rsquo;s date; the earlier
+        value is not in it. The site&rsquo;s
+        <a href="/restatements">restatements</a> page lists those changes.</li>
       <li><b>It is a large file.</b> Leave the tab open while it streams; it is
         generated row by row rather than served from disk.</li>
       <li><b>Questions before paying?</b> Email {contact}. The
