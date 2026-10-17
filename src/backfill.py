@@ -34,6 +34,7 @@ from src.ingest import (
     sec_datasets,
     sec_edgar,
     sec_frames,
+    sec_periods,
     stooq,
     xbrl,
     yahoo,
@@ -225,7 +226,9 @@ def wipe_fundamentals() -> int:
 
 
 def _replace_fundamentals(
-    qs: list[tuple[int, int]], cik_map: Mapping[str, str]
+    qs: list[tuple[int, int]],
+    cik_map: Mapping[str, str],
+    real_periods: Mapping[tuple[int, int], Mapping[str, dt.date]] | None = None,
 ) -> tuple[int, int]:
     """Delete the old rows and write the new ones in ONE transaction.
 
@@ -233,6 +236,11 @@ def _replace_fundamentals(
     so the only way it can fail is a parse, a validation abort, or the write
     itself, and all three roll the delete back with it. The table is never
     observably empty and never half-loaded.
+
+    `real_periods` is {(year, quarter): {accession: real period end}}, fetched by
+    the caller BEFORE the delete (SEC rounds `ddate` to a month end; see
+    src/company/periods.py). A quarter or accession missing from it keeps the
+    rounded date -- the pre-existing behaviour -- so an empty mapping is safe.
 
     Quarters are parsed one at a time and the frame is released before the next,
     so peak memory is one quarter's num.txt, not seven.
@@ -261,7 +269,9 @@ def _replace_fundamentals(
                 )
             sub, num = sec_datasets.parse_dataset(zbytes)
             del zbytes
-            rows, report = xbrl.extract_and_validate(sub, num, cik_map)
+            rows, report = xbrl.extract_and_validate(
+                sub, num, cik_map, real_periods=(real_periods or {}).get((year, q))
+            )
             del sub, num
             _LAST_EXTRACTION_REPORTS[f"{year}q{q}"] = report.as_dict()
             raw = len(rows)
@@ -363,9 +373,13 @@ async def reload_fundamentals(quarters: int = 7) -> dict[str, Any]:
     # --- 2. swap, transactionally -------------------------------------------
     _update_reload(phase="replacing", data_intact=True)
     cik_map = await _cik_to_ticker()
+    # The real period end of each filing, from the frames API, fetched here --
+    # before the delete -- so the transaction itself does no network I/O. Never
+    # raises: a quarter it cannot get keeps SEC's rounded dates and says so.
+    real_periods = {(y, q): await sec_periods.real_periods_for(y, q) for y, q in have}
     try:
         deleted, written = await asyncio.to_thread(
-            _replace_fundamentals, have, cik_map
+            _replace_fundamentals, have, cik_map, real_periods
         )
     except Exception as exc:  # noqa: BLE001 - the transaction rolled back
         _update_reload(
@@ -1543,7 +1557,9 @@ async def backfill_fundamentals(
         try:
             zbytes = await sec_datasets.download_dataset(year, q)
             sub, num = sec_datasets.parse_dataset(zbytes)
-            rows, report = xbrl.extract_and_validate(sub, num, cik_map)
+            rows, report = xbrl.extract_and_validate(
+                sub, num, cik_map, real_periods=await sec_periods.real_periods_for(year, q)
+            )
         except xbrl.ExtractionError as exc:
             # The parser is wrong, not the quarter. Writing the surviving rows
             # would leave the table half-right, which is worse than empty.
@@ -1625,7 +1641,9 @@ async def backfill_earnings(
         try:
             zbytes = await sec_datasets.download_dataset(year, q)
             sub, num = sec_datasets.parse_dataset(zbytes)
-            events.extend(sec_datasets.extract_earnings(sub, num, cik_map))
+            events.extend(sec_datasets.extract_earnings(
+                sub, num, cik_map, real_periods=await sec_periods.real_periods_for(year, q)
+            ))
         except Exception as exc:  # noqa: BLE001
             log.warning("sec_dataset_quarter_failed", year=year, quarter=q, error=str(exc)[:200])
             _update_state(last_error=f"{year}q{q}: {str(exc)[:200]}")

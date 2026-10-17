@@ -481,6 +481,8 @@ class ExtractionReport:
     # reading the wrong tag for it" look identical. This census distinguishes
     # them: if a synonym of a thin concept shows up here in volume, the map has
     # a gap; if nothing relevant appears, the thinness is genuine.
+    # Facts whose period_end was replaced by the real date from the accession.
+    period_end_exact: int = 0
     unmapped_tags: dict[str, int] = field(default_factory=dict)
 
     def top_unmapped(self, n: int = 40) -> list[dict[str, Any]]:
@@ -509,6 +511,7 @@ class ExtractionReport:
             "dropped_alias_duplicate": self.dropped_alias_duplicate,
             "conflicting_duplicate": self.conflicting_duplicate,
             "kept": self.kept,
+            "period_end_exact": self.period_end_exact,
             "dimension_columns_present": list(self.dimension_columns_present),
             "dimension_filter_complete": (
                 set(self.dimension_columns_present) == set(DIMENSION_COLUMNS)
@@ -610,6 +613,7 @@ def extract_facts(
     sub: pd.DataFrame,
     num: pd.DataFrame,
     cik_to_ticker: Mapping[str, str],
+    real_periods: Mapping[str, dt.date] | None = None,
 ) -> tuple[list[dict[str, Any]], ExtractionReport]:
     """Map (num x sub) into consolidated `fundamentals` rows.
 
@@ -750,6 +754,25 @@ def extract_facts(
             report.dropped_unparseable += 1
             continue
 
+        # As SEC rounded it. The fiscal-year-end test below compares against the
+        # filing's `period`, which is rounded the same way, so it must see the
+        # rounded date: a real date up to 15 days away (Costco, -10) would fall
+        # outside its 7-day tolerance and a fourth quarter would stop being one.
+        rounded_period_end = period_end
+
+        # Use real period end from accession lookup if available and the fact is
+        # for the filing's own period (not a prior-period comparative).
+        if (real_periods is not None
+                and str(adsh) in real_periods
+                and "period" in meta.index):
+            filing_period_end = coerce_date(meta["period"])
+            if filing_period_end is not None and period_end == filing_period_end:
+                from src.ingest.sec_periods import pick_real_period
+                new_period_end = pick_real_period(period_end, real_periods[str(adsh)])
+                if new_period_end != period_end:
+                    period_end = new_period_end
+                    report.period_end_exact += 1
+
         fiscal_period = str(meta["fp"] or "").strip()[:8] or None
         if concept.kind == DURATION and qtrs == "1" and fiscal_period == "FY":
             # Three months inside a 10-K: the fourth quarter when it ends on a
@@ -758,8 +781,8 @@ def extract_facts(
             # Labelled either way, or it would read as the year.
             fye = coerce_date(meta["period"]) if "period" in meta.index else None
             ends_a_year = fye is not None and (
-                period_end.month == fye.month and abs(period_end.day - fye.day) <= 7
-                or abs((period_end - fye).days) <= 7
+                rounded_period_end.month == fye.month and abs(rounded_period_end.day - fye.day) <= 7
+                or abs((rounded_period_end - fye).days) <= 7
             )
             fiscal_period = "Q4" if ends_a_year else "Q"
             report.relabelled_q4 += 1
@@ -986,9 +1009,10 @@ def extract_and_validate(
     sub: pd.DataFrame,
     num: pd.DataFrame,
     cik_to_ticker: Mapping[str, str],
+    real_periods: Mapping[str, dt.date] | None = None,
 ) -> tuple[list[dict[str, Any]], ExtractionReport]:
     """The whole path: filter to consolidated facts, then validate before storing."""
-    rows, report = extract_facts(sub, num, cik_to_ticker)
+    rows, report = extract_facts(sub, num, cik_to_ticker, real_periods)
     if not rows:
         return [], report
     kept = validate_facts(rows, report)

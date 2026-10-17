@@ -244,12 +244,10 @@ def _search_names(query: str) -> list[Match]:
     One row per ticker: the universe is snapshotted daily, so an unfiltered
     LIKE returns the same company once per day it has existed.
     """
-    from sqlalchemy import func, select
+    from sqlalchemy import func, or_, select
 
     from src.storage.db import session_scope
     from src.storage.models import Fundamental, SectorMap, UniverseSnapshot
-
-    from sqlalchemy import or_
 
     needle = f"%{query.lower()}%"
     with session_scope() as s:

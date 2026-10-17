@@ -31,6 +31,7 @@ import pandas as pd
 import structlog
 
 from src.config.settings import get_settings
+from src.ingest.sec_periods import pick_real_period
 from src.ingest.xbrl import DIMENSION_COLUMNS, is_consolidated
 
 log = structlog.get_logger(__name__)
@@ -132,7 +133,8 @@ def parse_dataset(zbytes: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 def extract_earnings(
-    sub: pd.DataFrame, num: pd.DataFrame, cik_to_ticker: Mapping[str, str]
+    sub: pd.DataFrame, num: pd.DataFrame, cik_to_ticker: Mapping[str, str],
+    real_periods: Mapping[str, dt.date] | None = None,
 ) -> list[dict[str, Any]]:
     """One EarningsEvent per periodic filing: report_date = filed, period_end =
     period, actual_eps = the diluted-EPS fact for that filing (if present).
@@ -167,6 +169,8 @@ def extract_earnings(
             continue
         report_date = _to_date(r.filed)
         period_end = _to_date(r.period)
+        if real_periods is not None and str(r.adsh) in real_periods and period_end is not None:
+            period_end = pick_real_period(period_end, real_periods[str(r.adsh)])
         if report_date is None:
             continue
         out.append(

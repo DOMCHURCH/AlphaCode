@@ -19,6 +19,8 @@ from typing import Any
 
 from sqlalchemy import and_, select
 
+from src.company.periods import drop_rounded_month_ends, is_month_end, period_aliases
+
 from src.storage.db import session_scope
 
 # Balance sheet periods kept per response, whatever the tier allows: ten
@@ -35,23 +37,28 @@ HEADLINE = (
 )
 
 
-# Two period ends this close together are one quarter reported twice. SEC's
-# bulk datasets round `ddate` to the month end (Apple's 2026-03-28 quarter
-# arrives as 2026-03-31) while the XBRL frames carry the real date, so the
-# same balance sheet otherwise shows up as two periods three days apart.
-SAME_QUARTER_DAYS = 10
-
-
 def _periods(
     ticker: str, since: dt.date | None, as_of: dt.date | None = None
 ) -> tuple[list[dt.date], dt.date | None]:
     """Periods with a total-assets figure, newest first, and the oldest held.
 
-    Near-duplicate period ends (see SAME_QUARTER_DAYS) collapse to the one
-    with the most figures behind it.
-    """
-    from sqlalchemy import func
+    One quarter is one period. SEC's bulk datasets round `ddate` to the month
+    end (Apple's 2026-03-28 quarter arrives as 2026-03-31) while the XBRL frames
+    carry the real date, so a quarter loaded by both shows up twice, a few days
+    apart. Two steps merge them, and the REAL date is the one returned (see
+    src/company/periods.py):
 
+    * the same-filing twin: a month end whose filing also holds a non-month-end
+      date 1 to 15 days away;
+    * a month end left over with a real date 1 to 15 days away in ANOTHER filing
+      (a quarter an older bulk-only filing rounded and a later 10-K restated at
+      its real date) -- `cross_filing`, the rule `get_balance_sheet` and
+      `restatements` apply too, so `get_balance_sheet(period_end=p)` resolves
+      every period returned here and they all name the same date.
+
+    Two real dates are never merged however close they are, and a calendar
+    filer's month ends are untouched.
+    """
     from src.storage.models import Fundamental
 
     with session_scope() as session:
@@ -62,18 +69,16 @@ def _periods(
                         Fundamental.metric == "total_assets", known))
             .distinct()
         ).scalars().all())
-        counts = dict(session.execute(
-            select(Fundamental.period_end, func.count(func.distinct(Fundamental.metric)))
+        # Every (period, filing) the ticker has, any metric: the same-filing
+        # twin test needs the filing the date came from, and a filing's twin
+        # date may sit on a metric other than total assets.
+        filed = [(r[0], r[1]) for r in session.execute(
+            select(Fundamental.period_end, Fundamental.filing_date)
             .where(and_(Fundamental.ticker == ticker, known))
-            .group_by(Fundamental.period_end)
-        ).all())
-    held: list[dt.date] = []
-    for p in sorted(with_assets, reverse=True):
-        if held and (held[-1] - p).days <= SAME_QUARTER_DAYS:
-            if counts.get(p, 0) > counts.get(held[-1], 0):
-                held[-1] = p
-            continue
-        held.append(p)
+            .distinct()
+        ).all()]
+    aliases = period_aliases(filed, cross_filing=True)
+    held = drop_rounded_month_ends(aliases.get(p, p) for p in with_assets)
     oldest = held[-1] if held else None
     if since is not None:
         held = [p for p in held if p >= since]
@@ -158,16 +163,33 @@ def restatements(ticker: str, years: int = 3) -> list[dict[str, Any]]:
                         Fundamental.metric.in_(metrics)))
             .order_by(Fundamental.filing_date.asc())
         ).scalars().all()
+        # One quarter, one period: a rounded month-end copy and its real-dated
+        # twin (src/company/periods.py) are the same figure, so they are keyed by
+        # the real date. `cross_filing` also joins a rounded older filing to the
+        # real date a later filing restated it under -- the restatement this view
+        # exists to find would otherwise be split across two period keys.
+        aliases = period_aliases(((r.period_end, r.filing_date) for r in rows), cross_filing=True)
+
+        def canon(d: dt.date) -> dt.date:
+            return aliases.get(d, d)
+
         # Filings are compared within one XBRL concept: a switch between two tags
         # that measure different things is not a revision (see comparison_tag).
-        grouped: dict[tuple[str, dt.date, str], list[Any]] = {}
+        # One value per filing: when a filing holds both twins the real-dated one
+        # is kept, so a twin that differs cannot masquerade as a revision.
+        by_filing: dict[tuple[str, dt.date, str], dict[dt.date, tuple[float, bool]]] = {}
         for r in rows:
             concept = comparison_tag(r.metric, r.source_tag)
             if r.value is None or concept is None:
                 continue
-            grouped.setdefault((r.metric, r.period_end, concept), []).append(
-                (r.filing_date, float(r.value))
-            )
+            held = by_filing.setdefault((r.metric, canon(r.period_end), concept), {})
+            real = not is_month_end(r.period_end)
+            if r.filing_date not in held or (real and not held[r.filing_date][1]):
+                held[r.filing_date] = (float(r.value), real)
+        grouped: dict[tuple[str, dt.date, str], list[Any]] = {
+            key: [(fd, v) for fd, (v, _real) in per_filing.items()]
+            for key, per_filing in by_filing.items()
+        }
     out = []
     for (metric, period, _concept), seen in grouped.items():
         first_date, first = seen[0]

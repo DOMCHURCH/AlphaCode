@@ -467,21 +467,36 @@ def test_starter_and_business_cards_are_hidden_until_their_price_is_set(client, 
 
 def test_a_quarter_reported_under_two_dates_is_one_period(client):
     """SEC's bulk datasets round period ends to the month end; frames do not.
-    Apple's 2026-03-28 quarter then also exists as 2026-03-31 -- one period."""
+    Apple's 2026-03-28 quarter then also exists as 2026-03-31 -- one period,
+    under the REAL date (src/company/periods.py).
+
+    This used to seed two real dates three days apart and lean on a 10-day
+    window to merge them. Two real dates are two facts and are no longer merged
+    (tests/test_periods.py); the duplicate that exists in the data is a real
+    date and its month-end copy from the same filing, which is what is seeded."""
+    from src.company.periods import is_month_end
     from src.storage.db import session_scope
     from src.storage.models import Fundamental
 
-    real = _q(0.2) - dt.timedelta(days=3)
+    real = _q(0.2)                      # the period `_seed` already holds
+    if is_month_end(real):
+        pytest.skip("today's offset lands on a month end, so there is no rounded twin to make")
+    first = real.replace(day=1)
+    month_ends = ((first - dt.timedelta(days=1)),
+                  (first + dt.timedelta(days=32)).replace(day=1) - dt.timedelta(days=1))
+    rounded = min(month_ends, key=lambda d: abs((d - real).days))   # SEC rounds to the nearest
+    assert 1 <= abs((rounded - real).days) <= 15
     with session_scope() as s:
         for m, v in (("total_assets", 1000.0), ("total_liabilities", 600.0),
-                     ("total_equity", 400.0), ("cash", 50.0)):
-            s.add(Fundamental(ticker="TST", metric=m, value=v, period_end=real,
-                              fiscal_period="Q", filing_date=_q(0.1), source="sec"))
+                     ("total_equity", 400.0)):
+            s.add(Fundamental(ticker="TST", metric=m, value=v, period_end=rounded,
+                              fiscal_period="Q", filing_date=real + dt.timedelta(days=40),
+                              source="sec"))
     h = _key(client, "dup@example.com", "starter")
     ends = [b["period_end"] for b in
             client.get("/api/company/TST/history", headers=h).json()["balance_sheets"]]
     assert len(ends) == 4, ends
-    assert real.isoformat() in ends  # the fuller of the two wins
+    assert real.isoformat() in ends and rounded.isoformat() not in ends
 
 
 # ---------------------------------------------------------------------------

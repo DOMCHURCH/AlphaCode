@@ -16,6 +16,7 @@ from typing import Any
 
 import structlog
 
+from src.company.periods import is_month_end, period_aliases
 from src.storage.db import session_scope
 
 log = structlog.get_logger(__name__)
@@ -107,14 +108,16 @@ class BalanceSheet:
 _SOURCE_PREFERENCE: tuple[str, ...] = ("sec", "fmp", "yahoo")
 
 
-def _recency(f: Any) -> tuple[dt.date, int]:
+def _recency(f: Any) -> tuple[dt.date, int, int]:
     """Sort key for "which filing of this metric is the one to show".
 
-    Later filing wins; on a tie, the more-preferred source wins. Returned as a
-    tuple so `max()` orders on both without a second pass.
+    Later filing wins; on a tie, the more-preferred source wins; on a further tie
+    the row carrying the real period end wins over its month-end-rounded twin
+    (see src/company/periods.py), which would otherwise be decided by row order.
+    Returned as a tuple so `max()` orders on all three without a second pass.
     """
     rank = {s: i for i, s in enumerate(_SOURCE_PREFERENCE)}
-    return (f.filing_date, -rank.get(f.source, 99))
+    return (f.filing_date, -rank.get(f.source, 99), 0 if is_month_end(f.period_end) else 1)
 
 
 def _resolve_restatements(rows: list[Any]) -> dict[str, Any]:
@@ -230,18 +233,32 @@ def get_balance_sheet(
             log.info("no_fundamentals", ticker=ticker)
             return None
 
+        # One quarter, one period end: SEC's bulk datasets round the date to a month
+        # end, the frames carry the real one, and a quarter loaded by both routes is
+        # stored twice -- in one filing, or across filings (a 10-K on the frames
+        # route, the next 10-Q quoting the same year end as a bulk-route comparative).
+        # The real date wins (see src/company/periods.py). `cross_filing` is the same
+        # rule `history` and `restatements` use, so the headline, the history list
+        # and the restatement feed always name the same period. Rows are never
+        # mutated -- they are attached to the session -- only re-keyed.
+        aliases = period_aliases(
+            ((f.period_end, f.filing_date) for f in fundamentals), cross_filing=True
+        )
+
+        def canon(d: dt.date) -> dt.date:
+            return aliases.get(d, d)
+
         # Group by period to find the most recent complete period
         by_period: dict[dt.date, list[Fundamental]] = {}
         for f in fundamentals:
-            if f.period_end not in by_period:
-                by_period[f.period_end] = []
-            by_period[f.period_end].append(f)
+            by_period.setdefault(canon(f.period_end), []).append(f)
 
         if not by_period:
             return None
 
         # Pinned period when the caller named one, most recent otherwise.
         if period_end is not None:
+            period_end = canon(period_end)
             if period_end not in by_period:
                 log.info(
                     "no_fundamentals_for_period",
@@ -259,7 +276,7 @@ def get_balance_sheet(
         # It is the date the header prints and the API returns, so it has to
         # describe the numbers actually on the page.
         newest = max(period_data.values(), key=_recency)
-        period_end = newest.period_end
+        period_end = selected_period
         filing_date = newest.filing_date
 
         # Extract requested concepts
@@ -300,7 +317,7 @@ def get_balance_sheet(
                 assets[concept] = BalanceSheetValue(
                     concept=concept,
                     value=f.value,
-                    period_end=f.period_end,
+                    period_end=canon(f.period_end),
                     filing_date=f.filing_date,
                     restated=f.restated,
                 )
@@ -317,7 +334,7 @@ def get_balance_sheet(
                 liabilities[concept] = BalanceSheetValue(
                     concept=concept,
                     value=f.value,
-                    period_end=f.period_end,
+                    period_end=canon(f.period_end),
                     filing_date=f.filing_date,
                     restated=f.restated,
                 )
@@ -334,7 +351,7 @@ def get_balance_sheet(
                 equity[concept] = BalanceSheetValue(
                     concept=concept,
                     value=f.value,
-                    period_end=f.period_end,
+                    period_end=canon(f.period_end),
                     filing_date=f.filing_date,
                     restated=f.restated,
                 )
