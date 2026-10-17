@@ -162,7 +162,10 @@ def _section(p: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     lines = [f"{name} ({t}) filed{' a ' + form if form else ''} on {p['newest'].isoformat()}"
              + (f", balance sheet as of {ch['period_end']}" if ch.get("period_end") else "") + "."]
     if view is not None:
-        if view.balances:
+        if view.reconciles is None:
+            lines.append("  Not testable: the filing does not report the lines needed to "
+                         "check Assets = Liabilities + Equity.")
+        elif view.reconciles:
             lines.append("  Reconciles: Assets = Liabilities + Equity holds"
                          + (f" ({view.identity_basis})" if view.identity_basis else "") + ".")
         else:
@@ -178,8 +181,9 @@ def _section(p: dict[str, Any]) -> tuple[str, dict[str, Any]]:
     lines.append(f"  {SITE}/company/{t}" + (f"  |  SEC: {sec}" if sec else ""))
     payload = {
         "ticker": t, "company": name, "filing_date": p["newest"].isoformat(),
-        "form": form, "sec_url": sec, "reconciles": bool(view.balances) if view else None,
-        "imbalance_pct": view.imbalance_pct if view else None,
+        "form": form, "sec_url": sec, "reconciles": view.reconciles if view else None,
+        "identity_status": view.identity_status if view else None,
+        "imbalance_pct": view.imbalance_pct if view and view.reconciles is not None else None,
         "changes": ch.get("since_previous_period"), "restatements": new_restated,
     }
     return "\n".join(lines), payload

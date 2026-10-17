@@ -16,6 +16,8 @@ What changed on `POST /api/verify`:
 - A filing with no components but a stated liabilities-plus-equity total is tested against that total; if the stated total disagrees with assets it now reports `reconciles: false` instead of `true`.
 - Billing is unchanged: each found ticker is one call, whatever the answer.
 
+Watchlist alerts and the `watchlist.filed` webhook. **Breaking for typed consumers.** Each filing in the webhook payload has `reconciles`, which is now `true`, `false` or **`null`** (it was always a boolean when a company had a balance sheet), plus a new `identity_status` with the same values as `/api/verify`. For a filing that cannot be tested, `reconciles` is `null`, `identity_status` is `not_testable` and `imbalance_pct` is `null`. The alert email says "Not testable: the filing does not report the lines needed to check Assets = Liabilities + Equity." instead of "Reconciles". The alert is still sent: it announces a new filing, and the reconciliation line is one part of it.
+
 MCP: `check_balance_sheet` answers `not_testable` (not an error, one call billed) and names what is missing; its structured `balances` is `null`. The server instructions say that each period is checked when the filing reports the lines the check needs, and that otherwise the check returns `not_testable`. The server title is now "BalanceProof - SEC balance sheets, with checks" (it said "verified"). `get_financial_statements` says `not_testable` instead of "checks 0/0 passed" when no check could run.
 
 ## Unreleased: release/period-fix
