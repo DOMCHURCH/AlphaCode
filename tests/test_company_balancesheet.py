@@ -469,7 +469,7 @@ def test_a_combined_equity_total_never_double_counts_the_nci(client):
 
     d = build_view1("INCL").as_dict()
     assert d["balances"] is True
-    assert d["identity_basis"] == "", "the plain sum already closed; no NCI note"
+    assert d["identity_basis"] == "as_filed", "the plain sum already closed; no NCI note"
     assert d["total_equity"] == 300.0
 
 
@@ -486,7 +486,7 @@ def test_an_nci_that_does_not_close_the_gap_still_fails(client):
 
     d = build_view1("BROKE").as_dict()
     assert d["balances"] is False
-    assert d["identity_basis"] == ""
+    assert d["identity_basis"] == "as_filed"
     assert any("does not balance" in n for n in d["notes"])
 
 
@@ -611,7 +611,7 @@ def test_mezzanine_that_does_not_close_the_gap_still_fails(client):
 
     d = build_view1("MZBROKE").as_dict()
     assert d["balances"] is False
-    assert d["identity_basis"] == ""
+    assert d["identity_basis"] == "as_filed"
     assert any("does not balance" in n for n in d["notes"])
 
 
