@@ -1,13 +1,20 @@
 #!/usr/bin/env python3
-"""Wipe the fundamentals table and reload it through the rebuilt extractor.
+"""Replace the fundamentals table by reloading it through the rebuilt extractor.
 
 The existing rows came from the old parser, which took whichever num.txt row
 came first and so stored segment and rollforward facts as company totals. They
 cannot be repaired in place -- a wrong number is indistinguishable from a right
-one once the tag and dimensions are discarded. So: delete, reload, verify.
+one once the tag and dimensions are discarded. So: replace, then verify.
 
-    python3 scripts/reload_fundamentals.py --wipe --quarters 7
+    python3 scripts/reload_fundamentals.py --quarters 7
     python3 scripts/reload_fundamentals.py --verify-only
+
+The replace is `src.backfill.reload_fundamentals`: every quarter is downloaded
+first (a failure there deletes nothing), then the old rows are deleted and the
+new ones written in ONE transaction, so a parse error, a validation abort or a
+failed write rolls the delete back. There is no separate wipe step. It used to
+be one (`--wipe`, committing the delete before the first download), and a SEC
+429 mid-reload left the table empty.
 
 Needs DATABASE_URL and SEC_USER_AGENT in the environment, same as the service.
 """
@@ -40,21 +47,16 @@ def fmt(v: float | None) -> str:
     return f"${v:,.0f}"
 
 
-def wipe() -> int:
-    """Delete every fundamentals row. Returns how many were removed."""
-    from src.backfill import wipe_fundamentals
-
-    before = wipe_fundamentals()
-    print(f"Deleted {before:,} fundamentals rows.")
-    return before
-
-
 async def reload(quarters: int) -> int:
-    from src.backfill import backfill_fundamentals, get_extraction_reports
+    from src.backfill import get_extraction_reports, reload_fundamentals
 
-    print(f"Reloading {quarters} quarters through the rebuilt extractor ...")
-    rows = await backfill_fundamentals(quarters=quarters)
-    print(f"\nWrote {rows:,} rows.\n")
+    print(f"Replacing the table from {quarters} quarters through the rebuilt extractor ...")
+    result = await reload_fundamentals(quarters=quarters)
+    rows = result["rows_written"]
+    print(f"\nReplaced {result['rows_deleted']:,} rows with {rows:,} "
+          f"({result['quarters_loaded']} quarters"
+          + (f"; unpublished: {', '.join(result['unpublished'])}" if result["unpublished"] else "")
+          + ").\n")
 
     reports = get_extraction_reports()
     if reports:
@@ -148,8 +150,6 @@ def coverage() -> None:
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
-    ap.add_argument("--wipe", action="store_true",
-                    help="delete every fundamentals row before reloading")
     ap.add_argument("--quarters", type=int, default=7, help="quarters to load (default 7)")
     ap.add_argument("--verify-only", action="store_true",
                     help="skip the reload; just check the five companies")
@@ -161,10 +161,6 @@ def main() -> int:
     if not args.verify_only:
         if not os.environ.get("SEC_USER_AGENT", "").strip():
             sys.exit('ERROR: SEC_USER_AGENT is not set (e.g. "Your Name you@email.com").')
-        if args.wipe:
-            wipe()
-        else:
-            print("Not wiping (pass --wipe). Reloading on top of existing rows.")
         asyncio.run(reload(args.quarters))
 
     coverage()

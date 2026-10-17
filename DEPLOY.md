@@ -115,9 +115,11 @@
    extractor is wrong again — do not build on the numbers. The **XBRL extraction**
    panel on `/admin` shows what the consolidated filter dropped and why.
 
-   To wipe and reload from scratch with a full report, from a shell:
+   To replace the table from scratch with a full report, from a shell (the old
+   rows are deleted and the new ones written in one transaction, after every
+   quarter has downloaded, so a failure keeps the old rows):
    ```bash
-   python3 scripts/reload_fundamentals.py --wipe --quarters 7
+   python3 scripts/reload_fundamentals.py --quarters 7
    ```
 
 8. **Reconcile the keyless price source (first live load, once).** Synthetic tests
