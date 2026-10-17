@@ -613,3 +613,116 @@ def test_mezzanine_that_does_not_close_the_gap_still_fails(client):
     assert d["balances"] is False
     assert d["identity_basis"] == ""
     assert any("does not balance" in n for n in d["notes"])
+
+
+# ---------------------------------------------------------------------------
+# Filing-date provenance (patch 4): "filed" means the filing that first reported the value
+# ---------------------------------------------------------------------------
+
+Q2_FILED = dt.date(2026, 5, 1)     # the 10-Q that carries the March balance sheet
+Q3_FILED = dt.date(2026, 7, 31)    # the next 10-Q: its equity statement repeats March's equity
+MARCH = dt.date(2026, 3, 31)
+
+
+def _march_sheet(ticker, *, equity_repeated_on=None, equity_repeated_value=None):
+    rows = [
+        fact(ticker, "total_assets", 1000.0, filed=Q2_FILED, period=MARCH, fp="Q2"),
+        fact(ticker, "total_liabilities", 600.0, filed=Q2_FILED, period=MARCH, fp="Q2"),
+        fact(ticker, "total_equity", 400.0, filed=Q2_FILED, period=MARCH, fp="Q2"),
+    ]
+    if equity_repeated_on:
+        rows.append(fact(ticker, "total_equity",
+                         equity_repeated_value if equity_repeated_value is not None else 400.0,
+                         filed=equity_repeated_on, period=MARCH, fp="Q3"))
+    seed(ticker, rows)
+
+
+def test_a_figure_a_later_filing_merely_repeats_keeps_its_first_filing_date(client):
+    """Apple's shape: equity for the March quarter appears again in the June 10-Q's
+    equity statement. The value is the same, so it is not a restatement and it must
+    not move the date the sheet says it was filed."""
+    _march_sheet("RPT", equity_repeated_on=Q3_FILED)
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("RPT", period_end=MARCH)
+    assert sheet.filing_date == Q2_FILED                       # the header: total assets' filing
+    assert sheet.assets["total_assets"].filing_date == Q2_FILED
+    assert sheet.equity["shareholders_equity"].filing_date == Q2_FILED   # not 2026-07-31
+    assert sheet.equity["shareholders_equity"].value == 400.0
+
+
+def test_a_figure_a_later_filing_changes_takes_the_date_of_the_filing_that_changed_it(client):
+    _march_sheet("CHG", equity_repeated_on=Q3_FILED, equity_repeated_value=390.0)
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("CHG", period_end=MARCH)
+    assert sheet.equity["shareholders_equity"].value == 390.0           # the later value still wins
+    assert sheet.equity["shareholders_equity"].filing_date == Q3_FILED  # and is dated by the filing that introduced it
+    assert sheet.assets["total_assets"].filing_date == Q2_FILED
+    assert sheet.filing_date == Q2_FILED                                # the header follows total assets, not the newest line
+
+
+def test_a_value_that_changes_and_changes_back_is_dated_from_the_return(client):
+    seed("FLP", [
+        fact("FLP", "total_assets", 1000.0, filed=Q2_FILED, period=MARCH, fp="Q2"),
+        fact("FLP", "total_equity", 400.0, filed=Q2_FILED, period=MARCH, fp="Q2"),
+        fact("FLP", "total_equity", 390.0, filed=dt.date(2026, 6, 15), period=MARCH, fp="Q2"),
+        fact("FLP", "total_equity", 400.0, filed=Q3_FILED, period=MARCH, fp="Q3"),
+        fact("FLP", "total_equity", 400.0, filed=dt.date(2026, 10, 30), period=MARCH, fp="Q3"),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("FLP", period_end=MARCH)
+    # 400 -> 390 -> 400 -> 400: the unbroken run of 400s starts at Q3_FILED, not at the original filing.
+    assert sheet.equity["shareholders_equity"].filing_date == Q3_FILED
+
+
+def test_a_year_end_that_later_filings_repeat_as_a_comparative_keeps_the_10k_date(client):
+    seed("CMP", [
+        fact("CMP", "total_assets", 5000.0, filed=EARLIER, period=Q, fp="FY"),
+        fact("CMP", "total_assets", 5000.0, filed=dt.date(2026, 5, 1), period=Q, fp="Q1"),
+        fact("CMP", "total_assets", 5000.0, filed=dt.date(2026, 8, 1), period=Q, fp="Q2"),
+        fact("CMP", "total_liabilities", 3000.0, filed=EARLIER, period=Q, fp="FY"),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("CMP", period_end=Q)
+    assert sheet.filing_date == EARLIER
+
+
+def test_the_header_date_falls_back_to_the_newest_line_when_there_is_no_total_assets(client):
+    seed("NTA", [
+        fact("NTA", "total_liabilities", 600.0, filed=Q2_FILED, period=MARCH, fp="Q2"),
+        fact("NTA", "total_equity", 400.0, filed=Q3_FILED, period=MARCH, fp="Q3"),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("NTA", period_end=MARCH)
+    assert sheet.filing_date == Q3_FILED
+
+
+def test_a_restated_total_assets_still_dates_the_sheet_by_the_restating_filing(client):
+    """The existing JPM test, restated for the new rule: the restating filing introduced
+    the value on the page, so it is the filing the sheet is dated by."""
+    seed("RST", [
+        fact("RST", "total_assets", 3_800_000.0, filed=EARLIER),
+        fact("RST", "total_assets", 3_875_000.0, filed=LATER, restated=True),
+        fact("RST", "total_equity", 375_000.0, filed=EARLIER),
+        fact("RST", "total_equity", 375_000.0, filed=LATER),
+    ])
+    from src.company.balancesheet import get_balance_sheet
+
+    sheet = get_balance_sheet("RST")
+    assert sheet.filing_date == LATER
+    assert sheet.equity["shareholders_equity"].filing_date == EARLIER   # unchanged value, first reported earlier
+
+
+def test_the_api_prints_the_first_filing_date_for_the_header_and_each_line(client):
+    _march_sheet("API", equity_repeated_on=Q3_FILED)
+    from src.company.history import history
+
+    out = history("API", None)
+    sheet = out["balance_sheets"][0]
+    assert str(sheet["period_end"]).startswith("2026-03-31")
+    assert str(sheet["filing_date"]) == "2026-05-01"
+    assert str(sheet["equity"]["shareholders_equity"]["filing_date"]) == "2026-05-01"

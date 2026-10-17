@@ -144,6 +144,42 @@ def _resolve_restatements(rows: list[Any]) -> dict[str, Any]:
     return winners
 
 
+def _first_reported(rows: list[Any], winners: dict[str, Any]) -> dict[str, dt.date]:
+    """For each metric, the filing that FIRST reported the value being shown.
+
+    `_resolve_restatements` picks the latest filing per metric, and that is the
+    right VALUE: a restatement must beat the original. But it is the wrong
+    PROVENANCE. A figure a later filing merely repeats (every 10-Q repeats the
+    prior year end as a comparative, every 10-K and 10-Q carries the equity
+    statement's opening balance) has the same value in two filings, and the
+    sheet then said it was "filed" on the later one: Apple's 2026-03-28 equity
+    read 2026-07-31 beside assets that read 2026-05-01, and the header took the
+    newest of them. A year later the same sheet would have said a year later.
+
+    So the date is the earliest filing in the unbroken run of filings that
+    report the winning value (same source). A real restatement still moves the
+    date: the run starts at the filing that introduced the new value.
+    """
+    by_metric: dict[str, list[Any]] = {}
+    for f in rows:
+        by_metric.setdefault(f.metric, []).append(f)
+    out: dict[str, dt.date] = {}
+    for metric, win in winners.items():
+        same_source = sorted(
+            (r for r in by_metric.get(metric, []) if r.source == win.source),
+            key=lambda r: r.filing_date,
+        )
+        at = [i for i, r in enumerate(same_source) if r.filing_date == win.filing_date]
+        if not at:
+            out[metric] = win.filing_date
+            continue
+        k = max(at)
+        while k > 0 and same_source[k - 1].value == win.value:
+            k -= 1
+        out[metric] = same_source[k].filing_date
+    return out
+
+
 def get_balance_sheet(
     ticker: str,
     as_of: dt.date | None = None,
@@ -271,13 +307,16 @@ def get_balance_sheet(
             selected_period = max(by_period.keys())
         period_data = _resolve_restatements(by_period[selected_period])
 
-        # The period's own filing date is the NEWEST filing behind any of the
-        # figures shown, not whichever metric happened to be first in a dict.
-        # It is the date the header prints and the API returns, so it has to
-        # describe the numbers actually on the page.
-        newest = max(period_data.values(), key=_recency)
+        # The date each figure is shown as filed is the filing that FIRST reported
+        # its value (`_first_reported`), and the sheet's own date is the filing
+        # that supplied TOTAL ASSETS: the balance sheet itself. It used to be the
+        # newest filing behind any line, which a later filing's repeat of an
+        # equity or cash figure dragged forward by up to a year. The balance
+        # sheet's date is when the balance sheet was filed; if total assets are
+        # missing the newest line date stands in, as before.
+        first_filed = _first_reported(by_period[selected_period], period_data)
         period_end = selected_period
-        filing_date = newest.filing_date
+        filing_date = first_filed.get("total_assets") or max(first_filed.values())
 
         # Extract requested concepts
         assets = {}
@@ -318,7 +357,7 @@ def get_balance_sheet(
                     concept=concept,
                     value=f.value,
                     period_end=canon(f.period_end),
-                    filing_date=f.filing_date,
+                    filing_date=first_filed[metric],
                     restated=f.restated,
                 )
 
@@ -335,7 +374,7 @@ def get_balance_sheet(
                     concept=concept,
                     value=f.value,
                     period_end=canon(f.period_end),
-                    filing_date=f.filing_date,
+                    filing_date=first_filed[metric],
                     restated=f.restated,
                 )
 
@@ -352,7 +391,7 @@ def get_balance_sheet(
                     concept=concept,
                     value=f.value,
                     period_end=canon(f.period_end),
-                    filing_date=f.filing_date,
+                    filing_date=first_filed[metric],
                     restated=f.restated,
                 )
 
