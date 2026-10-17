@@ -487,9 +487,12 @@ def test_balance_sheet_text_alone_carries_the_three_totals(client):
     assert "Total liabilities $275.75B ($275,746,000,000)" in text
     assert "Shareholders' equity $107.52B ($107,520,000,000)" in text
     # The latest filing's value is shown, so the text must not promise the
-    # original ("not restated"); it says a revised value replaces the original.
-    assert "where a later filing revised one, the revised value is shown" in text
-    assert "not restated" not in text
+    # original; it says a revision replaces it, and where as_of lives.
+    assert "When a later filing revises a figure, the default view shows the revised value" in text
+    assert "under the later filing's date" in text
+    assert "as_of (on get_financial_statements, Pro and above)" in text
+    for phrase in ("not restated", "as-filed", "as filed", "never revised"):
+        assert phrase not in text
 
 
 def test_check_text_alone_carries_the_verdict_and_the_totals(client):

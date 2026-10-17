@@ -175,21 +175,45 @@ def test_an_unexpected_exception_is_logged_but_not_shown_to_the_caller(client, m
 # Wording: the latest filing's value is shown, so nothing may say "not restated"
 # ---------------------------------------------------------------------------
 
-def test_no_mcp_string_promises_figures_are_not_restated():
+CANONICAL = (
+    "Figures are as reported to the SEC. When a later filing revises a figure, "
+    "the default view shows the revised value under the later filing's date; "
+    "as_of (on get_financial_statements, Pro and above) returns the value "
+    "known on the date you ask."
+)
+BANNED = ("not restated", "as-filed", "as filed", "never revised", "unrevised", "not revised")
+
+
+def test_no_mcp_string_promises_figures_are_unrevised():
     """`balancesheet._resolve_restatements` shows the LATEST filing's value, so a
     revised figure replaces the original. Copy that says otherwise is false for
     exactly the filings a buyer of this product cares about."""
     import src.mcp_server as mcp_server
 
-    strings = [mcp_server._INSTRUCTIONS] + [t["description"] for t in mcp_server.TOOLS]
+    strings = [mcp_server._INSTRUCTIONS] + [
+        t["description"] + " " + str(t["inputSchema"]) for t in mcp_server.TOOLS
+    ]
     for s in strings:
-        assert "not restated" not in s
-        assert "as-filed" not in s
+        for phrase in BANNED:
+            assert phrase not in s.lower(), phrase
 
 
-def test_the_instructions_and_description_say_a_revised_value_is_shown():
+def test_the_instructions_and_the_balance_sheet_tool_carry_the_canonical_claim():
     import src.mcp_server as mcp_server
 
-    assert "revised value is shown" in mcp_server._INSTRUCTIONS
+    assert CANONICAL == mcp_server._FIGURES_NOTE
+    assert CANONICAL in mcp_server._INSTRUCTIONS
     tool = next(t for t in mcp_server.TOOLS if t["name"] == "get_balance_sheet")
-    assert "revised value is shown" in tool["description"]
+    assert CANONICAL in tool["description"]
+
+
+def test_as_of_is_only_promised_where_the_tool_accepts_it():
+    """The claim names get_financial_statements because it is the only MCP tool
+    with an as_of parameter; a model told otherwise would pass it to a tool that
+    ignores it and report the latest figures as point-in-time."""
+    import src.mcp_server as mcp_server
+
+    with_as_of = [
+        t["name"] for t in mcp_server.TOOLS if "as_of" in t["inputSchema"]["properties"]
+    ]
+    assert with_as_of == ["get_financial_statements"]
