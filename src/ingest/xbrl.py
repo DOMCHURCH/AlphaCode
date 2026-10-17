@@ -587,6 +587,24 @@ def is_consolidated(row: Any) -> bool:
     return all(not _cell(row, col) for col in DIMENSION_COLUMNS)
 
 
+_ALSO_ACCEPTED_UOMS: dict[str, frozenset[str]] = {"USD/SHARES": frozenset({"USD"})}
+
+
+def _uom_matches(uom: str, concept: Concept) -> bool:
+    """Whether a fact's unit is the one the concept is stored in.
+
+    XBRL types per-share facts `USD/shares`, and the frames API says so, but SEC's
+    Financial Statement Data Sets write them as plain `USD`: in the 2026q3 file
+    `EarningsPerShareDiluted` is `USD` on 24,767 rows and `USD/shares` on none, so
+    a test for `USD/shares` alone dropped every EPS fact from the bulk route. A
+    per-share concept therefore also accepts `USD`; a foreign-currency EPS (CNY,
+    CAD, HKD...) is still refused, because it is not comparable.
+    """
+    u = uom.upper()
+    want = concept.uom.upper()
+    return u == want or u in _ALSO_ACCEPTED_UOMS.get(want, frozenset())
+
+
 def _qtrs_ok(qtrs: str, kind: str) -> bool:
     if kind == INSTANT:
         return qtrs == "0"
@@ -716,9 +734,10 @@ def extract_facts(
                 continue
 
         # A fact in an unexpected unit is not comparable and must not be stored
-        # as if it were. Checked per concept: per-share figures are USD/shares,
-        # and a blanket USD-only test would drop every EPS fact silently.
-        if _cell(r, "uom").upper() != concept.uom.upper():
+        # as if it were. Checked per concept (`_uom_matches`): per-share figures
+        # are USD/shares in XBRL but plain USD in SEC's bulk files, and a test for
+        # either one alone dropped every EPS fact silently.
+        if not _uom_matches(_cell(r, "uom"), concept):
             report.dropped_non_usd += 1
             continue
 
