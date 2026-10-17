@@ -518,8 +518,8 @@ def _money(v: float | int | None, long: bool = True) -> str:
     return full
 
 
-_EQUITY_INCL_NCI = "Equity incl. noncontrolling interest"
-_EQUITY_PARENT = "Shareholders' equity"
+from src.company.view1 import EQUITY_INCL_NCI_LABEL as _EQUITY_INCL_NCI  # noqa: E402
+from src.company.view1 import EQUITY_PARENT_LABEL as _EQUITY_PARENT  # noqa: E402
 
 
 def _line_value(group: Any, key: str) -> float | None:
@@ -554,10 +554,8 @@ def _model_payload(view: Any) -> dict[str, Any]:
 
     `mode`, `claims_span_pct` and each block's `tone` and `label_style` say how
     wide a bar is and which colour it gets. A model reading a balance check has
-    no use for them and they bury the verdict. The equity block is labelled for
-    what the figure is: with a combined total on file it INCLUDES the
-    noncontrolling interest, and calling that "Shareholders' equity" was wrong
-    for any company that has one.
+    no use for them and they bury the verdict. `total_equity_label` repeats the
+    equity block's label (view1 names it for what the figure is).
     """
     payload = view.as_dict()
     for k in ("mode", "claims_span_pct"):
@@ -566,11 +564,10 @@ def _model_payload(view: Any) -> dict[str, Any]:
         for block in payload.get(side, []):
             block.pop("tone", None)
             block.pop("label_style", None)
-    label = _EQUITY_INCL_NCI if getattr(view, "equity_basis", "") == "incl_nci" else _EQUITY_PARENT
-    payload["total_equity_label"] = label
-    for block in payload.get("claims", []):
-        if block.get("key") == "equity":
-            block["label"] = label
+    # The equity block already carries its own label (view1 names it for what the figure is).
+    payload["total_equity_label"] = next(
+        (b.label for b in view.claims if b.key == "equity"), _EQUITY_PARENT
+    )
     return payload
 
 

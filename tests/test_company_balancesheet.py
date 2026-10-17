@@ -726,3 +726,52 @@ def test_the_api_prints_the_first_filing_date_for_the_header_and_each_line(clien
     assert str(sheet["period_end"]).startswith("2026-03-31")
     assert str(sheet["filing_date"]) == "2026-05-01"
     assert str(sheet["equity"]["shareholders_equity"]["filing_date"]) == "2026-05-01"
+
+
+# ---------------------------------------------------------------------------
+# Equity label (patch 5): the label says which equity figure it is, on every surface that prints it
+# ---------------------------------------------------------------------------
+
+_NCI_ROWS = [("total_assets", 1000.0), ("cash", 100.0), ("total_liabilities", 680.0),
+             ("total_equity", 300.0), ("total_equity_incl_nci", 320.0), ("minority_interest", 20.0)]
+_PARENT_ROWS = [("total_assets", 1000.0), ("cash", 100.0), ("total_liabilities", 600.0), ("total_equity", 400.0)]
+
+
+def _seed_label_company(ticker, rows):
+    seed(ticker, [fact(ticker, m, v, filed=EARLIER) for m, v in rows])
+
+
+def test_view1_names_the_equity_figure_for_what_it_is(client):
+    _seed_label_company("NCIX", _NCI_ROWS)
+    _seed_label_company("PARX", _PARENT_ROWS)
+    from src.company.view1 import build_view1
+
+    nci = build_view1("NCIX")
+    equity = next(b for b in nci.claims if b.key == "equity")
+    assert nci.equity_basis == "incl_nci"
+    assert equity.label == "Equity incl. noncontrolling interest"
+    assert equity.value == 320.0
+    parent = build_view1("PARX")
+    assert parent.equity_basis == "parent"
+    assert next(b for b in parent.claims if b.key == "equity").label == "Shareholders' equity"
+
+
+def test_the_company_page_legend_uses_the_honest_equity_label(client):
+    _seed_label_company("NCIX", _NCI_ROWS)
+    _seed_label_company("PARX", _PARENT_ROWS)
+    nci_html = client.get("/company/NCIX").text
+    assert "Equity incl. noncontrolling interest" in nci_html
+    assert "Shareholders&#x27; equity" not in nci_html
+    parent_html = client.get("/company/PARX").text
+    assert "Shareholders&#x27; equity" in parent_html
+    assert "Equity incl. noncontrolling interest" not in parent_html
+
+
+def test_the_ask_context_uses_the_honest_equity_label(client):
+    _seed_label_company("NCIX", _NCI_ROWS)
+    from src.company.view1 import build_view1
+    from src.llm.ask import build_context
+
+    context = build_context(build_view1("NCIX"))
+    assert "Equity incl. noncontrolling interest: $320 = 32.0%" in context
+    assert "Shareholders' equity" not in context

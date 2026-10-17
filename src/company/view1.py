@@ -428,7 +428,7 @@ def build_view1(
         view.missing_components += missing_liab
 
         view.claims.append(
-            Block(key="equity", label="Shareholders' equity", value=total_equity,
+            Block(key="equity", label=EQUITY_LABELS[view.equity_basis], value=total_equity,
                   pct=pct(abs(total_equity)), kind="equity")
         )
         if total_equity < 0:
@@ -468,6 +468,14 @@ def build_view1(
 # 0.5% absorbs rounding and a filer's own presentation slack; anything past it
 # is a disagreement the reader should be told about rather than shown as a
 # column drawn off the top of the other one.
+# What the equity figure on a sheet is CALLED, by which figure it is. With a combined total on file it
+# includes the noncontrolling interest, and brand.md's wording for it is "equity incl. noncontrolling
+# interest"; the parent-only figure is the shareholders' equity. One table, read by the site, the
+# legend, the prose and the MCP tool, so a label can no longer disagree with the number beside it.
+EQUITY_INCL_NCI_LABEL = "Equity incl. noncontrolling interest"
+EQUITY_PARENT_LABEL = "Shareholders' equity"
+EQUITY_LABELS = {"incl_nci": EQUITY_INCL_NCI_LABEL, "parent": EQUITY_PARENT_LABEL}
+
 IDENTITY_TOLERANCE = 0.005
 
 
