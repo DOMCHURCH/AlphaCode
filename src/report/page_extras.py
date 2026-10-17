@@ -115,6 +115,7 @@ def build_intro(
     filing_date: dt.date | None = None,
     form: str | None = None,
     balances: bool = True,
+    identity_status: str = "",
     identity_basis: str = "",
     imbalance_pct: float | None = None,
     asset_lines: list[dict[str, Any]] | None = None,
@@ -245,7 +246,8 @@ def build_intro(
 
     sentences.append(
         _identity_sentence(
-            balances, identity_basis, imbalance_pct, name, assets, stated_rhs
+            balances, identity_basis, imbalance_pct, name, assets, stated_rhs,
+            identity_status,
         )
     )
     sentences.append(
@@ -266,6 +268,7 @@ def _identity_sentence(
     name: str = "This filer",
     assets: float | None = None,
     stated_rhs: float | None = None,
+    status: str = "",
 ) -> str:
     """What the identity check found, in one sentence, naming the term used.
 
@@ -282,6 +285,12 @@ def _identity_sentence(
     disagree about the same filing. They did, for every flagged company:
     `/methodology` said "Ours, not theirs" while the page blamed the filer.
     """
+    if status == "not_testable":
+        # `balances` is True here only because it is the drawing's default.
+        return (
+            "This filing does not report the lines needed to check Assets = "
+            "Liabilities + Equity, so it is marked not testable instead of passing."
+        )
     if balances and not basis:
         return (
             "Assets equal liabilities plus equity on the filed figures, so this "

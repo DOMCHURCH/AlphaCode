@@ -447,9 +447,13 @@ def _company_meta(d: dict[str, Any]) -> str:
     #
     # The name is built LAST, against whatever the rest of the sentence left,
     # so the bound holds however wide the figure prints.
+    # Said only of a filing that could be checked: a not-testable one has
+    # nothing to be verified against.
+    testable = d.get("identity_status") != "not_testable"
+    checked = " Verified against A = L + E." if testable else ""
     rest = (
         f" ({d['ticker']}) balance sheet, {d['period_end']}, drawn to "
-        f"scale.{size} As filed. Verified against A = L + E."
+        f"scale.{size} As filed.{checked}"
     )
     # What searchers actually type is "<company> net worth", "total assets",
     # "liabilities" (Search Console, 2026-09-25: EMED ranked ~4 for "emed net
@@ -460,7 +464,7 @@ def _company_meta(d: dict[str, Any]) -> str:
         rest = (
             f" ({d['ticker']}) net worth {_snippet_money(equity)}: total assets "
             f"{_snippet_money(total)}, liabilities {_snippet_money(liab)}, as filed "
-            f"{d['period_end']}. Checked: A = L + E."
+            f"{d['period_end']}." + (" Checked: A = L + E." if testable else "")
         )
     desc = fit_name(name, _DESC_LIMIT - len(rest)) + rest
     url = f"{SITE_ORIGIN}/company/{d['ticker']}"
@@ -710,7 +714,7 @@ def render_company_page(
     # whole claim is that the two columns are the same money counted twice, so
     # when they are not, that has to read as an exception rather than as one
     # more grey line among the "this filer does not break X out" remarks.
-    unbalanced = not d.get("balances", True)
+    unbalanced = d.get("reconciles") is False
     notes_html = "".join(
         f'<div class="note{" warn" if unbalanced and i == len(d["notes"]) - 1 else ""}">'
         f"{escape(n)}</div>"

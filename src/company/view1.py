@@ -196,6 +196,16 @@ class View1:
     # a reader would use: ["total liabilities", "total equity"]. Empty otherwise.
     missing_for_check: list[str] = field(default_factory=list)
 
+    @property
+    def reconciles(self) -> bool | None:
+        """True or False, or None when the filing cannot be tested.
+
+        `balances` is the drawing's flag and stays True for a filing with
+        nothing to test, so reading it as an answer gives a false pass. Anything
+        that displays or sends a verdict reads this instead.
+        """
+        return None if self.identity_status == "not_testable" else self.balances
+
     def as_dict(self) -> dict[str, Any]:
         def blocks(bs: list[Block]) -> list[dict[str, Any]]:
             return [
@@ -228,6 +238,7 @@ class View1:
             "missing_components": self.missing_components,
             "liabilities_derived_from": self.liabilities_derived_from,
             "balances": self.balances,
+            "reconciles": self.reconciles,
             "identity_status": self.identity_status or "unclassified",
             "missing_for_check": list(self.missing_for_check),
             # SERIALISED as an explicit value, never as "".
@@ -537,6 +548,12 @@ def _classify(view: View1, bs: Any, *, raw_liabilities: float | None,
                 ("total equity", raw_equity),
             ) if value is None
         ]
+        view.notes.append(
+            "Not testable: this filing does not report "
+            + " or ".join(view.missing_for_check or ["the lines the check needs"])
+            + " and gives no stated total for liabilities plus equity, so "
+            "total assets cannot be checked against anything."
+        )
         return
     incomplete = raw_liabilities is None or raw_equity is None
     if incomplete and view.balances and category in FLAG_CATEGORIES and drift is not None:

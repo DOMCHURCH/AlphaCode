@@ -65,6 +65,11 @@ def arithmetic_line(view: Any) -> str:
     a, liab, eq = view.total_assets, view.total_liabilities, view.total_equity
     if a is None or liab is None or eq is None:
         return ""
+    if getattr(view, "identity_status", "") == "not_testable":
+        # A liability derived from assets and equity makes this line zero by
+        # construction. Writing it out as "the check" would show a check that
+        # was never run.
+        return ""
     basis = getattr(view, "identity_basis", "") or ""
     terms = [("liabilities", liab), ("equity", eq)]
     nci = getattr(view, "minority_interest", None)
@@ -172,6 +177,8 @@ def stated_agrees(view: Any) -> bool:
 
 def balance_verdict(row: dict[str, Any]) -> str:
     """One period's identity result, in words that do not blame the filer."""
+    if row["balances"] is None:
+        return "Not testable"
     if row["balances"]:
         basis = row.get("basis") or ""
         if not basis or basis == "as_filed":
@@ -202,11 +209,17 @@ def history_html(rows: list[dict[str, Any]]) -> str:
         "</tr>"
         for r in rows
     )
-    balanced = sum(1 for r in rows if r["balances"])
+    tested = [r for r in rows if r["balances"] is not None]
+    balanced = sum(1 for r in tested if r["balances"])
+    untestable = len(rows) - len(tested)
+    cannot = (
+        f" {untestable} cannot be tested: the filing does not report the "
+        "lines the check needs." if untestable else ""
+    )
     return (
         "<h3>Does it balance, quarter by quarter</h3>"
-        f"<p class=\"section-note\">{balanced} of the last {len(rows)} "
-        "balance sheets on file reconcile as this site reads them. Each row "
+        f"<p class=\"section-note\">{balanced} of the last {len(tested)} "
+        f"tested balance sheets on file reconcile as this site reads them.{cannot} Each row "
         "is judged by the same check as the drawing above, and “latest "
         "filing” is the newest filing that carried that period's "
         "figures, since later filings repeat earlier periods as comparatives."
@@ -298,7 +311,7 @@ def _history_rows(view: Any, ticker: str) -> list[dict[str, Any]]:
             "assets": v.total_assets,
             "liabilities": v.total_liabilities,
             "equity": v.total_equity,
-            "balances": bool(v.balances),
+            "balances": v.reconciles,
             "basis": v.identity_basis or "",
             "imbalance_pct": v.imbalance_pct,
             "stated_agrees": stated_agrees(v),
@@ -387,6 +400,7 @@ def render_facts(view: Any) -> tuple[str, str] | None:
             filing_date=view.filing_date,
             form=_form_for(view.ticker, view.filing_date),
             balances=view.balances,
+            identity_status=view.identity_status,
             identity_basis=view.identity_basis,
             imbalance_pct=view.imbalance_pct,
             stated_rhs=view.stated_rhs,

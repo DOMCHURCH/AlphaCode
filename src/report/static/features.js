@@ -313,11 +313,14 @@
       if (!r.ok) { note("verify-note", why(r, "Could not check them."), "bad"); return; }
       var d = r.data;
       note("verify-note", d.checked + " checked: " + d.reconcile + " reconcile, " + d.do_not_reconcile +
-        " do not" + (d.not_found ? ", " + d.not_found + " not found" : "") + ".", "good");
+        " do not, " + (d.not_testable || 0) + " not testable" +
+        (d.not_found ? ", " + d.not_found + " not found" : "") + ".", "good");
       $("verify-out").appendChild(table(["Ticker", "Period", "Reconciles", "Gap"], d.results.map(function (x) {
         if (!x.found) return [x.ticker, "—", "not found", "—"];
-        return [x.ticker, x.period_end || "—", x.reconciles ? "Yes" : "No",
-          x.imbalance_pct == null ? "—" : x.imbalance_pct.toFixed(2) + "%"];
+        // null is "cannot be tested", which is neither Yes nor No.
+        var verdict = x.reconciles === true ? "Yes" : x.reconciles === false ? "No" : "Not testable";
+        return [x.ticker, x.period_end || "—", verdict,
+          x.reconciles == null || x.imbalance_pct == null ? "—" : x.imbalance_pct.toFixed(2) + "%"];
       })));
     }).catch(function () { note("verify-note", "Could not reach the server.", "bad"); });
   }

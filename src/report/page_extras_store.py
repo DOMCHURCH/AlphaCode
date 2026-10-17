@@ -335,6 +335,7 @@ def compute_and_store(ticker: str, origin: str) -> bool:
             filing_date=view.filing_date,
             form=form,
             balances=view.balances,
+            identity_status=view.identity_status,
             identity_basis=view.identity_basis,
             imbalance_pct=view.imbalance_pct,
             stated_rhs=view.stated_rhs,

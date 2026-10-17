@@ -3738,7 +3738,7 @@ def api_bulk_verify(body: BulkVerifyRequest, account=Depends(_ACCOUNT_OR_SESSION
             # `view.balances` is True on such a view only as the drawing's
             # default. `identity_status` is the site's own classification
             # (stats.classify_identity), the same one the home-page counts use.
-            "reconciles": None if view.identity_status == "not_testable" else view.balances,
+            "reconciles": view.reconciles,
             "identity_status": view.identity_status or "unclassified",
             "missing_for_check": list(view.missing_for_check),
             "imbalance_pct": round(view.imbalance_pct, 4),

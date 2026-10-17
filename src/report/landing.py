@@ -139,7 +139,7 @@ def check_line(ticker: str = SAMPLE_TICKER) -> tuple[str, str] | None:
     if not line:
         return None
     return line, balance_verdict({
-        "balances": bool(view.balances), "basis": view.identity_basis or "",
+        "balances": view.reconciles, "basis": view.identity_basis or "",
         "imbalance_pct": view.imbalance_pct,
     })
 
