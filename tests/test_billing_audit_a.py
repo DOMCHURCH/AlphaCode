@@ -461,3 +461,204 @@ def test_there_is_no_lookup_client_without_a_key(monkeypatch):
     get_settings.cache_clear()
     assert billing._lookup_client() is None
     get_settings.cache_clear()
+
+
+# ---------------------------------------------------------------------------
+# Which subscription an invoice belongs to: both API shapes
+#
+# Recent Stripe API versions moved the reference off the invoice's top level and
+# under `parent.subscription_details.subscription`. `_renew` feeds the answer to
+# the supersession guard, and an empty answer means "no conflict", so a shape the
+# extractor does not read would silently switch the guard off.
+# ---------------------------------------------------------------------------
+
+SHAPES = ["legacy", "parent"]
+
+
+def _invoice(subscription, shape):
+    invoice = {
+        "id": "in_x",
+        "billing_reason": "subscription_cycle",
+        "customer": "cus_1",
+        "lines": {"data": [{"period": {"start": _ts(0), "end": _ts(31)}}]},
+    }
+    if shape == "legacy":
+        invoice["subscription"] = subscription
+    else:
+        invoice["subscription"] = None       # absent or null in the new shape
+        invoice["parent"] = {
+            "type": "subscription_details",
+            "subscription_details": {"subscription": subscription},
+        }
+    return invoice
+
+
+def _renewal_event(event_id, subscription, shape):
+    return {"id": event_id, "type": "invoice.payment_succeeded",
+            "data": {"object": _invoice(subscription, shape)}}
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_the_subscription_is_read_from_either_invoice_shape(shape):
+    from src import billing
+
+    assert billing._subscription_of(_invoice("sub_9", shape)) == "sub_9"
+
+
+def test_the_extractor_edge_cases():
+    from src import billing
+
+    # The legacy field wins when both are present; an expanded object is read by id.
+    both = _invoice("sub_legacy", "legacy")
+    both["parent"] = {"subscription_details": {"subscription": "sub_parent"}}
+    assert billing._subscription_of(both) == "sub_legacy"
+    assert billing._subscription_of({"subscription": {"id": "sub_expanded"}}) == "sub_expanded"
+    nested = {"parent": {"subscription_details": {"subscription": {"id": "sub_p"}}}}
+    assert billing._subscription_of(nested) == "sub_p"
+    # A one-off invoice has neither.
+    assert billing._subscription_of({"id": "in_1", "parent": None}) == ""
+    assert billing._subscription_of({"id": "in_1"}) == ""
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_a_renewal_of_a_superseded_subscription_is_refused_in_either_shape(client, shape):
+    key = _on_annual_after_monthly(client)
+    before = status(client, key)
+
+    r = post_event(client, _renewal_event("evt_old_renew", "sub_monthly", shape))
+    assert r.json()["status"] == "superseded"
+    assert r.json()["renewed"] == "sub_monthly"
+    assert status(client, key)["expires_at"] == before["expires_at"]
+
+
+@pytest.mark.parametrize("shape", SHAPES)
+def test_a_renewal_of_the_current_subscription_extends_in_either_shape(client, shape):
+    key = _on_annual_after_monthly(client)
+    before = status(client, key)["expires_at"]
+
+    r = post_event(client, _renewal_event("evt_cur_renew", "sub_annual", shape))
+    assert r.json()["status"] == "granted"
+    assert status(client, key)["expires_at"] > before
+
+
+# ---------------------------------------------------------------------------
+# Out of order: an upgrade where the new subscription's own events arrive BEFORE
+# checkout.session.completed has moved the stored id
+#
+# Those events answer 200 "superseded" and Stripe will not redeliver them. The
+# checkout event then grants the tier and expiry from the SESSION's plan (not from
+# the subscription), so the account ends up where the in-order sequence leaves it,
+# apart from the expiry: checkout extends from the later of now and the current
+# expiry, and only an `updated` event for the new subscription trims it to
+# Stripe's exact period end.
+# ---------------------------------------------------------------------------
+
+def _updated(event_id, subscription, price, days, customer="cus_1"):
+    return {
+        "id": event_id,
+        "type": "customer.subscription.updated",
+        "data": {
+            "object": {
+                "id": subscription,
+                "customer": customer,
+                "status": "active",
+                "items": {"data": [{"price": {"id": price}}]},
+                "current_period_end": _ts(days),
+            }
+        },
+    }
+
+
+def _expiry_days(client, key):
+    expires = dt.datetime.fromisoformat(status(client, key)["expires_at"])
+    return (expires - dt.datetime.now(dt.UTC)).total_seconds() / 86400
+
+
+def test_an_update_for_the_new_subscription_before_its_checkout_loses_nothing(client):
+    from src import billing
+
+    key = register(client)
+    post_event(client, checkout_event(plan="pro", subscription="sub_A"))     # monthly, stored
+    assert billing._subscription_id_of(BUYER) == "sub_A"
+    monthly_days = _expiry_days(client, key)
+
+    # B's own update arrives first: refused, answered 200, never redelivered.
+    early = post_event(client, _updated("evt_B_early", "sub_B", PRICE_PRO_ANNUAL, 365))
+    assert early.status_code == 200
+    assert early.json()["status"] == "superseded"
+    assert early.json()["current"] == "sub_A"
+    assert billing._subscription_id_of(BUYER) == "sub_A"
+    assert abs(_expiry_days(client, key) - monthly_days) < 0.1, "the dropped update changed the expiry"
+
+    # B's checkout then arrives and does the whole job.
+    post_event(
+        client,
+        checkout_event(event_id="evt_B_checkout", plan="pro_annual", subscription="sub_B"),
+    )
+    assert billing._subscription_id_of(BUYER) == "sub_B"
+    assert status(client, key)["tier"] == "pro"
+    assert _expiry_days(client, key) >= 360, "the annual purchase was not granted in full"
+
+    # And B's next update is accepted now, re-syncing to Stripe's period end.
+    later = post_event(client, _updated("evt_B_later", "sub_B", PRICE_PRO_ANNUAL, 365))
+    assert later.json()["status"] == "synced"
+    assert 364 <= _expiry_days(client, key) <= 366
+
+
+def test_the_out_of_order_sequence_ends_where_the_in_order_one_does(client):
+    """The same events in both orders, for two accounts: the same tier, a stored
+    id that is the new subscription, and the same expiry once B's update has
+    been accepted."""
+    from sqlalchemy import select
+
+    from src import billing
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    # In order: checkout A, checkout B, update B.
+    key = register(client)
+    post_event(client, checkout_event(plan="pro", subscription="sub_A"))
+    post_event(client, checkout_event(event_id="evt_B_checkout", plan="pro_annual", subscription="sub_B"))
+    post_event(client, _updated("evt_B_update", "sub_B", PRICE_PRO_ANNUAL, 365))
+    in_order = (status(client, key)["tier"], billing._subscription_id_of(BUYER), _expiry_days(client, key))
+
+    # Out of order, a second account on its own customer id: checkout A, update B,
+    # checkout B, update B again.
+    other = "other@example.com"
+    key2 = register(client, other)
+    with session_scope() as s:
+        row = s.execute(select(ApiUser).where(ApiUser.email == other)).scalar_one()
+        row.stripe_customer_id = "cus_2"
+    first = checkout_event(event_id="evt_A2", plan="pro", email=other, subscription="sub_A2")
+    first["data"]["object"]["customer"] = "cus_2"
+    post_event(client, first)
+    assert post_event(
+        client, _updated("evt_B2_early", "sub_B2", PRICE_PRO_ANNUAL, 365, customer="cus_2")
+    ).json()["status"] == "superseded"
+    second = checkout_event(event_id="evt_B2_checkout", plan="pro_annual", email=other, subscription="sub_B2")
+    second["data"]["object"]["customer"] = "cus_2"
+    post_event(client, second)
+    post_event(client, _updated("evt_B2_settle", "sub_B2", PRICE_PRO_ANNUAL, 365, customer="cus_2"))
+    out_of_order = (status(client, key2)["tier"], billing._subscription_id_of(other), _expiry_days(client, key2))
+
+    assert in_order[0] == out_of_order[0] == "pro"
+    assert in_order[1] == "sub_B" and out_of_order[1] == "sub_B2"
+    assert abs(in_order[2] - out_of_order[2]) < 0.1
+
+
+def test_the_first_invoice_of_the_new_subscription_before_its_checkout_is_ignored_and_nothing_is_lost(client):
+    from src import billing
+
+    key = register(client)
+    post_event(client, checkout_event(plan="pro", subscription="sub_A"))
+
+    first_invoice = _renewal_event("evt_B_invoice", "sub_B", "parent")
+    first_invoice["data"]["object"]["billing_reason"] = "subscription_create"
+    r = post_event(client, first_invoice)
+    assert r.json()["status"] == "ignored"
+    assert r.json()["billing_reason"] == "subscription_create"
+    assert billing._subscription_id_of(BUYER) == "sub_A"
+
+    post_event(client, checkout_event(event_id="evt_B_checkout", plan="pro_annual", subscription="sub_B"))
+    assert billing._subscription_id_of(BUYER) == "sub_B"
+    assert _expiry_days(client, key) >= 360
