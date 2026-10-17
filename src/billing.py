@@ -994,12 +994,66 @@ def _fulfil_checkout(obj: Any) -> dict[str, Any]:
         return {"status": "no_email", "plan": plan}
 
     _account_for(email)
+    subscription = _id_of(_field(obj, "subscription"))
+    # Read BEFORE the ids are attached below: afterwards the stored id equals the
+    # session's for every checkout, including one whose grant has not happened.
+    already = _already_granted(email, plan, subscription)
     _attach_ids(
         email,
         customer=_id_of(_field(obj, "customer")),
-        subscription=_id_of(_field(obj, "subscription")),
+        subscription=subscription,
     )
+    if already:
+        from src import accounts
+
+        account = accounts.by_email(email)
+        log.info(
+            "stripe_checkout_already_granted",
+            plan=plan, email=email, subscription=subscription,
+        )
+        return {
+            "status": "already_granted",
+            "plan": plan,
+            "email": email,
+            "tier": account.tier if account else "unknown",
+            "has_paid_download": account.has_paid_download if account else False,
+        }
     return _grant(email, plan)
+
+
+def _already_granted(email: str, plan: str, subscription: str) -> bool:
+    """Whether a `customer.subscription.updated` for THIS subscription already
+    put this purchase on the account, so checkout must not add days on top.
+
+    `_grant` extends from the later of now and the current expiry. If the update
+    arrived first it had already ASSIGNED Stripe's period end, and extending that
+    again gave a first annual purchase about 731 days instead of 365 until the
+    next update re-synced it.
+
+    The stored subscription id matching the session's is necessary and NOT
+    sufficient. A checkout whose grant failed has attached the id already (the
+    attach comes first), and Stripe's redelivery of it must still grant, or the
+    buyer paid and got nothing. So the account must also already show this
+    purchase: the tier this plan buys, with an expiry that covers at least 90%
+    of the plan's period. An upgrade whose grant failed (old tier, old expiry)
+    and a first purchase whose grant failed (free) both fall through to the
+    grant.
+    """
+    if not subscription or plan not in PLAN_TIER:
+        return False
+    days = period_days(plan) or get_settings().pro_period_days
+    with session_scope() as session:
+        row = session.execute(
+            select(ApiUser).where(ApiUser.email == email)
+        ).scalar_one_or_none()
+        if row is None or str(row.stripe_subscription_id or "") != subscription:
+            return False
+        if row.subscription_tier != PLAN_TIER[plan] or row.pro_expires_at is None:
+            return False
+        expires = row.pro_expires_at
+        if expires.tzinfo is None:
+            expires = expires.replace(tzinfo=dt.UTC)
+    return expires >= dt.datetime.now(dt.UTC) + dt.timedelta(days=days * 0.9)
 
 
 def _invoice_period_days(invoice: Any) -> int | None:

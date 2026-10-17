@@ -662,3 +662,128 @@ def test_the_first_invoice_of_the_new_subscription_before_its_checkout_is_ignore
     post_event(client, checkout_event(event_id="evt_B_checkout", plan="pro_annual", subscription="sub_B"))
     assert billing._subscription_id_of(BUYER) == "sub_B"
     assert _expiry_days(client, key) >= 360
+
+
+# ---------------------------------------------------------------------------
+# One payment, one period: checkout must not add days on top of an update
+#
+# `customer.subscription.updated` ASSIGNS Stripe's period end; checkout EXTENDS
+# from the later of now and the current expiry. When the update arrives first,
+# the extension used to stack on the assignment: one annual payment read as
+# about 731 days until the next update re-synced it.
+# ---------------------------------------------------------------------------
+
+def _link_customer(email=BUYER, customer="cus_1"):
+    from sqlalchemy import select
+
+    from src.storage.db import session_scope
+    from src.storage.models import ApiUser
+
+    with session_scope() as s:
+        row = s.execute(select(ApiUser).where(ApiUser.email == email)).scalar_one()
+        row.stripe_customer_id = customer
+
+
+def test_an_annual_purchase_is_about_a_year_when_the_update_arrives_first(client):
+    from src import billing
+
+    key = register(client)
+    _link_customer()        # so the update can find the account before checkout has
+
+    first = post_event(client, _updated("evt_upd", "sub_B", PRICE_PRO_ANNUAL, 365))
+    assert first.json()["status"] == "synced"
+    assert 364 <= _expiry_days(client, key) <= 366
+
+    checkout = post_event(
+        client, checkout_event(event_id="evt_chk", plan="pro_annual", subscription="sub_B")
+    )
+    assert checkout.status_code == 200
+    assert checkout.json()["status"] == "already_granted"
+    assert checkout.json()["tier"] == "pro"
+    days = _expiry_days(client, key)
+    assert 364 <= days <= 367, f"one annual payment gave {days:.0f} days, not about 365"
+    assert billing._subscription_id_of(BUYER) == "sub_B"
+    assert status(client, key)["tier"] == "pro"
+
+
+def test_a_monthly_purchase_is_about_a_month_when_the_update_arrives_first(client):
+    key = register(client)
+    _link_customer()
+
+    post_event(client, _updated("evt_upd", "sub_M", PRICE_PRO, 30))
+    checkout = post_event(client, checkout_event(event_id="evt_chk", plan="pro", subscription="sub_M"))
+    assert checkout.json()["status"] == "already_granted"
+    assert 29 <= _expiry_days(client, key) <= 32
+
+
+def test_an_annual_purchase_is_about_a_year_when_checkout_arrives_first(client):
+    """The in-order case is unchanged: checkout grants, the update then trims."""
+    from src import billing
+
+    key = register(client)
+    checkout = post_event(
+        client, checkout_event(event_id="evt_chk", plan="pro_annual", subscription="sub_B")
+    )
+    assert checkout.json()["status"] == "granted"
+    after_checkout = _expiry_days(client, key)
+    assert 360 <= after_checkout <= 367
+    assert billing._subscription_id_of(BUYER) == "sub_B"
+
+    update = post_event(client, _updated("evt_upd", "sub_B", PRICE_PRO_ANNUAL, 365))
+    assert update.json()["status"] == "synced"
+    assert 364 <= _expiry_days(client, key) <= 366
+
+
+def test_a_checkout_that_failed_after_attaching_the_id_still_grants_on_redelivery(client, monkeypatch):
+    """The reason the rule is not just "the stored id matches": the id is attached
+    BEFORE the grant, so a checkout whose grant raised leaves a matching id and an
+    ungranted account. Stripe's redelivery must still grant."""
+    from src import billing
+
+    key = register(client)
+    real_grant = billing._grant
+
+    def failing_grant(*a, **k):
+        raise RuntimeError("database blip mid-grant")
+
+    monkeypatch.setattr(billing, "_grant", failing_grant)
+    event = checkout_event(event_id="evt_chk", plan="pro_annual", subscription="sub_B")
+    with pytest.raises(RuntimeError):
+        post_event(client, event)
+    assert billing._subscription_id_of(BUYER) == "sub_B"       # attached, not granted
+    assert status(client, key)["tier"] == "free"
+
+    monkeypatch.setattr(billing, "_grant", real_grant)
+    retry = post_event(client, event)                          # same event id, released
+    assert retry.json()["status"] == "granted"
+    assert status(client, key)["tier"] == "pro"
+    assert _expiry_days(client, key) >= 360
+
+
+def test_an_upgrade_whose_grant_failed_after_attaching_still_grants_on_redelivery(client, monkeypatch):
+    """Same hazard when the account already holds a (shorter) subscription: the
+    old tier and a month of expiry must not be mistaken for the new purchase."""
+    from src import billing
+
+    key = register(client)
+    post_event(client, checkout_event(plan="pro", subscription="sub_A"))
+    assert _expiry_days(client, key) < 40
+    real_grant = billing._grant
+
+    monkeypatch.setattr(billing, "_grant", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("blip")))
+    event = checkout_event(event_id="evt_B_chk", plan="pro_annual", subscription="sub_B")
+    with pytest.raises(RuntimeError):
+        post_event(client, event)
+    assert billing._subscription_id_of(BUYER) == "sub_B"
+
+    monkeypatch.setattr(billing, "_grant", real_grant)
+    retry = post_event(client, event)
+    assert retry.json()["status"] == "granted"
+    assert _expiry_days(client, key) >= 360
+
+
+def test_the_dataset_is_never_treated_as_already_granted(client):
+    key = register(client)
+    r = post_event(client, checkout_event(plan="dataset"))
+    assert r.json()["status"] == "granted"
+    assert status(client, key)["has_paid_download"] is True
