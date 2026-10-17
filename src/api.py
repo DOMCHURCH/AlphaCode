@@ -3679,7 +3679,13 @@ def api_bulk_verify(body: BulkVerifyRequest, account=Depends(_ACCOUNT_OR_SESSION
             "ticker": t, "found": True,
             "company_name": view.company_name,
             "period_end": view.period_end,
-            "reconciles": view.balances,
+            # null, not true, when the filing reports too little to be tested:
+            # `view.balances` is True on such a view only as the drawing's
+            # default. `identity_status` is the site's own classification
+            # (stats.classify_identity), the same one the home-page counts use.
+            "reconciles": None if view.identity_status == "not_testable" else view.balances,
+            "identity_status": view.identity_status or "unclassified",
+            "missing_for_check": list(view.missing_for_check),
             "imbalance_pct": round(view.imbalance_pct, 4),
             "identity_basis": view.identity_basis or "as_filed",
             "missing_components": list(view.missing_components or []),
@@ -3692,8 +3698,9 @@ def api_bulk_verify(body: BulkVerifyRequest, account=Depends(_ACCOUNT_OR_SESSION
     checked = [r for r in results if r["found"]]
     return JSONResponse(jsonable_encoder({
         "checked": len(checked),
-        "reconcile": sum(1 for r in checked if r["reconciles"]),
-        "do_not_reconcile": sum(1 for r in checked if not r["reconciles"]),
+        "reconcile": sum(1 for r in checked if r["reconciles"] is True),
+        "do_not_reconcile": sum(1 for r in checked if r["reconciles"] is False),
+        "not_testable": sum(1 for r in checked if r["reconciles"] is None),
         "not_found": len(results) - len(checked),
         "results": results,
     }))

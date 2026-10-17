@@ -310,14 +310,17 @@ TOOLS: list[dict[str, Any]] = [
     {
         "name": "check_balance_sheet",
         "description": (
-            "Verify that a company's filed balance sheet actually balances: "
+            "Check whether a company's filed balance sheet balances: "
             "does Assets = Liabilities + Equity hold on the filing, and if not, "
             "by how much and why. This is what BalanceProof exists for and it "
             "is not available from raw SEC data without doing the work. "
             "Returns the verdict, the drift as a percentage of assets, and the "
             "basis used — including whether a noncontrolling interest had to be "
             "added to close the identity, which is a different statement from "
-            "'it balances'. Use this for any question about data quality, "
+            "'it balances'. A filing that does not report the lines the check "
+            "needs (liabilities or equity, with no stated liabilities-plus-"
+            "equity total) is answered not_testable, which is neither a pass "
+            "nor a failure; the answer names what is missing. Use this for any question about data quality, "
             "reliability, accounting irregularities, or whether a figure can be "
             "relied on."
         ),
@@ -693,6 +696,37 @@ def _tool_check_balance_sheet(args: dict[str, Any], m: _Metered) -> tuple[str, A
     payload = _model_payload(view)
     name = view.company_name or ticker
     period = view.period_end
+
+    # A filing that reports too little to be tested is NOT a pass. `balances`
+    # is True on such a view only because it is the drawing's default, so the
+    # structured result says null and the text says what is missing. The answer
+    # is a normal one (isError false, one call billed, exactly as REST's
+    # /api/verify bills it): the question was asked and answered.
+    if view.identity_status == "not_testable":
+        payload["balances"] = None
+        payload["filer_totals_agree"] = None
+        payload["filer_totals_note"] = (
+            "Not applicable: the filing cannot be tested, so there is no "
+            "difference to settle."
+        )
+        lacking = " and ".join(view.missing_for_check) or "the lines the check needs"
+        reported = [f"total assets {_money(view.total_assets)}"]
+        if view.total_liabilities is not None and not view.liabilities_derived_from:
+            reported.append(f"total liabilities {_money(view.total_liabilities)}")
+        if view.total_equity is not None:
+            reported.append(
+                f"{payload['total_equity_label'].lower()} {_money(view.total_equity)}"
+            )
+        text = (
+            f"{name} ({ticker}): the balance sheet for the period ending "
+            f"{period} cannot be tested, so the check returns not_testable. "
+            f"The filing does not report {lacking}, and it gives no stated "
+            "total for liabilities plus equity, so there is nothing to compare "
+            "total assets against. That is neither a pass nor a failure. "
+            f"Reported: {', '.join(reported)}."
+        )
+        return text, payload
+
     # Whether the FILER's own stated total settles a failed check. It only means
     # something when the plain check failed, so it is three-valued:
     #   null  - the filing balances as read; there was nothing to settle.
@@ -1060,15 +1094,18 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
             f"- {p['period_end']}" + (f" {p['fiscal_period']}" if p.get("fiscal_period") else "")
             + f": revenue {_num(inc, 'revenue')}, gross profit {_num(inc, 'gross_profit')}, "
             f"net income {_num(inc, 'net_income')}, operating cash flow {_num(cf, 'operating_cash_flow')}; "
-            f"checks {ok}/{len(checks)} passed"
+            + (f"checks {ok}/{len(checks)} passed" if checks
+               else "checks not_testable (lines the check needs are not reported)")
         )
     more = (
         f"\n(Showing the newest {len(lines)} of {len(out['periods'])}; all are in the structured result.)"
         if len(out["periods"]) > len(lines) else ""
     )
+    untestable = sum(len(p.get("checks", [])) for p in out["periods"]) - sm["tested"]
     head = (
         f"{len(out['periods'])} {period} period(s) for {ticker}: {sm['passed']} of "
-        f"{sm['tested']} checks passed, {sm['failed']} failed."
+        f"{sm['tested']} checks passed, {sm['failed']} failed"
+        + (f", {untestable} not_testable." if untestable else ".")
     )
     return (
         head + "\n" + "\n".join(lines) + more,
@@ -1344,7 +1381,9 @@ def _dispatch(
 _INSTRUCTIONS = (
     "BalanceProof serves US public company balance sheets taken from SEC "
     "EDGAR, checked against the accounting identity "
-    "Assets = Liabilities + Equity. Its distinguishing feature is that it "
+    "Assets = Liabilities + Equity. Each period is checked when the filing "
+    "reports the lines the check needs; where it does not, the check returns "
+    "not_testable instead of passing. Its distinguishing feature is that it "
     "reports when a filing does NOT reconcile, and why, rather than returning "
     "a number either way. Resolve a company name with search_companies, read "
     "figures with get_balance_sheet, and use check_balance_sheet for any "

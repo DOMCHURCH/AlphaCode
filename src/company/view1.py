@@ -184,6 +184,17 @@ class View1:
     # Mezzanine (temporary) equity, where the filer reported it. Same purpose:
     # the note names the figure rather than the drawing absorbing it silently.
     mezzanine: float | None = None
+    # What `stats.classify_identity` -- the site's one definition of "reconciles"
+    # -- says about this filing: one of its RECONCILED or FLAG categories, or
+    # "not_testable". "" only on a view that was never classified.
+    #
+    # `balances` defaults to True and stays True for a filing with nothing to
+    # test (the drawing and the pages are built on it), so on its own it reads
+    # as a pass. This is the field a verdict is read from.
+    identity_status: str = ""
+    # For a "not_testable" filing, the totals it does not report, in the words
+    # a reader would use: ["total liabilities", "total equity"]. Empty otherwise.
+    missing_for_check: list[str] = field(default_factory=list)
 
     def as_dict(self) -> dict[str, Any]:
         def blocks(bs: list[Block]) -> list[dict[str, Any]]:
@@ -217,6 +228,8 @@ class View1:
             "missing_components": self.missing_components,
             "liabilities_derived_from": self.liabilities_derived_from,
             "balances": self.balances,
+            "identity_status": self.identity_status or "unclassified",
+            "missing_for_check": list(self.missing_for_check),
             # SERIALISED as an explicit value, never as "".
             #
             # The field stays "" internally because `page_extras` branches on
@@ -465,7 +478,70 @@ def build_view1(
         view, total_assets, total_liabilities, total_equity, nci, mezzanine,
         equity_alt=equity_alt, mezzanine_parts=mezzanine_parts,
     )
+    _classify(
+        view, bs,
+        raw_liabilities=_val(bs.liabilities, "total_liabilities"),
+        raw_equity=equity_incl if equity_incl is not None else equity_parent,
+    )
     return view
+
+
+def _identity_metrics(bs: Any) -> dict[str, float]:
+    """The stored metrics of this filing, keyed the way `classify_identity` reads them.
+
+    `BALANCE_SHEET_CONCEPTS` maps a stored metric to its display name; the
+    classifier wants the stored names, and wants a metric the filer did not
+    report to be ABSENT rather than None (it tests `in m`). Nothing is
+    derived here: a liability computed from the identity is not a reported one.
+    """
+    from src.company.balancesheet import BALANCE_SHEET_CONCEPTS
+    from src.company.stats import IDENTITY_METRICS
+
+    shown = {stored: display for display, stored in BALANCE_SHEET_CONCEPTS.items()}
+    out: dict[str, float] = {}
+    for metric in IDENTITY_METRICS:
+        display = shown.get(metric)
+        for group in (bs.assets, bs.liabilities, bs.equity):
+            v = _val(group, display) if display else None
+            if v is not None:
+                out[metric] = v
+                break
+    return out
+
+
+def _classify(view: View1, bs: Any, *, raw_liabilities: float | None,
+              raw_equity: float | None) -> None:
+    """Ask the site's classifier, and record its answer on the view.
+
+    The view's own check only runs when it has all three terms, and a filing
+    that reports less than that used to leave `balances` at its default of True:
+    "balances ... within tolerance" over a filing with nothing to compare. The
+    classifier is the function the home-page counts and the exceptions feed
+    already use, so asking it here means a page, the REST check and the MCP
+    tool cannot disagree about which filings are testable.
+
+    `balances` itself is left alone for a not_testable filing (the drawing is
+    built on it); `identity_status` is what a verdict reads. One case does
+    change `balances`: a filing with no components but a stated
+    liabilities-plus-equity total is TESTED against it by the classifier, and
+    when the stated total disagrees the view's early return had hidden that.
+    """
+    from src.company.stats import FLAG_CATEGORIES, classify_identity
+
+    category, drift = classify_identity(_identity_metrics(bs))
+    view.identity_status = category
+    if category == "not_testable":
+        view.missing_for_check = [
+            name for name, value in (
+                ("total liabilities", raw_liabilities),
+                ("total equity", raw_equity),
+            ) if value is None
+        ]
+        return
+    incomplete = raw_liabilities is None or raw_equity is None
+    if incomplete and view.balances and category in FLAG_CATEGORIES and drift is not None:
+        view.balances = False
+        view.imbalance_pct = drift
 
 
 # How far A = L + E may miss before the drawing says so, as a share of assets.
