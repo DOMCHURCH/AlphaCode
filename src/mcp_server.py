@@ -919,20 +919,14 @@ def _tool_get_changes(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
 
     ticker = _clean(str(args.get("ticker") or ""))
     if not ticker:
-        return "No ticker given.", None
+        raise _ToolFailure(_NO_TICKER)
     try:
         plans.require(_tier_of(m), "changes")
     except HTTPException as exc:
-        d = exc.detail if isinstance(exc.detail, dict) else {}
-        return (
-            f"'What changed' needs the {d.get('required_plan', 'Starter')} plan "
-            f"or above (this caller is on {d.get('your_plan', 'Free')}). "
-            "Upgrade at https://balanceproof.dev/pricing.",
-            None,
-        )
+        raise _ToolFailure(_plan_refusal(exc, "'What changed'")) from None
     out = changes(ticker)
     if out is None:
-        return f"No filed balance sheets for {ticker}.", None
+        raise _ToolFailure(_not_covered(ticker, "balance sheets"))
     m.spend(ticker)
     n = len(out["restatements"])
     return (
@@ -969,14 +963,14 @@ def _tool_get_statements(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     try:
         as_of = _date_arg(args.get("as_of"))
     except ValueError:
-        return "as_of must be a date, YYYY-MM-DD.", None
+        raise _ToolFailure("as_of must be a date, YYYY-MM-DD.") from None
     if as_of is not None:
         try:
             plans.require(_tier_of(m), "point_in_time")
         except HTTPException as exc:
-            return _plan_refusal(exc, "as_of"), None
+            raise _ToolFailure(_plan_refusal(exc, "as_of")) from None
         if as_of > dt.date.today():
-            return "as_of cannot be in the future.", None
+            raise _ToolFailure("as_of cannot be in the future.")
     cap = plans.allowance(_tier_of(m), "history_years")
     asked, allowed, clamp_note = _clamp_years(args, cap, _tier_of(m))
     out = statements(ticker, period, allowed, as_of)
@@ -1037,11 +1031,11 @@ def _tool_get_exceptions(args: dict[str, Any], m: _Metered) -> tuple[str, Any]:
     try:
         days = plans.require(_tier_of(m), "exceptions_feed")
     except HTTPException as exc:
-        return _plan_refusal(exc, "The exceptions feed"), None
+        raise _ToolFailure(_plan_refusal(exc, "The exceptions feed")) from None
     try:
         since = _date_arg(args.get("since"))
     except ValueError:
-        return "since must be a date, YYYY-MM-DD.", None
+        raise _ToolFailure("since must be a date, YYYY-MM-DD.") from None
     floor = dt.date.today() - dt.timedelta(days=days) if days else None
     if floor is not None and (since is None or since < floor):
         since = floor
@@ -1244,10 +1238,16 @@ def _dispatch(
                 str(exc), is_error=True,
                 meta={"balanceproof/plan": metered.plan()},
             ))
-        except Exception as exc:  # noqa: BLE001 - a tool error must still say why
+        except Exception as exc:  # noqa: BLE001 - a tool error must still say that it failed
+            # The detail goes to the log, not to the caller: an exception
+            # string can carry a query, a driver message or a path. The caller
+            # is told that it failed, on whose side, and that retrying is
+            # reasonable -- which is all a model can act on.
             log.exception("mcp_tool_failed", tool=name, error=str(exc))
             return _result(req_id, _tool_result(
-                f"Something went wrong running {name}: {exc}", is_error=True,
+                f"Something went wrong on our side running {name}. "
+                "Try again in a moment.",
+                is_error=True,
             ))
 
         return _result(req_id, _tool_result(
