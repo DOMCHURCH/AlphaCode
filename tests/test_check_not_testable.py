@@ -259,3 +259,42 @@ def test_statements_text_says_not_testable_when_no_check_could_run(client, monke
     assert result.get("isError") is False, text
     assert "0/0 passed" not in text
     assert "not_testable" in text
+
+
+# ---------------------------------------------------------------------------
+# The published schema: reconciles can be null, and the new fields are described
+# ---------------------------------------------------------------------------
+
+
+def test_openapi_marks_reconciles_nullable_and_documents_the_new_fields():
+    from src.api import app
+
+    schemas = app.openapi()["components"]["schemas"]
+    row = schemas["BulkVerifyRow"]["properties"]
+
+    kinds = {b.get("type") for b in row["reconciles"]["anyOf"]}
+    assert kinds == {"boolean", "null"}
+    assert "null" in row["reconciles"]["description"]
+    for name in ("identity_status", "missing_for_check"):
+        assert row[name].get("description"), name
+    statuses = next(b for b in row["identity_status"]["anyOf"] if "enum" in b)["enum"]
+    assert "not_testable" in statuses
+
+    totals = schemas["BulkVerifyResponse"]["properties"]
+    assert "not_testable" in totals
+    assert app.openapi()["paths"]["/api/verify"]["post"]["responses"]["200"]["content"][
+        "application/json"]["schema"]["$ref"].endswith("BulkVerifyResponse")
+
+
+def test_the_live_response_validates_against_the_published_schema(client):
+    from src.api import BulkVerifyResponse
+
+    _seed("ONLYA", total_assets=1000.0)
+    _seed("FULLY", total_assets=1000.0, total_liabilities=600.0, total_equity=400.0)
+    body = _verify(client, "ONLYA", "FULLY", "NOPE")
+
+    parsed = BulkVerifyResponse.model_validate(body)
+
+    assert [r.reconciles for r in parsed.results] == [None, True, None]
+    assert parsed.results[2].found is False
+    assert (parsed.reconcile, parsed.do_not_reconcile, parsed.not_testable, parsed.not_found) == (1, 0, 1, 1)

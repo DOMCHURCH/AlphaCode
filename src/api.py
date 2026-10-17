@@ -14,7 +14,7 @@ from collections import deque
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from fastapi import (
@@ -3640,7 +3640,62 @@ class BulkVerifyRequest(BaseModel):
     tickers: list[str]
 
 
-@app.post("/api/verify")
+class BulkVerifyRow(BaseModel):
+    """One ticker's result. A ticker that was not found carries only `found: false`."""
+
+    ticker: str
+    found: bool
+    error: str | None = Field(None, description="Set when the ticker is not shaped like one.")
+    company_name: str | None = None
+    period_end: dt.date | None = None
+    reconciles: bool | None = Field(
+        None,
+        description=(
+            "true: the filing balances. false: it does not. null: the filing "
+            "cannot be tested (identity_status is `not_testable`), which is "
+            "neither a pass nor a failure. A consumer that expects a boolean "
+            "will see null for those filings."
+        ),
+    )
+    identity_status: Literal[
+        "balanced", "nci", "mezzanine", "nci+mezzanine", "rounding",
+        "missing_tag", "broken", "unexplained", "not_testable", "unclassified",
+    ] | None = Field(
+        None,
+        description=(
+            "The site's own classification of the filing (the one behind the "
+            "home-page counts and the exceptions feed). `balanced`, `nci`, "
+            "`mezzanine` and `nci+mezzanine` reconcile; `rounding`, "
+            "`missing_tag`, `broken` and `unexplained` do not; `not_testable` "
+            "means the filing does not report the lines the check needs."
+        ),
+    )
+    missing_for_check: list[str] | None = Field(
+        None,
+        description=(
+            "For a `not_testable` filing, the totals it does not report, e.g. "
+            "[\"total liabilities\", \"total equity\"]; the filing also gives no "
+            "stated liabilities-plus-equity total. Empty for every other status."
+        ),
+    )
+    imbalance_pct: float | None = Field(
+        None, description="Gap between assets and liabilities plus equity, as a % of assets. 0 when not testable.")
+    identity_basis: str | None = Field(
+        None, description="`as_filed`, or what had to be added to close the identity (e.g. noncontrolling interest).")
+    missing_components: list[str] | None = None
+    provenance: dict[str, Any] | None = Field(None, description="Business plan only: the filing and its SEC link.")
+
+
+class BulkVerifyResponse(BaseModel):
+    checked: int = Field(description="Tickers found (each is one billed call).")
+    reconcile: int = Field(description="Results with reconciles = true.")
+    do_not_reconcile: int = Field(description="Results with reconciles = false.")
+    not_testable: int = Field(description="Results with reconciles = null; these are not in either count above.")
+    not_found: int
+    results: list[BulkVerifyRow]
+
+
+@app.post("/api/verify", response_model=BulkVerifyResponse)
 def api_bulk_verify(body: BulkVerifyRequest, account=Depends(_ACCOUNT_OR_SESSION)) -> JSONResponse:
     """Check many balance sheets in one request. Pro (50) and Business (500).
 

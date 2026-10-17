@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased: fix/audit-batch-a
+
+### A filing that cannot be tested is no longer reported as balancing
+
+Some filings report total assets but not total liabilities or not total equity, and give no stated liabilities-plus-equity total, so there is nothing to compare assets against. They used to come back as passing: `reconciles: true` from `POST /api/verify`, and "balances ... within tolerance" from the MCP `check_balance_sheet` tool. They are now reported as **not testable**, which is neither a pass nor a failure. They use the same classification as the home-page counts and the exceptions feed (`not_testable`).
+
+**Breaking for typed consumers.** `reconciles` on `POST /api/verify` is now `true`, `false` or **`null`**. A consumer that expects a boolean will now see `null` for filings that cannot be tested. Treat `null` as "no answer", not as `false`.
+
+What changed on `POST /api/verify`:
+
+- `reconciles` is `null` for a `not_testable` filing (nullable in the OpenAPI schema).
+- New per-result fields: `identity_status` (`balanced`, `nci`, `mezzanine`, `nci+mezzanine`, `rounding`, `missing_tag`, `broken`, `unexplained`, `not_testable`) and `missing_for_check` (the totals the filing does not report, e.g. `["total liabilities", "total equity"]`; empty otherwise).
+- New top-level count `not_testable`. `reconcile` and `do_not_reconcile` no longer include those filings, so `reconcile + do_not_reconcile + not_testable = checked`.
+- A filing with no components but a stated liabilities-plus-equity total is tested against that total; if the stated total disagrees with assets it now reports `reconciles: false` instead of `true`.
+- Billing is unchanged: each found ticker is one call, whatever the answer.
+
+MCP: `check_balance_sheet` answers `not_testable` (not an error, one call billed) and names what is missing; its structured `balances` is `null`. The server instructions say that each period is checked when the filing reports the lines the check needs, and that otherwise the check returns `not_testable`. The server title is now "BalanceProof - SEC balance sheets, with checks" (it said "verified"). `get_financial_statements` says `not_testable` instead of "checks 0/0 passed" when no check could run.
+
 ## Unreleased: release/period-fix
 
 ### Filing dates on historical balance sheets change

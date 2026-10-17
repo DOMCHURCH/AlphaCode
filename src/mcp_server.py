@@ -117,7 +117,7 @@ _META_VERSION = "io.modelcontextprotocol/protocolVersion"
 
 SERVER_INFO = {
     "name": "balanceproof",
-    "title": "BalanceProof — verified SEC balance sheets",
+    "title": "BalanceProof — SEC balance sheets, with checks",
     "version": "1.0.0",
 }
 

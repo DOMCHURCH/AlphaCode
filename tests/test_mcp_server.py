@@ -121,6 +121,10 @@ def test_legacy_handshake_echoes_the_version_and_mints_a_session(client):
     # not be told to use a different one.
     assert body["protocolVersion"] == LEGACY
     assert body["serverInfo"]["name"] == "balanceproof"
+    # The title promises checks, not that every figure is verified: a filing
+    # that cannot be tested is answered not_testable, so "verified" overstated it.
+    assert body["serverInfo"]["title"] == "BalanceProof — SEC balance sheets, with checks"
+    assert "verified" not in body["serverInfo"]["title"].lower()
     # A legacy client expects to be issued a session id even though this
     # server keeps no state behind it.
     assert r.headers.get("mcp-session-id")
