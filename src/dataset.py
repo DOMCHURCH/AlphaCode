@@ -134,6 +134,7 @@ def _fmt(v: object) -> object:
 
 
 _TICKER, _METRIC, _VALUE, _PERIOD, _FISCAL, _FILED, _SOURCE = range(7)  # SELECT order
+_SOURCE_TAG = 9  # after ingested_at (8): carried for tie-breaks, never written to the file
 _COUNT_CHUNK = 150  # tickers per query in `file_row_count`
 
 # Income-statement and cash-flow metrics: figures over a DURATION (a quarter, a
@@ -156,7 +157,11 @@ class Collapse:
     where one row is the fiscal year and the other a quarter, which are two
     different durations ending on the same day and not two copies of one figure:
     never paired, both written under their own dates, the fiscal-year row noting
-    where the fourth quarter is.
+    where the fourth quarter is. `bulk_preferred`: twin pairs whose two copies use
+    DIFFERENT XBRL tags and different values; the month-end-dated copy (the SEC
+    bulk data sets: the tag on the face of the statement) is kept, re-dated to the
+    real period end, and the real-dated frames copy (best-ranked tag across all
+    facts, often a note-level subset) is dropped.
 
     These are counts of RAW rows touched, before the latest-filing rule picks a
     winner, so they are not the same as how much shorter the file got.
@@ -166,12 +171,14 @@ class Collapse:
     redated: int = 0
     conflicts: int = 0
     fy_vs_quarter: int = 0
+    bulk_preferred: int = 0
 
     def add(self, other: Collapse) -> None:
         self.removed += other.removed
         self.redated += other.redated
         self.conflicts += other.conflicts
         self.fy_vs_quarter += other.fy_vs_quarter
+        self.bulk_preferred += other.bulk_preferred
 
 
 def _twin_map(
@@ -200,6 +207,17 @@ def _twin_map(
             if len(reals) == 1 and claimed[reals[0]] == 1:
                 out[(filed, month_end)] = reals[0]
     return out
+
+
+def _tags_differ(a: tuple[Any, ...], b: tuple[Any, ...]) -> bool:
+    """Both rows name the XBRL tag they were read from, and the tags are not the same.
+
+    A missing tag (rows loaded before the column existed) is not evidence of a
+    different concept, so it never triggers the bulk preference.
+    """
+    ta = a[_SOURCE_TAG] if len(a) > _SOURCE_TAG else None
+    tb = b[_SOURCE_TAG] if len(b) > _SOURCE_TAG else None
+    return bool(ta) and bool(tb) and ta != tb
 
 
 def _source_rank(source: str | None) -> int:
@@ -232,11 +250,13 @@ def _collapse_ticker(
         twin = _twin_map((r[_FILED], r[_PERIOD]) for r in rows)
     # row key -> (note, key of the row it disagrees with)
     notes: dict[tuple[Any, ...], tuple[str, tuple[Any, ...]]] = {}
+    drop: set[int] = set()  # id()s of real-dated rows superseded by their bulk twin
     if not twin:
         kept = list(rows)  # a calendar-aligned filer: nothing to collapse
     else:
         value_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_VALUE] for r in rows}
         fp_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r[_FISCAL] for r in rows}
+        row_at = {(r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]): r for r in rows}
         kept = []
         for r in rows:
             real = twin.get((r[_FILED], r[_PERIOD]))
@@ -267,6 +287,14 @@ def _collapse_ticker(
                 )
             elif other == r[_VALUE]:
                 stats.removed += 1
+            elif _tags_differ(r, row_at[k_there]):
+                # Same filing, same source, two different XBRL concepts, two values.
+                # `r` is the month-end copy (bulk route); the other is the frames
+                # copy. Keep the balance-sheet / income-statement line the company
+                # published, under the real period end; drop the other.
+                kept.append(r[:_PERIOD] + (real,) + r[_PERIOD + 1:])
+                drop.add(id(row_at[k_there]))
+                stats.bulk_preferred += 1
             else:
                 kept.append(r)
                 stats.conflicts += 1
@@ -276,6 +304,8 @@ def _collapse_ticker(
                 notes[k_rounded] = (f"value differs from the {real.isoformat()} row", k_real)
                 notes[k_real] = (f"value differs from the {rounded.isoformat()} row", k_rounded)
 
+    if drop:
+        kept = [x for x in kept if id(x) not in drop]
     kept.sort(key=lambda r: (r[_METRIC], r[_PERIOD], r[_FILED], _source_rank(r[_SOURCE]), r[_SOURCE] or ""))
     winners: list[tuple[Any, ...]] = []
     for r in kept:
@@ -290,7 +320,7 @@ def _collapse_ticker(
     out = []
     for r in winners:
         note, partner = notes.get((r[_METRIC], r[_PERIOD], r[_FILED], r[_SOURCE]), ("", None))
-        out.append(r + (note if partner in written else "",))
+        out.append(r[:_SOURCE_TAG] + (note if partner in written else "",))
     return out, stats
 
 
@@ -345,6 +375,7 @@ def iter_csv(collapse: Collapse | None = None) -> Iterator[str]:
             Fundamental.source,
             Fundamental.restated,
             Fundamental.ingested_at,
+            Fundamental.source_tag,
         )
         .order_by(
             Fundamental.ticker,
@@ -615,7 +646,7 @@ def file_row_count() -> int:
                     Fundamental.ticker, Fundamental.metric, Fundamental.value,
                     Fundamental.period_end, Fundamental.fiscal_period,
                     Fundamental.filing_date, Fundamental.source,
-                    Fundamental.restated, Fundamental.ingested_at,
+                    Fundamental.restated, Fundamental.ingested_at, Fundamental.source_tag,
                 ).where(Fundamental.ticker.in_(chunk), Fundamental.period_end.in_(wanted))
             ):
                 if row[_PERIOD] in involved[row[_TICKER]]:

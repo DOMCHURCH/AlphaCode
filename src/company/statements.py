@@ -25,6 +25,7 @@ from typing import Any
 
 from sqlalchemy import and_, select
 
+from src.company.periods import is_month_end
 from src.storage.db import session_scope
 
 INCOME = (
@@ -146,10 +147,19 @@ def _normalise(data: dict[str, dict[str, dict[dt.date, tuple[float, dt.date]]]])
     for kind in data.values():
         for metric, series in kind.items():
             merged: dict[dt.date, tuple[float, dt.date]] = {}
+            best: dict[dt.date, tuple[dt.date, bool]] = {}
             for d, (v, filed) in series.items():
                 r = rep[d]
-                if r not in merged or filed > merged[r][1]:
+                # Later filing wins. In ONE filing, the month-end-dated copy wins
+                # over its real-dated twin: it came from the SEC bulk data sets
+                # (the tags on the face of the statements), the other from the
+                # frames route (best-ranked tag across all facts, often a note-
+                # level subset: Hooker's cost of revenue $4.3M for $43.2M cost of
+                # goods sold). It used to be whichever row came first.
+                key = (filed, is_month_end(d))
+                if r not in merged or key > best[r]:
                     merged[r] = (v, filed)
+                    best[r] = key
             kind[metric] = merged
 
 
