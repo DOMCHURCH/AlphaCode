@@ -787,3 +787,67 @@ def test_the_dataset_is_never_treated_as_already_granted(client):
     r = post_event(client, checkout_event(plan="dataset"))
     assert r.json()["status"] == "granted"
     assert status(client, key)["has_paid_download"] is True
+
+
+# ---------------------------------------------------------------------------
+# A default timeout for every Stripe call that does not bring its own client
+# ---------------------------------------------------------------------------
+
+def test_the_sdk_gets_a_30_second_default_timeout_and_retries_are_untouched(monkeypatch):
+    import stripe
+
+    from src import billing
+
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    retries_before = stripe.max_network_retries
+
+    assert billing._sdk() is stripe
+    assert billing._STRIPE_TIMEOUT_S == 30.0
+    assert stripe.default_http_client._timeout == 30.0
+    assert stripe.max_network_retries == retries_before == 2, "retries must be left as the SDK has them"
+
+
+def test_the_default_client_keeps_the_sdks_choice_of_http_library(monkeypatch):
+    import stripe
+
+    from src import billing
+
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    chosen = type(stripe.new_default_http_client()).__name__
+    billing._sdk()
+    assert type(stripe.default_http_client).__name__ == chosen
+
+
+def test_applying_the_timeout_twice_keeps_the_same_client(monkeypatch):
+    import stripe
+
+    from src import billing
+
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    billing._sdk()
+    first = stripe.default_http_client
+    billing._sdk()
+    assert stripe.default_http_client is first
+
+
+def test_a_library_that_cannot_take_a_timeout_falls_back_to_httpx(monkeypatch):
+    import stripe
+
+    from src import billing
+
+    def no_timeout(*args, **kwargs):
+        raise TypeError("__init__() got an unexpected keyword argument 'timeout'")
+
+    monkeypatch.setattr(stripe, "default_http_client", None)
+    monkeypatch.setattr(stripe, "new_default_http_client", no_timeout)
+    billing._sdk()
+    assert isinstance(stripe.default_http_client, stripe.HTTPXClient)
+    assert stripe.default_http_client._timeout == 30.0
+
+
+def test_the_dispute_lookup_keeps_its_tighter_explicit_timeout():
+    """The 30 second default is the ceiling for everything else; the lookup made
+    while a webhook waits stays at 10 seconds with no retries."""
+    from src import billing
+
+    assert billing._LOOKUP_TIMEOUT_S == 10.0 < billing._STRIPE_TIMEOUT_S == 30.0

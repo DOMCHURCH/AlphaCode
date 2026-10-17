@@ -315,7 +315,33 @@ def _sdk():
         stripe.api_key = s.stripe_secret_key
     if s.stripe_api_version:
         stripe.api_version = s.stripe_api_version
+    _apply_default_timeout(stripe)
     return stripe
+
+
+# Seconds, per network phase. The SDK's own default is 80, so a Stripe that stops
+# answering would hold a request or webhook worker for over a minute (and the SDK
+# retries twice on top of that). Retries are left exactly as the SDK has them:
+# `stripe.max_network_retries` is not touched here.
+_STRIPE_TIMEOUT_S = 30.0
+
+
+def _apply_default_timeout(stripe) -> None:
+    """Give every SDK call that does not bring its own client a 30 second timeout.
+
+    Keeps the SDK's choice of HTTP library (`new_default_http_client`) and only
+    adds the timeout. Idempotent: it replaces the default client only when its
+    timeout is not already ours. Where the library the SDK would pick cannot take
+    a timeout (urllib, pycurl), httpx -- already a direct requirement -- does.
+    """
+    if getattr(stripe.default_http_client, "_timeout", None) == _STRIPE_TIMEOUT_S:
+        return
+    try:
+        stripe.default_http_client = stripe.new_default_http_client(
+            timeout=_STRIPE_TIMEOUT_S
+        )
+    except TypeError:
+        stripe.default_http_client = stripe.HTTPXClient(timeout=_STRIPE_TIMEOUT_S)
 
 
 def api_version() -> str:
