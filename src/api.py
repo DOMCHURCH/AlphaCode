@@ -721,7 +721,7 @@ _seed_admin_gate = _KeyedRateGate(10, window_s=60.0)
 #   the request was still the same caller, and 429 was the correct answer.
 #
 # Settled with a probe instead of an inference. A temporary admin route echoed
-# `analytics.client_ip` back, and from a laptop it returned 70.51.62.205 --
+# `analytics.client_ip` back, and from a laptop it returned the laptop's own public address --
 # that machine's real public address, matching ipify exactly -- while
 # `request.client.host` was 100.64.0.16, the proxy. The header arrives, it
 # carries the true address first, and `client_ip` reads it correctly.

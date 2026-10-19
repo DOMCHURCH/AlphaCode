@@ -40,7 +40,7 @@ The specific risks named here no longer apply: the demo is protected again and t
 
 ## How this was resolved
 
-A temporary diagnostic page was added and opened from a laptop on WiFi. The visitor address our code worked out — 70.51.62.205 — matched that laptop's real public address exactly, checked independently against ipify. Our host had been passing the right information all along; it discards any address a visitor claims for themselves and substitutes the real one. The per-visitor limit was restored in commit `1c5410d`, and the diagnostic page was removed in `66def74`.
+A temporary diagnostic page was added and opened from a laptop on WiFi. The visitor address our code worked out — [the laptop's public address, removed] — matched that laptop's real public address exactly, checked independently against ipify. Our host had been passing the right information all along; it discards any address a visitor claims for themselves and substitutes the real one. The per-visitor limit was restored in commit `1c5410d`, and the diagnostic page was removed in `66def74`.
 
 ## How to test this correctly going forward
 
