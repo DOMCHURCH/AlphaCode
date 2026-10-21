@@ -293,6 +293,9 @@ body { background: var(--bg); color: var(--ink); }
 .plan { background: transparent; border: 0; box-shadow: none;
   border-bottom: 1px solid var(--edge-soft); padding: 24px 26px; }
 .plan:last-child { border-bottom: 0; }
+/* Starter on the home page: still a whole card with its own button, but its
+   price is set smaller than Pro's and Business's, which come first. */
+.plan.plan-minor .plan-price { font-size: 22px; }
 @media (min-width: 620px) {
   .plans { grid-template-columns: repeat(2, 1fr); }
   .plan { border-right: 1px solid var(--edge-soft); }
@@ -1142,6 +1145,9 @@ html, body { overflow-x: clip; }
   .intro .hero { padding-top: 34px; }
 }
 .intro .htitle { max-width: 14ch; }
+/* The home headline is a sentence, not a two-word mark, so it is set smaller
+   than the display size the fluted backdrop gives other pages' headings. */
+body[data-bd="fluted"] .intro .htitle { font-size: clamp(36px, 3.7vw, 54px); }
 .strip { margin-bottom: 34px; }
 
 /* One field, one button: the site's own pill, so only spacing is local. */
@@ -1149,6 +1155,10 @@ html, body { overflow-x: clip; }
 /* An empty status line still takes its margin; it only needs room once it speaks. */
 .keyform .formnote:empty { display: none; }
 .hero .summary { margin: 14px 0 0; }
+/* The dated counts and the link to /verification, under the subhead. */
+.hero .hproof { margin: -8px 0 0; font-size: 13.5px; line-height: 1.6; color: var(--ink2); max-width: 52ch; }
+.hero .hproof a { color: var(--ink); border-bottom: 1px solid var(--edge); }
+.hero .hproof a:hover { border-bottom-color: var(--ink); }
 .fineprint { margin: 6px 0 0; font-size: 12.5px; line-height: 1.55; color: var(--dim); max-width: 52ch; }
 .fineprint a { color: var(--ink2); border-bottom: 1px solid var(--edge); }
 .fineprint a:hover { color: var(--ink); border-bottom-color: var(--ink); }

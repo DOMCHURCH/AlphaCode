@@ -768,7 +768,8 @@ def test_each_plan_card_lists_its_features_from_the_plan_tables(client, monkeypa
     monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
     cards = _cards(_home_pricing(client))
 
-    assert list(cards) == ["Free", "Starter", "Pro", "Business", "Full dataset", "Enterprise"]
+    # Pro and Business lead; Starter follows in a quieter card (plan-minor), nothing removed.
+    assert list(cards) == ["Free", "Pro", "Business", "Starter", "Full dataset", "Enterprise"]
     for name, body in cards.items():
         bullets = re.findall(r"<li>([^<]+)</li>", body.split('<ul class="plan-bullets">', 1)[1].split("</ul>", 1)[0])
         assert 2 <= len(bullets) <= 3, (name, bullets)
@@ -783,8 +784,8 @@ def test_the_most_popular_badge_is_on_pro_alone(client, monkeypatch):
 
     monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
     section = _home_pricing(client)
-    assert section.count("Most popular") == 1
-    assert '<span class="plan-name">Pro<span class="badge">Most popular</span></span>' in section
+    assert section.count("Recommended for production") == 1
+    assert '<span class="plan-name">Pro<span class="badge">Recommended for production</span></span>' in section
 
 
 def test_pricing_page_cards_are_unchanged_by_the_home_options(client, monkeypatch):
@@ -794,7 +795,7 @@ def test_pricing_page_cards_are_unchanged_by_the_home_options(client, monkeypatc
 
     monkeypatch.setattr(billing, "price_for", lambda plan: "price_test")
     page = client.get("/pricing").text
-    assert "Most popular" not in page and "plan-pc" not in page
+    assert "Recommended for production" not in page and "plan-pc" not in page
     assert "Updates as new filings land, so you get the latest available filings" in page
 
 
@@ -851,8 +852,8 @@ def test_a_short_plan_faq_answers_the_four_questions(client):
     assert "no card and no password" in flat
     assert "Manage subscription" in flat and "14-day refund window" in flat
     assert "HTTP 429" in flat and "no overage billing" in flat
-    # ordered after the plans and before the founder note
-    assert html.index('id="pricing"') < html.index('id="plan-faq"') < html.index('id="why"')
+    # pricing, then trust, then the FAQ (owner's order, 2026-10-19)
+    assert html.index('id="pricing"') < html.index('id="trust"') < html.index('id="plan-faq"')
 
 
 def test_the_header_is_solid_and_the_phone_menu_is_its_own_opaque_sheet():

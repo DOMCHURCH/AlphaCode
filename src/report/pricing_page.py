@@ -153,7 +153,8 @@ def _pro_card(pro_price: str, pro_annual_price: str,
 
 
 def _tier_card(tier: str, *, line: str, year_line: str,
-               bullets: tuple[str, ...], per_call: bool = False) -> str:
+               bullets: tuple[str, ...], per_call: bool = False,
+               minor: bool = False) -> str:
     """Starter or Business -- rendered ONLY once its Stripe Price is set.
 
     Unset means `billing.price_for(tier)` is empty and checkout would 503, so
@@ -180,7 +181,7 @@ def _tier_card(tier: str, *, line: str, year_line: str,
         f' data-line-year="{escape(year_line)}"' if has_year else ""
     )
     return f"""
-    <div class="plan period-plan">
+    <div class="plan period-plan{' plan-minor' if minor else ''}">
       <span class="plan-name">{name}</span>
       <p class="plan-price"><span data-price>{escape(month)}</span><small
         data-per>/month</small></p>
@@ -192,12 +193,14 @@ def _tier_card(tier: str, *, line: str, year_line: str,
     </div>"""
 
 
-def _starter_card(bullets: tuple[str, ...] | None = None, per_call: bool = False) -> str:
+def _starter_card(bullets: tuple[str, ...] | None = None, per_call: bool = False,
+                  minor: bool = False) -> str:
     from src import plans
 
     return _tier_card(
         "starter", line="Follow a few companies",
         year_line="The same Starter plan, paid yearly", per_call=per_call,
+        minor=minor,
         bullets=bullets if bullets is not None else (
             # Not "5 years": the database holds about three (2026-09-24).
             "Multi-year history",
@@ -330,6 +333,7 @@ def plan_cards(
     bullets: dict[str, tuple[str, ...]] | None = None,
     popular: str = "",
     per_call: bool = False,
+    lead: tuple[str, ...] = (),
 ) -> str:
     """The cards. Rendered on the home page and on /pricing.
 
@@ -337,6 +341,12 @@ def plan_cards(
     (two or three per plan, read from `plans.MATRIX` by the caller), `popular`
     (the plan that carries the badge) and `per_call`; every button, data
     attribute and checkout hook is the same either way.
+
+    `lead=("pro", "business")` is the home page asking for those two to come
+    straight after Free, with Starter after them in a quieter card
+    (`plan-minor`). Every plan is still shown and no price changes; only the
+    order and the weight differ. /pricing leaves it empty and keeps its
+    left-to-right-by-price order.
 
     Every paid card carries `data-plan`, which home.js turns into a Checkout
     Session, and an href that is a REAL fallback rather than a placeholder:
@@ -360,7 +370,7 @@ def plan_cards(
 
     # Present only once their Stripe Prices are configured; see _tier_card.
     over = bullets or {}
-    starter = _starter_card(over.get("Starter"), per_call)
+    starter = _starter_card(over.get("Starter"), per_call, minor=bool(lead))
     business = _business_card(over.get("Business"), per_call)
     grid = "plans plans-6" if (starter or business) else "plans"
     # Built as plain strings so their position can follow the layout: with
@@ -415,6 +425,14 @@ def plan_cards(
     dataset_first, dataset_last = ("", dataset) if grid.endswith("6") else (dataset, "")
     from src.accounts import tier_limit
 
+    pro = _pro_card(pro_price, pro_annual_price, annual_saving, pro_limit,
+                    bullets=over.get("Pro"), badge="Recommended for production" if popular == "Pro" else "",
+                    per_call=per_call)
+    if lead and grid.endswith("6"):
+        subscriptions = f"{pro}\n      {business}\n      {starter}"
+    else:
+        subscriptions = f"{starter}\n      {pro}\n      {business}"
+
     shown = ["free"] + (["starter"] if starter else []) + ["pro"] + (["business"] if business else [])
     allowances = ", ".join(f"{t.capitalize()} {compact(tier_limit(t) if t != 'free' else free_limit)}"
                            for t in shown)
@@ -442,11 +460,7 @@ def plan_cards(
         "Get a free API key",
     )}
       {dataset_first}
-      {starter}
-      {_pro_card(pro_price, pro_annual_price, annual_saving, pro_limit,
-                 bullets=over.get("Pro"), badge="Most popular" if popular == "Pro" else "",
-                 per_call=per_call)}
-      {business}
+      {subscriptions}
       {dataset_last}
       {enterprise}
     </div>

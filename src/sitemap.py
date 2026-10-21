@@ -262,6 +262,7 @@ def build_groups(base_url: str) -> dict[str, list[Entry]]:
         (f"{base}/restatements", newest_iso, "daily", "0.7"),
         (f"{base}/about", legal_date, "monthly", "0.7"),
         (f"{base}/methodology", live, "monthly", "0.7"),
+        (f"{base}/verification", live, "monthly", "0.7"),
         (f"{base}/blog", blog_index, "weekly", "0.7"),
         (f"{base}/companies", newest_iso, "weekly", "0.7"),
         (f"{base}/compare", compare_index, "monthly", "0.7"),

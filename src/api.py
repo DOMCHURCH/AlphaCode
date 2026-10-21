@@ -4845,6 +4845,20 @@ def methodology_page(request: Request) -> HTMLResponse:
     )
 
 
+@app.get("/verification", response_class=HTMLResponse)
+def verification_page(request: Request) -> HTMLResponse:
+    """The check, the four flags, the dated 995-filing study and calls to run.
+
+    The page linked from the home hero and from outreach. Live counts are read
+    when it renders and dated; the study figures are the frozen 2026-10-09 ones.
+    """
+    from src.report.verification_page import render_verification
+
+    return HTMLResponse(
+        _versioned(render_verification(nav=_nav_for(request, "")))
+    )
+
+
 @app.get("/sitemap.xml", include_in_schema=False)
 def sitemap_xml(request: Request) -> Response:
     """The sitemap index: one file per page type, each with a date that is true.
@@ -4967,6 +4981,7 @@ def _llms_full_sections(request: Request) -> list[tuple[str, str]]:
         ("/", body(home(request))),
         ("/about", body(about_page(request))),
         ("/methodology", body(methodology_page(request))),
+        ("/verification", body(verification_page(request))),
         ("/pricing", body(pricing(request))),
         ("/api", body(api_page(request))),
     ]

@@ -312,7 +312,9 @@ def test_the_homepage_says_what_happens_when_a_filing_does_not_balance(client):
     html = client.get("/").text
 
     assert "99.9%" not in html, "the retired rate is back on the home page"
-    assert "never silently fudged" in html
+    # The promise in the words the hero uses (2026-10-19, replacing "never
+    # silently fudged"): a failing filing gets its reason, not an adjusted figure.
+    assert "instead of adjusting the numbers" in html
     assert "/methodology" in html, "the explanation must be reachable"
 
 

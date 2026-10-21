@@ -1,0 +1,912 @@
+/* BalanceProof home page (2026-10-20, motion spec v2).
+   ---------------------------------------------------------------------------
+   Loaded after the site bundle on the home page only (`_shell(theme="light")`).
+   The page is a ledger: paper, hairlines and type, with the to-scale
+   balance-sheet drawing as its one visual object. Palette is the owner's:
+   blue (what a company owns), yellow (equity, and the level line where the
+   columns meet), red (a flag, never decoration), cream and off-white paper,
+   near-black ink. Zodiak (serif) sets every heading at one light weight;
+   Satoshi is read; Geist Mono carries every figure, label and field.
+
+   TWO HALVES. Everything above the MOTION line is the finished, static page:
+   what a reader with reduced motion, no script, or the footer toggle off sees.
+   Everything below it is scoped under `.motion` (a class on <html>), so no
+   animation, transition or hover movement exists without it. Animations move
+   and fade only; none changes text, and none touches a number's digits. */
+
+body[data-theme="light"] {
+  --blue: #2340BE; --blue2: #4D68E0; --red: #EA5148; --yellow: #F7D848;
+  --cream: #F3EFE6; --off: #FAF8F3; --night: #0B0C12; --night2: #14161F;
+  --bg: var(--off); --panel: #FFFFFF; --panel-solid: #FFFFFF; --well: var(--cream);
+  --hi: #FFFFFF; --lo: #E2DCCB;
+  --edge: rgba(20, 22, 31, .16); --edge-soft: rgba(20, 22, 31, .09);
+  --rule: rgba(20, 22, 31, .14);
+  --ink: #14161F; --ink2: #3F4350; --dim: #5F6372; --acc: var(--blue);
+  --a0: #1B3299; --a1: #2340BE; --a2: #4058C9; --a3: #5E6FCC;
+  --a4: #8B99E2; --a5: #B2BCEE; --a6: #D3D8F6;
+  --l0: #B02218; --l1: #DC352B; --l2: #EC6157; --l3: #F49A93;
+  --band-ink: #FFFFFF; --band-neg: #3F4350; --band-rule: rgba(255, 255, 255, .35);
+  --serif: "Zodiak", Georgia, "Times New Roman", serif;
+  --disp: "Satoshi", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  --h2: clamp(34px, 4.2vw, 54px);
+  --r: 14px;
+  background: var(--bg); color: var(--ink); font-family: var(--disp);
+  font-size: 17px; line-height: 1.6;
+}
+body[data-theme="light"] .lhome :is(p, h1, h2, h3, a, span, li, b, label) { text-shadow: none; }
+body[data-theme="light"] a { color: var(--acc); text-underline-offset: 3px; }
+body[data-theme="light"] code { color: inherit; font-family: var(--mono); }
+.lhome .wrap { max-width: 1240px; padding-left: clamp(16px, 4vw, 48px); padding-right: clamp(16px, 4vw, 48px); }
+.lhome :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
+
+/* ---- nav ---- */
+body[data-theme="light"] nav { background: rgba(250, 248, 243, .96);
+  border-bottom: 1px solid var(--edge-soft); backdrop-filter: none; }
+body[data-theme="light"] nav a, body[data-theme="light"] .navlink,
+body[data-theme="light"] .brand { color: var(--ink); }
+body[data-theme="light"] .navcta, body[data-theme="light"] .navcta-bar {
+  background: var(--ink); color: #fff; border-color: var(--ink); }
+body[data-theme="light"] .navtoggle .bars, body[data-theme="light"] .navtoggle .bars::before,
+body[data-theme="light"] .navtoggle .bars::after { background: var(--ink); }
+
+/* ---- type: one heading voice, one size ---- */
+body[data-theme="light"] h1, body[data-theme="light"] h2 {
+  font-family: var(--serif); font-weight: 300; color: var(--ink); }
+body[data-theme="light"] h3 { font-family: var(--disp); font-weight: 500; color: var(--ink); }
+.lhome .bigh { font-size: var(--h2); font-weight: 300; line-height: 1.04;
+  letter-spacing: -.02em; margin: 0 0 20px; max-width: 20ch; }
+.lhome .bigh .tone { display: block; color: var(--dim); font-style: italic; font-weight: 400;
+  font-size: .62em; line-height: 1.2; margin-top: 12px; letter-spacing: -.01em; max-width: 30ch; }
+.lhome .band.dark .bigh .tone { color: #9CA0B4; }
+.lhome .bsub, .lhome .sec-sub { font-size: 18px; line-height: 1.55; color: var(--ink2); max-width: 52ch; }
+.lhome p, .lhome li { font-size: 17px; }
+.lhome .bsec { padding: clamp(64px, 8vw, 120px) 0 0; }
+body[data-theme="light"] main .sec { background: transparent; border: 0; box-shadow: none;
+  border-radius: 0; padding-left: 0; padding-right: 0; }
+.lhome .sec-head h2 { font-size: var(--h2); font-weight: 300; line-height: 1.04; letter-spacing: -.02em; }
+
+/* The running section number: a ledger's folio, not a marketing eyebrow. */
+.lhome .secno { display: flex; align-items: baseline; gap: 12px; margin: 0 0 22px;
+  padding-top: 14px; border-top: 1px solid var(--rule);
+  font: 500 12.5px/1.3 var(--mono); letter-spacing: .04em; color: var(--dim); }
+.lhome .secno span { color: var(--ink); }
+.lhome .band.dark .secno { border-top-color: rgba(255, 255, 255, .16); color: #9CA0B4; }
+.lhome .band.dark .secno span { color: #fff; }
+
+/* ---- buttons and the email row ---- */
+body[data-theme="light"] .sfield { background: #fff; border: 1px solid var(--edge); box-shadow: none; }
+body[data-theme="light"] .sfield input { color: var(--ink); background: transparent; font-size: 17px; }
+body[data-theme="light"] .sfield input::placeholder { color: var(--dim); }
+body[data-theme="light"] .sfield button, body[data-theme="light"] .search button {
+  background: var(--ink); color: #fff; font-weight: 700; }
+body[data-theme="light"] .btn, body[data-theme="light"] .plan-cta {
+  background: #fff; color: var(--ink); border: 1px solid var(--edge); }
+.lhome .btn-talk { display: inline-block; padding: 11px 20px; border-radius: 999px;
+  border: 1.5px solid currentColor; font-weight: 500; text-decoration: none; color: var(--ink); }
+
+/* ---- 1. hero: copy and one real check, drawn ---- */
+.lhome .bhero { position: relative; background: var(--off); color: var(--ink);
+  border-bottom: 1px solid var(--rule); }
+.lhome .bhero-in { display: grid; grid-template-columns: 1fr; gap: 40px;
+  padding-top: clamp(40px, 7vw, 96px); padding-bottom: clamp(48px, 7vw, 96px); }
+.lhome .bhero .hero { margin: 0; padding: 0; background: transparent; border: 0; box-shadow: none; text-align: left; }
+.lhome .bhero .htitle { font-family: var(--serif); font-weight: 300; color: var(--ink);
+  font-size: clamp(40px, 5.6vw, 76px); line-height: 1.02; letter-spacing: -.025em;
+  margin: 0 0 22px; max-width: 15ch; }
+.lhome .bhero .hlede { font-size: 18px; line-height: 1.55; color: var(--ink2); max-width: 46ch; margin: 0 0 26px; }
+.lhome .bhero .keyform { max-width: 520px; margin: 0; }
+.lhome .bhero .slabel { color: var(--dim); }
+.lhome .bhero .hero-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 18px; margin: 18px 0 0; }
+.lhome .hero-how { font-weight: 500; }
+.lhome .bhero .summary { font-size: 14px; color: var(--dim); margin: 18px 0 0; max-width: 52ch; }
+.lhome .bhero .summary a { color: var(--ink2); }
+.lhome .bhero .formnote { color: var(--dim); }
+
+/* The hero ledger: AAPL's captured check, at true proportion. */
+.lhome .hledger { margin: 0; background: var(--cream); border: 1px solid var(--edge-soft);
+  border-radius: var(--r); padding: 22px 22px 18px; align-self: center; }
+.lhome .hl-head { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: baseline;
+  font: 400 12.5px/1.4 var(--mono); color: var(--dim); margin-bottom: 18px; }
+.lhome .hl-tk { font: 500 15px/1 var(--mono); color: var(--ink); }
+.lhome .hl-cols { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 14px;
+  height: 300px; }
+.lhome .hl-col { position: relative; height: 100%; overflow: hidden; border-radius: 6px; }
+.lhome .hl-rise { height: 100%; display: flex; flex-direction: column; }
+.lhome .hl-bar { position: relative; min-height: 0; padding: 0; overflow: hidden; }
+.lhome .hl-bar.a { background: var(--blue); color: #fff; }
+.lhome .hl-bar.l { background: var(--l3); color: var(--ink); box-shadow: inset 0 2px 0 var(--cream); }
+.lhome .hl-bar.e { background: var(--yellow); color: var(--ink); }
+.lhome .hl-l { position: absolute; left: 12px; bottom: 10px; display: flex; flex-direction: column; gap: 2px; font-size: 13px; font-weight: 500; }
+.lhome .hl-l b { font: 500 17px/1.2 var(--mono); }
+.lhome .hl-level { position: absolute; left: -8px; right: -8px; top: 0; height: 2px; background: var(--ink); }
+.lhome .hl-verdict { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin-top: 16px;
+  font: 400 13px/1.4 var(--mono); }
+.lhome .hl-eq { font-weight: 500; }
+.lhome .hl-ok { background: var(--ink); color: #fff; padding: 3px 10px; border-radius: 999px; font-size: 12px; }
+.lhome .hledger figcaption { font-size: 13.5px; color: var(--dim); margin-top: 12px; }
+@media (min-width: 1040px) {
+  .lhome .bhero-in { grid-template-columns: minmax(0, 1.15fr) minmax(0, .85fr); gap: 64px; align-items: center; }
+  .lhome .hl-cols { height: 340px; }
+}
+
+/* ---- 2. the strip: the live counts, then the plain facts ---- */
+.lhome .bproof { padding: clamp(40px, 5vw, 64px) 0 0; }
+.lhome .proof-lead { font-family: var(--serif); font-weight: 300; font-size: clamp(24px, 2.6vw, 34px);
+  line-height: 1.3; letter-spacing: -.01em; max-width: 40ch; margin: 0 0 28px; color: var(--ink); }
+.lhome .num { font-family: var(--mono); font-weight: 500; font-size: .84em; display: inline-block;
+  font-variant-numeric: tabular-nums; }
+.lhome .proof { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+  border-top: 1px solid var(--rule); background: transparent; border-radius: 0; box-shadow: none; }
+.lhome .pcell { padding: 14px 16px 14px 0; border-bottom: 1px solid var(--rule); min-width: 0; }
+.lhome .pk { display: block; font: 400 12px/1.4 var(--mono); color: var(--dim); }
+.lhome .pv { display: block; font: 500 15px/1.5 var(--mono); color: var(--ink); overflow-wrap: anywhere; }
+@media (min-width: 900px) { .lhome .proof { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+  .lhome .pcell + .pcell { padding-left: 16px; border-left: 1px solid var(--rule); } }
+
+/* ---- 3. real filings, drawn to scale: three panels ---- */
+.lhome .storysec .hero-bs { margin: 0; padding: 0; }
+.lhome .draw-head { display: grid; grid-template-columns: 1fr; gap: 12px 48px; align-items: end; margin-bottom: 28px; }
+.lhome .draw-head .bigh { margin-bottom: 0; }
+.lhome .draw-notes .plan-note { font-size: 15.5px; color: var(--ink2); margin: 0 0 8px; max-width: 46ch; }
+.lhome .draw-grid { display: grid; grid-template-columns: 1fr; gap: 18px; align-items: start; }
+.lhome .story-links { font-size: 15px; color: var(--ink2); margin-top: 22px; max-width: 70ch; }
+@media (min-width: 760px) { .lhome .draw-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1100px) {
+  .lhome .draw-head { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .lhome .draw-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+body[data-theme="light"] .bs-panel, .lhome .ntpanel { background: #fff; border: 1px solid var(--edge-soft);
+  border-radius: var(--r); box-shadow: none; padding: 20px 20px 16px; margin: 0; min-width: 0; }
+body[data-theme="light"] .bs-panel .bs, body[data-theme="light"] .hero-bs .bs {
+  background: transparent; border: 0; box-shadow: none; padding: 6px 0 0; }
+body[data-theme="light"] .bs-tag { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; }
+body[data-theme="light"] .bs-panel .bs-tag b, .lhome .ntpanel .bs-tag b {
+  font-family: var(--serif); font-weight: 400; font-size: 24px; color: var(--ink); }
+body[data-theme="light"] .bs-panel.flag .bs-tag b { color: var(--l0); }
+body[data-theme="light"] :is(.bs-cap span, .bs-meta, .bs-note) { color: var(--ink2); }
+body[data-theme="light"] .bs-meta { font: 400 12.5px/1.4 var(--mono); color: var(--dim); }
+body[data-theme="light"] .bs-cap b { color: var(--ink); }
+body[data-theme="light"] .bs-note { font-size: 15px; line-height: 1.5; margin: 12px 0 0; max-width: 52ch; }
+body[data-theme="light"] .hero-bs .bs-tag b { text-transform: none; letter-spacing: -.01em; }
+.lhome .hero-bs .stack { background: transparent; border: 0; }
+.lhome .hero-bs .bs-col { position: relative; }
+.lhome .hero-bs .rise { display: block; }
+/* The gap: the shortfall, hatched in the flag colour and named. */
+body[data-theme="light"] .hero-bs .gapband { background-color: #FCE3E1 !important;
+  background-image: repeating-linear-gradient(135deg, rgba(234, 81, 72, .55) 0 2px, transparent 2px 9px);
+  outline: 2px dashed var(--red); outline-offset: -2px; }
+body[data-theme="light"] .hero-bs .gapband .bl { color: var(--l0); font-weight: 700; }
+/* The level line: drawn across both columns where they meet. */
+.lhome .lvl { position: absolute; z-index: 2; left: 0; top: -1px; height: 2px;
+  width: calc(200% + 14px); background: var(--ink); }
+.lhome .lvl i { position: absolute; left: 50%; top: -9px; transform: translateX(-50%); white-space: nowrap; font: 500 11.5px/1 var(--mono);
+  font-style: normal; background: var(--yellow); color: var(--ink); padding: 3px 7px; border-radius: 999px; }
+/* Not testable: two outlines, no figures. */
+.lhome .nt-cols { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; height: 240px; margin-top: 16px; }
+.lhome .nt-col { border: 2px dashed var(--edge); border-radius: 6px; display: flex; align-items: flex-end;
+  padding: 10px; font: 400 12px/1.3 var(--mono); color: var(--dim); }
+.lhome .nt-count { font-size: 15px; color: var(--ink2); margin: 10px 0 0; }
+
+/* ---- the other filings ---- */
+body[data-theme="light"] main.lhome .card { background: #fff; border: 1px solid var(--edge-soft);
+  box-shadow: none; border-radius: var(--r); }
+body[data-theme="light"] main.lhome .card :is(h3, b) { color: var(--ink); }
+body[data-theme="light"] main.lhome .card :is(p, span, small) { color: var(--ink2); }
+
+/* ---- 4. built for: three cards on a rail, on the dark band ---- */
+.lhome .band.dark { --ink: #F3F3F6; --ink2: #B9BCCB; --dim: #9CA0B4; --edge: rgba(255, 255, 255, .16);
+  --edge-soft: rgba(255, 255, 255, .08); --rule: rgba(255, 255, 255, .14); --acc: #A9B7FF;
+  background: var(--night2); color: var(--ink); margin-top: clamp(64px, 8vw, 120px);
+  padding: clamp(56px, 8vw, 112px) 0 clamp(48px, 6vw, 80px); position: relative; }
+.lhome .band.dark h2, .lhome .band.dark .kicker { color: #fff; }
+.lhome .band.dark p, .lhome .band.dark .sec-sub { color: var(--ink2); }
+.lhome .band.dark a { color: var(--acc); }
+.lhome .rail { margin-top: 28px; outline-offset: 6px; }
+/* Phone: a swipeable row with snap points. Wider: three columns. */
+.lhome .rail-track { display: grid; grid-auto-flow: column; grid-auto-columns: 86%; gap: 14px;
+  overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 8px; overscroll-behavior-x: contain; }
+.lhome .rcard { scroll-snap-align: start; position: relative; background: #1B1E29; border: 1px solid rgba(255, 255, 255, .08);
+  border-radius: 12px; padding: 22px; color: #F3F3F6; min-width: 0; }
+.lhome .rnum { font: 500 12px/1 var(--mono); color: var(--yellow); }
+.lhome .rcard h3 { color: #fff; font-family: var(--serif); font-weight: 300; font-size: 26px; margin: 12px 0 8px; }
+.lhome .rcard p { color: #D9DBE4; font-size: 15.5px; }
+.lhome .rcard .uc-src { color: #9CA0B4; font-size: 13px; margin: 14px 0 0; }
+.lhome .rail-meter { display: none; }
+@media (min-width: 900px) {
+  .lhome .rail-track { grid-auto-flow: row; grid-template-columns: repeat(3, minmax(0, 1fr)); overflow: visible; }
+}
+.lhome .inspector { list-style: none; margin: 16px 0 0; padding: 4px 0; background: var(--night); border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, .08); }
+.lhome .inspector li { display: grid; grid-template-columns: minmax(0, 1fr) auto 18px; gap: 10px; align-items: center;
+  padding: 9px 14px; border-bottom: 1px solid rgba(255, 255, 255, .07); }
+.lhome .inspector li:last-child { border-bottom: 0; }
+.lhome .inspector .ik { font: 12.5px/1.4 var(--mono); color: #9EA3B8; overflow-wrap: anywhere; }
+.lhome .inspector .iv { font: 500 13px/1.4 var(--mono); color: #fff; text-align: right; overflow-wrap: anywhere; }
+.lhome .inspector .it { width: 16px; height: 16px; border-radius: 50%; background: #2E9E57; position: relative; }
+.lhome .inspector .it::after { content: ""; position: absolute; left: 5px; top: 2px; width: 4px; height: 8px;
+  border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+/* ---- 5. why pipelines break: three numbered ledger rows ---- */
+.lhome .pcols { display: grid; grid-template-columns: 1fr; border-top: 1px solid var(--rule); margin-top: 28px; }
+.lhome .pcol { display: grid; grid-template-columns: 40px 1fr; column-gap: 14px; row-gap: 6px;
+  padding: 22px 0; border-bottom: 1px solid var(--rule); }
+.lhome .pnum { grid-row: span 3; font: 500 12.5px/1.9 var(--mono); color: var(--dim); }
+.lhome .pcol h3 { font-size: 19px; margin: 0; }
+.lhome .pcol p { margin: 0; color: var(--ink2); max-width: 44ch; font-size: 16px; }
+.lhome .pfig { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.lhome .pf-n { font: 300 44px/1 var(--serif); color: var(--red); }
+.lhome .pf-n.one { color: var(--blue); }
+.lhome .pf-a { color: var(--dim); }
+.lhome .pf-tag { font: 500 12.5px/1 var(--mono); padding: 6px 10px; border-radius: 999px;
+  border: 1px solid var(--edge); color: var(--ink); }
+.lhome .pf-tag.later { border-color: var(--red); color: var(--l0); }
+.lhome .pbar { position: relative; height: 14px; width: 100%; max-width: 420px; gap: 0; align-items: stretch; }
+.lhome .pb-all { background: var(--a6); border-radius: 0 3px 3px 0; }
+.lhome .pb-fail { background: var(--red); border-radius: 3px 0 0 3px; }
+@media (min-width: 960px) {
+  .lhome .pcols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lhome .pcol { grid-template-columns: 1fr; padding: 24px 28px 28px 0; border-bottom: 0; align-content: start; }
+  .lhome .pcol + .pcol { padding-left: 28px; border-left: 1px solid var(--rule); }
+  .lhome .pnum { grid-row: auto; }
+}
+
+/* ---- 6. how the check works: four steps, each with its picture ---- */
+.lhome .hrail { list-style: none; margin: 28px 0 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px 22px; }
+.lhome .hrail a { display: inline-flex; gap: 10px; align-items: baseline; padding: 8px 0; color: var(--dim);
+  text-decoration: none; font-weight: 500; font-size: 15px; border-bottom: 2px solid transparent; }
+.lhome .hrail a .bn { font: 500 12px/1 var(--mono); }
+.lhome .hrail a.on { color: var(--ink); border-bottom-color: var(--blue); }
+.lhome .hstory { display: grid; grid-template-columns: 1fr; margin-top: 18px; border-top: 1px solid var(--rule); }
+.lhome .hstep { padding: 28px 0 14px; }
+.lhome .hstep .bn { font: 500 12px/1 var(--mono); color: var(--blue); }
+.lhome .hstep h3 { font-family: var(--serif); font-weight: 300; font-size: 30px; margin: 10px 0 8px; letter-spacing: -.01em; }
+.lhome .hstep p { margin: 0; max-width: 46ch; color: var(--ink2); }
+.lhome .hlayer { background: #fff; border: 1px solid var(--edge-soft); border-radius: 12px; padding: 22px;
+  margin: 8px 0 18px; min-width: 0; }
+.lhome .hv-head { font: 400 12.5px/1.4 var(--mono); color: var(--dim); margin-bottom: 14px; }
+.lhome .hv-tk { font-weight: 500; color: var(--ink); margin-right: 8px; }
+.lhome .hv-lines { display: grid; grid-template-columns: 1fr 1fr; gap: 22px; }
+.lhome .hv-k { font: 500 11.5px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 6px; }
+.lhome .hv-lines ol { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.lhome .hv-lines li { display: flex; justify-content: space-between; gap: 10px; padding: 9px 0; border-bottom: 1px solid var(--rule); font-size: 15px; }
+.lhome .hv-lines li b { font: 500 14px/1.4 var(--mono); font-variant-numeric: tabular-nums; }
+.lhome .hbars { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.lhome .hb-col { min-width: 0; }
+.lhome .hb-cap { font-size: 13px; color: var(--ink2); margin: 0 0 8px; min-height: 3.2em; }
+.lhome .hb-cap b { display: block; font: 500 14px/1.3 var(--mono); color: var(--ink); }
+.lhome .hb-bar { height: 300px; display: flex; flex-direction: column; border-radius: 6px; overflow: hidden; }
+.lhome .hb-seg { position: relative; min-height: 0; overflow: hidden; }
+.lhome .hb-seg span { position: absolute; left: 10px; bottom: 8px; right: 8px; font-size: 12.5px; font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lhome .hb-seg b { font-family: var(--mono); font-weight: 500; }
+.lhome .hb-seg.a { background: var(--blue); color: #fff; }
+.lhome .hb-seg.l { background: var(--red); color: var(--night); box-shadow: inset 0 -2px 0 #fff; }
+.lhome .hb-seg.e { background: var(--yellow); color: var(--night); }
+.lhome .hb-seg.gap { background-color: #FCE3E1;
+  background-image: repeating-linear-gradient(135deg, rgba(234, 81, 72, .55) 0 2px, transparent 2px 9px);
+  outline: 2px dashed var(--red); outline-offset: -2px; color: var(--l0); }
+.lhome .hb-seg.gap span { top: 50%; bottom: auto; transform: translateY(-50%); font-weight: 700; }
+.lhome .hb-pad { min-height: 0; }
+.lhome .hb-neg { margin-top: 10px; background: var(--band-neg); color: var(--yellow); border-top: 3px solid var(--yellow);
+  border-radius: 0 0 6px 6px; padding: 6px 10px; font-size: 12.5px; }
+.lhome .hb-reason { margin: 14px 0 0; font-size: 15px; color: var(--ink2); max-width: 52ch; }
+.lhome .hb-ok, .lhome .hb-flag { display: inline-block; font: 500 12px/1 var(--mono); padding: 5px 9px; border-radius: 999px; margin-right: 6px; }
+.lhome .hb-ok { background: var(--yellow); color: var(--night); }
+.lhome .hb-flag { background: var(--red); color: var(--night); }
+.lhome .jcard { margin: 0; }
+.lhome .jcard figcaption { font-size: 13.5px; color: var(--dim); margin-bottom: 10px; }
+.lhome .jcard .code { margin: 0; font-size: 14px; background: var(--night) !important; color: #E9EAF0 !important;
+  border-color: var(--night) !important; padding: 18px; border-radius: 10px; }
+.lhome .jcard .ln { display: inline-block; white-space: pre; }
+@media (min-width: 960px) {
+  .lhome .hlayer { max-width: 620px; }
+}
+
+/* ---- 7. the live demo ---- */
+.lhome .cband { position: relative; padding: clamp(64px, 8vw, 120px) 0 0; }
+.lhome .bigcard { background: var(--cream); border-radius: var(--r); padding: clamp(18px, 3vw, 36px);
+  border: 1px solid var(--edge-soft); }
+.lhome .democard .sec { margin: 0; }
+.lhome .demo-more { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin-top: 18px; }
+.lhome .demo-more .hero-search { flex: 1 1 320px; }
+body[data-theme="light"] .code { background: #fff; color: var(--ink); border: 1px solid var(--edge-soft); }
+body[data-theme="light"] main.lhome .codecard { background: #fff; border: 1px solid var(--edge-soft); border-radius: var(--r); }
+
+/* ---- 8. pricing ---- */
+body[data-theme="light"] .plans { background: transparent; border: 0; box-shadow: none; gap: 16px;
+  overflow: visible; }
+body[data-theme="light"] #pricing .plan { background: #fff; border: 1px solid var(--edge-soft) !important;
+  border-radius: var(--r); box-shadow: none; position: relative; }
+body[data-theme="light"] #pricing .plan:has(.badge) { box-shadow: 0 0 0 2px var(--blue); }
+body[data-theme="light"] :is(.plan-name, .plan-line, .plan-bullets li, .plan-pc) { color: var(--ink2); }
+body[data-theme="light"] .plan-price { color: var(--ink); font-family: var(--serif); font-weight: 300; }
+body[data-theme="light"] .plan-name .badge { background: var(--blue); color: #fff; border-color: var(--blue); }
+body[data-theme="light"] .bill-toggle { background: #fff; border: 1px solid var(--edge-soft); }
+body[data-theme="light"] .bill-opt { color: var(--ink2); }
+body[data-theme="light"] .bill-opt.on { background: var(--ink); color: #fff; }
+body[data-theme="light"] #pricing :is(.psum-note, .plan-note, .psum-limit) { color: var(--ink2); }
+body[data-theme="light"] #pricing h2 { font-size: var(--h2); }
+
+/* ---- 9. trust: a ruled list ---- */
+.lhome .trustlist { list-style: none; padding: 0; margin: 28px 0 0; display: grid;
+  grid-template-columns: 1fr; border-top: 1px solid var(--rule); }
+.lhome .trustlist li { padding: 18px 0; color: var(--ink2); border-bottom: 1px solid var(--rule);
+  font-size: 16px; }
+.lhome .trustlist b { color: var(--ink); display: block; font-weight: 500; margin-bottom: 2px; }
+@media (min-width: 900px) { .lhome .trustlist { grid-template-columns: repeat(3, 1fr); column-gap: 32px; } }
+body[data-theme="light"] #trust .method { background: transparent; border: 0; padding: 0; margin-top: 18px; }
+
+/* ---- 10. FAQ, get started, closing band, footer ---- */
+body[data-theme="light"] #plan-faq .faq-item { background: transparent; border: 0; border-bottom: 1px solid var(--rule);
+  border-radius: 0; box-shadow: none; margin: 0; }
+body[data-theme="light"] #plan-faq summary { color: var(--ink); font-size: 18px; font-weight: 500; min-height: 44px; }
+body[data-theme="light"] #plan-faq h2 { font-size: var(--h2); }
+.lhome .gs-grid { display: grid; grid-template-columns: 1fr; gap: 28px; align-items: start; }
+.lhome .gslist { list-style: none; margin: 0; padding: 0; display: grid; border-top: 1px solid var(--rule); }
+.lhome .gsrow { display: flex; justify-content: space-between; align-items: center; gap: 16px;
+  padding: 18px 0; border-bottom: 1px solid var(--rule); color: var(--ink); text-decoration: none; }
+.lhome .gsrow b { display: block; font-size: 18px; font-weight: 500; }
+.lhome .gsrow small { color: var(--dim); font-size: 15px; }
+.lhome .garrow { width: 40px; height: 40px; border-radius: 50%; border: 1px solid var(--edge); color: var(--ink);
+  display: inline-flex; align-items: center; justify-content: center; flex: none; }
+@media (min-width: 960px) { .lhome .gs-grid { grid-template-columns: 1fr 1fr; gap: 64px; } }
+.lhome .giant { font-size: clamp(40px, 5.6vw, 76px); max-width: 15ch; }
+.lhome .kicker { font: 500 13px/1.4 var(--mono); letter-spacing: .04em; margin: 0 0 18px; color: var(--yellow) !important; }
+.lhome .closing .keyform { max-width: 560px; margin-top: 24px; }
+.lhome .closing .slabel { color: var(--dim); }
+.lhome .closing .sfield { background: #1B1E29; border-color: var(--edge); }
+.lhome .closing .sfield input { color: #fff; }
+.lhome .closing .sfield button { background: var(--yellow); color: var(--night2); }
+.lhome .closing .hero-actions { margin-top: 14px; }
+.lhome .closing .btn-talk { color: #fff; }
+.lhome .closing .fineprint, .lhome .closing .fineprint a { color: var(--ink2); }
+.lhome .lfoot { background: var(--night2); color: #B9BCCB; padding: 8px 0 40px; }
+.lhome .lfoot a { color: #D9DBE4; }
+.lhome .lfoot :is(p, li, h2, h3) { color: #B9BCCB; }
+body[data-theme="light"] .lfoot footer { background: transparent; border: 0;
+  border-top: 1px solid rgba(255, 255, 255, .10); border-radius: 0; padding: 28px 0 0; }
+body[data-theme="light"] .lfoot :is(.foot-h, .foot-disc) { color: #D9DBE4; }
+.lhome .motion-pref { margin: 18px 0 0; }
+.lhome .motion-toggle { background: transparent; color: #D9DBE4; border: 1px solid rgba(255, 255, 255, .3);
+  border-radius: 999px; padding: 10px 16px; min-height: 44px; font: 500 13px/1 var(--mono); cursor: pointer; }
+body[data-theme="light"] .disclaimer, body[data-theme="light"] .disclaimer * { color: var(--dim) !important; opacity: 1; }
+/* Flat paper: no lifted shadows on the code blocks or the demo card. */
+body[data-theme="light"] main.lhome :is(.codecard, .code, pre) { box-shadow: none !important; }
+body[data-theme="light"] .plan-price { font-size: 36px; line-height: 1.1; }
+/* =========================================================================
+   REFINEMENT (2026-10-20): the owner's colours at full strength, premium
+   contrast from near-black and cream. Static rules only; later rules win.
+   The three brand colours are the three parts of the identity, as in the
+   logo and every drawing on the site: blue = what a company owns, red =
+   what it owes, yellow = equity. A flag is the hatched, outlined gap.
+   ========================================================================= */
+body[data-theme="light"] {
+  --rule: rgba(11, 12, 18, .12); --edge-soft: rgba(11, 12, 18, .08);
+  /* The drawing ramps, stepped up so the lightest band is still clearly blue
+     or red (label ink on each stays above 4.5:1). */
+  --a3: #6878D6; --a4: #6F82E3; --a5: #8D9CE9; --a6: #A9B5EF; --l3: #F28A82;
+  --gold: #F7D848;
+}
+.lhome :is(.num, .pv, .bs-cap b, .band .bv, .hl-l b, .plan-price, code, .iv) { font-variant-numeric: tabular-nums; }
+.lhome .secno { font-size: 11.5px; letter-spacing: .14em; text-transform: uppercase; }
+.lhome .secno span { color: var(--blue); }
+.lhome .band.dark .secno span { color: var(--yellow); }
+
+/* Primary action: the brand blue, and a quiet, exact hover. */
+body[data-theme="light"] .lhome .bhero .sfield button, body[data-theme="light"] .lhome #demo .sfield button {
+  background: var(--blue); color: #fff; }
+body[data-theme="light"] .lhome .bhero .sfield button:hover { background: #1B3299; }
+body[data-theme="light"] .lhome .bhero .sfield:focus-within { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(35, 64, 190, .14); }
+.lhome .btn-talk:hover { background: var(--night); color: #fff; border-color: var(--night); }
+.lhome .closing .btn-talk:hover { background: #fff; color: var(--night); border-color: #fff; }
+.lhome .hero-how { color: var(--ink); text-decoration-color: var(--blue); text-decoration-thickness: 1.5px; }
+
+/* Hero ledger: a dark instrument panel, the colours at full strength. */
+.lhome .hledger { background: var(--night); border-color: var(--night); color: #E9EAF0; padding: 26px 26px 20px; }
+.lhome .hl-head { color: #9CA0B4; }
+.lhome .hl-tk { color: #fff; }
+.lhome .hl-bar.a { background: var(--blue); color: #fff; }
+.lhome .hl-bar.l { background: var(--red); color: var(--night); box-shadow: inset 0 2px 0 var(--night); }
+.lhome .hl-bar.e { background: var(--yellow); color: var(--night); }
+.lhome .hl-level { background: var(--cream); }
+.lhome .hl-verdict { color: #E9EAF0; }
+.lhome .hl-eq { color: var(--yellow); }
+.lhome .hl-ok { background: var(--cream); color: var(--night); }
+.lhome .hledger figcaption { color: #9CA0B4; }
+.lhome .hledger code { color: #fff; }
+
+/* The strip: a dark band under the hero, the counts set large. */
+.lhome .bproof { background: var(--night); color: #E9EAF0; padding: clamp(48px, 6vw, 80px) 0 clamp(40px, 5vw, 64px); }
+.lhome .bproof .proof-lead { color: #fff; }
+.lhome .bproof .num { color: var(--yellow); }
+.lhome .bproof .proof, .lhome .bproof .pcell { border-color: rgba(255, 255, 255, .14); }
+.lhome .bproof .pk { color: #9CA0B4; }
+.lhome .bproof .pv { color: #fff; }
+.lhome .bproof a { color: #A9B7FF; }
+
+/* The story on a cream band; white panels on it. */
+.lhome .storysec { background: var(--cream); padding-bottom: clamp(56px, 7vw, 96px); }
+.lhome .storysec .secno { border-top-color: rgba(11, 12, 18, .16); }
+body[data-theme="light"] .bs-panel, .lhome .ntpanel { border-radius: 10px; border-color: rgba(11, 12, 18, .08); }
+body[data-theme="light"] .storysec main .card, body[data-theme="light"] .storysec .card { background: #fff; }
+
+/* Not testable: what the check needs, beside two empty outlines. */
+.lhome .nt-body { display: grid; grid-template-columns: 1fr; gap: 22px; margin-top: 16px; }
+.lhome .nt-cols { margin-top: 0; height: 260px; }
+.lhome .nt-col { position: relative; border: 1.5px dashed rgba(11, 12, 18, .28);
+  background-image: repeating-linear-gradient(135deg, rgba(11, 12, 18, .05) 0 1px, transparent 1px 8px);
+  flex-direction: column; justify-content: space-between; align-items: flex-start; }
+.lhome .nt-col i { font: italic 400 15px/1.2 var(--serif); color: var(--dim); align-self: center; margin: auto 0; }
+.lhome .nt-h { font: 500 11.5px/1.3 var(--mono); letter-spacing: .14em; text-transform: uppercase; color: var(--dim); margin: 0 0 10px; }
+.lhome .nt-needs { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.lhome .nt-needs li { display: grid; grid-template-columns: 30px 1fr 16px; column-gap: 10px; row-gap: 2px;
+  padding: 12px 0; border-bottom: 1px solid var(--rule); align-items: baseline; }
+.lhome .nt-needs .nn { grid-row: span 2; font: 500 12px/1.6 var(--mono); color: var(--dim); }
+.lhome .nt-needs b { font-weight: 500; font-size: 16px; }
+.lhome .nt-needs .nd { grid-column: 2; font-size: 14.5px; color: var(--ink2); }
+.lhome .nt-needs .nx { grid-column: 3; grid-row: 1; width: 14px; height: 14px; border: 1.5px solid var(--ink); border-radius: 3px; align-self: center; }
+.lhome .nt-out { margin: 14px 0 0; padding-left: 12px; border-left: 2px solid var(--ink); font-size: 15px; color: var(--ink2); }
+
+/* Pricing: Pro and Business lead; the rest stay quiet. */
+body[data-theme="light"] #pricing .plan { border-radius: 10px; background: transparent; }
+body[data-theme="light"] #pricing .plan .plan-price { font-size: 30px; }
+body[data-theme="light"] #pricing .plan.popular { background: var(--night); border-color: var(--night) !important;
+  box-shadow: 0 0 0 1px var(--night), 0 24px 48px -28px rgba(11, 12, 18, .55); }
+body[data-theme="light"] #pricing .plan.popular :is(.plan-name, .plan-line, .plan-bullets li, .plan-pc, p, span, li) { color: #D9DBE4; }
+body[data-theme="light"] #pricing .plan.popular .plan-price { color: #fff; }
+body[data-theme="light"] #pricing .plan.popular a:not(.plan-cta) { color: #A9B7FF; }
+body[data-theme="light"] #pricing .plan.popular .plan-cta { background: var(--blue); color: #fff; border-color: var(--blue); }
+body[data-theme="light"] #pricing .plan.popular .plan-cta:hover { background: #4D68E0; border-color: #4D68E0; }
+body[data-theme="light"] #pricing .plan.popular .badge { background: var(--yellow); color: var(--night); border-color: var(--yellow); }
+body[data-theme="light"] #pricing .plan.popular .plan-price,
+body[data-theme="light"] #pricing .plans > .plan.period-plan:nth-child(3) .plan-price { font-size: 46px; }
+body[data-theme="light"] #pricing .plans > .plan.period-plan:nth-child(3) { background: #fff;
+  border-color: rgba(11, 12, 18, .14) !important; box-shadow: inset 0 3px 0 var(--blue); }
+body[data-theme="light"] #pricing .plans > .plan.period-plan:nth-child(3) .plan-cta { background: var(--night); color: #fff; border-color: var(--night); }
+body[data-theme="light"] #pricing .plan.plan-minor :is(.plan-line, .plan-bullets li, .plan-pc) { color: var(--dim); }
+body[data-theme="light"] #pricing .plan:hover { border-color: rgba(11, 12, 18, .24) !important; }
+
+/* The demo card and trust list: hairline craft. */
+.lhome .bigcard { border-radius: 12px; }
+.lhome .gsrow:hover b { color: var(--blue); }
+.lhome .gsrow:hover .garrow { background: var(--blue); border-color: var(--blue); color: #fff; }
+.lhome .trustlist b { font-family: var(--serif); font-weight: 400; font-size: 19px; }
+.lhome .pf-n.one, .lhome .vfunnel .vn.one { color: var(--blue); }
+.lhome .cd-bar.c { fill: var(--red); }
+body[data-theme="light"] #pricing .plan.popular .plan-name .badge { color: var(--night) !important; background: var(--yellow); }
+body[data-theme="light"] #pricing .plan.popular .plan-price :is(span, small, em) { color: #9CA0B4 !important; }
+
+/* ---- the gradient layers behind the hero and the coloured bands ----
+   Static, always: soft brand-colour shapes in CSS. With motion and WebGL,
+   home-bg.js draws the same shapes drifting on the canvas above them; if
+   WebGL or the script fails, this is what shows. */
+.lhome .bhero, .lhome .bproof, .lhome #use, .lhome .closing { position: relative; isolation: isolate; overflow: clip; }
+.lhome .bg { position: absolute; inset: -10% 0; z-index: -1; pointer-events: none;
+  background:
+    radial-gradient(42% 55% at 16% 32%, rgba(35, 64, 190, .12), transparent 70%),
+    radial-gradient(36% 48% at 84% 68%, rgba(234, 81, 72, .10), transparent 70%),
+    radial-gradient(30% 40% at 62% 10%, rgba(247, 216, 72, .18), transparent 70%); }
+.lhome .bproof .bg, .lhome .band.dark .bg {
+  background:
+    radial-gradient(42% 55% at 18% 30%, rgba(35, 64, 190, .34), transparent 70%),
+    radial-gradient(36% 48% at 82% 72%, rgba(234, 81, 72, .20), transparent 70%),
+    radial-gradient(30% 40% at 60% 12%, rgba(247, 216, 72, .14), transparent 70%); }
+.lhome .bg-gl { position: absolute; inset: 0; width: 100%; height: 100%; visibility: hidden; }
+.motion .bg-gl.gl-on { visibility: visible; }
+
+/* The recommended plan: a fine outline in the three brand colours. */
+@property --ang { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
+body[data-theme="light"] #pricing .plan.popular { border: 2px solid transparent !important;
+  background: linear-gradient(var(--night), var(--night)) padding-box,
+    conic-gradient(from var(--ang), #2340BE, #4D68E0, #F7D848, #EA5148, #2340BE) border-box; }
+
+/* Cards that lift and catch the light (motion only, below). */
+.lhome .tcard, .lhome .cards > .card, .lhome #pricing .plan { position: relative; }
+
+/* =========================================================================
+   REFERENCE PASS (2026-10-20): patterns taken from four sites, in our brand.
+   SafetyKit: mono eyebrows with a signal dot, large reason rows, a centred
+   closing. Appcues: one italic accent word in the serif, big-number cards,
+   curved band edges. Petal: flat-colour outcome tiles with a product
+   fragment in each, square dark CTAs with an arrow. User Interviews: a CTA
+   strip between sections, two ways in at every ask.
+   ========================================================================= */
+.lhome .hero-eyebrow { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 22px; padding: 7px 14px;
+  border: 1px solid rgba(11, 12, 18, .14); border-radius: 999px; background: rgba(255, 255, 255, .6);
+  font: 500 12px/1.2 var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink2); }
+.lhome .edot { width: 7px; height: 7px; border-radius: 50%; background: var(--red); flex: none; }
+.lhome .htitle em, .lhome .bigh em { font-style: italic; font-weight: 400; color: var(--blue); }
+.lhome .secno.alert::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--red); align-self: center; }
+.lhome .secno.alert span { color: var(--l0); }
+
+/* Square dark actions with an arrow. */
+body[data-theme="light"] .lhome .sfield button { border-radius: 8px; }
+body[data-theme="light"] .lhome .sfield button::after, .lhome .btn-key::after { content: "\2192"; display: inline-block; margin-left: 8px; }
+.lhome .btn-key { display: inline-flex; align-items: center; min-height: 48px; padding: 12px 22px; border-radius: 8px;
+  background: var(--night); color: #fff; font-weight: 600; text-decoration: none; }
+.lhome .btn-key:hover { background: var(--blue); color: #fff; }
+
+/* A CTA strip between sections. */
+.lhome .ctamid { background: var(--blue); color: #fff; margin-top: clamp(56px, 7vw, 96px); }
+.lhome .ctamid-in { display: flex; flex-wrap: wrap; gap: 18px 32px; align-items: center; justify-content: space-between;
+  padding-top: 34px; padding-bottom: 34px; }
+.lhome .ctamid p { margin: 0; font: 300 clamp(24px, 2.6vw, 34px)/1.2 var(--serif); color: #fff; max-width: 30ch; }
+.lhome .ctamid-act { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+.lhome .ctamid .btn-key { background: var(--yellow); color: var(--night); }
+.lhome .ctamid .btn-key:hover { background: #fff; color: var(--night); }
+.lhome .ctamid .btn-talk { color: #fff; border-color: rgba(255, 255, 255, .7); }
+.lhome .ctamid .btn-talk:hover { background: #fff; color: var(--blue); border-color: #fff; }
+
+/* The cost: big-number cards in brand tints, then the study as dots. */
+.lhome .prob-lede { font-size: 20px; line-height: 1.5; color: var(--ink); max-width: 46ch; margin: 4px 0 0; }
+.lhome .probsec .pcols { gap: 16px; border-top: 0; margin-top: 30px; }
+.lhome .probsec .pcol { border: 0 !important; border-radius: 14px; padding: 26px 26px 24px !important; align-content: start; }
+.lhome .probsec .pcol.c-b { background: #E6EAFB; }
+.lhome .probsec .pcol.c-r { background: #FDE5E3; }
+.lhome .probsec .pcol.c-y { background: #FDF3C4; }
+.lhome .pbig { display: block; font: 300 clamp(64px, 7vw, 96px)/.95 var(--serif); letter-spacing: -.03em; color: var(--ink); margin: 14px 0 12px; font-variant-numeric: tabular-nums; }
+.lhome .pbig.word { font-style: italic; font-weight: 400; font-size: clamp(48px, 5vw, 68px); }
+.lhome .probsec .pcol.c-b .pbig { color: var(--blue); }
+.lhome .probsec .pcol.c-r .pbig { color: var(--l0); }
+.lhome .dotfield { margin: 28px 0 0; background: #fff; border: 1px solid var(--edge-soft); border-radius: 14px; padding: 22px; }
+.lhome .dotfield svg { display: block; width: 100%; height: auto; }
+.lhome .dotfield .gg circle { fill: rgba(11, 12, 18, .16); }
+.lhome .dotfield .gr circle { fill: var(--red); }
+.lhome .dotfield .dpin line { stroke: var(--red); stroke-width: 1.5; }
+.lhome .dotfield figcaption { margin-top: 14px; font-size: 15px; color: var(--ink2); }
+.lhome .dkey { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin: 0 6px 0 4px; vertical-align: baseline; }
+.lhome .dkey.r { background: var(--red); } .lhome .dkey.g { background: rgba(11, 12, 18, .25); margin-left: 12px; }
+@media (min-width: 960px) { .lhome .probsec .pcol + .pcol { padding-left: 26px !important; } }
+
+/* Every flag, by reason: large rows, live counts at the right. */
+.lhome .rrows { list-style: none; margin: 26px 0 0; padding: 0; border-top: 1px solid var(--rule); }
+.lhome .rrow { display: grid; grid-template-columns: 1fr auto; gap: 4px 20px; padding: 20px 6px; border-bottom: 1px solid var(--rule);
+  align-items: baseline; border-radius: 6px; }
+.lhome .rrow .rk { grid-column: 1 / -1; font: 500 12.5px/1 var(--mono); color: var(--l0); }
+.lhome .rrow .rt { font: 300 clamp(24px, 2.4vw, 32px)/1.15 var(--serif); color: var(--ink); }
+.lhome .rrow .rd { grid-column: 1; font-size: 15px; color: var(--ink2); max-width: 52ch; }
+.lhome .rrow .rc { grid-column: 2; grid-row: 2 / span 2; align-self: center; font: 500 clamp(28px, 3vw, 40px)/1 var(--mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.lhome .rrow:hover { background: var(--cream); }
+.lhome .rrow:hover .rt { color: var(--blue); }
+@media (min-width: 900px) {
+  .lhome .rrow { grid-template-columns: 160px minmax(0, 1fr) minmax(0, 1.2fr) 120px; padding: 26px 10px; }
+  .lhome .rrow .rk { grid-column: 1; }
+  .lhome .rrow .rt { grid-column: 2; }
+  .lhome .rrow .rd { grid-column: 3; }
+  .lhome .rrow .rc { grid-column: 4; grid-row: auto; text-align: right; }
+}
+
+/* What you get: flat colour tiles, each with a real response fragment. */
+.lhome .obento { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 28px; }
+.lhome .otile { border-radius: 14px; padding: 28px; min-height: 240px; display: flex; flex-direction: column; gap: 10px; }
+.lhome .otile h3 { font: 300 clamp(26px, 2.6vw, 34px)/1.12 var(--serif); margin: 0; max-width: 18ch; }
+.lhome .otile p { margin: 0; font-size: 15.5px; max-width: 40ch; }
+.lhome .ochip { margin-top: auto; align-self: flex-start; font: 500 13px/1.3 var(--mono); padding: 8px 12px; border-radius: 8px; }
+.lhome .osrc { font-size: 12px; opacity: .85; }
+.lhome .o-y { background: var(--yellow); color: var(--night); }
+.lhome .o-y :is(h3, p, .osrc) { color: var(--night); }
+.lhome .o-y .ochip { background: rgba(255, 255, 255, .65); }
+.lhome .o-b { background: var(--blue); color: #fff; }
+.lhome .o-b :is(h3, p, .osrc) { color: #fff; }
+.lhome .o-b .ochip { background: rgba(11, 12, 18, .35); color: #fff; }
+.lhome .o-c { background: var(--cream); color: var(--night); border: 1px solid var(--edge-soft); }
+.lhome .o-c .ochip { background: #fff; }
+.lhome .o-r { background: var(--night); color: #fff; }
+.lhome .o-r :is(h3, p, .osrc) { color: #fff; }
+.lhome .o-r a { color: var(--yellow); }
+.lhome .o-r .ochip { background: rgba(255, 255, 255, .1); color: #fff; }
+@media (min-width: 760px) { .lhome .obento { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+/* Curved band edges. */
+.lhome #use::before, .lhome .closing::before { content: ""; position: absolute; left: 0; right: 0; top: -1px; height: 44px; z-index: 1;
+  pointer-events: none; background-repeat: no-repeat; background-size: 100% 100%; }
+.lhome #use::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 44' preserveAspectRatio='none'%3E%3Cpath d='M0 0H1440V10C1080 44 360 44 0 10Z' fill='%23F3EFE6'/%3E%3C/svg%3E"); }
+.lhome .closing::before { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1440 44' preserveAspectRatio='none'%3E%3Cpath d='M0 0H1440V10C1080 44 360 44 0 10Z' fill='%23FAF8F3'/%3E%3C/svg%3E"); }
+.lhome #use { margin-top: 0; }
+
+/* The closing, centred. */
+.lhome .closing .band-in { display: flex; flex-direction: column; align-items: center; text-align: center; }
+.lhome .closing .giant { margin-left: auto; margin-right: auto; max-width: 17ch; }
+.lhome .closing .sec-sub { margin-left: auto; margin-right: auto; }
+.lhome .closing .keyform { width: 100%; margin-left: auto; margin-right: auto; }
+.lhome .closing .hero-actions { justify-content: center; display: flex; }
+
+/* =========================================================================
+   MOTION. Nothing below applies without `.motion` on <html>.
+   Two paths for the reveals and the drawing fill:
+   - `sda` (CSS scroll-driven animations, `animation-timeline: view()`):
+     Chrome and Edge 115+, Safari 26+. The browser runs them off the main
+     thread; no script involved.
+   - otherwise (Firefox, older Safari): home-motion.js reveals with
+     IntersectionObserver and home-story.js fills the drawings with GSAP.
+   The held sections (`rail-on`, `how-on`) exist only while home-story.js
+   runs them on a wide screen. Animated: transform, opacity, clip-path, and
+   one registered angle for the plan outline. No animation changes text.
+   ========================================================================= */
+@keyframes bp-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes bp-num { from { opacity: 0; transform: translate3d(0, .45em, 0); } to { opacity: 1; transform: none; } }
+@keyframes bp-rise-col { from { transform: translate3d(0, 101%, 0); } to { transform: none; } }
+@keyframes bp-drop-col { from { transform: translate3d(0, -101%, 0); } to { transform: none; } }
+@keyframes bp-level { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes bp-grow-y { from { transform: scaleY(0); } to { transform: scaleY(1); } }
+@keyframes bp-grow-x { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes bp-up { from { opacity: 0; transform: translate3d(0, 36px, 0); } to { opacity: 1; transform: none; } }
+@keyframes bp-clip { from { clip-path: inset(0 0 100% 0); transform: translate3d(0, .35em, 0); } to { clip-path: inset(0 0 0 0); transform: none; } }
+@keyframes bp-type { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes bp-ang { to { --ang: 360deg; } }
+
+/* The hero ledger assembles once: assets rise, the claims rise to meet them,
+   the level line is drawn, the verdict appears. Pure CSS, so a failed script
+   cannot leave it half-built; every frame shows the true proportions. */
+.motion .hl-rise { animation: bp-rise-col .9s cubic-bezier(.16, 1, .3, 1) both; animation-delay: .25s; }
+.motion .hl-col + .hl-col .hl-rise { animation-delay: .65s; }
+.motion .hl-l { animation: bp-fade .4s ease-out both; animation-delay: 1.3s; }
+.motion .hl-level { transform-origin: 0 50%; animation: bp-level .6s cubic-bezier(.65, 0, .35, 1) both; animation-delay: 1.45s; }
+.motion .hl-verdict { animation: bp-fade .4s ease-out both; animation-delay: 1.9s; }
+.motion .proof-lead .num { animation: bp-num .5s cubic-bezier(.16, 1, .3, 1) both; animation-delay: .2s; }
+.motion .proof-lead .num:nth-of-type(2) { animation-delay: .3s; }
+.motion .proof-lead .num:nth-of-type(3) { animation-delay: .4s; }
+.motion .proof-lead .num:nth-of-type(4) { animation-delay: .5s; }
+
+/* Reveals, path 1: scroll-driven. Cards and rows rise, staggered by --i;
+   giant headings clip in from below their baseline. */
+@supports (animation-timeline: view()) {
+  .motion.sda [data-reveal], .motion.sda .cards > .card, .motion.sda #pricing .plan, .motion.sda .gslist > li {
+    animation: bp-up linear both; animation-timeline: view();
+    animation-range: entry calc(var(--i, 0) * 10%) entry calc(75% + var(--i, 0) * 10%); }
+  .motion.sda .cards > .card:nth-child(2n), .motion.sda #pricing .plan:nth-child(3n+2), .motion.sda .gslist > li:nth-child(2) { --i: 1; }
+  .motion.sda #pricing .plan:nth-child(3n), .motion.sda .gslist > li:nth-child(3) { --i: 2; }
+  .motion.sda .bigh[data-reveal] { animation-name: bp-clip; animation-range: entry 0% entry 90%; }
+  /* The drawings fill in as they come into view: bands rise to their true
+     heights, the second column after the first, the labels in order, then
+     the gap and the level line. */
+  .motion.sda .hero-bs .bs-panel, .motion.sda .hero-bs .ntpanel { view-timeline: --draw block; }
+  .motion.sda .hero-bs .rise { animation: bp-rise-col linear both; animation-timeline: --draw; animation-range: entry 15% cover 40%; }
+  .motion.sda .hero-bs .bs-col + .bs-col .rise { animation-range: entry 35% cover 48%; }
+  .motion.sda .hero-bs .stack.below .rise { animation-name: bp-drop-col; animation-range: cover 42% cover 52%; }
+  .motion.sda .hero-bs .band .bl { animation: bp-fade linear both; animation-timeline: --draw; animation-range: cover 40% cover 52%; }
+  .motion.sda .hero-bs .gapband { animation: bp-fade linear both; animation-timeline: --draw; animation-range: cover 48% cover 58%; }
+  .motion.sda .hero-bs .lvl { transform-origin: 0 50%; animation: bp-level linear both; animation-timeline: --draw; animation-range: cover 46% cover 56%; }
+  .motion.sda .hero-bs .nt-col { transform-origin: 50% 100%; animation: bp-grow-y linear both; animation-timeline: --draw; animation-range: entry 20% cover 45%; }
+  .motion.sda .pbar .pb-fail { transform-origin: 0 50%; animation: bp-grow-x linear both; animation-timeline: view(); animation-range: entry 40% cover 45%; }
+}
+
+/* Reveals, path 2: no scroll-driven animations. home-motion.js sets aside
+   what is below the fold (`.pre`) and reveals it on entry (`.in`). */
+.motion:not(.sda) [data-reveal].pre, .motion:not(.sda) .cards > .card.pre, .motion:not(.sda) #pricing .plan.pre, .motion:not(.sda) .gslist > li.pre {
+  opacity: 0; transform: translate3d(0, 36px, 0); }
+.motion:not(.sda) [data-reveal].in, .motion:not(.sda) .cards > .card.in, .motion:not(.sda) #pricing .plan.in, .motion:not(.sda) .gslist > li.in {
+  transition: opacity .6s ease-out, transform .8s cubic-bezier(.16, 1, .3, 1); transition-delay: calc(var(--i, 0) * 90ms); }
+.motion:not(.sda) .bigh[data-reveal].pre { opacity: 1; clip-path: inset(0 0 100% 0); transform: translate3d(0, .35em, 0); }
+.motion:not(.sda) .bigh[data-reveal].in { transition: clip-path .8s cubic-bezier(.16, 1, .3, 1), transform .8s cubic-bezier(.16, 1, .3, 1); }
+
+/* The response card: each line revealed left to right, once, then it stays. */
+.motion .jcard.armed .ln { clip-path: inset(0 100% 0 0); }
+.motion .jcard.armed.typed .ln { animation: bp-type .34s steps(16, end) both; animation-delay: calc(var(--i) * 230ms); }
+
+/* Built for, held (wide screens, home-story.js): vertical scroll slides the
+   cards sideways; the card in front is marked; a line shows how far. */
+@media (min-width: 900px) and (min-height: 700px) {
+  .motion.rail-on #use { padding: 0; }
+  .motion.rail-on #use .rail-pin { height: 320vh; position: relative; }
+  .motion.rail-on #use .rail-stage { position: sticky; top: 64px; height: calc(100vh - 64px);
+    display: flex; align-items: center; overflow: hidden; }
+  .motion.rail-on #use .rail-stage > .wrap { width: 100%; }
+  .motion.rail-on #use .bigh { font-size: clamp(34px, 3.4vw, 46px); margin-bottom: 0; }
+  .motion.rail-on #use .rail { overflow: visible; }
+  .motion.rail-on #use .rail-track { display: flex; gap: 24px; width: max-content; overflow: visible; will-change: transform; }
+  .motion.rail-on #use .rcard { width: min(560px, 44vw); flex: none; opacity: .72; transition: opacity .3s ease-out, border-color .3s ease-out; }
+  .motion.rail-on #use .rcard.on { opacity: 1; border-color: rgba(247, 216, 72, .55); }
+  .motion.rail-on .rail-meter { display: flex; align-items: center; gap: 18px; margin-top: 24px; }
+  .motion.rail-on .rail-bar { display: block; width: 240px; height: 2px; background: rgba(255, 255, 255, .18); }
+  .motion.rail-on .rail-bar i { display: block; height: 100%; background: var(--yellow); transform-origin: 0 50%; }
+  .motion.rail-on .rail-dots { list-style: none; display: flex; gap: 8px; margin: 0; padding: 0; }
+  .motion.rail-on .rail-dots li { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, .25); transition: background-color .25s ease-out; }
+  .motion.rail-on .rail-dots li.on { background: var(--yellow); }
+
+  /* How the check works, held: one picture beside the steps. */
+  .motion.how-on .hstory { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); column-gap: 64px; border-top: 0; }
+  .motion.how-on .hstep { grid-column: 1; min-height: 64vh; padding-top: 12vh; border-top: 1px solid var(--rule); }
+  .motion.how-on .hlayer { grid-column: 2; grid-row: 1 / span 4; position: sticky; top: calc(64px + 8vh);
+    align-self: start; margin: 14vh 0 0; max-width: none; opacity: 0; visibility: hidden;
+    transition: opacity .35s ease-out, visibility 0s linear .35s; }
+  .motion.how-on .hlayer.cur { opacity: 1; visibility: visible; transition: opacity .35s ease-out; }
+  .motion.how-on .hb-bar { height: min(340px, 42vh); }
+}
+
+/* Cards: lift, tilt toward the cursor, a spotlight that follows it. The
+   recommended plan's outline turns slowly. */
+.motion .tcard, .motion .cards > .card, .motion #pricing .plan { transition: transform .2s ease-out, box-shadow .2s ease-out; }
+.motion .tcard:hover, .motion .cards > .card:hover, .motion #pricing .plan:hover {
+  transform: perspective(900px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translate3d(0, -4px, 0);
+  box-shadow: 0 24px 48px -26px rgba(11, 12, 18, .5); }
+.motion .tcard::after, .motion .cards > .card::after, .motion #pricing .plan::after {
+  content: ""; position: absolute; inset: 0; border-radius: inherit; pointer-events: none; opacity: 0;
+  background: radial-gradient(340px circle at var(--mx, 50%) var(--my, 50%), rgba(35, 64, 190, .10), transparent 62%);
+  transition: opacity .2s ease-out; }
+.motion .tcard::after, .motion #pricing .plan.popular::after {
+  background: radial-gradient(340px circle at var(--mx, 50%) var(--my, 50%), rgba(255, 255, 255, .12), transparent 62%); }
+.motion .tcard:hover::after, .motion .cards > .card:hover::after, .motion #pricing .plan:hover::after { opacity: 1; }
+.motion body[data-theme="light"] #pricing .plan.popular { animation: bp-ang 9s linear infinite; }
+
+/* Buttons: a quiet, exact response, under 250ms. */
+.motion .sfield button, .motion .btn-talk, .motion .btn, .motion .plan-cta { transition: transform .16s ease-out, background-color .16s ease-out, color .16s ease-out; }
+.motion .sfield button:hover, .motion .btn-talk:hover, .motion .btn:hover, .motion .plan-cta:hover { transform: translate3d(0, -1px, 0); }
+.motion .gsrow .garrow { transition: transform .18s ease-out, background-color .18s ease-out; }
+.motion .gsrow:hover .garrow { transform: translate3d(4px, 0, 0); }
+.motion .hrail a { transition: color .2s ease-out, border-color .2s ease-out; }
+
+/* Contrast (Lighthouse, 2026-10-20): the small print and the footer text. */
+body[data-theme="light"] .lhome .disclaim { color: var(--dim) !important; }
+body[data-theme="light"] .lhome .lfoot footer { color: #B9BCCB !important; }
+
+/* Reference pass, motion. The study's dots: the grey field is drawn left to
+   right, then the failed share lights up in red. Reason rows lean in on
+   hover; arrows nudge. */
+@keyframes bp-wipe { from { clip-path: inset(0 100% 0 0); } to { clip-path: inset(0 0 0 0); } }
+@keyframes bp-pop { from { opacity: 0; transform: scale(.4); } to { opacity: 1; transform: none; } }
+@supports (animation-timeline: view()) {
+  .motion.sda .dotfield { view-timeline: --dots block; }
+  .motion.sda .dotfield .gg { animation: bp-wipe linear both; animation-timeline: --dots; animation-range: entry 20% cover 45%; }
+  .motion.sda .dotfield .gr circle { transform-box: fill-box; transform-origin: center; animation: bp-pop linear both;
+    animation-timeline: --dots; animation-range: cover 42% cover 52%; }
+}
+.motion:not(.sda) .dotfield.in .gg { animation: bp-wipe .9s cubic-bezier(.16, 1, .3, 1) both; animation-delay: .2s; }
+.motion:not(.sda) .dotfield.in .gr circle { transform-box: fill-box; transform-origin: center; animation: bp-pop .4s cubic-bezier(.16, 1, .3, 1) both; animation-delay: 1s; }
+.motion .rrow { transition: background-color .2s ease-out; }
+.motion .rrow .rt { transition: transform .2s ease-out, color .2s ease-out; }
+.motion .rrow:hover .rt { transform: translate3d(6px, 0, 0); }
+.motion .btn-key { transition: background-color .16s ease-out, color .16s ease-out; }
+.motion .btn-key::after, .motion .sfield button::after { transition: transform .16s ease-out; }
+.motion .btn-key:hover::after, .motion .sfield button:hover::after { transform: translate3d(3px, 0, 0); }
+
+/* ---- 0. the climb: a layered scene above the hero (2026-10-20, v3 layers) ----
+   Static first: one finished still (the composite of the opening frame, the
+   bubble on the beam, the copy readable). That is what readers get with no
+   script, reduced motion, the toggle off, or a small screen; the layer images
+   are never fetched for them (all lazy, all inside a display: none scene).
+   Only `.motion` inside the wide query swaps in the layered scene, the tall
+   track, the sticky stage and the hidden states home-story.js scrubs from.
+   One point anchors everything: the brass beam's top-centre, at 50.15% /
+   11.72% of the towers plate. It sits at (50%, --by) of the view; the camera
+   zooms on it and the bubble's hairline lands on it. --fw is the plate width
+   (the 16:9 frame every layer is laid out in, bottom-aligned to the view). */
+.lhome .climb { position: relative; background: var(--night); color: #fff; isolation: isolate; }
+.lhome .climb-stage { position: relative; }
+.lhome .climb-view { position: relative; }
+.lhome .climb-art { position: relative; overflow: hidden; container-type: size;
+  height: clamp(540px, 140vw, 700px);
+  --fw: max(100cqw, 160cqh); --fh: calc(var(--fw) * .5625);
+  /* The still covers the view, bottom-aligned like the layers; on a short
+     view the beam is held low enough (--bymin) for the bubble to fit above. */
+  --sw: max(100cqw, 177.78cqh); --sh: calc(var(--sw) * .5625); --bymin: 150px;
+  --by: max(calc(100cqh - var(--sh) * .68), var(--bymin)); }
+.lhome .climb-still { position: absolute; display: block; max-width: none;
+  left: calc(50% - var(--sw) / 2); width: var(--sw); height: var(--sh);
+  top: calc(var(--by) - var(--sh) * .32); }
+.lhome .climb-scene { display: none; }
+.lhome .climb-sky { position: absolute; left: 0; right: 0; top: -50cqh; height: 250cqh;
+  background: linear-gradient(180deg, #05060B 0, #060B1C 20%, #0D1748 30%, #172C8C 40%, #2340BE 50%,
+    #4D68E0 60%, #A9B4E2 70%, #E9E5DA 80%, #F3EFE6 90%, #F3EFE6 100%); }
+.lhome .climb-sky img { width: 100%; height: 100%; display: block; }
+.lhome .climb-cam { position: absolute; inset: 0; transform-origin: 50% var(--by); }
+.lhome .climb-plate, .lhome .climb-fg, .lhome .climb-cloud { position: absolute; }
+.lhome .climb-plate img, .lhome .climb-fg img, .lhome .climb-cloud img { position: absolute; inset: 0;
+  width: 100%; height: 100%; display: block; }
+.lhome .climb-ridges { width: var(--fw); height: calc(var(--fw) * .4289); left: calc(50% - var(--fw) / 2);
+  top: calc(100cqh + var(--fw) * .0078 - var(--fw) * .4289); }
+.lhome .climb-towers { width: calc(var(--fw) * .36); height: calc(var(--fw) * .4498);
+  left: calc(50% - var(--fw) * .36 * .5015); top: calc(var(--by) - var(--fw) * .4498 * .1172); }
+/* Light on the beam, not a sun: a low warm ellipse behind the brass. */
+.lhome .climb-glow { position: absolute; left: 50.15%; top: 12.6%; width: 78%; height: 13%;
+  translate: -50% -50%; pointer-events: none;
+  background: radial-gradient(closest-side, rgba(250, 243, 222, .34), rgba(247, 216, 72, .10) 58%, transparent); }
+/* The towers' feet stand in the same mist the ridges rise from. */
+.lhome .climb-mist { position: absolute; left: 0; right: 0; bottom: 0; height: 30cqh; pointer-events: none;
+  background: linear-gradient(180deg, rgba(217, 218, 228, 0) 0, rgba(222, 222, 230, .42) 45%, rgba(236, 233, 228, .82) 100%); }
+.lhome .climb-fg-l { width: calc(var(--fw) * .1996); height: calc(var(--fw) * .3202);
+  left: calc(50% - var(--fw) / 2); top: calc(100cqh - var(--fw) * .3202); }
+.lhome .climb-fg-r { width: calc(var(--fw) * .1998); height: calc(var(--fw) * .3144);
+  left: calc(50% + var(--fw) / 2 - var(--fw) * .1998); top: calc(100cqh - var(--fw) * .3144); }
+.lhome .climb-clouds { position: absolute; inset: 0; pointer-events: none; z-index: 2; }
+/* cloud-a sits low at the towers' feet (only its crown shows), cloud-b waits
+   below the frame; both rise past at their own speed. */
+.lhome .climb-cloud-a { width: calc(var(--fw) * 1.1); height: calc(var(--fw) * 1.1 * .4394);
+  left: calc(50% - var(--fw) * .55); top: calc(100cqh - var(--fw) * 1.1 * .4394 * .43); }
+.lhome .climb-cloud-b { width: calc(var(--fw) * 1.2); height: calc(var(--fw) * 1.2 * .4287);
+  left: calc(50% - var(--fw) * .6); top: 100%; }
+/* The bubble stands on the beam: a hairline from its foot to the beam's
+   top-centre, no tail. */
+.lhome .climb-bubble { --stem: 22px; position: absolute; left: 50%; bottom: calc(100% - var(--by) + var(--stem));
+  translate: -50% 0; width: min(232px, calc(100% - 32px)); padding: 11px 13px 12px; margin: 0;
+  background: var(--off); color: var(--ink); border-radius: 10px;
+  box-shadow: 0 18px 40px -18px rgba(0, 0, 0, .7); z-index: 3; }
+.lhome .climb-bubble::after { content: ""; position: absolute; left: calc(50% - .5px); top: 100%;
+  width: 1px; height: var(--stem); background: linear-gradient(180deg, rgba(250, 248, 243, .95), rgba(250, 248, 243, .6)); }
+.lhome .climb-bubble p { margin: 0; }
+.lhome .climb-bubble .b1 { font-family: var(--serif); font-weight: 400; font-size: 14.5px; line-height: 1.32; }
+.lhome .climb-bubble .b2 { font-size: 13px; font-weight: 500; color: var(--blue); margin-top: 7px; letter-spacing: .01em; }
+.lhome .climb-copy { position: relative; padding: 28px clamp(16px, 4vw, 48px) 44px; max-width: 1240px; margin: 0 auto; }
+.lhome .climb-line { font-family: var(--serif); font-weight: 300; font-size: clamp(34px, 9vw, 72px);
+  line-height: 1.04; letter-spacing: -.02em; margin: 0 0 16px; max-width: 12ch; color: #fff; }
+.lhome .climb-side { font-size: 16px; line-height: 1.55; color: rgba(255, 255, 255, .8); margin: 0; max-width: 34ch; }
+.lhome .climb-next { position: relative; color: #fff; padding: clamp(56px, 8vw, 96px) 0 clamp(64px, 9vw, 112px);
+  background: linear-gradient(180deg, rgba(20, 26, 56, 1) 0, rgba(35, 64, 190, .0) 34%),
+    linear-gradient(180deg, #1F44C6 0, #3E66E4 46%, #CAD8FD 82%, var(--off) 100%); }
+.lhome .climb-next p { font-family: var(--serif); font-weight: 300; font-size: clamp(26px, 3.2vw, 44px);
+  line-height: 1.15; letter-spacing: -.01em; margin: 0 auto; max-width: 1240px; }
+.lhome .climb-next p { text-shadow: 0 1px 18px rgba(11, 12, 18, .25); }
+.lhome .climb-next a { color: #fff; text-decoration-thickness: 1px; text-underline-offset: .16em; }
+@media (min-width: 900px) {
+  .lhome .climb-view { height: clamp(640px, calc(100svh - 64px), 980px); }
+  .lhome .climb-art { position: absolute; inset: 0; height: auto; }
+  .lhome .climb-copy { position: absolute; inset: 0; padding: 0; max-width: none; pointer-events: none; z-index: 2; }
+  .lhome .climb-copy > * { pointer-events: auto; }
+  .lhome .climb-line { position: absolute; left: clamp(24px, 5vw, 80px); top: 13%; max-width: 9.5ch;
+    font-size: clamp(44px, 4.6vw, 74px); text-shadow: 0 2px 28px rgba(5, 6, 12, .55); }
+  .lhome .climb-side { position: absolute; right: clamp(24px, 5vw, 80px); top: 15%; max-width: 30ch;
+    text-shadow: 0 1px 16px rgba(5, 6, 12, .7); }
+  .lhome .climb-art { --bymin: 196px; }
+  .lhome .climb-bubble { --stem: 34px; width: 300px; padding: 13px 16px 14px; }
+  .lhome .climb-bubble .b1 { font-size: 18px; }
+}
+/* Motion, wide screens only: the layered scene instead of the still, a tall
+   track, the stage held while it scrubs, and the states the timeline starts
+   from. The heights come from CSS, set before first paint, so nothing shifts
+   when the script arrives. */
+@media (min-width: 900px) and (min-height: 700px) {
+  .motion .climb-stage { height: 420vh; }
+  .motion .climb-view { position: sticky; top: 64px; height: calc(100vh - 64px); }
+  .motion .climb-still { display: none; }
+  .motion .climb-scene { display: block; position: absolute; inset: 0; }
+  .motion .climb-art { --by: max(calc(100cqh - var(--fh) * .68), var(--bymin)); }
+  .motion .climb-bubble { opacity: 0; }
+  .motion .climb-bubble .b2 { opacity: 0; }
+  .motion .climb-cam, .motion .climb-plate, .motion .climb-fg, .motion .climb-cloud,
+  .motion .climb-bubble, .motion .climb-copy,
+  .motion .climb-sky { will-change: transform, opacity; }
+  /* Scroll lag (2026-10-20): a layer holding nothing but an <img> is a
+     "directly composited image", and on a real high-DPI GPU Chrome re-rasters
+     it at every scale step of the zoom (~1,000+ tiles per pass on the ridges).
+     A near-invisible fill makes these ordinary layers whose raster is kept,
+     like the towers plate (it also holds the glow) and the sky (it also has
+     its gradient) already are. */
+  .motion .climb-ridges, .motion .climb-fg, .motion .climb-cloud { background: rgba(0, 0, 0, .004); }
+  /* The sky ends on cream, so the page below carries straight on from it. */
+  .motion .climb-next { background: linear-gradient(180deg, var(--cream) 0, var(--off) 100%); color: var(--ink); }
+  .motion .climb-next p { text-shadow: none; }
+  .motion .climb-next a { color: var(--blue); }
+}
+/* Motion, portrait phones and tablets (2026-10-21): the same layered climb.
+   The 16:9 frame is sized to the width instead of the height (217cqw puts the
+   towers at ~78% of the screen), so the beam, both foreground blocks and the
+   bubble all fit a tall, narrow view; the sky fills the space above. The copy
+   sits over the top of the sky. Landscape phones (under 560px tall) keep the
+   still. */
+@media (max-width: 899px) and (min-height: 560px) {
+  .motion .climb-stage { height: 340vh; }
+  .motion .climb-view { position: sticky; top: 64px; height: calc(100svh - 64px); }
+  .motion .climb-art { position: absolute; inset: 0; height: auto; --fw: 217cqw; --bymin: 210px; }
+  .motion .climb-still { display: none; }
+  .motion .climb-scene { display: block; position: absolute; inset: 0; }
+  .motion .climb-art { --by: max(calc(100cqh - var(--fh) * .68), var(--bymin)); }
+  .motion .climb-bubble { opacity: 0; }
+  .motion .climb-bubble .b2 { opacity: 0; }
+  .motion .climb-cam, .motion .climb-plate, .motion .climb-fg, .motion .climb-cloud,
+  .motion .climb-bubble, .motion .climb-copy,
+  .motion .climb-sky { will-change: transform, opacity; }
+  .motion .climb-ridges, .motion .climb-fg, .motion .climb-cloud { background: rgba(0, 0, 0, .004); }
+  /* The frame is wider than the screen here, so its edge blocks would sit
+     off-screen: pin them to the screen's edges, partly cropped, so the
+     nearest layer is still there to split away. */
+  .motion .climb-fg-l { left: calc(var(--fw) * -.07); }
+  .motion .climb-fg-r { left: calc(100% + var(--fw) * .07 - var(--fw) * .1998); }
+  .motion .climb-copy { position: absolute; left: 0; right: 0; top: 0; z-index: 2; padding: 28px 20px 0; }
+  .motion .climb-line { font-size: clamp(34px, 10vw, 48px); max-width: 10ch; margin-bottom: 12px;
+    text-shadow: 0 2px 24px rgba(5, 6, 12, .6); }
+  .motion .climb-side { font-size: 15px; max-width: 32ch; text-shadow: 0 1px 14px rgba(5, 6, 12, .75); }
+  .motion .climb-next { background: linear-gradient(180deg, var(--cream) 0, var(--off) 100%); color: var(--ink); }
+  .motion .climb-next p { text-shadow: none; }
+  .motion .climb-next a { color: var(--blue); }
+}

@@ -48,7 +48,8 @@ def media_version() -> str:
     to notice the backdrop was broken.
     """
     try:
-        return str(int(max(f.stat().st_mtime for f in _MEDIA.iterdir() if f.is_file())))
+        # rglob, not iterdir: the home hero's layers live in media/hero/.
+        return str(int(max(f.stat().st_mtime for f in _MEDIA.rglob("*") if f.is_file())))
     except (OSError, ValueError):
         return "0"
 

@@ -166,9 +166,11 @@ def render_signin_prompt(
     `/auth/verify` (`active` is "login") because offering a sign-in to
     somebody already signing in is absurd, `/dashboard` because reaching it
     means being signed in already, and any deployment with login switched off,
-    where the panel would advertise a door that is not there.
+    where the panel would advertise a door that is not there. Since 2026-10-19
+    the home page does not get it either: it covered the hero, whose only ask
+    is the same email field.
     """
-    if signed_in or not login_enabled or active in {"login", "dashboard"}:
+    if signed_in or not login_enabled or active in {"login", "dashboard", "home"}:
         return ""
     from src.config.settings import get_settings, price_label
 

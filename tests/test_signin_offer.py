@@ -115,7 +115,7 @@ def test_a_stale_showing_cannot_be_claimed(client):
 
 
 def test_the_panel_prints_the_discounted_price_from_the_percent(client):
-    html = client.get("/").text
+    html = client.get("/about").text  # "/" no longer carries the panel
     sheet = html.split('id="signin-prompt"', 1)[1]
     assert 'id="sp-deal"' in sheet and 'id="sp-no"' in sheet
     # Canadian dollars, labelled as such (brand.md writes "CA$49"); a bare "$49" read as US dollars.

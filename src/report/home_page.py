@@ -280,15 +280,13 @@ _METHOD_AS_FILED = (
     "Every figure is pulled as filed, and the check runs before it is stored."
 )
 _METHOD_FLAGGED = (
-    # "never silently fudged" is the site's standing phrase for this: it is
-    # what /methodology says in prose and what the tile there counts to zero.
-    # The old tail -- "instead of adjusting the numbers" -- made the same
-    # promise in more words, and in words used nowhere else on the site. This
-    # is shorter, which the hero wants, and identical to the phrasing the
-    # reader meets one click later, which a promise repeated across four pages
-    # needs more than it needs variety.
-    "When a filing does not balance, the page says so with the reason, "
-    "never silently fudged."
+    # 2026-10-19: back to "instead of adjusting the numbers". The hero subhead
+    # (owner's wording) makes this promise in those words, and the same page
+    # carrying "never silently fudged" a few inches lower was one promise in
+    # two phrasings, the second colloquial. /methodology still has its
+    # "0 silently fudged" tile and meta line; aligning it is a follow-up.
+    "When a filing does not balance, the page says so with the reason "
+    "instead of adjusting the numbers."
 )
 _DEFINITION_METHOD = f"{_METHOD_IDENTITY} {_METHOD_AS_FILED} {_METHOD_FLAGGED}"
 
@@ -518,8 +516,13 @@ def _shell(
     ld: str = "",
     noindex: bool = False,
     backdrop: str = "",
+    theme: str = "",
 ) -> str:
     """`film` says how much of the backdrop this page may spend.
+
+    `theme="light"` (the home page only, 2026-10-19) loads `home-light.css`
+    after the bundle, sets `data-theme="light"` on <body> and uses the
+    self-hosted type; pass it with `film="none"`.
 
     `backdrop` names a variant picture (see `backdrop.render_backdrop`); only
     the home page passes one.
@@ -545,7 +548,23 @@ def _shell(
     from src.report.backdrop import render_backdrop
 
     bd_attr = f' data-bd="{escape(backdrop)}"' if backdrop else ""
-    fonts = _self_hosted_fonts() if backdrop == "fluted" else _GOOGLE_FONTS
+    if theme:
+        bd_attr += f' data-theme="{escape(theme)}"'
+    fonts = (_self_hosted_fonts() if backdrop == "fluted" or theme == "light"
+             else _GOOGLE_FONTS)
+    from src.report.company_page import asset_version as _av
+
+    # The motion switch, before first paint so nothing animates in after it was
+    # already drawn: on only when the reader has not asked for reduced motion and
+    # has not turned it off with the footer toggle (or has turned it on there).
+    # No class, no animation: the page is complete without this line.
+    motion_js = ("<script>(function(){try{var p=localStorage.getItem('bp-motion'),"
+                 "r=matchMedia('(prefers-reduced-motion: reduce)').matches;"
+                 "if(p==='on'||(p!=='off'&&!r))document.documentElement.classList.add('motion');"
+                 "if(window.CSS&&CSS.supports('animation-timeline: view()'))document.documentElement.classList.add('sda')"
+                 "}catch(e){}})();</script>")
+    theme_css = (f'<link rel="stylesheet" href="/static/home-light.css?v={_av()}">{motion_js}'
+                 f'{_climb_preload()}' if theme == "light" else "")
     backdrop = "" if film == "none" else render_backdrop(backdrop)
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -558,8 +577,8 @@ def _shell(
 {fonts}
 <!-- The five layered sheets, as one request. Their order, and the one-line
      revert to terminal.css, live in `cssbundle.LAYERS`. -->
-{stylesheet_link()}
-<meta name="theme-color" content="#0a0a0a">
+{stylesheet_link()}{theme_css}
+<meta name="theme-color" content="{'#ffffff' if theme == 'light' else '#0a0a0a'}">
 </head>
 <body data-film="{film}"{bd_attr}>
 {backdrop}
@@ -596,7 +615,10 @@ _FONT_FILES = (
     ("Geist Mono", 700, "normal", "font-geistmono-700.woff2"),
 )
 # What the first screen is set in; the rest load when something uses them.
-_FONT_PRELOAD = ("font-zodiak-300.woff2", "font-satoshi-400.woff2")
+# Satoshi 700 is the headline weight on the bold home page; without the preload
+# the heading reflowed by 4px when it arrived (a measured layout shift).
+_FONT_PRELOAD = ("font-zodiak-300.woff2", "font-zodiak-400i.woff2", "font-satoshi-400.woff2", "font-satoshi-500.woff2",
+                 "font-satoshi-700.woff2", "font-geistmono-400.woff2")
 
 
 def _self_hosted_fonts() -> str:
@@ -929,7 +951,7 @@ def _code_card(ticker: str, sample: dict | None) -> str:
   </section>"""
 
 
-def _key_form(slot: str, ticker: str) -> str:
+def _key_form(slot: str, ticker: str, button: str = "Get my free key") -> str:
     """One field and one button: the whole of signing up.
 
     `POST /api/auth/register` makes the account, and the key comes back in the
@@ -951,7 +973,7 @@ def _key_form(slot: str, ticker: str) -> str:
             placeholder="you@email.com" autocomplete="email"
             autocapitalize="none" spellcheck="false" maxlength="254"
             enterkeyhint="go">
-          <button type="submit">Get my free key</button>
+          <button type="submit">{escape(button)}</button>
         </div>
         <p class="formnote" role="status" aria-live="polite" data-keynote></p>
       </form>
@@ -973,6 +995,42 @@ def _key_form(slot: str, ticker: str) -> str:
     </div>"""
 
 
+def _count_scope(bd: dict | None) -> str:
+    """The reconciled and flagged counts, each with what it counts and when.
+
+    Scope: the most recent balance sheet held for each company, read from the
+    database (`identity_breakdown`), dated by the day it was computed. It is a
+    different population from the 995-of-38,568 study, which is every filing in
+    a two-year window on a frozen date and is quoted, dated, on /verification.
+    Printing both without their scopes is what made "no filing genuinely
+    fails" and "193 flagged" read as a contradiction. "" when unreadable.
+    """
+    if not bd or bd.get("reconciled") is None or not bd.get("computed_on"):
+        return ""
+    checked = (bd.get("reconciled") or 0) + (bd.get("flagged") or 0)
+    return (
+        f"Latest balance sheet of each company, read {escape(str(bd['computed_on']))} "
+        f"(UTC): {fmt_int(checked)} could be tested. "
+        f"{fmt_int(bd['reconciled'])} reconcile and {fmt_int(bd['flagged'])} "
+        "are flagged with a reason."
+    )
+
+
+def _hero_proof() -> str:
+    """The dated counts and the way to the evidence, under the subhead."""
+    try:
+        from src.company.stats import identity_breakdown
+
+        scope = _count_scope(identity_breakdown())
+    except Exception:  # noqa: BLE001 - a count must never take the page down
+        scope = ""
+    lead = f"{scope} " if scope else ""
+    return (
+        f'<p class="hproof">{lead}<a href="/verification">How the check works, '
+        "what the flags mean, and a worked example</a>.</p>"
+    )
+
+
 def _hero(free_calls: int, ticker: str) -> str:
     """The claim, the sign-up, and the way to the docs.
 
@@ -986,13 +1044,14 @@ def _hero(free_calls: int, ticker: str) -> str:
     """
     return f"""
   <header class="hero">
-    <h1 class="htitle">SEC balance sheets as an <span class="h-ital">API</span>.</h1>
-    <p class="hlede">An API and MCP server for analysts, quants and developers who
-      build on SEC filings. Each balance sheet is checked against Assets =
-      Liabilities + Equity when it reports the lines needed, and when one
-      doesn't add up, it's flagged with the reason.</p>
+    <h1 class="htitle">Balance-checked SEC financials for production data pipelines.</h1>
+    <p class="hlede">Each statement is checked against assets = liabilities +
+      equity where the filing reports the lines needed, and returned with the
+      SEC filing it came from. When a statement can't be verified, the API
+      returns the reason instead of adjusting the numbers.</p>
+    {_hero_proof()}
     {_key_form("hero", ticker)}
-    <p class="summary">{free_calls:,} calls a month. No card, no password.</p>
+    <p class="summary">Free tier: {free_calls:,} calls a month. No card, no password.</p>
     <p class="fineprint">By getting a key you accept the
       <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
     <div class="api-cta hero-cta">
@@ -1077,6 +1136,13 @@ _STAGE_COLUMN_PX = 340.0
 # is skipped rather than shown under a caption that would be false.
 _FLAGGED_CANDIDATES = ("AACB",)
 
+# Companies the home page's story prefers to lead with, in order, when they
+# are among the drawable suggestions: their real drawings carry several line
+# items on both sides. Chosen for the shape, never for the verdict: the panel
+# is captioned "Balances" only because `_hero_drawing` is given a view that
+# balances (the gallery's suggestions do).
+_STORY_LEAD = ("MSFT", "AAPL")
+
 
 def _flagged_example() -> View1 | None:
     from src.company.view1 import build_view1
@@ -1095,9 +1161,14 @@ def _flagged_example() -> View1 | None:
     return None
 
 
-def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str = "") -> str:
+def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str = "",
+                   scene: int = 0) -> str:
     """One filing drawn to scale: both columns, a plain caption, and the
-    line-by-line tables folded away."""
+    line-by-line tables folded away.
+
+    Each column's bands sit in a `.rise` wrapper so the motion layer can slide
+    them up from the baseline inside the column (transform only, the bands keep
+    their true heights the whole time). Without motion the wrapper is inert."""
     d = view.as_dict()
     total = d["total_assets"]
     px = _STAGE_COLUMN_PX / 100.0
@@ -1106,7 +1177,11 @@ def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str 
     above = [b for b in d["claims"]
              if not (b["kind"] == "equity" and b["value"] < 0)]
     below = [b for b in d["claims"] if b["kind"] == "equity" and b["value"] < 0]
-    claims_html = "".join(_band(b, px) for b in above)
+    claims_html = "".join(
+        _band(b, px).replace('class="band', 'class="band gapband', 1)
+        if b.get("key") == "unread_components" else _band(b, px)
+        for b in above
+    )
     below_html = "".join(_band(b, px) for b in below)
 
     liab = sum(b["value"] for b in d["claims"] if b["kind"] != "equity")
@@ -1115,11 +1190,14 @@ def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str 
     ticker = escape(d["ticker"])
     why = f'<span class="ckind">{escape(kind)}</span>' if kind else ""
     below_block = (
-        f'<div class="baseline"></div><div class="stack">{below_html}</div>'
+        f'<div class="baseline"></div><div class="stack below"><div class="rise">{below_html}</div></div>'
         if below_html else ""
     )
+    # The level line: drawn only where the two columns really meet.
+    level = ('<span class="lvl" aria-hidden="true"><i>A = L + E</i></span>'
+             if tone == "ok" else "")
     return f"""
-    <figure class="bs-panel {tone}">
+    <figure class="bs-panel {tone}" data-scene="{scene}">
       <figcaption class="bs-tag"><b>{escape(tag)}</b>
         <span class="bs-meta">{ticker} {why} quarter ended {escape(d["period_end"])},
           filed {escape(d["filing_date"])}</span></figcaption>
@@ -1129,10 +1207,10 @@ def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str 
           <div class="bs-cap"><span>Owed &amp; owned</span>
             <b>{money(liab)} + {money(eq)}</b></div>
           <div class="bs-col" role="img" aria-label="What {name} owns, drawn to scale, total assets {money(total)}. Line-by-line amounts in the table below.">
-            <div class="stack">{assets_html}</div>
+            {level}<div class="stack"><div class="rise">{assets_html}</div></div>
           </div>
           <div class="bs-col" role="img" aria-label="Who has a claim on it, drawn to scale, liabilities {money(liab)}, equity {money(eq)}. Line-by-line amounts in the table below.">
-            <div class="stack">{claims_html}</div>
+            <div class="stack"><div class="rise">{claims_html}</div></div>
             {below_block}
           </div>
         </div>
@@ -1147,10 +1225,63 @@ def _drawing_panel(view: View1, *, tag: str, tone: str, caption: str, kind: str 
     </figure>"""
 
 
+def _not_testable_panel(scene: int) -> str:
+    """The third case, drawn as what it is: two empty outlines and no figures.
+    Nothing here is a company or a number we invented; the only figure is the
+    live count of latest balance sheets that could not be tested, with its
+    date, and it is dropped when it cannot be read."""
+    from src.company.stats import identity_breakdown
+
+    try:
+        bd = identity_breakdown() or {}
+    except Exception:  # noqa: BLE001 - a count must never take the page down
+        bd = {}
+    n = bd.get("not_testable")
+    count = ""
+    if n and bd.get("computed_on"):
+        count = (f'<p class="nt-count">On {escape(str(bd["computed_on"]))} (UTC), '
+                 f'{_num(fmt_int(n))} {plural(n, "latest balance sheet", "latest balance sheets")} '
+                 "could not be tested. They are counted in neither the pass nor the "
+                 "fail total.</p>")
+    # What the check needs, as `stats.classify_identity` decides it: total
+    # assets above zero, and liabilities and equity (or the filer's own stated
+    # total for both). Either missing means not_testable.
+    needs = (
+        ("01", "Total assets", "reported, and above zero"),
+        ("02", "Liabilities and equity", "each reported, or the filer's own stated total"),
+    )
+    rows = "".join(
+        f'<li><span class="nn">{n}</span><b>{t}</b><span class="nd">{d}</span>'
+        f'<span class="nx" aria-hidden="true"></span></li>'
+        for n, t, d in needs)
+    return f"""
+    <figure class="ntpanel" data-scene="{scene}">
+      <figcaption class="bs-tag"><b>Not testable</b>
+        <span class="bs-meta">answered <code>not_testable</code>, with the reason</span></figcaption>
+      <div class="nt-body">
+        <div class="nt-cols" aria-hidden="true">
+          <div class="nt-col"><span>Owns</span><i>no figure drawn</i></div>
+          <div class="nt-col"><span>Owed &amp; owned</span><i>no figure drawn</i></div>
+        </div>
+        <div class="nt-side">
+          <p class="nt-h">What the check needs</p>
+          <ol class="nt-needs">{rows}</ol>
+          <p class="nt-out"><code>not_testable</code> if either is missing: no verdict,
+            the reason in the response, counted in neither total.</p>
+        </div>
+      </div>
+      <p class="bs-note">Nothing is filled in and no total is estimated.</p>
+      {count}
+    </figure>"""
+
+
 def _hero_drawing(view: View1 | None, kind: str = "",
                   flagged: View1 | None = None) -> str:
-    """A real company's real balance sheet, and -- when one can be verified --
-    a real filing that does not add up, side by side.
+    """Real filings drawn to scale: one that balances, a real one that is
+    flagged with its reason (when one can be verified), and what "not
+    testable" looks like. With motion on, each drawing fills in as it comes
+    into view: the bands rise from the baseline to their true heights and
+    the labels appear in order. Without it, the finished drawings.
 
     There is no placeholder when there is nothing to draw: the page falls back
     to the strip and the demo, which is a smaller page rather than a page
@@ -1164,18 +1295,17 @@ def _hero_drawing(view: View1 | None, kind: str = "",
     ticker = escape(d["ticker"])
     total = d["total_assets"]
     good = _drawing_panel(
-        view, tag="Balances", tone="ok", kind=kind,
+        view, tag="Balances", tone="ok", kind=kind, scene=0,
         caption=f"The two columns agree. {name} owns {money(total)}, and every "
                 "dollar of it is owed or owned.",
     )
-
     bad = ""
     if flagged is not None:
         f = flagged.as_dict()
         gap = next(b["value"] for b in f["claims"] if b["key"] == "unread_components")
         fname = escape(f["company_name"] or f["ticker"])
         bad = _drawing_panel(
-            flagged, tag="Flagged, and here is why", tone="flag",
+            flagged, tag="Flagged, and here is why", tone="flag", scene=1,
             caption=f"{fname}: the filer's own stated total balances. {money(gap)} "
                     "of it did not reach us, so the drawing shows the gap instead "
                     "of hiding it.",
@@ -1183,24 +1313,31 @@ def _hero_drawing(view: View1 | None, kind: str = "",
         title = "Real filings, drawn to scale"
     else:
         title = "One real filing, drawn"
-
+    nt = _not_testable_panel(2 if bad else 1)
     cls = "two" if bad else "one"
     flagged_link = (
-        f' See the other one on its <a href="/company/{escape(flagged.ticker)}">'
+        f' See the flagged one on its <a href="/company/{escape(flagged.ticker)}">'
         f"own page</a>." if flagged is not None else ""
     )
     return f"""
-  <section class="sec hero-bs stage {cls}">
-    <div class="sec-head"><h2>{title}</h2></div>
-    <div class="stage-grid">{good}{bad}
+  <section class="sec hero-bs stage {cls}" id="story" aria-labelledby="story-h">
+    <div class="draw-head">
+      <div><div class="secno"><span>01</span> The check, drawn</div>
+        <h2 class="bigh" id="story-h" data-reveal>{title}</h2></div>
+      <div class="draw-notes">
+        <p class="plan-note">Left is what the company owns. Right is who has a claim
+          on it: lenders first, then the owners.</p>
+        <p class="plan-note">Both columns are the same money, counted twice, so they
+          are the same height. A filing where they differ is flagged with the reason.</p>
+      </div>
     </div>
-    <p class="plan-note">Left is what the company owns. Right is who has a claim
-      on it: lenders first, then the owners.</p>
-    <p class="plan-note">Both columns are the same money, counted twice, so they
-      are the same height. A filing where they differ is flagged with the
-      reason.
+    <div class="draw-grid">{good}{bad}{nt}
+    </div>
+    <p class="plan-note story-links">
       <a href="/company/{ticker}">Open the full page for {ticker}</a>, or
-      <a href="/companies">browse every company</a>.{flagged_link}</p>
+      <a href="/companies">browse every company</a>.{flagged_link}
+      A later filing can report a new value for the same period:
+      <a href="/restatements">revisions from the last 90 days</a>.</p>
   </section>"""
 
 
@@ -1234,17 +1371,23 @@ def _steps(stats: dict) -> str:
         else "Every balance sheet that reports its totals is checked against "
         "assets = liabilities + equity."
     )
-    broken = (bd.get("counts") or {}).get("broken")
-    if broken is None:
-        broken_line = ""
-    elif broken == 0:
-        broken_line = " Today no filing genuinely fails the check."
-    else:
+    # Every flagged company is in exactly one of the four reasons, so the four
+    # numbers add up to the flagged count printed beside them. This replaces
+    # "Today no filing genuinely fails the check", which was true (the fourth
+    # reason is 0) but read as a contradiction of the flagged count above it.
+    c = bd.get("counts") or {}
+    if bd.get("computed_on") and bd.get("flagged") is not None and c:
         broken_line = (
-            f" Today {fmt_int(broken)} "
-            f"{plural(broken, 'filing genuinely fails', 'filings genuinely fail')} "
-            "the check."
+            f" On {escape(str(bd['computed_on']))} (UTC), across the latest "
+            f"balance sheet of each company, {fmt_int(bd['flagged'])} are "
+            f"flagged: {fmt_int(c.get('rounding', 0))} rounding, "
+            f"{fmt_int(c.get('missing_tag', 0))} a line item that did not "
+            f"reach us, {fmt_int(c.get('unexplained', 0))} with no stated "
+            f"total to test against, and {fmt_int(c.get('broken', 0))} where "
+            "the filer's own stated total disagrees with its own total assets."
         )
+    else:
+        broken_line = ""
 
     return f"""
   <section class="sec" id="how">
@@ -1266,12 +1409,16 @@ def _steps(stats: dict) -> str:
         <p>A flag is a reason, not an accusation. There are four: rounding, a
           line item that did not reach us, no stated total to test against,
           and a filing that really does not balance.{broken_line}
-          <a href="/methodology">The four reasons, with examples</a>.</p>
+          A separate count is of filings, not companies: in a snapshot
+          frozen on 2026-10-09, 995 of 38,568 filings failed the check, and
+          971 of those 995 are labelled a line item that did not reach us.
+          <a href="/methodology">The four reasons, with examples</a> and
+          <a href="/verification">the scope of each count</a>.</p>
       </li>
       <li class="tblock">
         <h3><span class="stepno">3</span> What you get back</h3>
         <p>JSON with every line item, its period and the filing it came from,
-          whether it was restated, and the reason when a sheet is flagged. The
+          a vendor-restated marker (FMP or Yahoo, not SEC revisions), and the reason when a sheet is flagged. The
           same answer over the API, the Python client or the MCP server.</p>
       </li>
     </ol>
@@ -1347,7 +1494,7 @@ def _pricing_summary(stats: dict | None = None) -> str:
     into a sign-in that comes back to the plan); its billing toggle swaps the
     price, unit, line and plan; `#plan-note` is where checkout reports. The
     home page passes three things /pricing does not: two or three bullets per
-    plan read from `plans.MATRIX` (`_plan_bullets`), the "Most popular" badge,
+    plan read from `plans.MATRIX` (`_plan_bullets`), the "Recommended for production" badge,
     and the per-call price. Starter and Business appear only once their Stripe
     Price is set, exactly as on /pricing.
     """
@@ -1371,6 +1518,7 @@ def _pricing_summary(stats: dict | None = None) -> str:
         bullets=_plan_bullets(),
         popular=_MOST_POPULAR,
         per_call=True,
+        lead=("pro", "business"),
     )
 
     try:
@@ -1601,6 +1749,741 @@ def _closing_cta(free_calls: int, ticker: str) -> str:
   </aside>"""
 
 
+# ---------------------------------------------------------------------------
+# The home page, bold layout (2026-10-19, second pass): a saturated full-bleed
+# hero, a proof strip with a ticker marquee, the drawings in one big card,
+# "Built for" cards, why pipelines break, how the check works with a diagram,
+# the demo on a coloured band, pricing, trust, FAQ, and a dark closing band.
+#
+# MOTION. Everything below renders complete and readable with no script: the
+# final text, the final numbers and the final drawing are in the HTML. Motion
+# is switched on by home-motion.js adding `motion` to <html> -- only when the
+# reader has not asked for reduced motion and has not switched it off with the
+# footer toggle -- and every animation rule in home-light.css is scoped under
+# `.motion`. No script ever writes a number: figures animate by position and
+# opacity of the final glyphs, so a stalled frame can only show the right
+# number, partly moved.
+# ---------------------------------------------------------------------------
+
+_TALK_HREF = ("mailto:support@balanceproof.dev"
+              "?subject=BalanceProof%20for%20our%20pipeline")
+_HEADLINE = "Balance-checked SEC financials for production data pipelines."
+
+def _num(value: str) -> str:
+    """A figure the motion layer may slide into place. The text is the final
+    value; nothing ever rewrites it."""
+    return f'<span class="num">{value}</span>'
+
+
+def _lines(json_text: str) -> str:
+    """A JSON excerpt as one span per line, for the line-by-line reveal. The
+    text is complete in the HTML; the reveal only moves and fades it."""
+    return "\n".join(
+        f'<span class="ln" style="--i:{i}">{escape(line)}</span>'
+        for i, line in enumerate(json_text.split("\n"))
+    )
+
+
+def _hero_ledger() -> str:
+    """The hero's object: one real check, drawn to scale. The figures are the
+    captured AAPL `check_balance_sheet` response (samples.CHECK_AAPL), read
+    from it here rather than retyped; heights are their true proportions, so
+    the two columns meet because the filing balances. The motion layer only
+    slides the bars up and draws the level line."""
+    import json
+
+    from src.report.samples import CAPTURED, CHECK_AAPL
+
+    c = json.loads(CHECK_AAPL)
+    a, li, eq = c["total_assets"], c["total_liabilities"], c["total_equity"]
+    lp, ep = li / a * 100.0, eq / a * 100.0
+    verdict = "balanced, as filed" if c.get("balances") else "flagged"
+    return f"""
+      <figure class="hledger" aria-labelledby="hl-cap">
+        <div class="hl-head"><span class="hl-tk">{escape(c["ticker"])}</span>
+          <span>10-Q &middot; quarter ended {escape(c["period_end"])} &middot; filed {escape(c["filing_date"])}</span></div>
+        <div class="hl-cols">
+          <div class="hl-col" role="img" aria-label="Total assets {money(a)}">
+            <div class="hl-rise"><div class="hl-bar a" style="flex:1 1 0">
+              <span class="hl-l">Total assets<b>{money(a)}</b></span></div></div>
+          </div>
+          <div class="hl-col" role="img" aria-label="Liabilities {money(li)} plus equity {money(eq)}">
+            <div class="hl-rise">
+              <div class="hl-bar e" style="flex:{ep:.3f} 1 0"><span class="hl-l">Equity<b>{money(eq)}</b></span></div>
+              <div class="hl-bar l" style="flex:{lp:.3f} 1 0"><span class="hl-l">Liabilities<b>{money(li)}</b></span></div>
+            </div>
+          </div>
+          <span class="hl-level" aria-hidden="true"></span>
+        </div>
+        <div class="hl-verdict"><span class="hl-eq">A = L + E</span>
+          <code>"identity_status": "{escape(c["identity_status"])}"</code>
+          <span class="hl-ok">{escape(verdict)}</span></div>
+        <figcaption id="hl-cap"><code>check_balance_sheet</code> for AAPL: the real
+          response, captured from production {CAPTURED}, drawn to scale.</figcaption>
+      </figure>"""
+
+
+def _bold_hero(free_calls: int, ticker: str) -> str:
+    """Hero. Left: the headline, one subhead, the email row, "Talk to us",
+    one line of small print. Right: one real check, drawn to scale."""
+    return f"""
+  <section class="bhero" aria-label="BalanceProof">
+    <div class="bg" aria-hidden="true"><canvas class="bg-gl" data-tone="light"></canvas></div>
+    <div class="bhero-in wrap">
+      <header class="hero">
+        <p class="hero-eyebrow"><span class="edot" aria-hidden="true"></span>SEC EDGAR &middot; every sheet checked against A = L + E</p>
+        <h1 class="htitle">Balance-checked SEC financials for <em>production</em> data pipelines.</h1>
+        <p class="hlede">Each statement is checked against assets = liabilities +
+          equity where the filing reports the lines needed, and returned with the
+          SEC filing it came from. When a statement can't be tested, the API
+          returns the reason instead of adjusting the numbers.</p>
+        {_key_form("hero", ticker, button="Get free key")}
+        <div class="hero-actions"><a class="btn-talk" href="{_TALK_HREF}">Talk to us</a>
+          <a class="hero-how" href="/verification">How the check works</a></div>
+        <p class="summary">Free tier: {free_calls:,} calls a month. No card, no password.
+          By getting a key you accept the <a href="/terms">Terms</a> and
+          <a href="/privacy">Privacy Policy</a>.</p>
+      </header>
+      {_hero_ledger()}
+    </div>
+  </section>"""
+
+
+# The climb: a layered scene above the hero (2026-10-20; v3 layer set the same
+# evening). Plates in static/media/hero/: a tall sky (night, brand blue, cream),
+# misty stone ridges, the towers (lapis and travertine under a brass beam), dark
+# blocks at both edges and two clouds. home-light.css puts the beam's top-centre
+# (50.15% / 11.72% of the towers plate) at the point the camera zooms on and the
+# bubble's hairline points to. Without motion (no script, reduced motion, the
+# footer toggle, or a landscape phone) the scene is one finished still: a single
+# composite of the opening frame, the bubble on the beam and the copy readable,
+# and none of the layer files is fetched. The display line is a paragraph: the
+# page's one <h1> stays in the hero below.
+_HERO_MEDIA = "/static/media/hero"
+
+# Every candidate as (file, width, height). The first one is the `src`.
+_HERO_FILES = {
+    "still": (("still-1280", 1280, 720), ("still-2560", 2560, 1440)),
+    "sky": (("sky-640", 640, 1280), ("sky-1600", 1600, 3200)),
+    "ridges": (("ridges-v3-1280", 1280, 549), ("ridges-v3-2560", 2560, 1098)),
+    "towers": (("towers-1024", 1024, 1280), ("towers-1639", 1639, 2048)),
+    "fg-left": (("fg-left-824", 824, 1322),),
+    "fg-right": (("fg-right-825", 825, 1298),),
+    "cloud-a": (("cloud-a-1280", 1280, 562), ("cloud-a-1600", 1600, 703)),
+    "cloud-b": (("cloud-b-1280", 1280, 549), ("cloud-b-1600", 1600, 686)),
+}
+# `sizes` per layer, shared by the <img> and its preload (they must match, or
+# the browser fetches twice). The plate width is max(100vw, 160vh); the towers
+# are 36% of it. On a portrait phone with motion the plate is 217vw instead
+# (home-light.css), so the towers are ~78vw and the clouds 1.1-1.2 plates;
+# phones without motion see only the still, at the 1280 tier.
+_HERO_SIZES = {
+    "still": "(max-width: 899px) 640px, max(100vw, 178vh)",
+    "sky": "100vw",
+    "ridges": "(max-width: 899px) 217vw, max(100vw, 160vh)",
+    "towers": "(max-width: 899px) 78vw, max(36vw, 58vh)",
+    "cloud-a": "(max-width: 899px) 239vw, max(100vw, 160vh)",
+    "cloud-b": "(max-width: 899px) 260vw, max(100vw, 160vh)",
+}
+# Which screens play the climb: the same test home-story.js runs, plus the
+# reader not asking for reduced motion (the footer toggle can still override
+# it either way; that reader gets the right image a moment later).
+_CLIMB_WIDE = "(min-width: 900px) and (min-height: 700px) and (prefers-reduced-motion: no-preference)"
+_CLIMB_STILL = "(max-width: 899px), (max-height: 699px), (prefers-reduced-motion: reduce)"
+
+
+def _hero_srcset(name: str) -> str:
+    v = media_version()
+    return ", ".join(f"{_HERO_MEDIA}/{f}.webp?v={v} {w}w" for f, w, _h in _HERO_FILES[name])
+
+
+def _hero_img(name: str, *, cls: str = "", priority: bool = False) -> str:
+    """Every layer is lazy: a hidden one (the scene on a phone, the still on a
+    screen that plays the climb) is then never fetched, and the first frame's
+    image is preloaded from <head> instead (`_climb_preload`)."""
+    v = media_version()
+    cands = _HERO_FILES[name]
+    f, w, h = cands[0]
+    extra = (f' srcset="{_hero_srcset(name)}" sizes="{_HERO_SIZES[name]}"'
+             if len(cands) > 1 else "")
+    c = f' class="{cls}"' if cls else ""
+    pri = ' fetchpriority="high"' if priority else ""
+    return (f'<img{c} src="{_HERO_MEDIA}/{f}.webp?v={v}"{extra} alt="" width="{w}" '
+            f'height="{h}" decoding="async" loading="lazy"{pri}>')
+
+
+def _climb_preload() -> str:
+    """The first frame's image, fetched before layout: the towers where the
+    climb plays, the still everywhere else (phones: the LCP image)."""
+    v = media_version()
+    out = []
+    for name, media in (("towers", _CLIMB_WIDE), ("still", _CLIMB_STILL)):
+        f = _HERO_FILES[name][0][0]
+        out.append(f'<link rel="preload" as="image" href="{_HERO_MEDIA}/{f}.webp?v={v}" '
+                   f'imagesrcset="{_hero_srcset(name)}" imagesizes="{_HERO_SIZES[name]}" '
+                   f'media="{media}" fetchpriority="high">')
+    return "".join(out)
+
+
+def _climb() -> str:
+    return f"""
+  <section class="climb" id="climb" aria-labelledby="climb-line">
+    <div class="climb-stage">
+      <div class="climb-view"><div class="climb-art">
+        {_hero_img("still", cls="climb-still", priority=True)}
+        <div class="climb-scene" aria-hidden="true">
+          <div class="climb-sky">{_hero_img("sky")}</div>
+          <div class="climb-cam">
+            <div class="climb-plate climb-ridges">{_hero_img("ridges")}</div>
+            <div class="climb-plate climb-towers"><span class="climb-glow"></span>{_hero_img("towers", priority=True)}</div>
+            <div class="climb-mist"></div>
+          </div>
+          <div class="climb-fg climb-fg-l">{_hero_img("fg-left")}</div>
+          <div class="climb-fg climb-fg-r">{_hero_img("fg-right")}</div>
+          <div class="climb-clouds">
+            <div class="climb-cloud climb-cloud-b">{_hero_img("cloud-b")}</div>
+            <div class="climb-cloud climb-cloud-a">{_hero_img("cloud-a")}</div>
+          </div>
+        </div>
+        <div class="climb-bubble" role="note">
+          <p class="b1">Up here, assets equal liabilities plus equity, or we tell you why not.</p>
+          <p class="b2">Climb past the noise.</p>
+        </div>
+      </div>
+      <div class="climb-copy">
+        <p class="climb-line" id="climb-line">Every number has to hold its ground.</p>
+        <p class="climb-side">Thousands of filings climb onto the SEC each quarter.
+          Most of them balance. Some don&rsquo;t. We check every one that can be
+          tested before you build on it.</p>
+      </div>
+    </div></div>
+    <div class="climb-next"><p class="wrap">Balance-checked SEC financials, delivered
+      as an API. <a href="#how">Here&rsquo;s how it works.</a></p></div>
+  </section>"""
+
+
+def _proof_bold(stats: dict, items: list[tuple[str, str]] | None = None) -> str:
+    """One sentence with the counts and their UTC date, then the plain facts.
+    Every part that cannot be read is dropped, never zeroed."""
+    from src.company.stats import identity_breakdown
+
+    try:
+        bd = identity_breakdown() or {}
+    except Exception:  # noqa: BLE001 - a count must never take the page down
+        bd = {}
+    lead = ""
+    companies = stats.get("companies")
+    if bd.get("reconciled") is not None and bd.get("computed_on"):
+        checked = (bd.get("reconciled") or 0) + (bd.get("flagged") or 0)
+        cover = (f"{_num(fmt_int(companies))} companies covered. " if companies else "")
+        lead = (
+            f'<p class="proof-lead">{cover}On '
+            f'{escape(str(bd["computed_on"]))} (UTC), across the latest balance sheet '
+            f"of each: {_num(fmt_int(checked))} could be tested, "
+            f'{_num(fmt_int(bd["reconciled"]))} reconcile and '
+            f'{_num(fmt_int(bd["flagged"]))} '
+            f'{plural(bd["flagged"] or 0, "is", "are")} flagged with a reason.</p>'
+        )
+    elif companies:
+        lead = (f'<p class="proof-lead">{_num(fmt_int(companies))} '
+                "companies covered.</p>")
+    facts = (f" &middot; {_num(escape(_compact(stats['facts'])))} facts"
+             if stats.get("facts") else "")
+    tiles = [('Source', f'SEC EDGAR{facts}')]
+    if stats.get("latest_filing"):
+        tiles.append(("Latest filing loaded", escape(str(stats["latest_filing"]))))
+    tiles += [("API", '<a href="/api">REST API</a>'),
+              ("Python", '<a href="https://pypi.org/project/balanceproof/" rel="noopener">Python client</a>'),
+              ("MCP", '<a href="/mcp">MCP server</a>')]
+    cells = "".join(f'<div class="pcell"><span class="pk">{k}</span>'
+                    f'<span class="pv">{v}</span></div>' for k, v in tiles)
+    return f"""
+  <section class="bproof" aria-label="Where the data comes from">
+    <div class="bg" aria-hidden="true"><canvas class="bg-gl" data-tone="dark"></canvas></div>
+    <div class="wrap">
+      {lead}
+      <div class="proof">{cells}</div>
+    </div>
+  </section>"""
+
+
+def _drawing_band(hero_bs: str, gallery: str) -> str:
+    """The story stage, then the other filings under the same check."""
+    if not hero_bs and not gallery:
+        return ""
+    return f"""
+  <div class="bsec storysec">
+    <div class="wrap">
+      {hero_bs}
+      {gallery}
+    </div>
+  </div>"""
+
+
+def _built_for() -> str:
+    """Three buyer cards on a horizontal rail. Desktop with motion: the
+    section holds while vertical scroll slides the cards sideways, one card
+    highlighted and a progress line beside it. Phones, reduced motion and no
+    script: a swipeable row (phone) or a three-column grid, nothing pinned.
+    Each card: one sentence and a real captured response in an inspector."""
+    from src.report.samples import AGENT_SHORT, CAPTURED, FINTECH_SHORT, QUANT_SHORT
+
+    cards = (
+        ("agents", "AI-finance and agent builders",
+         "An agent can check a balance sheet before it answers: "
+         "<code>check_balance_sheet</code> returns the verdict and the reason.",
+         "check_balance_sheet (MCP), AACB", AGENT_SHORT),
+        ("quant", "Quant research and backtesting",
+         "Every line item carries its period end and the date of the filing that "
+         "first reported it; <code>as_of</code> (Pro) returns what was public on a date.",
+         "GET /api/demo/AAPL", QUANT_SHORT),
+        ("fintech", "Fintech and reporting tools",
+         "Show a figure next to the filing it came from and whether the sheet "
+         "balances, without writing the parsing or the reconciliation.",
+         "check_balance_sheet (MCP), AAPL", FINTECH_SHORT),
+    )
+    body = "".join(
+        f"""
+          <article class="rcard tcard" id="uc-{k}" data-card="{i}" data-reveal style="--i:{i}">
+            <span class="rnum">{i + 1:02d}</span>
+            <h3>{escape(t)}</h3><p>{copy}</p>
+            {_inspector(sample)}
+            <p class="uc-src">Real response, captured {CAPTURED}: <code>{escape(src)}</code>.
+              Excerpt; nothing edited.</p>
+          </article>"""
+        for i, (k, t, copy, src, sample) in enumerate(cards))
+    dots = "".join(f'<li data-dot="{i}"></li>' for i in range(len(cards)))
+    return f"""
+  <section class="band dark" id="use">
+    <div class="rail-pin">
+      <div class="rail-stage">
+        <div class="bg" aria-hidden="true"><canvas class="bg-gl" data-tone="dark"></canvas></div>
+        <div class="wrap">
+          <div class="secno"><span>02</span> Who it is for</div>
+          <h2 class="bigh" data-reveal>Built for quants, developers and AI-finance teams.
+            <span class="tone">For anyone who needs to know when a number can't be trusted.</span></h2>
+          <div class="rail" tabindex="0" aria-label="Three use cases, real responses">
+            <div class="rail-track">{body}
+            </div>
+          </div>
+          <div class="rail-meter" aria-hidden="true"><span class="rail-bar"><i></i></span>
+            <ol class="rail-dots">{dots}</ol></div>
+        </div>
+      </div>
+    </div>
+  </section>"""
+
+
+def _dotfield() -> str:
+    """The 2026-10-09 study drawn as a field of dots: 400 dots, each standing
+    for an equal share of the 38,568 filings tested; the red ones are the
+    share that failed (995). Derived from the dated study figures only."""
+    cols, rows = 40, 10
+    n = cols * rows
+    red = round(_REPORT_FAILED / _REPORT_TESTED * n)
+    per = round(_REPORT_TESTED / n)
+    # A fixed scatter (a small LCG), so the red dots read as spread through
+    # the field rather than as a line; the count is what carries the fact.
+    picks, seed = set(), 7
+    while len(picks) < red:
+        seed = (seed * 1103515245 + 12345) % 2147483648
+        picks.add(seed % n)
+    dots = []
+    for i in range(n):
+        x, y = 10 + (i % cols) * 20, 10 + (i // cols) * 20
+        cls = "dr" if i in picks else "dg"
+        dots.append((cls, f'<circle cx="{x}" cy="{y}" r="4.5"/>'))
+    pin = min(picks) if picks else 0
+    px, py = 10 + (pin % cols) * 20, 10 + (pin // cols) * 20
+    return f"""
+      <figure class="dotfield" data-reveal>
+        <svg viewBox="0 0 800 200" role="img" aria-label="{fmt_int(_REPORT_FAILED)} of {fmt_int(_REPORT_TESTED)} filings failed the check on 2026-10-09; each dot is about {fmt_int(per)} filings">
+          <g class="gg">{''.join(c for k, c in dots if k == 'dg')}</g><g class="gr">{''.join(c for k, c in dots if k == 'dr')}</g>
+          <g class="dpin" aria-hidden="true"><line x1="{px}" y1="{py}" x2="{px}" y2="{py + 34}"/></g>
+        </svg>
+        <figcaption><span class="dkey r"></span><b>{fmt_int(_REPORT_FAILED)} failed</b>, of which
+          {fmt_int(_REPORT_OURS)} were <code>missing_tag</code>: a line item did not reach us.
+          <span class="dkey g"></span>{fmt_int(_REPORT_TESTED - _REPORT_FAILED)} passed.
+          Each dot is about {fmt_int(per)} filings (2026-10-09 study).</figcaption>
+      </figure>"""
+
+
+def _pipelines() -> str:
+    """The cost, first: why SEC data breaks pipelines, as three large figures
+    (the dated study and JPMorgan's duplicate facts), then the study drawn as
+    a dot field. Every number is a verified, dated figure already published."""
+    cols = (
+        ("b", "One figure, many facts", "23",
+         "JPMorgan reports total assets twenty-three times in one filing. One of "
+         "them is the company."),
+        ("r", "Figures change after filing", "Revised",
+         'A later 10-K or 10-Q can report a new value for the same period. '
+         '<a href="/restatements">The last 90 days</a>.'),
+        ("y", "Totals that do not add up", fmt_int(_REPORT_FAILED),
+         f"On 2026-10-09, {fmt_int(_REPORT_FAILED)} of {fmt_int(_REPORT_TESTED)} filings "
+         f"failed the check; in {fmt_int(_REPORT_OURS)} a line did not reach us. "
+         f'<a href="/blog/{_REPORT_SLUG}">The report</a>.'),
+    )
+    body = "".join(
+        f'<div class="pcol c-{c}" data-reveal style="--i:{i}"><span class="pnum">{i + 1:02d}</span>'
+        f'<b class="pbig{" word" if not big[0].isdigit() else ""}">{escape(big)}</b>'
+        f'<h3>{escape(t)}</h3><p>{b}</p></div>'
+        for i, (c, t, big, b) in enumerate(cols))
+    return f"""
+  <section class="bsec probsec" id="pipelines">
+    <div class="wrap">
+      <div class="secno alert"><span>03</span> The cost of a wrong number</div>
+      <h2 class="bigh" data-reveal>Why SEC data breaks pipelines.
+        <span class="tone">Three things go wrong before a number reaches your model.</span></h2>
+      <p class="prob-lede">A balance sheet that does not add up still loads without an
+        error. Nothing stops it reaching a model, a backtest or a client report.</p>
+      <div class="pcols">{body}</div>
+      {_dotfield()}
+    </div>
+  </section>"""
+
+
+_REASONS = (
+    ("rounding", "Rounding", "The lines we hold miss total assets by half of one "
+     "percent to one percent."),
+    ("missing_tag", "A line item did not reach us", "The filer's own stated total "
+     "agrees with its assets; our components fell short."),
+    ("unexplained", "No stated total to test against", "The gap is one percent or "
+     "more and there is no filer total to referee it."),
+    ("broken", "The filing does not balance", "The filer's own stated total "
+     "disagrees with its own total assets."),
+)
+
+
+def _reasons() -> str:
+    """Every flag, by reason, with today's live count beside it (SafetyKit's
+    large list rows). The counts are the breakdown the strip and
+    /verification use; a count that cannot be read is dropped, not zeroed."""
+    from src.company.stats import identity_breakdown
+
+    try:
+        bd = identity_breakdown() or {}
+    except Exception:  # noqa: BLE001
+        bd = {}
+    counts = bd.get("counts") or {}
+    rows = "".join(
+        f'<li class="rrow" data-reveal style="--i:{i}"><code class="rk">{k}</code>'
+        f'<b class="rt">{escape(t)}</b><span class="rd">{escape(d)}</span>'
+        + (f'<span class="rc">{_num(fmt_int(counts[k]))}</span>' if k in counts else "")
+        + '</li>'
+        for i, (k, t, d) in enumerate(_REASONS))
+    when = (f"Live counts, read on {escape(str(bd['computed_on']))} (UTC) across the "
+            "latest balance sheet of each company." if counts and bd.get("computed_on")
+            else "Each flag carries one of these reasons.")
+    return f"""
+  <section class="bsec" id="reasons">
+    <div class="wrap">
+      <div class="secno alert"><span>04</span> What a flag says</div>
+      <h2 class="bigh" data-reveal>Every flag comes with its reason.</h2>
+      <p class="sec-sub bsub">{when} <a href="/verification">Counts by reason</a>.</p>
+      <ol class="rrows">{rows}</ol>
+    </div>
+  </section>"""
+
+
+def _outcomes() -> str:
+    """What changes for the reader, as four flat colour tiles (Petal's bento),
+    each with a fragment of a real captured response as its proof."""
+    from src.report.samples import CAPTURED
+
+    tiles = (
+        ("y", "Every figure arrives with its filing.",
+         "Period end and filing date on each line, so a number can be traced to EDGAR.",
+         '"filing_date": "2026-07-31"', "AAPL"),
+        ("b", "A sheet that does not add up is labelled.",
+         "Not smoothed, not dropped: the response says which check failed and why.",
+         '"identity_status": "missing_tag"', "AACB"),
+        ("c", "No lines, no verdict.",
+         "A filing without the lines the check needs is answered not_testable.",
+         "not_testable", ""),
+        ("r", "Revisions carry their own date.",
+         'A later filing\'s value is shown under that filing. '
+         '<a href="/restatements">Revisions from the last 90 days</a>.',
+         '"restated": false', "AAPL"),
+    )
+    body = "".join(
+        f'<article class="otile o-{c} tcard" data-reveal style="--i:{i % 2}">'
+        f'<h3>{escape(t)}</h3><p>{d}</p>'
+        f'<code class="ochip">{escape(chip)}</code><span class="osrc">' + (f'{escape(tk)}, captured {CAPTURED}' if tk else 'a status the API returns') + '</span></article>'
+        for i, (c, t, d, chip, tk) in enumerate(tiles))
+    return f"""
+  <section class="bsec" id="outcomes">
+    <div class="wrap">
+      <div class="secno"><span>06</span> What you get</div>
+      <h2 class="bigh" data-reveal>Numbers you can <em>defend</em>.</h2>
+      <div class="obento">{body}</div>
+    </div>
+  </section>"""
+
+
+def _cta_mid(line: str) -> str:
+    """A CTA between sections (the rhythm the references keep): one line, the
+    key, and a person to talk to. Links only; the forms stay two."""
+    return f"""
+  <div class="ctamid"><div class="wrap ctamid-in" data-reveal>
+    <p>{line}</p>
+    <div class="ctamid-act"><a class="btn-key" href="#cta-email">Get free key</a>
+      <a class="btn-talk" href="{_TALK_HREF}">Talk to us</a></div>
+  </div></div>"""
+
+
+def _how_lines(view: View1) -> str:
+    """Step 1's visual: the filing's own lines, as read, with the filing they
+    came from. Every label and value is the view's."""
+    d = view.as_dict()
+
+    def rows(blocks):
+        return "".join(
+            f'<li style="--i:{i}"><span>{escape(b.get("short_label") or b["label"])}</span>'
+            f'<b>{money(b["value"])}</b></li>'
+            for i, b in enumerate(blocks))
+    return f"""
+        <div class="hv-head"><span class="hv-tk">{escape(d["ticker"])}</span>
+          quarter ended {escape(d["period_end"])}, filed {escape(d["filing_date"])}</div>
+        <div class="hv-lines">
+          <div><p class="hv-k">Owns</p><ol>{rows(d["assets"])}</ol></div>
+          <div><p class="hv-k">Owed &amp; owned</p><ol>{rows(d["claims"])}</ol></div>
+        </div>"""
+
+
+def _how_bars(view: View1, *, flagged: bool = False) -> str:
+    """Steps 2 and 3: the two totals as bars at their true proportion. For a
+    flagged filing the shortfall is its own hatched segment, named, and a
+    negative equity hangs below the baseline. Heights are flex ratios of the
+    real values, so the drawing is exact without printing a percentage."""
+    d = view.as_dict()
+    total = d["total_assets"]
+    above = [b for b in d["claims"] if not (b["kind"] == "equity" and b["value"] < 0)]
+    below = [b for b in d["claims"] if b["kind"] == "equity" and b["value"] < 0]
+    up = sum(b["value"] for b in above)
+    scale = max(total, up)
+    liab = sum(b["value"] for b in d["claims"] if b["kind"] != "equity")
+    eq = sum(b["value"] for b in d["claims"] if b["kind"] == "equity")
+
+    def seg(b):
+        if b.get("key") == "unread_components":
+            cls, lab = "gap", "Not read from this filing"
+        elif b["kind"] == "equity":
+            cls, lab = "e", "Equity"
+        else:
+            cls, lab = "l", b.get("short_label") or b["label"]
+        return (f'<div class="hb-seg {cls}" style="flex:{b["value"]:.0f} 1 0">'
+                f'<span>{escape(lab)} <b>{money(b["value"])}</b></span></div>')
+
+    # Claims are drawn top-down in the order the filing gives them, as on the
+    # company page; the gap sits where the missing lines would be.
+    claims = "".join(seg(b) for b in above)
+    pad_a = f'<div class="hb-pad" style="flex:{scale - total:.0f} 1 0"></div>' if scale > total else ""
+    pad_c = f'<div class="hb-pad" style="flex:{scale - up:.0f} 1 0"></div>' if scale > up else ""
+    neg = "".join(f'<div class="hb-neg"><span>Equity <b>{money(b["value"])}</b></span></div>' for b in below)
+    verdict = (
+        '<p class="hb-reason"><span class="hb-flag">flagged: a line item did not reach us</span>'
+        " The filer's own stated total balances; the gap is what this dataset could not read.</p>"
+        if flagged else
+        '<p class="hb-reason"><span class="hb-ok">A = L + E</span> The two totals are the '
+        "same height: the filing balances.</p>")
+    name = escape(d["company_name"] or d["ticker"])
+    return f"""
+        <div class="hv-head"><span class="hv-tk">{escape(d["ticker"])}</span>
+          quarter ended {escape(d["period_end"])}, filed {escape(d["filing_date"])}</div>
+        <div class="hbars{' flag' if flagged else ''}" role="img"
+          aria-label="{name}: total assets {money(total)}; liabilities {money(liab)} and equity {money(eq)}, drawn to scale">
+          <div class="hb-col"><p class="hb-cap">Owns <b>{money(total)}</b></p>
+            <div class="hb-bar a">{pad_a}<div class="hb-seg a" style="flex:{total:.0f} 1 0"><span>Total assets</span></div></div></div>
+          <div class="hb-col"><p class="hb-cap">Owed &amp; owned <b>{money(liab)} + {money(eq)}</b></p>
+            <div class="hb-bar c">{pad_c}{claims}</div>{neg}</div>
+        </div>
+        {verdict}"""
+
+
+def _how_json() -> str:
+    """Step 4's visual: a real captured response, one span per line so the
+    motion layer can reveal it line by line. The text is complete here."""
+    from src.report.samples import CAPTURED, FINTECH_SHORT
+
+    return f"""
+        <figure class="jcard">
+          <figcaption><code>check_balance_sheet</code> &middot; AAPL &middot; real response,
+            captured from production {CAPTURED}. Excerpt.</figcaption>
+          <pre class="code" tabindex="0"><code>{_lines(FINTECH_SHORT)}</code></pre>
+        </figure>"""
+
+
+def _how_bold(ok_view: View1 | None = None, flag_view: View1 | None = None) -> str:
+    """How the check works, told beside one pinned visual (desktop, motion on):
+    the filing's lines, the two totals rising to the same height, a flagged
+    filing's gap and its reason, then what comes back. Each step's visual
+    follows its text in the HTML, so with no script, reduced motion or a
+    phone it reads as four steps, each with its picture."""
+    from src.company.stats import identity_breakdown
+
+    try:
+        bd = identity_breakdown() or {}
+    except Exception:  # noqa: BLE001
+        bd = {}
+    checked = ((bd.get("reconciled") or 0) + (bd.get("flagged") or 0)
+               if bd.get("reconciled") is not None else 0)
+    tested = (f"All {fmt_int(checked)} companies with a complete balance sheet are "
+              "checked against assets = liabilities + equity."
+              if checked else "Every balance sheet that reports its totals is checked "
+              "against assets = liabilities + equity.")
+    steps = (
+        ("read", "Read the filing",
+         "Figures come from the SEC Financial Statement Data Sets and the XBRL "
+         "frames API, as filed, each with its filing date. A filing repeats a figure "
+         "by segment and entity; only the company-level fact is kept (JPMorgan "
+         "reports total assets twenty-three times in one filing).",
+         _how_lines(ok_view) if ok_view is not None else ""),
+        ("test", "How a filing is checked",
+         f"{tested} No figure is adjusted to make a sheet fit.",
+         _how_bars(ok_view) if ok_view is not None else ""),
+        ("flag", "What a flag means",
+         "A reason, not an accusation: rounding, a line item that did not reach us, "
+         "no stated total, or a filing that does not balance. "
+         '<a href="/verification">Counts by reason</a>.',
+         _how_bars(flag_view, flagged=True) if flag_view is not None else ""),
+        ("back", "What you get back",
+         "JSON with every line item, its period and its filing, over the API, the "
+         "Python client or MCP. What the <code>restated</code> flag means is on "
+         '<a href="/verification#restated">the verification page</a>.',
+         _how_json()),
+    )
+    rail = "".join(
+        f'<li><a href="#how-{k}" data-step="{k}"><span class="bn">{i + 1:02d}</span>{escape(t)}</a></li>'
+        for i, (k, t, _c, _v) in enumerate(steps))
+    body = "".join(
+        f'<article class="hstep" id="how-{k}" data-step="{k}">'
+        f'<span class="bn">{i + 1:02d}</span><h3>{escape(t)}</h3><p>{copy}</p></article>'
+        + (f'<div class="hlayer" data-layer="{k}">{vis}</div>' if vis else "")
+        for i, (k, t, copy, vis) in enumerate(steps))
+    return f"""
+  <section class="bsec" id="how">
+    <div class="wrap">
+      <div class="secno"><span>05</span> Method</div>
+      <h2 class="bigh" data-reveal>How the check works</h2>
+      <p class="sec-sub bsub">{_HERO_METHOD}</p>
+      <ol class="hrail" aria-label="Steps">{rail}</ol>
+      <div class="hstory">{body}
+      </div>
+    </div>
+  </section>"""
+
+
+def _demo_band(card: str = "") -> str:
+    """The live demo, in a rounded card on a coloured band, with the request and
+    response card, the ticker search and the API docs button."""
+    inner = _demo_section().replace(
+        "  </section>",
+        f"""    <div class="demo-card">{card}</div>
+    <div class="demo-more">
+      <div class="hero-search">{search_form()}</div>
+      <a class="btn ghost" href="/api">API docs</a>
+    </div>
+  </section>""", 1)
+    return f"""
+  <div class="cband c-y">
+    <div class="wrap"><div class="secno"><span>07</span> Try it</div>
+      <div class="bigcard democard">{inner}</div></div>
+  </div>"""
+
+
+def _trust() -> str:
+    """What we can state about the data and about buying, and nothing else.
+    No status page or security page exists, so neither is linked."""
+    items = (
+        ("What this doesn't do", "No predictions, no scores, no recommendations. "
+         "Nothing estimated: where a company doesn't report something, the response "
+         "says so rather than showing zero."),
+        ("Where the figures come from", "The SEC Financial Statement Data Sets and "
+         "the SEC's XBRL frames API. Every value is as filed, with the date of the "
+         "filing it came from."),
+        ("Enterprise", "Invoicing and a signed agreement, by email."),
+        ("Keys", "An API key is stored as a hash and shown once. Regenerate it from "
+         "the dashboard and the old one stops working."),
+        ("Payments", "Paid plans go through Stripe; card details never reach this "
+         "site. Paid plans have a 14-day refund window."),
+        ("At the limit", "Calls past the monthly quota are refused with HTTP 429 "
+         "until the 1st (UTC). There is no overage billing."),
+    )
+    lis = "".join(f'<li data-reveal style="--i:{i % 3}"><b>{escape(t, quote=False)}.</b> '
+                  f"{escape(b, quote=False)}</li>"
+                  for i, (t, b) in enumerate(items))
+    return f"""
+  <section class="bsec" id="trust">
+    <div class="wrap">
+      <div class="secno"><span>09</span> Trust</div>
+      <h2 class="bigh" data-reveal>Before you depend on it</h2>
+      <ul class="trustlist">{lis}</ul>
+      <p class="method"><a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a>
+        &middot; <a href="/verification">How the check works</a> &middot;
+        <a href="/methodology">Methodology</a></p>
+    </div>
+  </section>"""
+
+
+def _closing_band(free_calls: int, ticker: str) -> str:
+    return f"""
+  <section class="band dark closing" id="start">
+    <div class="bg" aria-hidden="true"><canvas class="bg-gl" data-tone="dark"></canvas></div>
+    <div class="band-in wrap">
+      <p class="kicker">Balance sheets that prove they balance.</p>
+      <h2 class="bigh giant" data-reveal>{escape(_HEADLINE)}</h2>
+      <p class="sec-sub">Take a company where you know the answer, call it, and
+        compare the response with EDGAR. If the numbers you ship have to be right,
+        start here. Free tier: {free_calls:,} calls a month, no card.</p>
+      {_key_form("cta", ticker, button="Get free key")}
+      <div class="hero-actions"><a class="btn-talk" href="{_TALK_HREF}">Talk to us</a></div>
+      <p class="fineprint">By getting a key you accept the
+        <a href="/terms">Terms</a> and <a href="/privacy">Privacy Policy</a>.</p>
+    </div>
+  </section>"""
+
+
+def _inspector(json_text: str) -> str:
+    """A captured response as rows of field, value and a tick: the same values,
+    shown as a product panel rather than raw JSON. Nested objects are flattened
+    to dotted names; nothing is reworded."""
+    import json
+
+    def flat(d, prefix=""):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                yield from flat(v, f"{prefix}{k}.")
+            else:
+                yield f"{prefix}{k}", json.dumps(v)
+
+    rows = "".join(
+        f'<li style="--i:{i}"><span class="ik">{escape(k)}</span>'
+        f'<code class="iv">{escape(v)}</code><span class="it" aria-hidden="true"></span></li>'
+        for i, (k, v) in enumerate(flat(json.loads(json_text)))
+    )
+    return f'<ul class="inspector">{rows}</ul>'
+
+def _get_started() -> str:
+    rows = (
+        ("#demo", "Call the live demo", "No key: a real response in your browser."),
+        ("/api", "Read the API docs", "Endpoints, plans and the response fields."),
+        (f"/blog/{_REPORT_SLUG}", "Read the 995-filing report", "Method, charts and the data."),
+    )
+    lis = "".join(f'<li><a class="gsrow" href="{h}"><span><b>{escape(t)}</b>'
+                  f'<small>{escape(s)}</small></span><span class="garrow" aria-hidden="true">&rarr;</span></a></li>'
+                  for h, t, s in rows)
+    return f"""
+  <section class="bsec" id="get-started">
+    <div class="wrap gs-grid">
+      <div><div class="secno"><span>11</span> Get started</div>
+        <h2 class="bigh" data-reveal>Get started easily.
+          <span class="tone">Three ways in, none of them needs a card.</span></h2></div>
+      <ul class="gslist">{lis}</ul>
+    </div>
+  </section>"""
+
+
 def render_home(
     pairs: list[tuple[Suggestion, View1 | None]],
     stats: dict | None = None,
@@ -1627,11 +2510,24 @@ def render_home(
     # The first company that actually has something to draw becomes the hero.
     # Not simply pairs[0]: that one may have failed to build, and the fold is
     # the last place to show a gap.
-    hero_pair = next(((sg, v) for sg, v in pairs if v is not None), None)
+    # The story leads with a filing that draws as several real line items
+    # (_STORY_LEAD, in order) when one is among the drawable suggestions; a
+    # bank like JPM draws as one large "Other" block, which teaches the shape
+    # less well. Otherwise, the first drawable one, as before.
+    drawn = [(sg, v) for sg, v in pairs if v is not None]
+    hero_pair = next((p for t in _STORY_LEAD for p in drawn
+                      if p[1].ticker == t and p[1].balances),
+                     drawn[0] if drawn else None)
     hero_view = hero_pair[1] if hero_pair else None
+    flagged_view = _memo("flagged", _flagged_example)
+    # "How the check works" tells the check with JPM (a bank that balances)
+    # beside the flagged filing; any other drawn filing that balances if JPM
+    # is not among the suggestions.
+    how_ok = next((v for _s, v in drawn if v.ticker == "JPM" and v.balances),
+                  next((v for _s, v in drawn if v.balances), None))
     hero_bs = _hero_drawing(
         hero_view, hero_pair[0].kind if hero_pair else "",
-        _memo("flagged", _flagged_example),
+        flagged_view,
     )
     sample_ticker, sample = _memo(
         "sample", lambda: _pick_sample(hero_view)
@@ -1691,57 +2587,77 @@ def render_home(
      item reads as a separate destination. -->
 {nav}
 
-<main class="wrap" id="main">
-  <!-- The hero and the card share a row on a wide screen and stack on a phone,
-       hero first, so a phone meets the claim and the form before the sample.
-       The strip is NOT inside `.leadin`: its old `order: -1` there lifted it
-       above the hero, and it now sits below this block as the evidence. -->
-  <div class="leadin intro">
-  {_hero(free_calls, sample_ticker)}
-  {_memo("card", lambda: _code_card(sample_ticker, sample))}
-  </div>
-  {_status_strip(stats or {})}
-{disclaimer}
-  {_steps(stats or {})}
-  {hero_bs}
-  {_drawn_explained()}
-  {gallery}
-  {_demo_section()}
-  {_cta_strip(free_calls)}
-  {_hard()}
+<main class="lhome bold" id="main">
+  <!-- Order: the hero (claim, the ask, a real response), the proof strip and
+       ticker marquee, one real filing drawn beside a flagged one, built for,
+       why pipelines break, how the check works, the live demo, pricing, trust,
+       FAQ, and the ask again in the dark closing band. `#how < #demo <
+       #pricing` (test_pricing_demo_recovery). -->
+  {_climb()}
+  {_bold_hero(free_calls, sample_ticker)}
+  {_proof_bold(stats or {})}
+  {_drawing_band(hero_bs, gallery)}
+  {_built_for()}
+  {_pipelines()}
+  {_reasons()}
+  {_cta_mid('Catch the filing that does not add up before your model does.')}
+  {_how_bold(how_ok, flagged_view)}
+  {_outcomes()}
+  {_cta_mid(f'Free tier: {free_calls:,} calls a month. No card, no password.')}
+  {_demo_band(_memo("card", lambda: _code_card(sample_ticker, sample)))}
+  <div class="bsec"><div class="wrap">
+  <div class="secno"><span>08</span> What it costs</div>
   {_pricing_summary(stats)}
+  </div></div>
+  {_trust()}
+  <div class="bsec"><div class="wrap">
+  <div class="secno"><span>10</span> Questions</div>
   {_plan_faq()}
-  {_where_from(stats or {})}
-  {_limits()}
-  {_why_note()}
-  {_closing_cta(free_calls, sample_ticker)}
-
+{disclaimer}
+  </div></div>
+  {_get_started()}
+  {_closing_band(free_calls, sample_ticker)}
+  <div class="lfoot"><div class="wrap">
 {footer}
+  <p class="motion-pref"><button type="button" class="motion-toggle" id="motion-toggle"
+    aria-pressed="false" hidden>Motion: off</button></p>
+  </div></div>
 </main>
 
 <!-- In the body, not the shell: the shell is shared with /dashboard and the
-     search pages, and none of those have a demo box to drive. -->
+     search pages, and none of those have a demo box to drive. home-motion.js
+     only adds classes and CSS variables; it never writes a figure. -->
 <script src="/static/nav.js?v={asset_version()}" defer></script>
 <script src="/static/home.js?v={asset_version()}" defer></script>
 <script src="/static/keyform.js?v={asset_version()}" defer></script>
-<script src="/static/countup.js?v={asset_version()}" defer></script>"""
+<script src="/static/home-motion.js?v={asset_version()}" defer></script>
+<!-- The scroll story. Vendored (no third-party request) and home only.
+     home-story.js does nothing unless <html> has `motion`, and tears every
+     trigger, tween and the smooth scroll down when the toggle turns it off. -->
+<script src="/static/vendor/gsap.min.js?v={asset_version()}" defer></script>
+<script src="/static/vendor/ScrollTrigger.min.js?v={asset_version()}" defer></script>
+<script src="/static/vendor/lenis.min.js?v={asset_version()}" defer></script>
+<script src="/static/home-story.js?v={asset_version()}" defer></script>
+<script src="/static/home-bg.js?v={asset_version()}" defer></script>"""
     # The company count is read live rather than written down: this line once
     # said "1.7M data points" while /dataset, which counts the same table, said 1.8M.
     from src.report.schema import organization_ld, software_ld
 
     n_companies = companies_label()
-    scale = f" {n_companies} companies, no card." if n_companies else " No card."
+    scale = (f" {n_companies} companies, free tier, no card." if n_companies
+             else " Free tier, no card.")
 
     return _shell(
         "SEC EDGAR Balance Sheet API, Checked — BalanceProof",
         body,
         description=(
-            "A free SEC EDGAR balance sheet API that checks filings "
+            "SEC EDGAR balance sheet API that checks filings "
             f"against A = L + E where it can and shows the reason when one fails.{scale}"
         ),
         canonical="/",
         ld=organization_ld() + software_ld(),
-        backdrop="fluted",
+        film="none",
+        theme="light",
     )
 
 

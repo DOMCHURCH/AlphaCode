@@ -605,5 +605,8 @@ def test_every_signup_form_asks_for_both_documents(client):
         html = client.get(path).text
         if 'id="sp-terms"' in html or 'id="accept-terms"' in html:
             assert 'href="/terms"' in html and 'href="/privacy"' in html, path
-    assert 'id="sp-terms"' in client.get("/").text
+    # The sign-in panel no longer renders on the home page (it covered the
+    # hero, 2026-10-19); it still does on other pages, with both documents.
+    assert 'id="sp-terms"' not in client.get("/").text
+    assert 'id="sp-terms"' in client.get("/about").text
     assert 'id="delete-form"' in client.get("/dashboard").text

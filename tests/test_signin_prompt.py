@@ -79,7 +79,7 @@ def test_the_panel_ships_hidden_on_a_reader_facing_page(client):
     so the served bytes have to be the same for a first-time reader and for
     somebody who dismissed this an hour ago.
     """
-    html = client.get("/").text
+    html = client.get("/about").text  # "/" no longer carries the panel (2026-10-19)
 
     assert 'id="signin-prompt"' in html
     wrap = html.split('id="signin-prompt"', 1)[1].split(">", 1)[0]
@@ -118,7 +118,7 @@ def test_the_panel_is_absent_when_login_is_switched_off(client, monkeypatch):
 def test_the_offer_says_the_free_part_stays_free(client):
     """The site's entire argument is that reading it costs nothing. A panel
     that reads as a wall contradicts the page it is sitting on."""
-    html = client.get("/").text
+    html = client.get("/about").text
     sheet = html.split('id="signin-prompt"', 1)[1]
     assert "stops being free" in sheet or "free" in sheet
     assert "No card" in sheet

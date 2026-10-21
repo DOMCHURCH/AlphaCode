@@ -539,6 +539,10 @@ def _compute_breakdown() -> dict[str, Any] | None:
     flagged = sum(counts[k] for k in FLAG_CATEGORIES)
     return {
         "companies": len(latest),
+        # UTC date the counts were read, so a page can print "as of" next to
+        # them. The cache keeps a breakdown for IDENTITY_TTL_S, so this can be
+        # up to half an hour behind the clock and is never ahead of it.
+        "computed_on": dt.datetime.now(dt.timezone.utc).date().isoformat(),
         "checked": checked,
         "not_testable": not_testable,
         "reconciled": reconciled,
