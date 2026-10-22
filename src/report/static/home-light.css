@@ -48,7 +48,7 @@ body[data-theme="light"] code { color: inherit; font-family: var(--mono); }
 body[data-site] main .sec :is(.card, .plan, .tile, .split-half, .faq-item, .ep) {
   background: var(--panel); border: 1px solid var(--edge-soft); color: var(--ink); }
 body[data-site] :is(.summary, .disclaim, .exnote, .formnote, p, h1, h2, h3, li, span, a) { text-shadow: none; }
-body[data-site] :is(.hero, .company-intro)::before { display: none; }
+body[data-site] .company-intro::before { display: none; }
 body[data-site] .company-intro { color: var(--ink2); margin: 28px 0; }
 body[data-site] .shape { padding: 18px 22px; }
 /* The A-to-Z directory: names flow into columns instead of one 5,000-line
@@ -64,13 +64,58 @@ body[data-site] .tab:hover { color: var(--ink); border-color: var(--edge); }
 body[data-site] .tab.on { background: var(--ink); border-color: var(--ink); color: #fff; }
 body[data-site] :is(.companylist li, section)[hidden] { display: none; }
 
+/* ---- brand colour on every page (2026-10-21) ----
+   The home page opens on the blue sky; the other pages were cream and grey
+   from top to bottom, so the brand's blue, red and yellow showed up only in
+   the drawings. Each page's header now sits on a full-bleed blue band with a
+   red and a yellow glow and a three-colour hairline, company cards carry the
+   same hairline, and the footer is the night colour the home page's bands
+   use. Static gradients only: no layer, no script, nothing to repaint. */
+body[data-site] { overflow-x: clip; --tri: linear-gradient(90deg, var(--blue) 0 33.34%, var(--red) 0 66.67%, var(--yellow) 0); }
+body[data-site] main > header:is(.hero, .mhead, .chead), body[data-site] main > article > header.hero {
+  position: relative; isolation: isolate; padding: 52px 0 46px; margin: 0 0 36px; text-shadow: none; }
+/* On ::after, not ::before: glass.css hides every .hero::before with !important. */
+body[data-site] main > header:is(.hero, .mhead, .chead)::after, body[data-site] main > article > header.hero::after {
+  content: ""; position: absolute; z-index: -1; top: 0; bottom: 0; left: 50%; width: 100vw; margin-left: -50vw;
+  background:
+    linear-gradient(90deg, #7F93F2 0 33.34%, var(--red) 0 66.67%, var(--yellow) 0) bottom / 100% 5px no-repeat,
+    radial-gradient(34% 120% at 90% 0%, rgba(247, 216, 72, .30), transparent 70%),
+    radial-gradient(40% 130% at 72% 112%, rgba(234, 81, 72, .38), transparent 70%),
+    linear-gradient(115deg, var(--a0) 0%, var(--blue) 58%, #3552D3 100%); }
+body[data-site] main > header:is(.hero, .mhead) :is(h1, .htitle),
+body[data-site] main > article > header.hero :is(h1, .htitle) { color: #fff; }
+body[data-site] main > header:is(.hero, .mhead) :is(p, .hlede, .lede, li, span, small, label),
+body[data-site] main > article > header.hero :is(p, .hlede, .lede, li, span, small, label) { color: rgba(255, 255, 255, .88); }
+body[data-site] main > header:is(.hero, .mhead) :is(a, strong, b, code),
+body[data-site] main > article > header.hero :is(a, strong, b, code) { color: #fff; }
+body[data-site] main > header:is(.hero, .mhead) a, body[data-site] main > article > header.hero a { text-decoration-color: rgba(255, 255, 255, .55); }
+body[data-site] main > header:is(.hero, .mhead) .sfield input, body[data-site] main > article > header.hero .sfield input { color: var(--ink); }
+/* Company pages: the header card becomes the same blue band; the chips and
+   buttons keep their own pale fills, so only the title and notes turn white. */
+body[data-site] header.chead { background: none; border: 0; box-shadow: none; border-radius: 0; overflow: visible; }
+body[data-site] header.chead::before { display: none; }
+body[data-site] header.chead :is(h1, .cname) { color: #fff; }
+body[data-site] header.chead > p, body[data-site] header.chead :is(.cformer, .csame, .cnote, .plan-note) { color: rgba(255, 255, 255, .88); }
+body[data-site] header.chead :is(.cformer b, .cformer a, .csame a) { color: #fff; }
+/* Outline buttons on the band: white text and edge; the filled one stays a white pill. */
+body[data-site] main > header:is(.hero, .mhead, .chead) .btn.ghost { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .7); }
+body[data-site] main > header:is(.hero, .mhead, .chead) .btn.ghost:hover { background: rgba(255, 255, 255, .14); border-color: #fff; }
+/* Footer: night, with the same hairline on top. */
+body[data-site] footer { position: relative; overflow: hidden; background: var(--night); border: 0; color: #B9BCCB; }
+body[data-site] footer::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 5px; background: var(--tri); }
+body[data-site] footer :is(p, span, li, small, .foot-disc) { color: #B9BCCB; }
+body[data-site] footer a { color: #DDE3FF; }
+body[data-site] footer .foot-h { color: var(--yellow); }
+
 /* ---- nav ---- */
 body[data-theme="light"] nav { background: rgba(250, 248, 243, .96);
   border-bottom: 1px solid var(--edge-soft); backdrop-filter: none; }
 body[data-theme="light"] nav a, body[data-theme="light"] .navlink,
 body[data-theme="light"] .brand { color: var(--ink); }
 body[data-theme="light"] .navcta, body[data-theme="light"] .navcta-bar {
-  background: var(--ink); color: #fff; border-color: var(--ink); }
+  background: var(--blue); color: #fff; border-color: var(--blue); }
+body[data-theme="light"] .navcta:hover, body[data-theme="light"] .navcta-bar:hover {
+  background: var(--a0); border-color: var(--a0); }
 body[data-theme="light"] .navtoggle .bars, body[data-theme="light"] .navtoggle .bars::before,
 body[data-theme="light"] .navtoggle .bars::after { background: var(--ink); }
 
