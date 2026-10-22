@@ -293,6 +293,7 @@ def render_footer(extra: str = "") -> str:
         <a href="/pricing">Pricing</a>
         <a href="/free-sec-fundamentals-api">Free API</a>
         <a href="/xbrl-balance-sheet-api">XBRL balance sheet API</a>
+        <a href="/total-assets-total-liabilities-api">Assets &amp; liabilities API</a>
         <a href="/compare">Compare</a>
       </div>
       <div class="foot-col"><p class="foot-h">Research</p>

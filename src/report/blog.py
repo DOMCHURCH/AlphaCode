@@ -415,9 +415,8 @@ _POST_ACCOUNTING_IDENTITY = Post(
     # while neither the title tag nor the description contained the phrase.
     seo_title="Accounting Identity Meaning: Assets = Liabilities + Equity",
     description=(
-        "The accounting identity is Assets = Liabilities + Equity. It follows "
-        "from double-entry bookkeeping, which makes it a test on data you did "
-        "not produce."
+        "The accounting identity, or balance sheet identity, is Assets = "
+        "Liabilities + Equity. Double-entry bookkeeping makes it a data test."
     ),
     summary=(
         "Assets = Liabilities + Equity is not a guideline, it is what makes "
