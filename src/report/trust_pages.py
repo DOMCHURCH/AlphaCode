@@ -158,7 +158,8 @@ def _changelog_html() -> str:
     return "<article>\n    " + "\n    ".join(out) + "\n  </article>"
 
 
-def _page(title: str, h1: str, lede: str, article: str, nav: str, *, description: str) -> str:
+def _page(title: str, h1: str, lede: str, article: str, nav: str, *, description: str,
+          canonical: str) -> str:
     from src.report.nav import SUPPORT_EMAIL, render_footer
 
     footer = render_footer(
@@ -170,7 +171,7 @@ def _page(title: str, h1: str, lede: str, article: str, nav: str, *, description
         f"{article}\n{footer}\n</main>\n"
         f'<script src="/static/nav.js?v={asset_version()}" defer></script>'
     )
-    return shell(title, body, description=description)
+    return shell(title, body, description=description, canonical=canonical)
 
 
 def render_security(*, nav: str = "") -> str:
@@ -184,6 +185,7 @@ def render_security(*, nav: str = "") -> str:
         nav,
         description="How BalanceProof stores API keys, handles accounts and "
                     "payments, signs webhooks, and which providers see what.",
+        canonical="/security",
     )
 
 
@@ -196,4 +198,5 @@ def render_changelog(*, nav: str = "") -> str:
         nav,
         description="Changes to the BalanceProof API, MCP server, Python "
                     "client and data, newest first.",
+        canonical="/changelog",
     )
