@@ -27,6 +27,16 @@ _BODY = """
       because every free SEC data source we tried disagreed with the filing
       somewhere.</p>
 
+    <h2>Who it is for</h2>
+    <p>We build it for data engineers, quants, fintech teams and analysts who
+      work with US public companies, in the US and Canada. Coverage is the
+      companies that file periodic reports (10-K and 10-Q) with the US SEC.
+      Our focus is one thing: checking SEC balance sheets against Assets =
+      Liabilities + Equity and publishing the reason when a filing does not
+      balance. We write about it in <a href="/blog">our research</a>: bank
+      balance sheets, XBRL duplicate tags, restatements and point-in-time
+      figures.</p>
+
     <h2>The method</h2>
     <p>Each filing is checked against Assets = Liabilities + Equity when it reports the lines needed; where it does not, it is marked not testable instead of passing. A filing that reconciles is published with its figures. A
       filing that does not is published with the reason: noncontrolling

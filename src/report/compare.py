@@ -1297,6 +1297,55 @@ decision &mdash; <code>curl -I https://polygon.io</code> settles it.</p>
         body=_TRANSPARENCY + _METHOD + _HONESTY.format(rival="Alpha Vantage"),
     ),
     Page(
+        slug="alternatives/finnhub",
+        h1="Finnhub Alternatives for SEC Balance Sheets",
+        seo_title="Finnhub Alternatives for SEC Balance Sheets",
+        description=(
+            "A Finnhub alternative for SEC balance sheets? When Finnhub's free "
+            "tier is the right start, and when a reconciled filing source is "
+            "better."
+        ),
+        rival="Finnhub",
+        kind="alternatives",
+        updated="2026-10-22",
+        lede=(
+            "Finnhub is a market-data product with fundamentals attached: its "
+            "own front page leads with \u201creal-time stock, forex and "
+            "cryptocurrency\u201d and a free tier. If you came looking for "
+            "something to replace it, the first question is which part of it "
+            "you actually use."
+        ),
+        rows=(
+            Row("If you need market data", "Not the answer \u2014 this is SEC fundamentals only", "Stay \u2014 prices, forex and crypto are the product", False),
+            Row("If you need SEC balance sheets", "This is the whole product", "One of many datasets \u2014 check their site for how a figure is chosen"),
+            Row("If a balance sheet did not reconcile", "This is what the service is for", "Check their site for a published method"),
+            Row("Coverage", "{COVERAGE}", "Wider \u2014 many asset classes", False),
+            Row("Free tier", "{FREE_CALLS} calls/month, no card", "Yes \u2014 their front page leads with it; check their site for limits", False),
+            Row("Migration cost", "Low \u2014 add alongside, do not replace", "n/a"),
+        ),
+        choose_us=(
+            "<b>Add, do not migrate.</b> If you use Finnhub for prices and "
+            "fundamentals, only the fundamentals half is replaceable here, and "
+            "that half costs nothing to trial.",
+            "<b>You need to defend a figure.</b> A service whose whole method "
+            "is published, with every exception counted in public at "
+            "<a href=\"/methodology\">how we verify</a>, suits a reconciliation "
+            "or an audit trail better than one with more endpoints.",
+            "<b>You work with US public companies, from Canada or the US, and "
+            "want the filing rather than a feed.</b> Every figure carries the "
+            "date of the filing it was read from.",
+        ),
+        choose_them=(
+            "<b>You need more than one statement or asset class.</b> Prices, "
+            "forex, crypto, estimates. One endpoint that does one thing is the "
+            "wrong shape for that.",
+            "<b>Free matters more than reconciled.</b> Finnhub is unusually "
+            "generous at the free end, and that is a real reason to start there.",
+            "<b>You are building a dashboard, not an audit trail.</b>",
+        ),
+        body=_TRANSPARENCY + _METHOD + _HONESTY.format(rival="Finnhub"),
+    ),
+    Page(
         slug="alternatives/sec-api",
         h1="sec-api.io Alternatives: Filings, or the Figures Inside Them",
         seo_title="sec-api Alternative: Filings vs Figures",
@@ -1557,6 +1606,9 @@ _WHY_THAT_ONE: dict[str, str] = {
     "alternatives/alpha-vantage":
         "Ran out of free calls, or found a number that would not tie out? "
         "Different answers.",
+    "alternatives/finnhub":
+        "Market data with fundamentals attached. Add a reconciled filing "
+        "source alongside it rather than replacing it.",
     "alternatives/sec-api":
         "The document or the figures inside it \u2014 only one of those is "
         "this site.",

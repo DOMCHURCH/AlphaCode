@@ -814,5 +814,167 @@ MCP_SERVER = Landing(
     ),
 )
 
-PAGES: tuple[Landing, ...] = (XBRL_BALANCE_SHEET_API, FREE_SEC_FUNDAMENTALS_API, MCP_SERVER)
+# ---------------------------------------------------------------------------
+# /total-assets-total-liabilities-api
+# ---------------------------------------------------------------------------
+# Added 2026-10-22 from Search Console (2026-09-11..2026-10-20): the site was
+# shown for "api with total assets and total liabilities" (26 impressions),
+# "free api with total liabilities" (11), "assets and liabilities data api"
+# (11) and "balance sheet api" (14), at positions 37-64, and no page said any
+# of those things. This is the page that does, and it says who the service is
+# for and where it works, because a buyer asks both before a key.
+def _totals_body() -> str:
+    from src.report.compare import live_counts
+
+    counts = live_counts()
+    filers = counts["{FILERS}"]
+    host = SITE_ORIGIN
+    sample = sample_response()
+    check = check_line()
+
+    sample_html = ""
+    if sample is not None:
+        sample_html = f"""
+<h2>A real response</h2>
+<p>This is the response for {escape(sample["company_name"] or sample["ticker"])}
+({escape(sample["ticker"])}), period ended {escape(sample["period_end"])},
+filed {escape(sample["filing_date"])}, read from the database when this page
+was rendered. It shows the totals and a few lines under them; the full response
+lists every balance sheet line the filer reported, and names the ones it did
+not.</p>
+<pre class="code api-code"><code>{_json_block(sample)}</code></pre>"""
+        if check:
+            line, verdict = check
+            sample_html += f"""
+<p>The check, run on those figures:</p>
+<pre class="code api-code"><code>{escape(line)}</code></pre>
+<p>Result: <strong>{escape(verdict.lower())}</strong>.</p>"""
+
+    return f"""
+<h2>Total assets, total liabilities and equity in one request</h2>
+<p>Send a ticker, get that company&rsquo;s total assets, total liabilities and
+equity from its latest SEC filing as JSON. Every figure comes with the period
+it is for and the date of the filing it was read from, so you can open the
+filing and compare.</p>
+<pre class="code api-code"><code>curl -H "X-API-Key: YOUR_KEY" \\
+  {host}/api/company/{escape(SAMPLE_TICKER)}</code></pre>
+<p>No key yet? <code>{host}/api/demo/{escape(SAMPLE_TICKER)}</code> returns the
+same response with no sign-up, rate limited per address. A free key gives
+{_free_calls()} calls a month with no card.</p>
+{sample_html}
+
+<h2>Who it is for, and where we work</h2>
+<p>BalanceProof is built in Ottawa, Canada, for data engineers, quants, fintech
+teams and analysts who work with US public companies, in the US and Canada.
+The data is companies that file periodic reports (10-K and 10-Q) with the US
+SEC, so {escape(filers)} are covered. A company that files only outside the
+US is not. Prices are in Canadian dollars (CAD) and are on the
+<a href="/pricing">pricing page</a>.</p>
+
+<h2>Why totals from a filing need a check</h2>
+<p>A balance sheet filed as XBRL does not hold one total assets figure. It holds
+the consolidated total plus a separate fact for every segment and subsidiary
+the filer breaks out, all valid, and only one of them is the number on the
+face of the statement. An API that takes the first match, or the largest, is
+right most of the time and wrong without leaving a trace.</p>
+<p>Our work is the referee. We pick the combination of assets, liabilities and
+equity that satisfies <strong>Assets = Liabilities + Equity</strong>, and where
+a filing does not balance we publish it with the reason instead of adjusting it.
+The method is on <a href="/methodology">how we verify</a>, the measurement is
+in <a href="/blog/sec-xbrl-data-wrong-one-in-five">why SEC XBRL data is wrong
+one time in five</a>, and
+<a href="/blog/total-liabilities-from-sec-edgar">getting total liabilities from
+SEC EDGAR</a> walks through the awkward cases.</p>
+
+<h2>Banks and other filers that report differently</h2>
+<p>A bank&rsquo;s liabilities are mostly customer deposits and its equity is a
+thin block, so the same three totals look different from a retailer&rsquo;s.
+The check runs on banks too. See
+<a href="/blog/why-bank-balance-sheets-are-different">how to read a bank
+balance sheet</a>, or browse the
+<a href="/sector/financials">financials sector</a>, drawn to scale.</p>
+
+<h2>What it returns, and what it does not</h2>
+<ul class="notelist">
+  <li><strong>As filed.</strong> Figures are what the company reported in its
+  periodic filings. Nothing is estimated, smoothed or backfilled.</li>
+  <li><strong>Missing is missing.</strong> A line the filer did not report is
+  listed under <code>missing_concepts</code> and is never returned as zero.</li>
+  <li><strong>No prices.</strong> This is filing data. It does not return
+  quotes, market caps or estimates.</li>
+  <li><strong>Not real time.</strong> A balance sheet appears after the company
+  files it and the filing is loaded.</li>
+</ul>
+"""
+
+
+def _totals_faq() -> tuple[tuple[str, str], ...]:
+    return (
+        (
+            "Is there a free API for total assets and total liabilities?",
+            f"Yes. A free key gives {_free_calls()} calls a month with no card, "
+            "and a keyless demo endpoint returns the same response for one "
+            "company at a time, rate limited per address.",
+        ),
+        (
+            "Which API returns assets and liabilities data for US public companies?",
+            "BalanceProof returns total assets, total liabilities and equity "
+            "from SEC filings, as JSON, for companies that file periodic "
+            "reports with the SEC. Each balance sheet is checked against "
+            "Assets = Liabilities + Equity where the filing reports the lines "
+            "the check needs.",
+        ),
+        (
+            "Can I get total liabilities for a bank?",
+            "Yes, for banks and bank holding companies that file with the SEC. "
+            "The same check runs on them. When a filing does not report a line "
+            "the check needs, the answer is not testable, with the reason, "
+            "instead of a guess.",
+        ),
+        (
+            "Do you cover Canadian or other non-US companies?",
+            "No. Coverage is companies that file periodic reports with the US "
+            "SEC. A company that files only in Canada or elsewhere is not "
+            "covered. BalanceProof itself is based in Ottawa, Canada.",
+        ),
+        (
+            "Are the figures as reported?",
+            "Yes. They are what the company reported in its filing, with the "
+            "filing date beside each figure. Nothing is estimated or smoothed, "
+            "and a line the filer did not report is listed as missing.",
+        ),
+    )
+
+
+TOTAL_ASSETS_LIABILITIES_API = Landing(
+    slug="total-assets-total-liabilities-api",
+    h1="Total assets and total liabilities API for US public companies",
+    seo_title="Total Assets and Total Liabilities API — BalanceProof",
+    description=(
+        "Free API for total assets, total liabilities and equity from US SEC "
+        "filings, checked against A = L + E where testable. Real response below."
+    ),
+    lede=(
+        "Send a ticker, get total assets, total liabilities and equity from a "
+        "US public company's latest SEC filing as JSON, checked against "
+        "Assets = Liabilities + Equity where the filing reports the lines "
+        "needed."
+    ),
+    updated="2026-10-22",
+    body=_totals_body,
+    faq=_totals_faq,
+    related=(
+        ("/xbrl-balance-sheet-api", "XBRL balance sheet API", "the full balance sheet over REST, with a real response."),
+        ("/free-sec-fundamentals-api", "Free SEC fundamentals API", "exactly what the free key includes."),
+        ("/best/balance-sheet-api", "How to choose a balance sheet API", "four tests to run on any provider."),
+        ("/methodology", "How we verify", "what the check is and how the exceptions are counted."),
+        ("/api", "API reference", "every endpoint, with plan limits."),
+        ("/pricing", "Pricing", "what each plan includes, in Canadian dollars."),
+        (f"/company/{SAMPLE_TICKER}", f"{SAMPLE_TICKER} balance sheet", "the same figures, drawn to scale."),
+    ),
+)
+
+PAGES: tuple[Landing, ...] = (
+    XBRL_BALANCE_SHEET_API, FREE_SEC_FUNDAMENTALS_API, MCP_SERVER, TOTAL_ASSETS_LIABILITIES_API,
+)
 BY_SLUG: dict[str, Landing] = {p.slug: p for p in PAGES}

@@ -260,11 +260,55 @@ _POST_BANK_BALANCE_SHEETS = Post(
         "at true proportion."
     ),
     published="2026-09-10",
-    updated="2026-09-10",
+    updated="2026-10-22",
     minutes=5,
+    faq=(
+        (
+            "What is the balance sheet of a bank?",
+            "A bank's balance sheet lists what it owns (loans, securities and "
+            "cash) against what it owes (mostly customer deposits) and the "
+            "equity left over. It is the same Assets = Liabilities + Equity "
+            "statement every company files, but the shape is inverted: "
+            "deposits are liabilities, loans are assets, and equity is a "
+            "thin block, often around ten cents per dollar of assets.",
+        ),
+        (
+            "How do you read a bank balance sheet?",
+            "Start with the two big lines that run backwards: deposits on the "
+            "claims side and loans on the asset side. Then look at the equity "
+            "block against total assets, which is the bank's leverage, and "
+            "at how much of the asset side is loans versus securities. "
+            "Drawn to scale, a bank looks like a different kind of object "
+            "from a software company.",
+        ),
+        (
+            "Is there a bank balance sheet example I can look at?",
+            "Yes. The post below draws JPMorgan and Bank of America at true "
+            "proportion from their SEC filings, and every bank that files "
+            "with the SEC has its own page at /company/ followed by its "
+            "ticker, with the same drawing and the check run on its figures.",
+        ),
+        (
+            "Why does a bank balance sheet look different from other companies?",
+            "Because lending is the business. A bank borrows short and lends "
+            "long, so deposits sit on the claims side and loans on the asset "
+            "side, and the thin equity block is the business rather than a "
+            "warning sign. Its own filing tags are different too, which is "
+            "why a retailer's schema misreads a bank.",
+        ),
+    ),
     body="""
 <p class="lede">Look at a bank drawn to scale and the first thing you notice is
 that the equity block is almost too thin to label.</p>
+
+<h2>What is the balance sheet of a bank?</h2>
+
+<p>The balance sheet of a bank is the same statement every company files, with
+what it owns on one side and what it owes plus what is left over on the other.
+For a bank that explains most of the surprise: customer deposits are what it
+owes, loans are what it owns, and equity is the thin block between them. This
+is a bank balance sheet explained from SEC filings: the examples below are the
+large US banks that file with the SEC, drawn to scale.</p>
 
 <p>That is not a rendering bug. A large US bank runs on roughly ten cents of
 equity per dollar of assets, where a software company might run on sixty. Draw
@@ -369,7 +413,7 @@ _POST_ACCOUNTING_IDENTITY = Post(
     # "accounting identity", "accounting identity meaning", "the balance sheet
     # identity is" and "balance sheet identity" -- 16 impressions, 0 clicks --
     # while neither the title tag nor the description contained the phrase.
-    seo_title="The Accounting Identity: Assets = Liabilities + Equity",
+    seo_title="Accounting Identity Meaning: Assets = Liabilities + Equity",
     description=(
         "The accounting identity is Assets = Liabilities + Equity. It follows "
         "from double-entry bookkeeping, which makes it a test on data you did "
@@ -382,16 +426,18 @@ _POST_ACCOUNTING_IDENTITY = Post(
         "negative equity."
     ),
     published="2026-09-10",
-    updated="2026-09-23",
+    updated="2026-10-22",
     minutes=5,
     faq=(
         (
-            "What is the accounting identity?",
-            "The accounting identity is the equation Assets = Liabilities + "
-            "Equity. It holds for every balance sheet because double-entry "
-            "bookkeeping records each transaction on two sides at once, so it "
-            "is a mechanical result of how the books are kept rather than a "
-            "rule a company chooses to follow.",
+            "What is an accounting identity?",
+            "An accounting identity is an equation that holds by construction, "
+            "not by estimate. The one on every balance sheet is Assets = "
+            "Liabilities + Equity: double-entry bookkeeping records each "
+            "transaction on two sides at once, so it is a mechanical result of "
+            "how the books are kept rather than a rule a company chooses to "
+            "follow. The plural, accounting identities, covers any such "
+            "equation; this is the one a balance sheet is built on.",
         ),
         (
             "What is the balance sheet identity?",

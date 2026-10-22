@@ -303,6 +303,26 @@ def organization_ld() -> str:
                     "name": ORG_NAME,
                     "url": f"{SITE}/",
                     "description": SITE_DESCRIPTION,
+                    # Where we are, who the data is for and what we know
+                    # (2026-10-22). Search Console showed 54% of impressions
+                    # from the US and the site named neither the US coverage
+                    # nor Canada outside /about.
+                    "address": {
+                        "@type": "PostalAddress",
+                        "addressLocality": "Ottawa",
+                        "addressCountry": "CA",
+                    },
+                    "areaServed": [
+                        {"@type": "Country", "name": "United States"},
+                        {"@type": "Country", "name": "Canada"},
+                    ],
+                    "knowsAbout": [
+                        "SEC EDGAR XBRL filings",
+                        "Balance sheet reconciliation",
+                        "The accounting identity (Assets = Liabilities + Equity)",
+                        "Bank balance sheets",
+                        "Point-in-time fundamentals",
+                    ],
                 },
                 {
                     "@type": "WebSite",
