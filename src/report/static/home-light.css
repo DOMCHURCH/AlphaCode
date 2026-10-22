@@ -40,6 +40,25 @@ body[data-theme="light"] code { color: inherit; font-family: var(--mono); }
 .lhome .wrap { max-width: 1240px; padding-left: clamp(16px, 4vw, 48px); padding-right: clamp(16px, 4vw, 48px); }
 .lhome :focus-visible { outline: 2px solid var(--blue); outline-offset: 3px; border-radius: 4px; }
 
+/* ---- every other page, on the same paper (2026-10-21) ----
+   shell() renders every page except the home page with data-site on <body>.
+   The dark theme's legibility aids (text shadows and a scrim for type over the
+   film, translucent dark glass for inner panels) become smudges on paper, so
+   here they are white panels with a hairline, and no shadow. */
+body[data-site] main .sec :is(.card, .plan, .tile, .split-half, .faq-item, .ep) {
+  background: var(--panel); border: 1px solid var(--edge-soft); color: var(--ink); }
+body[data-site] :is(.summary, .disclaim, .exnote, .formnote, p, h1, h2, h3, li, span, a) { text-shadow: none; }
+body[data-site] :is(.hero, .company-intro)::before { display: none; }
+body[data-site] .company-intro { color: var(--ink2); margin: 28px 0; }
+body[data-site] .shape { padding: 18px 22px; }
+/* The A-to-Z directory: names flow into columns instead of one 5,000-line
+   column, and the filter box sits under the letter bar. */
+body[data-site] .companylist { columns: 4 230px; column-gap: 32px; }
+body[data-site] .companylist li { break-inside: avoid; }
+body[data-site] .cfilter { max-width: 420px; margin-top: 14px; }
+body[data-site] .foot-disc { color: var(--dim); }
+body[data-site] :is(.companylist li, section)[hidden] { display: none; }
+
 /* ---- nav ---- */
 body[data-theme="light"] nav { background: rgba(250, 248, 243, .96);
   border-bottom: 1px solid var(--edge-soft); backdrop-filter: none; }
@@ -705,14 +724,28 @@ body[data-theme="light"] .lhome .sfield button::after, .lhome .btn-key::after { 
   .motion.rail-on .rail-dots li { width: 8px; height: 8px; border-radius: 50%; background: rgba(255, 255, 255, .25); transition: background-color .25s ease-out; }
   .motion.rail-on .rail-dots li.on { background: var(--yellow); }
 
-  /* How the check works, held: one picture beside the steps. */
+  /* How the check works, held as a stack of cards (2026-10-21): every step's
+     picture is a card in the same sticky cell. Scrolling to a step slides its
+     card up onto the front; the cards before it step back, smaller and darker,
+     their top edges showing above it. Each step is a full screen of scroll.
+     home-story.js sets the transforms and --shade; this is the layout. */
   .motion.how-on .hstory { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); column-gap: 64px; border-top: 0; }
-  .motion.how-on .hstep { grid-column: 1; min-height: 64vh; padding-top: 12vh; border-top: 1px solid var(--rule); }
-  .motion.how-on .hlayer { grid-column: 2; grid-row: 1 / span 4; position: sticky; top: calc(64px + 8vh);
-    align-self: start; margin: 14vh 0 0; max-width: none; opacity: 0; visibility: hidden;
-    transition: opacity .35s ease-out, visibility 0s linear .35s; }
-  .motion.how-on .hlayer.cur { opacity: 1; visibility: visible; transition: opacity .35s ease-out; }
-  .motion.how-on .hb-bar { height: min(340px, 42vh); }
+  .motion.how-on .hstep { grid-column: 1; min-height: 140vh; padding-top: 24vh; border-top: 1px solid var(--rule); }
+  .motion.how-on .hlayer { grid-column: 2; grid-row: 1 / span 4; position: sticky; top: calc(64px + 12vh);
+    align-self: start; margin: 24vh 0 0; max-width: none;
+    /* One height for every card, so a card behind never shows below the one
+       in front; the response card's code panel stretches to fill it. */
+    height: min(540px, calc(100vh - 64px - 26vh)); display: flex; flex-direction: column;
+    overflow: hidden; transform-origin: 50% 0; will-change: transform, opacity;
+    box-shadow: 0 34px 60px -34px rgba(11, 12, 18, .45); }
+  .motion.how-on .hlayer:nth-of-type(2) { z-index: 2; }
+  .motion.how-on .hlayer:nth-of-type(3) { z-index: 3; }
+  .motion.how-on .hlayer:nth-of-type(4) { z-index: 4; }
+  .motion.how-on .hlayer::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+    background: var(--night); opacity: var(--shade, 0); pointer-events: none; }
+  .motion.how-on .hb-bar { height: min(280px, 30vh); }
+  .motion.how-on .hlayer > .jcard { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+  .motion.how-on .hlayer > .jcard .code { flex: 1; }
 }
 
 /* Cards: lift, tilt toward the cursor, a spotlight that follows it. The

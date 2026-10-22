@@ -39,7 +39,7 @@
 
   var root = document.documentElement;
   var state = null;
-  var PROPS = "transform,opacity,visibility";
+  var PROPS = "transform,opacity,visibility,--shade";
   var WIDE = "(min-width: 900px) and (min-height: 700px)";
   var NARROW = "(max-width: 899px), (max-height: 699px)";
   // Portrait phones and tablets play the climb too (home-light.css sizes the
@@ -105,19 +105,43 @@
     var steps = $$(".hstep"), layers = $$(".hlayer");
     if (!steps.length || !layers.length) return;
     root.classList.add("how-on");
-    function show(k) {
-      layers.forEach(function (l) { l.classList.toggle("cur", l.getAttribute("data-layer") === k); });
-    }
-    show(layers[0].getAttribute("data-layer"));
+    // The stack: arrived[i] runs 0 -> 1 as step i scrolls up into place; the
+    // card's depth is how many cards have landed on top of it since.
+    var cards = [], arrived = [];
     steps.forEach(function (s) {
-      var k = s.getAttribute("data-step");
-      var l = $('.hlayer[data-layer="' + k + '"]');
-      if (!l) return;
-      ST.create({ trigger: s, start: "top 60%", end: "bottom 60%",
-        onToggle: function (self) { if (self.isActive) show(k); } });
-      var tl = gsap.timeline({ scrollTrigger: { trigger: s, start: "top 75%", end: "bottom 50%", scrub: 0.5 } });
-      layer(tl, l, 0);
+      var l = $('.hlayer[data-layer="' + s.getAttribute("data-step") + '"]');
+      if (l) cards.push({ el: l, step: s });
     });
+    var land = gsap.parseEase("power3.out");
+    function render() {
+      var p = -1;
+      for (var j = 0; j < arrived.length; j++) p += arrived[j];
+      cards.forEach(function (c, i) {
+        var d = p - i;
+        if (d <= -1) { gsap.set(c.el, { autoAlpha: 0, yPercent: 0, y: 90, scaleX: 1.03, scaleY: 1.03, "--shade": 0 }); return; }
+        if (d < 0) {                      // settling onto the front of the stack:
+          var t = land(1 + d);            // a short rise and a fade, never a second card below
+          gsap.set(c.el, { autoAlpha: t, yPercent: 0, y: 90 * (1 - t),
+            scaleX: 1.03 - 0.03 * t, scaleY: 1.03 - 0.03 * t, "--shade": 0 });
+          return;
+        }
+        var s = 1 - 0.055 * d;            // stepping back
+        gsap.set(c.el, { autoAlpha: d > 3.5 ? 0 : 1, yPercent: 0, y: -30 * d,
+          scaleX: s, scaleY: s, "--shade": Math.min(0.5, 0.16 * d) });
+      });
+    }
+    // Stacking order is CSS (later cards on top). Progress comes straight
+    // from the trigger: Lenis already smooths the scroll.
+    cards.forEach(function (c, i) {
+      arrived.push(i === 0 ? 1 : 0);
+      if (i > 0) {
+        ST.create({ trigger: c.step, start: "top 85%", end: "top 30%",
+          onUpdate: function (self) { arrived[i] = self.progress; render(); } });
+      }
+      var tl = gsap.timeline({ scrollTrigger: { trigger: c.step, start: "top 45%", end: "top 0%", scrub: 0.5 } });
+      layer(tl, c.el, 0);
+    });
+    render();
   }
 
   function howStacked() {
@@ -261,7 +285,7 @@
     gsap.ticker.remove(s.tick);
     gsap.ticker.lagSmoothing(500, 33);
     gsap.set($$(".hero-bs .rise, .hero-bs .bl, .hero-bs .lvl, .hero-bs .gapband, .hero-bs .nt-col, " +
-                ".hlayer li, .hb-bar, .hb-cap, .hb-seg, .hb-seg span, .hb-neg, .hb-reason, " +
+                ".hlayer, .hlayer li, .hb-bar, .hb-cap, .hb-seg, .hb-seg span, .hb-neg, .hb-reason, " +
                 ".rail-track, .rail-bar i, .bg, .hledger, .pb-fail, " +
                 ".climb-cam, .climb-ridges, .climb-fg, .climb-sky, .climb-copy, .climb-bubble, " +
                 ".climb-bubble .b2, .climb-cloud"),

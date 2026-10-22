@@ -4829,6 +4829,23 @@ def about_page(request: Request) -> HTMLResponse:
     return HTMLResponse(_versioned(render_about(nav=_nav_for(request, "about"))))
 
 
+@app.get("/security", response_class=HTMLResponse)
+def security_page(request: Request) -> HTMLResponse:
+    """How keys, accounts, payments and data are handled: the page a buyer's
+    reviewer looks for before an API goes into their pipeline."""
+    from src.report.trust_pages import render_security
+
+    return HTMLResponse(_versioned(render_security(nav=_nav_for(request, "security"))))
+
+
+@app.get("/changelog", response_class=HTMLResponse)
+def changelog_page(request: Request) -> HTMLResponse:
+    """What changed for people using the API, newest first."""
+    from src.report.trust_pages import render_changelog
+
+    return HTMLResponse(_versioned(render_changelog(nav=_nav_for(request, "changelog"))))
+
+
 @app.get("/methodology", response_class=HTMLResponse)
 def methodology_page(request: Request) -> HTMLResponse:
     """What the accuracy figure on the home page actually measures.
@@ -4984,6 +5001,8 @@ def _llms_full_sections(request: Request) -> list[tuple[str, str]]:
         ("/verification", body(verification_page(request))),
         ("/pricing", body(pricing(request))),
         ("/api", body(api_page(request))),
+        ("/security", body(security_page(request))),
+        ("/changelog", body(changelog_page(request))),
     ]
     sections += [
         (f"/blog/{post.slug}", body(blog_post(request, post.slug)))

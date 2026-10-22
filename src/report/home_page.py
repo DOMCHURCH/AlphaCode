@@ -501,9 +501,12 @@ def shell(
     noindex: bool = False,
     backdrop: str = "",
 ) -> str:
-    return _shell(title, body, film, description=description,
+    # Every page reads as the same site as the home page (2026-10-21): the
+    # light paper theme, its type, no backdrop film. The home page passes its
+    # own theme="light" (which adds the motion layer and the climb).
+    return _shell(title, body, "none", description=description,
                   canonical=canonical, ld=ld, noindex=noindex,
-                  backdrop=backdrop)
+                  backdrop=backdrop, theme="site")
 
 
 def _shell(
@@ -548,9 +551,10 @@ def _shell(
     from src.report.backdrop import render_backdrop
 
     bd_attr = f' data-bd="{escape(backdrop)}"' if backdrop else ""
+    light = theme in ("light", "site")
     if theme:
-        bd_attr += f' data-theme="{escape(theme)}"'
-    fonts = (_self_hosted_fonts() if backdrop == "fluted" or theme == "light"
+        bd_attr += ' data-theme="light"' + (' data-site' if theme == "site" else '')
+    fonts = (_self_hosted_fonts() if backdrop == "fluted" or light
              else _GOOGLE_FONTS)
     from src.report.company_page import asset_version as _av
 
@@ -564,7 +568,9 @@ def _shell(
                  "if(window.CSS&&CSS.supports('animation-timeline: view()'))document.documentElement.classList.add('sda')"
                  "}catch(e){}})();</script>")
     theme_css = (f'<link rel="stylesheet" href="/static/home-light.css?v={_av()}">{motion_js}'
-                 f'{_climb_preload()}' if theme == "light" else "")
+                 f'{_climb_preload()}' if theme == "light" else
+                 f'<link rel="stylesheet" href="/static/home-light.css?v={_av()}">' if theme == "site"
+                 else "")
     backdrop = "" if film == "none" else render_backdrop(backdrop)
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -578,7 +584,7 @@ def _shell(
 <!-- The five layered sheets, as one request. Their order, and the one-line
      revert to terminal.css, live in `cssbundle.LAYERS`. -->
 {stylesheet_link()}{theme_css}
-<meta name="theme-color" content="{'#ffffff' if theme == 'light' else '#0a0a0a'}">
+<meta name="theme-color" content="{'#ffffff' if light else '#0a0a0a'}">
 </head>
 <body data-film="{film}"{bd_attr}>
 {backdrop}

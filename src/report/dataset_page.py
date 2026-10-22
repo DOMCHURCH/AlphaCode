@@ -132,7 +132,7 @@ def render_dataset(
       against. Signed in on this browser, it is filled in for you; otherwise
       paste it below.</p>
     <div class="sfield" id="dl-key-field">
-      <input id="dl-key" type="text" placeholder="Your API key"
+      <input id="dl-key" type="text" placeholder="Your API key" aria-label="Your API key"
         autocomplete="off" autocapitalize="none" spellcheck="false"
         maxlength="128">
     </div>

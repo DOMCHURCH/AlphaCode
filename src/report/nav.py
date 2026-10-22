@@ -303,6 +303,8 @@ def render_footer(extra: str = "") -> str:
       </div>
       <div class="foot-col"><p class="foot-h">Company</p>
         <a href="/about">About</a>
+        <a href="/security">Security</a>
+        <a href="/changelog">Changelog</a>
         <a href="/terms">Terms</a>
         <a href="/privacy">Privacy</a>
         <a href="mailto:{SUPPORT_EMAIL}">Support</a>

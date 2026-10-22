@@ -1369,7 +1369,10 @@ def test_the_home_page_sets_its_type_from_our_own_files_and_no_one_else(client):
     # Versioned, because /static is served immutable for a year.
     assert re.search(r'font-zodiak-300\.woff2\?v=\d+', home)
 
-    assert "fonts.googleapis.com" in client.get("/about").text
+    # Every page shares the home page's type and theme since 2026-10-21, so
+    # none of them asks Google for fonts either.
+    for page in ("/about", "/pricing", "/company/JPM"):
+        assert "fonts.googleapis.com" not in client.get(page).text, page
 
     media = Path(hp.__file__).parent / "static" / "media"
     for _fam, _w, _style, name in hp._FONT_FILES:
@@ -1554,25 +1557,20 @@ def test_the_home_navigation_does_not_blur_what_scrolls_under_it(client):
 def test_one_fixed_backdrop_sits_behind_every_page(client):
     """One picture, one layer, on every page that has a backdrop: WebP preferred
     and JPG as the fallback, 2000px wide and under 200 KB each. The home page is
-    the exception since the light redesign (2026-10-19): white, no backdrop."""
+    the exception since the light redesign (2026-10-19): white, no backdrop.
+    Since 2026-10-21 every page is on that light paper too, so no page carries
+    the backdrop; the picture's files stay, as the way back to it."""
     import struct
     from pathlib import Path
 
     import src.report.backdrop as bd
 
     _seed("JPM", _drawable(), sector="Financials")
-    home = client.get("/").text
-    assert 'class="backdrop-art"' not in home and 'data-theme="light"' in home
-    for page in ("/about", "/pricing", "/company/JPM"):
+    for page in ("/", "/about", "/pricing", "/company/JPM"):
         html = client.get(page).text
-        assert 'class="backdrop-art"' in html, page
-        assert html.count('class="backdrop"') == 1, f"{page}: exactly one layer"
-        assert "backdrop-glass-2000.webp" in html and "backdrop-glass-2000.jpg" in html, page
-        assert html.index("backdrop-glass-2000.jpg") < html.index("image-set("), (
-            f"{page}: the JPG is declared first so it is the fallback")
-        for gone in ("backdrop-veil", "backdrop-still", "backdrop-1200", "backdrop-2400",
-                     "backdrop-portrait", "backdrop-lqip"):
-            assert gone not in html, f"{page}: {gone}"
+        assert 'class="backdrop-art"' not in html and 'data-theme="light"' in html, page
+        if page != "/":
+            assert "data-site" in html and "home-light.css" in html, page
 
     media = Path(bd.__file__).parent / "static" / "media"
     for name in ("backdrop-glass-2000.webp", "backdrop-glass-2000.jpg"):

@@ -24,6 +24,14 @@ from src.report.cssbundle import stylesheet_link
 _STATIC = Path(__file__).parent / "static"
 
 
+
+def _light_fonts() -> str:
+    """The site's type (2026-10-21): every page, company pages included, is on
+    the home page's light paper theme and its self-hosted faces."""
+    from src.report.home_page import _self_hosted_fonts
+
+    return _self_hosted_fonts()
+
 def asset_version() -> str:
     """Cache-busting stamp, so a deployed CSS change actually reaches a phone."""
     try:
@@ -627,16 +635,11 @@ def render_company_page(
     differ the page says so, because a reader who typed VMRK and got a page
     headed EQR is owed the sentence explaining that those are one filer.
     """
-    # The SAME backdrop every other page gets, from the one function that
-    # owns it. This page renders its own <head> and <body> rather than
-    # going through home_page._shell, and it used to carry a hand-copied
-    # copy of the markup -- which is how it ended up as the only page on
-    # the site still showing a still image after every other page moved
-    # to the film: the copy had no id="backdrop" for the script to find,
-    # and never loaded the script anyway.
-    from src.report.backdrop import render_backdrop
+    # This page renders its own <head> and <body> rather than going through
+    # home_page._shell, so it must follow the site's theme by hand: the light
+    # paper theme (home-light.css, data-theme="light" data-site) and no
+    # backdrop film, the same as every page shell() renders (2026-10-21).
 
-    backdrop = render_backdrop()
     # Imported here, not at module level: nav imports legal, and legal
     # imports this module for asset_version -- a cycle at import time.
     from src.report.nav import render_footer
@@ -817,15 +820,12 @@ def render_company_page(
 {_company_meta(d)}
 {_robots_meta(view)}
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
-{stylesheet_link()}
-<meta name="theme-color" content="#0a0a0a">
+{_light_fonts()}
+{stylesheet_link()}<link rel="stylesheet" href="/static/home-light.css?v={asset_version()}">
+<meta name="theme-color" content="#ffffff">
 {company_ld}
 </head>
-<body data-film="hero">
-{backdrop}
+<body data-film="none" data-theme="light" data-site>
 <a class="skip" href="#main">Skip to content</a>
 {nav}
 
@@ -843,8 +843,6 @@ def render_company_page(
     {same_registrant}
     {_cta_html(d["ticker"])}
   </header>
-
-  {intro_html}
 
   <section class="sec">
     <div class="sec-head"><h2>What it owns, and who has a claim on it</h2></div>
@@ -880,6 +878,10 @@ def render_company_page(
     {missing_html}
     {notes_html}
   </section>
+
+  <!-- The written summary comes after the drawing (2026-10-21): the
+       drawing is what a reader came for, the paragraph restates it. -->
+  {intro_html}
 
   <section class="shape">{shape_html}</section>
   {facts_html}
@@ -940,9 +942,7 @@ def render_404_page(
     # the site still showing a still image after every other page moved
     # to the film: the copy had no id="backdrop" for the script to find,
     # and never loaded the script anyway.
-    from src.report.backdrop import render_backdrop
 
-    backdrop = render_backdrop()
     from src.company.suggest import suggestions
     from src.report.home_page import search_form
 
@@ -967,14 +967,12 @@ def render_404_page(
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{escape(title)}</title>
 <link rel="icon" href="/favicon.ico" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Jost:wght@400;600;700;800&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
+{_light_fonts()}
 <meta name="robots" content="noindex,follow">
-{stylesheet_link()}
-<meta name="theme-color" content="#0a0a0a">
+{stylesheet_link()}<link rel="stylesheet" href="/static/home-light.css?v={asset_version()}">
+<meta name="theme-color" content="#ffffff">
 </head>
-<body data-film="hero">
-{backdrop}
+<body data-film="none" data-theme="light" data-site>
 <a class="skip" href="#main">Skip to content</a>
 {nav}
 

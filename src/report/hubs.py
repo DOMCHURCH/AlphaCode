@@ -123,12 +123,25 @@ def render_companies(*, nav: str = "", sectors: list[dict[str, Any]] | None = No
         SEC EDGAR drawn to scale and checked against Assets = Liabilities +
         Equity where the filing allows. Pick a letter or a sector.</p>
       <p class="sec-sub letterbar">{letters}</p>
+      <!-- A filter over the lists below (2026-10-21): every link is still in
+           the HTML for crawlers and for readers with scripting off; the box
+           only hides the rows that do not match, and the letters that empty. -->
+      <div class="sfield cfilter" hidden>
+        <input id="cfilter" type="search" placeholder="Filter by name or ticker"
+          aria-label="Filter companies by name or ticker" autocomplete="off"
+          spellcheck="false" autocapitalize="none">
+      </div>
     </header>
     {sector_block}
     {sections}
   </article>
 {render_footer()}
-</main>"""
+</main>
+<script>(function(){{var f=document.querySelector('.cfilter'),i=document.getElementById('cfilter');
+if(!f||!i)return;f.hidden=false;var secs=[].slice.call(document.querySelectorAll('section[id^="letter-"]'));
+var rows=secs.map(function(s){{return [s,[].slice.call(s.querySelectorAll('li')).map(function(li){{return [li,li.textContent.toLowerCase()];}})];}});
+var t=null;i.addEventListener('input',function(){{clearTimeout(t);t=setTimeout(function(){{var q=i.value.trim().toLowerCase();
+rows.forEach(function(r){{var any=false;r[1].forEach(function(x){{var on=!q||x[1].indexOf(q)>-1;x[0].hidden=!on;if(on)any=true;}});r[0].hidden=!any;}});}},80);}});}})();</script>"""
     return shell(
         "Companies A to Z, balance sheets checked — BalanceProof",
         body,
