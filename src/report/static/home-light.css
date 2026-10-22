@@ -57,6 +57,11 @@ body[data-site] .companylist { columns: 4 230px; column-gap: 32px; }
 body[data-site] .companylist li { break-inside: avoid; }
 body[data-site] .cfilter { max-width: 420px; margin-top: 14px; }
 body[data-site] .foot-disc { color: var(--dim); }
+/* The dashboard's tabs: outlined paper pills, the current one in ink. */
+body[data-site] .tab { background: var(--panel); border: 1px solid var(--edge-soft); color: var(--ink2);
+  backdrop-filter: none; }
+body[data-site] .tab:hover { color: var(--ink); border-color: var(--edge); }
+body[data-site] .tab.on { background: var(--ink); border-color: var(--ink); color: #fff; }
 body[data-site] :is(.companylist li, section)[hidden] { display: none; }
 
 /* ---- nav ---- */

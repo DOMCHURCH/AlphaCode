@@ -87,6 +87,18 @@ _SECURITY = """
 
 # Newest first. (date, [lines]). Customer-visible changes only.
 CHANGELOG: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # Dated for the commit; move it to the day it deploys if that is later.
+    ("2026-10-21", (
+        "The site has one look: every page is on the same light theme as the "
+        "home page, and company pages lead with the drawing.",
+        "The home page opens with a layered scene that plays as you scroll, "
+        "on phones too; it is a still image with reduced motion, and a "
+        "footer switch turns motion on or off.",
+        "A <a href=\"/verification\">verification page</a>: how the balance "
+        "check works, and what it found, with counts by reason.",
+        "This page, and a <a href=\"/security\">security page</a>.",
+        "The company directory has a filter box.",
+    )),
     ("2026-10-17", (
         "A filing that does not report the lines a check needs is now "
         "<code>not_testable</code>, never a pass. <code>/api/verify</code> "
@@ -108,8 +120,7 @@ CHANGELOG: tuple[tuple[str, tuple[str, ...]], ...] = (
         "restatement.",
     )),
     ("2026-09-30", (
-        "Account email comes from balanceproof.dev, and replies go to "
-        "support@balanceproof.dev.",
+        "Replies to account email go to support@balanceproof.dev.",
     )),
     ("2026-09-26", (
         "Only periodic reports (10-K and 10-Q) are read from the SEC data sets.",
