@@ -475,13 +475,16 @@ body[data-theme="light"] .storysec main .card, body[data-theme="light"] .storyse
 /* Pricing: Pro and Business lead; the rest stay quiet. */
 body[data-theme="light"] #pricing .plan { border-radius: 10px; background: transparent; }
 body[data-theme="light"] #pricing .plan .plan-price { font-size: 30px; }
-body[data-theme="light"] #pricing .plan.popular { background: var(--night); border-color: var(--night) !important;
-  box-shadow: 0 0 0 1px var(--night), 0 24px 48px -28px rgba(11, 12, 18, .55); }
-body[data-theme="light"] #pricing .plan.popular :is(.plan-name, .plan-line, .plan-bullets li, .plan-pc, p, span, li) { color: #D9DBE4; }
-body[data-theme="light"] #pricing .plan.popular .plan-price { color: #fff; }
-body[data-theme="light"] #pricing .plan.popular a:not(.plan-cta) { color: #A9B7FF; }
-body[data-theme="light"] #pricing .plan.popular .plan-cta { background: var(--blue); color: #fff; border-color: var(--blue); }
-body[data-theme="light"] #pricing .plan.popular .plan-cta:hover { background: #4D68E0; border-color: #4D68E0; }
+/* The recommended plan is a white card with a blue top edge (the nth-child(3)
+   rule below), so its text is ink, like every other card. It was once a dark
+   card and kept near-white text, which vanished on the white one. */
+body[data-theme="light"] #pricing .plan.popular { background: #fff; border-color: var(--edge) !important;
+  box-shadow: inset 0 3px 0 var(--blue), 0 24px 48px -28px rgba(11, 12, 18, .35); }
+body[data-theme="light"] #pricing .plan.popular :is(.plan-name, .plan-line, .plan-bullets li, .plan-pc, p, span, li) { color: var(--ink2); }
+body[data-theme="light"] #pricing .plan.popular .plan-price { color: var(--ink); }
+body[data-theme="light"] #pricing .plan.popular a:not(.plan-cta) { color: var(--blue); }
+body[data-theme="light"] #pricing .plan.popular .plan-cta { background: var(--night); color: #fff; border-color: var(--night); }
+body[data-theme="light"] #pricing .plan.popular .plan-cta:hover { background: var(--blue); border-color: var(--blue); }
 body[data-theme="light"] #pricing .plan.popular .badge { background: var(--yellow); color: var(--night); border-color: var(--yellow); }
 body[data-theme="light"] #pricing .plan.popular .plan-price,
 body[data-theme="light"] #pricing .plans > .plan.period-plan:nth-child(3) .plan-price { font-size: 46px; }
@@ -499,7 +502,7 @@ body[data-theme="light"] #pricing .plan:hover { border-color: rgba(11, 12, 18, .
 .lhome .pf-n.one, .lhome .vfunnel .vn.one { color: var(--blue); }
 .lhome .cd-bar.c { fill: var(--red); }
 body[data-theme="light"] #pricing .plan.popular .plan-name .badge { color: var(--night) !important; background: var(--yellow); }
-body[data-theme="light"] #pricing .plan.popular .plan-price :is(span, small, em) { color: #9CA0B4 !important; }
+body[data-theme="light"] #pricing .plan.popular .plan-price :is(span, small, em) { color: var(--dim) !important; }
 
 /* ---- the gradient layers behind the hero and the coloured bands ----
    Static, always: soft brand-colour shapes in CSS. With motion and WebGL,
@@ -522,7 +525,7 @@ body[data-theme="light"] #pricing .plan.popular .plan-price :is(span, small, em)
 /* The recommended plan: a fine outline in the three brand colours. */
 @property --ang { syntax: "<angle>"; initial-value: 0deg; inherits: false; }
 body[data-theme="light"] #pricing .plan.popular { border: 2px solid transparent !important;
-  background: linear-gradient(var(--night), var(--night)) padding-box,
+  background: linear-gradient(#fff, #fff) padding-box,
     conic-gradient(from var(--ang), #2340BE, #4D68E0, #F7D848, #EA5148, #2340BE) border-box; }
 
 /* Cards that lift and catch the light (motion only, below). */
