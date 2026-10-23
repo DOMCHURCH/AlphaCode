@@ -87,7 +87,7 @@ _SECURITY = """
 
 # Newest first. (date, [lines]). Customer-visible changes only.
 CHANGELOG: tuple[tuple[str, tuple[str, ...]], ...] = (
-    ("2026-10-22", (
+    ("2026-10-23", (
         "A page for <a href=\"/total-assets-total-liabilities-api\">total assets "
         "and total liabilities from SEC filings</a>, with a real response, "
         "who it is for and which companies are covered.",
@@ -95,9 +95,6 @@ CHANGELOG: tuple[tuple[str, tuple[str, ...]], ...] = (
         "balance sheets.",
         "The bank balance sheet and accounting identity guides answer more of "
         "the questions people type.",
-    )),
-    # Dated for the commit; move it to the day it deploys if that is later.
-    ("2026-10-21", (
         "The site has one look: every page is on the same light theme as the "
         "home page, and company pages lead with the drawing.",
         "The home page opens with a layered scene that plays as you scroll, "
