@@ -5,8 +5,8 @@
    (tests/test_home_motion.py):
 
    - It runs only while <html> has `motion` (set before paint by the head line,
-     never by the server; off under prefers-reduced-motion unless the footer
-     toggle says on). When the toggle turns motion off, everything is torn
+     never by the server; on by default, off only when the footer toggle
+     says off). When the toggle turns motion off, everything is torn
      down: every ScrollTrigger killed, every tween reverted, Lenis destroyed,
      the ticker callback removed, the inline transform/opacity cleared and the
      layout classes (rail-on, how-on) removed, so the page is its static self.
@@ -72,16 +72,16 @@
     if (sda()) return;                     // home-light.css runs it on view()
     var gsap = window.gsap;
     $$(".hero-bs .bs-panel").forEach(function (panel) {
-      var tl = gsap.timeline({ scrollTrigger: { trigger: panel, start: "top 85%", end: "center 55%", scrub: 0.5 } });
+      var tl = gsap.timeline({ scrollTrigger: { trigger: panel, start: "top 85%", end: "center 55%", scrub: 0.15 } });
       fill(tl, panel, 0);
     });
     $$(".hero-bs .nt-col").forEach(function (c, i) {
       gsap.from(c, { scaleY: 0, transformOrigin: "50% 100%",
-        scrollTrigger: { trigger: c, start: "top 90%", end: "center 60%", scrub: 0.5 } });
+        scrollTrigger: { trigger: c, start: "top 90%", end: "center 60%", scrub: 0.15 } });
     });
     var bar = $(".pbar .pb-fail");
     if (bar) gsap.from(bar, { scaleX: 0, transformOrigin: "0 50%", ease: "none",
-      scrollTrigger: { trigger: bar.parentNode, start: "top 90%", end: "top 55%", scrub: 0.5 } });
+      scrollTrigger: { trigger: bar.parentNode, start: "top 90%", end: "top 55%", scrub: 0.15 } });
   }
 
   /* The method's pictures: lines, the two totals meeting, the flagged gap. */
@@ -138,7 +138,7 @@
         ST.create({ trigger: c.step, start: "top 85%", end: "top 30%",
           onUpdate: function (self) { arrived[i] = self.progress; render(); } });
       }
-      var tl = gsap.timeline({ scrollTrigger: { trigger: c.step, start: "top 45%", end: "top 0%", scrub: 0.5 } });
+      var tl = gsap.timeline({ scrollTrigger: { trigger: c.step, start: "top 45%", end: "top 0%", scrub: 0.15 } });
       layer(tl, c.el, 0);
     });
     render();
@@ -147,7 +147,7 @@
   function howStacked() {
     var gsap = window.gsap;
     $$(".hlayer").forEach(function (l) {
-      var tl = gsap.timeline({ scrollTrigger: { trigger: l, start: "top 85%", end: "center 55%", scrub: 0.5 } });
+      var tl = gsap.timeline({ scrollTrigger: { trigger: l, start: "top 85%", end: "center 55%", scrub: 0.15 } });
       layer(tl, l, 0);
     });
   }
@@ -170,7 +170,7 @@
     }
     mark(0);
     var tl = gsap.timeline({ scrollTrigger: {
-      trigger: pin, start: "top top", end: "bottom bottom", scrub: 0.6, invalidateOnRefresh: true,
+      trigger: pin, start: "top top", end: "bottom bottom", scrub: 0.2, invalidateOnRefresh: true,
       onUpdate: function (self) { mark(self.progress); } } });
     tl.to(track, { x: function () { return -Math.max(0, track.scrollWidth - view.clientWidth); }, ease: "none", duration: 1 }, 0);
     if (bar) tl.fromTo(bar, { scaleX: 0 }, { scaleX: 1, transformOrigin: "0 50%", ease: "none", duration: 1 }, 0);
@@ -206,7 +206,7 @@
     // would push the beam off both edges.
     var zoom = window.matchMedia(PHONE).matches ? 1.45 : 1.85;
     var tl = gsap.timeline({ defaults: { ease: "none" }, scrollTrigger: {
-      trigger: stage, start: "top top", end: "bottom bottom", scrub: 0.6, invalidateOnRefresh: true } });
+      trigger: stage, start: "top top", end: "bottom bottom", scrub: 0.2, invalidateOnRefresh: true } });
     tl.to($(".climb-cam"), { scaleX: zoom, scaleY: zoom, ease: "power1.inOut", duration: 4 }, 0.3);
     tl.to($(".climb-ridges"), { yPercent: -4, duration: 4 }, 0.3);
     tl.to($(".climb-fg-l"), { x: outL, yPercent: 10, scaleX: 1.3, scaleY: 1.3, ease: "power1.in", duration: 3.4 }, 0.3);
@@ -247,7 +247,7 @@
     try {
       gsap.registerPlugin(ST);
       var lenis = new window.Lenis({
-        duration: 1.0,
+        duration: 0.5,
         prevent: function (node) {
           return !!(node.closest && node.closest("pre, .code, .bs-lines, .tablewrap, table"));
         },

@@ -559,12 +559,12 @@ def _shell(
     from src.report.company_page import asset_version as _av
 
     # The motion switch, before first paint so nothing animates in after it was
-    # already drawn: on only when the reader has not asked for reduced motion and
-    # has not turned it off with the footer toggle (or has turned it on there).
+    # already drawn: on by default, off only when the reader turned it off with
+    # the footer toggle (the OS reduce-motion setting is not read; see home-motion.js).
     # No class, no animation: the page is complete without this line.
     motion_js = ("<script>(function(){try{var p=localStorage.getItem('bp-motion'),"
                  "r=matchMedia('(prefers-reduced-motion: reduce)').matches;"
-                 "if(p==='on'||(p!=='off'&&!r))document.documentElement.classList.add('motion');"
+                 "if(p!=='off')document.documentElement.classList.add('motion');"
                  "if(window.CSS&&CSS.supports('animation-timeline: view()'))document.documentElement.classList.add('sda')"
                  "}catch(e){}})();</script>")
     theme_css = (f'<link rel="stylesheet" href="/static/home-light.css?v={_av()}">{motion_js}'
@@ -1894,8 +1894,8 @@ _HERO_SIZES = {
 # Which screens play the climb: the same test home-story.js runs, plus the
 # reader not asking for reduced motion (the footer toggle can still override
 # it either way; that reader gets the right image a moment later).
-_CLIMB_WIDE = "(min-width: 900px) and (min-height: 700px) and (prefers-reduced-motion: no-preference)"
-_CLIMB_STILL = "(max-width: 899px), (max-height: 699px), (prefers-reduced-motion: reduce)"
+_CLIMB_WIDE = "(min-width: 900px) and (min-height: 700px)"
+_CLIMB_STILL = "(max-width: 899px), (max-height: 699px)"
 
 
 def _hero_srcset(name: str) -> str:

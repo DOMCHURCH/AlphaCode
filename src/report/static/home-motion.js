@@ -38,11 +38,12 @@
     try { return window.matchMedia("(prefers-reduced-motion: reduce)").matches; }
     catch (e) { return false; }
   }
+  // On by default (2026-10-23, owner's call): only the footer toggle turns it
+  // off. The OS "reduce motion" setting is deliberately NOT read here: Windows
+  // reports it for anyone with animation effects off, which hid the climb from
+  // the owner's own machine.
   function wanted() {
-    var p = stored();
-    if (p === "off") return false;
-    if (p === "on") return true;
-    return !reduced();
+    return stored() !== "off";
   }
   function on() { return root.classList.contains("motion"); }
 

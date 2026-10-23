@@ -54,10 +54,12 @@ def test_the_server_never_sends_motion_on():
 
     html = _shell("t", "<main></main>", film="none", theme="light")
     assert re.search(r'<html[^>]*class="[^"]*motion', html) is None
-    # The head line turns it on only without reduced motion, or by the toggle.
+    # The head line turns it on unless the reader turned it off with the toggle
+    # (2026-10-23: the OS reduce-motion setting is no longer read; Windows
+    # reports it for anyone with animation effects off).
     head = html.split("</head>", 1)[0]
-    assert "prefers-reduced-motion: reduce" in head
-    assert "p==='on'||(p!=='off'&&!r)" in head
+    assert "p!=='off'" in head
+    assert "p==='on'||(p!=='off'&&!r)" not in head
 
 
 def test_every_animation_transition_and_hover_move_is_scoped_under_motion():
@@ -359,8 +361,8 @@ def test_the_climb_images_exist_are_small_and_are_referenced(client):
     pre = re.findall(r'<link rel="preload" as="image"[^>]*>', head)
     assert len(pre) == 2
     towers, still = pre
-    assert "towers-1024.webp" in towers and "(prefers-reduced-motion: no-preference)" in towers
-    assert "still-1280.webp" in still and "(max-width: 899px)" in still and "reduce" in still
+    assert "towers-1024.webp" in towers and "(min-width: 900px) and (min-height: 700px)" in towers
+    assert "still-1280.webp" in still and "(max-width: 899px)" in still
     # The preload's candidates and sizes match the <img> exactly (else the
     # browser fetches twice).
     for pl, cls in ((towers, 'climb-towers"><span class="climb-glow"></span><img'),
