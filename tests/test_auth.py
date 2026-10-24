@@ -357,16 +357,16 @@ def test_hidden_panels_cannot_be_unhidden_by_a_display_rule():
 # Navigation
 # ---------------------------------------------------------------------------
 
-def test_dashboard_is_greyed_out_when_signed_out(client):
-    """Present, visibly unavailable, and able to say why. A disabled <a> is not
-    a thing -- an anchor without href is not focusable and one with
-    aria-disabled is announced as a link that lies -- so it is a button."""
+def test_there_is_no_dimmed_dashboard_item_when_signed_out(client):
+    """The disabled "Dashboard" button was removed (2026-10-23): it repeated the
+    Sign in link beside it. Signed-out visitors see Sign in; the Dashboard link
+    appears once signed in."""
     for path in ("/", "/login"):
-        html = client.get(path).text
-        assert 'id="nav-dash-off"' in html, path
-        assert 'aria-disabled="true"' in html, path
-        assert "Log in to access your dashboard" in html, path
-        assert 'href="/dashboard"' not in html.split("</nav>")[0], path
+        nav = client.get(path).text.split("</nav>")[0]
+        assert 'id="nav-dash-off"' not in nav, path
+        assert "Log in to access your dashboard" not in nav, path
+        assert 'href="/dashboard"' not in nav.split("<nav>", 1)[1].replace(
+            'href="/dashboard">Get', ""), path
 
 
 def test_dashboard_is_a_real_link_once_signed_in(client):
@@ -429,8 +429,8 @@ def test_the_nav_offers_no_sign_in_when_login_is_disabled(client, monkeypatch):
     get_settings.cache_clear()
     nav = client.get("/").text.split("</nav>")[0]
     assert 'href="/login"' not in nav
-    # ...but the Dashboard item still says what it is.
-    assert 'id="nav-dash-off"' in nav
+    # ...and no dimmed Dashboard button stands in for it.
+    assert 'id="nav-dash-off"' not in nav
 
 
 # ---------------------------------------------------------------------------

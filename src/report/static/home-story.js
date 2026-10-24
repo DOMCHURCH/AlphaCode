@@ -213,7 +213,7 @@
     tl.to($(".climb-fg-r"), { x: outR, yPercent: 10, scaleX: 1.3, scaleY: 1.3, ease: "power1.in", duration: 3.4 }, 0.3);
     tl.to($(".climb-cloud-a"), { yPercent: 14, duration: 4 }, 0.3);
     tl.to($(".climb-sky"), { yPercent: 2, duration: 4 }, 0.3);
-    tl.to($(".climb-copy"), { autoAlpha: 0, y: -48, duration: 1.4 }, 0.3);
+    tl.to($(".climb-copy"), { autoAlpha: 0, y: -48, duration: 1.4 }, 0.7);
     tl.fromTo($(".climb-bubble"), { autoAlpha: 0, y: 14 }, { autoAlpha: 1, y: 0, ease: "power2.out", duration: 0.8 }, 3.7);
     tl.fromTo($(".climb-bubble .b2"), { autoAlpha: 0, y: 6 }, { autoAlpha: 1, y: 0, duration: 0.6 }, 4.8);
     tl.to($(".climb-bubble"), { autoAlpha: 0, duration: 0.5 }, 6.0);

@@ -1698,6 +1698,8 @@ def _plan_faq() -> str:
 # so they are named here once and a test checks them against the post itself.
 _REPORT_SLUG = "which-sec-balance-sheets-fail-the-identity-check"
 _REPORT_TESTED, _REPORT_FAILED, _REPORT_OURS = 38_568, 995, 971
+# The day the snapshot was frozen (the post's `published` date; a test ties it).
+_REPORT_DATE = "2026-10-09"
 
 
 def _cta_strip(free_calls: int) -> str:
@@ -1957,20 +1959,42 @@ def _climb() -> str:
         </div>
       </div>
       <div class="climb-copy">
-        <p class="climb-line" id="climb-line">Every number has to hold its ground.</p>
-        <p class="climb-side">Thousands of filings climb onto the SEC each quarter.
-          Most of them balance. Some don&rsquo;t. We check every one that can be
-          tested before you build on it.</p>
+        <p class="climb-eyebrow">Every number has to hold its ground.</p>
+        <p class="climb-line" id="climb-line">Know which SEC balance sheets
+          don&rsquo;t add up before your model does.</p>
+        <p class="climb-sub">An API for data pipelines and AI-finance teams.
+          Statements are checked against A = L + E where the filing reports the
+          lines needed.</p>
+        <a class="climb-cta" href="#hero-email">Get free key</a>
       </div>
     </div></div>
-    <div class="climb-next"><p class="wrap">Balance-checked SEC financials, delivered
-      as an API. <a href="#how">Here&rsquo;s how it works.</a></p></div>
+  </section>"""
+
+
+def _proof_study(stats: dict) -> str:
+    """The dated study, straight after the climb: the one number that shows why
+    the check exists, the dots behind it, then the live counts. The study's
+    figures are the frozen _REPORT_* constants (a test ties them to the post);
+    the counts below the dots are today's, so both carry their own date."""
+    return f"""
+  <section class="climb-proof" id="study" aria-labelledby="study-fig">
+    <div class="wrap">
+      <div class="cp-head">
+        <p class="cp-fig" id="study-fig">{fmt_int(_REPORT_FAILED)} of {fmt_int(_REPORT_TESTED)}</p>
+        <p class="cp-text">SEC filings failed our balance sheet check on
+          {_REPORT_DATE}. In {fmt_int(_REPORT_OURS)} of them a line item did not
+          reach us. <a class="cp-link" href="/blog/{_REPORT_SLUG}">Read the study</a></p>
+      </div>
+      {_dotfield()}
+      {_proof_bold(stats)}
+    </div>
   </section>"""
 
 
 def _proof_bold(stats: dict, items: list[tuple[str, str]] | None = None) -> str:
-    """One sentence with the counts and their UTC date, then the plain facts.
-    Every part that cannot be read is dropped, never zeroed."""
+    """The live half of the study band: one sentence with the counts and their
+    UTC date, then the plain facts. Every part that cannot be read is dropped,
+    never zeroed."""
     from src.company.stats import identity_breakdown
 
     try:
@@ -2004,13 +2028,10 @@ def _proof_bold(stats: dict, items: list[tuple[str, str]] | None = None) -> str:
     cells = "".join(f'<div class="pcell"><span class="pk">{k}</span>'
                     f'<span class="pv">{v}</span></div>' for k, v in tiles)
     return f"""
-  <section class="bproof" aria-label="Where the data comes from">
-    <div class="bg" aria-hidden="true"><canvas class="bg-gl" data-tone="dark"></canvas></div>
-    <div class="wrap">
-      {lead}
-      <div class="proof">{cells}</div>
-    </div>
-  </section>"""
+      <div class="bproof" role="group" aria-label="Where the data comes from">
+        {lead}
+        <div class="proof">{cells}</div>
+      </div>"""
 
 
 def _drawing_band(hero_bs: str, gallery: str) -> str:
@@ -2081,7 +2102,7 @@ def _built_for() -> str:
 
 
 def _dotfield() -> str:
-    """The 2026-10-09 study drawn as a field of dots: 400 dots, each standing
+    """The dated study drawn as a field of dots: 400 dots, each standing
     for an equal share of the 38,568 filings tested; the red ones are the
     share that failed (995). Derived from the dated study figures only."""
     cols, rows = 40, 10
@@ -2103,21 +2124,21 @@ def _dotfield() -> str:
     px, py = 10 + (pin % cols) * 20, 10 + (pin // cols) * 20
     return f"""
       <figure class="dotfield" data-reveal>
-        <svg viewBox="0 0 800 200" role="img" aria-label="{fmt_int(_REPORT_FAILED)} of {fmt_int(_REPORT_TESTED)} filings failed the check on 2026-10-09; each dot is about {fmt_int(per)} filings">
+        <svg viewBox="0 0 800 200" role="img" aria-label="{fmt_int(_REPORT_FAILED)} of {fmt_int(_REPORT_TESTED)} filings failed the check on {_REPORT_DATE}; each dot is about {fmt_int(per)} filings">
           <g class="gg">{''.join(c for k, c in dots if k == 'dg')}</g><g class="gr">{''.join(c for k, c in dots if k == 'dr')}</g>
           <g class="dpin" aria-hidden="true"><line x1="{px}" y1="{py}" x2="{px}" y2="{py + 34}"/></g>
         </svg>
         <figcaption><span class="dkey r"></span><b>{fmt_int(_REPORT_FAILED)} failed</b>, of which
           {fmt_int(_REPORT_OURS)} were <code>missing_tag</code>: a line item did not reach us.
           <span class="dkey g"></span>{fmt_int(_REPORT_TESTED - _REPORT_FAILED)} passed.
-          Each dot is about {fmt_int(per)} filings (2026-10-09 study).</figcaption>
+          Each dot is about {fmt_int(per)} filings ({_REPORT_DATE} study).</figcaption>
       </figure>"""
 
 
 def _pipelines() -> str:
-    """The cost, first: why SEC data breaks pipelines, as three large figures
-    (the dated study and JPMorgan's duplicate facts), then the study drawn as
-    a dot field. Every number is a verified, dated figure already published."""
+    """The cost, first: why SEC data breaks pipelines, in two short columns.
+    The study (and its dot field) moved up under the climb; what stays is the
+    JPMorgan duplicate-facts finding and the revisions."""
     cols = (
         ("b", "One figure, many facts", "23",
          "JPMorgan reports total assets twenty-three times in one filing. One of "
@@ -2125,10 +2146,6 @@ def _pipelines() -> str:
         ("r", "Figures change after filing", "Revised",
          'A later 10-K or 10-Q can report a new value for the same period. '
          '<a href="/restatements">The last 90 days</a>.'),
-        ("y", "Totals that do not add up", fmt_int(_REPORT_FAILED),
-         f"On 2026-10-09, {fmt_int(_REPORT_FAILED)} of {fmt_int(_REPORT_TESTED)} filings "
-         f"failed the check; in {fmt_int(_REPORT_OURS)} a line did not reach us. "
-         f'<a href="/blog/{_REPORT_SLUG}">The report</a>.'),
     )
     body = "".join(
         f'<div class="pcol c-{c}" data-reveal style="--i:{i}"><span class="pnum">{i + 1:02d}</span>'
@@ -2140,89 +2157,8 @@ def _pipelines() -> str:
     <div class="wrap">
       <div class="secno alert"><span>03</span> The cost of a wrong number</div>
       <h2 class="bigh" data-reveal>Why SEC data breaks pipelines.
-        <span class="tone">Three things go wrong before a number reaches your model.</span></h2>
-      <p class="prob-lede">A balance sheet that does not add up still loads without an
-        error. Nothing stops it reaching a model, a backtest or a client report.</p>
+        <span class="tone">A balance sheet that does not add up still loads without an error.</span></h2>
       <div class="pcols">{body}</div>
-      {_dotfield()}
-    </div>
-  </section>"""
-
-
-_REASONS = (
-    ("rounding", "Rounding", "The lines we hold miss total assets by half of one "
-     "percent to one percent."),
-    ("missing_tag", "A line item did not reach us", "The filer's own stated total "
-     "agrees with its assets; our components fell short."),
-    ("unexplained", "No stated total to test against", "The gap is one percent or "
-     "more and there is no filer total to referee it."),
-    ("broken", "The filing does not balance", "The filer's own stated total "
-     "disagrees with its own total assets."),
-)
-
-
-def _reasons() -> str:
-    """Every flag, by reason, with today's live count beside it (SafetyKit's
-    large list rows). The counts are the breakdown the strip and
-    /verification use; a count that cannot be read is dropped, not zeroed."""
-    from src.company.stats import identity_breakdown
-
-    try:
-        bd = identity_breakdown() or {}
-    except Exception:  # noqa: BLE001
-        bd = {}
-    counts = bd.get("counts") or {}
-    rows = "".join(
-        f'<li class="rrow" data-reveal style="--i:{i}"><code class="rk">{k}</code>'
-        f'<b class="rt">{escape(t)}</b><span class="rd">{escape(d)}</span>'
-        + (f'<span class="rc">{_num(fmt_int(counts[k]))}</span>' if k in counts else "")
-        + '</li>'
-        for i, (k, t, d) in enumerate(_REASONS))
-    when = (f"Live counts, read on {escape(str(bd['computed_on']))} (UTC) across the "
-            "latest balance sheet of each company." if counts and bd.get("computed_on")
-            else "Each flag carries one of these reasons.")
-    return f"""
-  <section class="bsec" id="reasons">
-    <div class="wrap">
-      <div class="secno alert"><span>04</span> What a flag says</div>
-      <h2 class="bigh" data-reveal>Every flag comes with its reason.</h2>
-      <p class="sec-sub bsub">{when} <a href="/verification">Counts by reason</a>.</p>
-      <ol class="rrows">{rows}</ol>
-    </div>
-  </section>"""
-
-
-def _outcomes() -> str:
-    """What changes for the reader, as four flat colour tiles (Petal's bento),
-    each with a fragment of a real captured response as its proof."""
-    from src.report.samples import CAPTURED
-
-    tiles = (
-        ("y", "Every figure arrives with its filing.",
-         "Period end and filing date on each line, so a number can be traced to EDGAR.",
-         '"filing_date": "2026-07-31"', "AAPL"),
-        ("b", "A sheet that does not add up is labelled.",
-         "Not smoothed, not dropped: the response says which check failed and why.",
-         '"identity_status": "missing_tag"', "AACB"),
-        ("c", "No lines, no verdict.",
-         "A filing without the lines the check needs is answered not_testable.",
-         "not_testable", ""),
-        ("r", "Revisions carry their own date.",
-         'A later filing\'s value is shown under that filing. '
-         '<a href="/restatements">Revisions from the last 90 days</a>.',
-         '"restated": false', "AAPL"),
-    )
-    body = "".join(
-        f'<article class="otile o-{c} tcard" data-reveal style="--i:{i % 2}">'
-        f'<h3>{escape(t)}</h3><p>{d}</p>'
-        f'<code class="ochip">{escape(chip)}</code><span class="osrc">' + (f'{escape(tk)}, captured {CAPTURED}' if tk else 'a status the API returns') + '</span></article>'
-        for i, (c, t, d, chip, tk) in enumerate(tiles))
-    return f"""
-  <section class="bsec" id="outcomes">
-    <div class="wrap">
-      <div class="secno"><span>06</span> What you get</div>
-      <h2 class="bigh" data-reveal>Numbers you can <em>defend</em>.</h2>
-      <div class="obento">{body}</div>
     </div>
   </section>"""
 
@@ -2334,10 +2270,21 @@ def _how_bold(ok_view: View1 | None = None, flag_view: View1 | None = None) -> s
         bd = {}
     checked = ((bd.get("reconciled") or 0) + (bd.get("flagged") or 0)
                if bd.get("reconciled") is not None else 0)
-    tested = (f"All {fmt_int(checked)} companies with a complete balance sheet are "
-              "checked against assets = liabilities + equity."
-              if checked else "Every balance sheet that reports its totals is checked "
-              "against assets = liabilities + equity.")
+    tested = (f"{fmt_int(checked)} companies&rsquo; latest balance sheets could be "
+              "tested. A sheet is checked against assets = liabilities + equity "
+              "where the filing reports the lines needed."
+              if checked else "A balance sheet is checked against assets = "
+              "liabilities + equity where the filing reports the lines needed.")
+    # The live per-reason counts, folded into the "What a flag means" step; a
+    # count that cannot be read is dropped, never zeroed.
+    names = (("rounding", "rounding"), ("missing_tag", "a line item did not reach us"),
+             ("unexplained", "no stated total to test against"),
+             ("broken", "a filing that does not balance"))
+    counts = bd.get("counts") or {}
+    by_reason = ", ".join(f"{_num(fmt_int(counts[k]))} {label}"
+                          for k, label in names if k in counts)
+    live = (f" Read on {escape(str(bd['computed_on']))} (UTC): {by_reason}."
+            if by_reason and bd.get("computed_on") else "")
     steps = (
         ("read", "Read the filing",
          "Figures come from the SEC Financial Statement Data Sets and the XBRL "
@@ -2350,8 +2297,8 @@ def _how_bold(ok_view: View1 | None = None, flag_view: View1 | None = None) -> s
          _how_bars(ok_view) if ok_view is not None else ""),
         ("flag", "What a flag means",
          "A reason, not an accusation: rounding, a line item that did not reach us, "
-         "no stated total, or a filing that does not balance. "
-         '<a href="/verification">Counts by reason</a>.',
+         "no stated total, or a filing that does not balance."
+         + live + ' <a href="/verification">Counts by reason</a>.',
          _how_bars(flag_view, flagged=True) if flag_view is not None else ""),
         ("back", "What you get back",
          "JSON with every line item, its period and its filing, over the API, the "
@@ -2370,7 +2317,7 @@ def _how_bold(ok_view: View1 | None = None, flag_view: View1 | None = None) -> s
     return f"""
   <section class="bsec" id="how">
     <div class="wrap">
-      <div class="secno"><span>05</span> Method</div>
+      <div class="secno"><span>04</span> Method</div>
       <h2 class="bigh" data-reveal>How the check works</h2>
       <p class="sec-sub bsub">{_HERO_METHOD}</p>
       <ol class="hrail" aria-label="Steps">{rail}</ol>
@@ -2393,7 +2340,7 @@ def _demo_band(card: str = "") -> str:
   </section>""", 1)
     return f"""
   <div class="cband c-y">
-    <div class="wrap"><div class="secno"><span>07</span> Try it</div>
+    <div class="wrap"><div class="secno"><span>05</span> Try it</div>
       <div class="bigcard democard">{inner}</div></div>
   </div>"""
 
@@ -2409,12 +2356,9 @@ def _trust() -> str:
          "the SEC's XBRL frames API. Every value is as filed, with the date of the "
          "filing it came from."),
         ("Enterprise", "Invoicing and a signed agreement, by email."),
-        ("Keys", "An API key is stored as a hash and shown once. Regenerate it from "
-         "the dashboard and the old one stops working."),
-        ("Payments", "Paid plans go through Stripe; card details never reach this "
-         "site. Paid plans have a 14-day refund window."),
         ("At the limit", "Calls past the monthly quota are refused with HTTP 429 "
-         "until the 1st (UTC). There is no overage billing."),
+         "until the 1st (UTC). There is no overage billing. Cancelling and refunds "
+         "are in the questions below; how keys are stored is on the security page."),
     )
     lis = "".join(f'<li data-reveal style="--i:{i % 3}"><b>{escape(t, quote=False)}.</b> '
                   f"{escape(b, quote=False)}</li>"
@@ -2422,7 +2366,7 @@ def _trust() -> str:
     return f"""
   <section class="bsec" id="trust">
     <div class="wrap">
-      <div class="secno"><span>09</span> Trust</div>
+      <div class="secno"><span>07</span> Trust</div>
       <h2 class="bigh" data-reveal>Before you depend on it</h2>
       <ul class="trustlist">{lis}</ul>
       <p class="method"><a href="/terms">Terms</a> &middot; <a href="/privacy">Privacy</a>
@@ -2469,26 +2413,6 @@ def _inspector(json_text: str) -> str:
         for i, (k, v) in enumerate(flat(json.loads(json_text)))
     )
     return f'<ul class="inspector">{rows}</ul>'
-
-def _get_started() -> str:
-    rows = (
-        ("#demo", "Call the live demo", "No key: a real response in your browser."),
-        ("/api", "Read the API docs", "Endpoints, plans and the response fields."),
-        (f"/blog/{_REPORT_SLUG}", "Read the 995-filing report", "Method, charts and the data."),
-    )
-    lis = "".join(f'<li><a class="gsrow" href="{h}"><span><b>{escape(t)}</b>'
-                  f'<small>{escape(s)}</small></span><span class="garrow" aria-hidden="true">&rarr;</span></a></li>'
-                  for h, t, s in rows)
-    return f"""
-  <section class="bsec" id="get-started">
-    <div class="wrap gs-grid">
-      <div><div class="secno"><span>11</span> Get started</div>
-        <h2 class="bigh" data-reveal>Get started easily.
-          <span class="tone">Three ways in, none of them needs a card.</span></h2></div>
-      <ul class="gslist">{lis}</ul>
-    </div>
-  </section>"""
-
 
 def render_home(
     pairs: list[tuple[Suggestion, View1 | None]],
@@ -2552,11 +2476,11 @@ def render_home(
     # reach a page that can say what is missing.
     drawable = sum(1 for _s, v in pairs if v is not None)
     skip = hero_view if (drawable > 1 and hero_view is not None) else object()
-    cards = "".join(
+    cards = "".join([
         _card(s, v, fact)
         for (s, v), fact in zip(pairs, facts, strict=True)
         if v is not skip
-    )
+    ][:3])
 
     if pairs:
         gallery = f"""
@@ -2600,28 +2524,24 @@ def render_home(
        FAQ, and the ask again in the dark closing band. `#how < #demo <
        #pricing` (test_pricing_demo_recovery). -->
   {_climb()}
+  {_proof_study(stats or {})}
   {_bold_hero(free_calls, sample_ticker)}
-  {_proof_bold(stats or {})}
   {_drawing_band(hero_bs, gallery)}
   {_built_for()}
   {_pipelines()}
-  {_reasons()}
-  {_cta_mid('Catch the filing that does not add up before your model does.')}
   {_how_bold(how_ok, flagged_view)}
-  {_outcomes()}
   {_cta_mid(f'Free tier: {free_calls:,} calls a month. No card, no password.')}
   {_demo_band(_memo("card", lambda: _code_card(sample_ticker, sample)))}
   <div class="bsec"><div class="wrap">
-  <div class="secno"><span>08</span> What it costs</div>
+  <div class="secno"><span>06</span> What it costs</div>
   {_pricing_summary(stats)}
   </div></div>
   {_trust()}
   <div class="bsec"><div class="wrap">
-  <div class="secno"><span>10</span> Questions</div>
+  <div class="secno"><span>08</span> Questions</div>
   {_plan_faq()}
 {disclaimer}
   </div></div>
-  {_get_started()}
   {_closing_band(free_calls, sample_ticker)}
   <div class="lfoot"><div class="wrap">
 {footer}

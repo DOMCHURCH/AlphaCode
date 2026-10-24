@@ -460,9 +460,9 @@ def test_the_landing_page_puts_the_key_and_a_real_call_before_showing_off(client
 
     body = client.get("/").text
     order = [
+        'class="climb-proof"',
         'class="htitle"',
         "data-keyform",
-        'class="proof"',
         "hero-bs",
         'id="use"',
         'id="pipelines"',
@@ -479,6 +479,14 @@ def test_the_landing_page_puts_the_key_and_a_real_call_before_showing_off(client
     assert body.index('href="/company/JPM"') > body.index('class="proof"')
     assert "Why SEC data breaks pipelines" in body
     assert 'class="example"' not in body
+    # The restructure (2026-10-23) cut these sections: their facts live in the
+    # study band, the method steps and the FAQ.
+    for gone in ('id="reasons"', 'id="outcomes"', 'id="get-started"'):
+        assert gone not in body, gone
+    assert body.count('class="ctamid"') == 1
+    # The section numbers run in order with no gaps.
+    nums = re.findall(r'class="secno[^"]*"><span>(\d+)</span>', body)
+    assert nums == [f"{i:02d}" for i in range(1, len(nums) + 1)], nums
 
 
 def test_the_nav_does_not_advertise_the_same_page_as_a_destination(client):
@@ -1613,6 +1621,10 @@ def test_the_nav_offers_a_key_and_the_demo_to_somebody_signed_out(client):
     about = client.get("/about").text.split("</nav>")[0]
 
     assert ">Live demo<" in home and 'href="#demo"' in home
+    for gone in (">About<", ">How we verify<", ">Dashboard<", 'id="nav-dash-off"'):
+        assert gone not in home, gone
+    for kept in (">Pricing<", ">Research<", ">API<"):
+        assert kept in home, kept
     assert 'href="#hero-email"' in home and home.count(">Get free key<") == 2, (
         "once in the bar (visible on a phone) and once in the links")
     assert 'href="/#demo"' in about and 'href="/dashboard"' in about
@@ -1629,8 +1641,8 @@ def test_the_footer_still_says_restatements(client):
 
 
 def test_the_why_note_uses_only_what_the_published_report_says(client):
-    """The three study numbers on the home page ("Why SEC data breaks
-    pipelines", third column) are the report's own, checked against the post."""
+    """The study numbers on the home page (the band under the climb) are the
+    report's own, checked against the post."""
     from pathlib import Path
 
     import src.report.blog as blog
@@ -1643,8 +1655,9 @@ def test_the_why_note_uses_only_what_the_published_report_says(client):
 
     _seed("JPM", _drawable(), sector="Financials")
     body = client.get("/").text
-    why = body.split('id="pipelines"', 1)[1].split("</section>", 1)[0]
-    assert f"/blog/{hp._REPORT_SLUG}" in why and "2026-10-09" in why
+    why = body.split('class="climb-proof"', 1)[1].split("</section>", 1)[0]
+    assert post.published == hp._REPORT_DATE
+    assert f"/blog/{hp._REPORT_SLUG}" in why and hp._REPORT_DATE in why
     assert "Dominique" not in why and "Church" not in why and "I'm" not in why and " I " not in why
     assert "995" in why and "38,568" in why and "971" in why
     for invented in ("customers", "testimonial", "trusted", "rated", "stars", "solo", "years old", "founder"):
@@ -1678,14 +1691,14 @@ def test_the_counts_on_the_page_are_computed_from_the_database(client):
     _seed("JPM", _drawable(), sector="Financials")
     _seed("MSFT", _drawable(), sector="Information Technology")
     two = " ".join(client.get("/").text.split())
-    assert "All 2 companies with a complete balance sheet" in two
+    assert "2 companies&rsquo; latest balance sheets could be tested" in two
 
     _seed("WMT", _drawable(), sector="Consumer Staples")
     reset_identity_cache()
     reset_counts_cache()
     reset_breakdown_cache()
     three = " ".join(client.get("/").text.split())
-    assert "All 3 companies with a complete balance sheet" in three
+    assert "3 companies&rsquo; latest balance sheets could be tested" in three
     assert "3 companies covered" in " ".join(re.sub(r"<[^>]+>", " ", three).split())
     assert "genuinely fail" not in three
     ver = " ".join(re.sub(r"<[^>]+>", " ", client.get("/verification").text).split())
@@ -1727,11 +1740,12 @@ def test_the_restored_sections_are_short_lists_from_live_counts(client):
     why = body.split('id="pipelines"', 1)[1].split("</section>", 1)[0]
     trust = body.split('id="trust"', 1)[1].split("</section>", 1)[0]
 
-    assert len(re.findall(r'class="pcol[ "]', why)) == 3
+    # Two columns now (the study column moved up into the band under the climb).
+    assert len(re.findall(r'class="pcol[ "]', why)) == 2
     for block in re.split(r'class="pcol[ "]', why)[1:]:
         text = re.sub(r"<[^>]+>", "", block.split("<p>", 1)[1].split("</p>", 1)[0])
         assert len(text) < 380, "a few lines, not a paragraph"
-    assert 5 <= len(re.findall(r"<li[ >]", trust)) <= 7 and "No predictions" in trust
+    assert len(re.findall(r"<li[ >]", trust)) == 4 and "No predictions" in trust
     assert "one time in five" not in " ".join(body.lower().split())
 
 
@@ -1946,3 +1960,27 @@ def test_the_footer_columns_are_not_a_nav_element_which_the_header_rules_style(c
     footer = client.get("/about").text.split("<footer>", 1)[1].split("</footer>", 1)[0]
     assert "<nav" not in footer
     assert 'role="navigation" aria-label="Site"' in footer
+
+
+def test_the_study_band_figures_are_the_dated_constants_and_nothing_overclaims(client):
+    """The band under the climb prints the frozen _REPORT_* figures (not live
+    counts), and no copy on the home page says every filing or sheet is checked:
+    the claim is "checked where the filing reports the lines needed"."""
+    import src.report.home_page as hp
+
+    _seed("JPM", _drawable(), sector="Financials")
+    body = client.get("/").text
+    band = body.split('class="climb-proof"', 1)[1].split('class="bproof"', 1)[0]
+    flat = " ".join(re.sub(r"<[^>]+>", " ", band).split())
+    assert re.search(r'class="cp-fig"[^>]*>' + re.escape(
+        f"{hp._REPORT_FAILED:,} of {hp._REPORT_TESTED:,}") + "<", band)
+    assert f"on {hp._REPORT_DATE}. In {hp._REPORT_OURS:,} of them" in flat
+    assert f"{hp._REPORT_FAILED:,} failed" in flat and "dotfield" in band
+    assert hp._proof_study({}).count(f"{hp._REPORT_TESTED:,}") >= 2
+
+    text = " ".join(re.sub(r"<[^>]+>", " ", re.sub(r"<script.*?</script>", "", body, flags=re.S)).split())
+    low = text.lower().replace("&rsquo;", "'")
+    for banned in ("every sheet", "every filing", "every balance sheet", "every one that can be tested",
+                   "all filings are checked", "all balance sheets are checked"):
+        assert banned not in low, banned
+    assert "checked against A = L + E where the filing reports the lines needed" in text

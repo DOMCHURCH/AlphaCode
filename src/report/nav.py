@@ -22,8 +22,6 @@ from html import escape
 
 # (label, href, key). `key` matches the `active` argument.
 _LINKS = (
-    ("About", "/about", "about"),
-    ("How we verify", "/methodology", "methodology"),
     ("Pricing", "/pricing", "pricing"),
     ("Research", "/blog", "blog"),
     ("API", "/api", "api"),
@@ -59,24 +57,9 @@ def render_nav(
             ' href="/dashboard">Dashboard</a>'
         )
     else:
-        # A disabled anchor is not a thing: <a> without href is not focusable
-        # and role=link with aria-disabled is announced as a link that lies. A
-        # button carrying aria-disabled is the honest shape -- reachable by
-        # keyboard, announced as unavailable, and able to say why when pressed.
-        # The reason is carried in the markup, not behind an interaction:
-        # `title` is a desktop hover and nothing at all on a phone, and a
-        # control marked aria-disabled should not need to be operated to find
-        # out why it is disabled. The visually-hidden span means a screen
-        # reader hears "Dashboard, log in to access your dashboard, dimmed"
-        # without clicking anything. The click handler in nav.js is a bonus for
-        # sighted touch users, not the only way to the explanation.
-        dash = (
-            '<button type="button" class="navlink off" id="nav-dash-off"'
-            ' aria-disabled="true"'
-            ' title="Log in to access your dashboard">Dashboard'
-            '<span class="vh">, log in to access your dashboard</span>'
-            "</button>"
-        )
+        # Signed out there is no Dashboard item (2026-10-23): a dimmed button
+        # that only says "log in" repeated the Sign in link beside it.
+        dash = ""
 
     if signed_in:
         # IDs kept as dashboard.js expects them: it also fills this in for a
@@ -304,6 +287,7 @@ def render_footer(extra: str = "") -> str:
       </div>
       <div class="foot-col"><p class="foot-h">Company</p>
         <a href="/about">About</a>
+        <a href="/login">Sign in</a>
         <a href="/security">Security</a>
         <a href="/changelog">Changelog</a>
         <a href="/terms">Terms</a>

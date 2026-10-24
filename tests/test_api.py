@@ -973,9 +973,14 @@ def test_the_company_page_has_a_way_back(client):
     nav = text.split("<nav>", 1)[1].split("</nav>", 1)[0]
 
     assert 'class="brand" href="/"' in nav
-    for href in ("/about", "/methodology", "/pricing", "/blog", "/api"):
+    for href in ("/pricing", "/blog", "/api"):
         assert f'href="{href}"' in nav, f"{href} missing from the company nav"
-    assert "Dashboard" in nav
+    # About and How we verify moved to the footer, with Sign in (2026-10-23);
+    # the dimmed signed-out Dashboard button is gone.
+    footer = text.split("<footer>", 1)[1]
+    for href in ("/about", "/methodology", "/login"):
+        assert f'href="{href}"' in footer, f"{href} missing from the footer"
+    assert "Dashboard" not in nav
 
 
 def test_the_not_found_page_has_a_way_back_too(client):

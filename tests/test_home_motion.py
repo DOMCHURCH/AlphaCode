@@ -309,14 +309,32 @@ def test_the_climb_reads_as_one_finished_still_without_script(client):
     assert "climb-fig" not in body and "<svg" not in body.split('class="climb"', 1)[1].split("</section>", 1)[0]
     text = " ".join(re.sub(r"<[^>]+>", " ", no_script).split()).replace("&rsquo;", "'")
     for line in ("Every number has to hold its ground.",
+                 "Know which SEC balance sheets don't add up before your model does.",
+                 "An API for data pipelines and AI-finance teams.",
+                 "Statements are checked against A = L + E where the filing reports "
+                 "the lines needed.",
                  "Up here, assets equal liabilities plus equity, or we tell you why not.",
-                 "Climb past the noise.",
-                 "Thousands of filings climb onto the SEC each quarter.",
-                 "Balance-checked SEC financials, delivered as an API.",
-                 "Here's how it works."):
+                 "Climb past the noise."):
         assert line in text, line
+    # One way in from the first frame: a solid CTA to the hero's key field. The
+    # old side paragraph ("every one that can be tested") and the second
+    # statement of the H1 ("Here's how it works") are gone.
+    climb = no_script.split('class="climb"', 1)[1].split("</section>", 1)[0]
+    assert re.search(r'<a class="climb-cta" href="#hero-email">Get free key</a>', climb)
+    assert "climb-side" not in body and "climb-next" not in body
+    assert "We check every one" not in text and "Here's how it works" not in text
+    # ...and the study sits straight after it, on the same page, with the
+    # frozen figures from the dated report (tests/test_home_and_search ties
+    # them to the post).
+    import src.report.home_page as hp
+    study = no_script.split('class="climb-proof"', 1)[1].split("</section>", 1)[0]
+    flat = " ".join(re.sub(r"<[^>]+>", " ", study).split())
+    assert f"{hp._REPORT_FAILED:,} of {hp._REPORT_TESTED:,}" in flat
+    assert (f"SEC filings failed our balance sheet check on {hp._REPORT_DATE}. In "
+            f"{hp._REPORT_OURS:,} of them a line item did not reach us.") in flat
+    assert f'href="/blog/{hp._REPORT_SLUG}">Read the study<' in study
     # The scene sits before the hero, so the hero's own order is untouched.
-    assert body.index('class="climb"') < body.index('class="htitle"')
+    assert body.index('class="climb"') < body.index('class="climb-proof"') < body.index('class="htitle"')
     # Track height, sticky stage and hidden start states are motion-only.
     for sel, body_ in _rules(CSS):
         if "climb" not in sel:
@@ -335,7 +353,7 @@ def test_the_climb_display_line_is_not_a_second_h1(client):
     _seed("JPM", _drawable(), sector="Financials")
     body = client.get("/").text
     assert body.count("<h1") == 1
-    assert re.search(r'<p class="climb-line"[^>]*>Every number has to hold its ground\.</p>', body)
+    assert re.search(r'<p class="climb-line"[^>]*>\s*Know which SEC balance sheets\s+don&rsquo;t add up before your model does\.</p>', body)
 
 
 def test_the_climb_images_exist_are_small_and_are_referenced(client):

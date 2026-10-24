@@ -314,7 +314,7 @@ body[data-theme="light"] main.lhome .card :is(p, span, small) { color: var(--ink
 .lhome .pb-all { background: var(--a6); border-radius: 0 3px 3px 0; }
 .lhome .pb-fail { background: var(--red); border-radius: 3px 0 0 3px; }
 @media (min-width: 960px) {
-  .lhome .pcols { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .lhome .pcols { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .lhome .pcol { grid-template-columns: 1fr; padding: 24px 28px 28px 0; border-bottom: 0; align-content: start; }
   .lhome .pcol + .pcol { padding-left: 28px; border-left: 1px solid var(--rule); }
   .lhome .pnum { grid-row: auto; }
@@ -403,7 +403,7 @@ body[data-theme="light"] #pricing h2 { font-size: var(--h2); }
 .lhome .trustlist li { padding: 18px 0; color: var(--ink2); border-bottom: 1px solid var(--rule);
   font-size: 16px; }
 .lhome .trustlist b { color: var(--ink); display: block; font-weight: 500; margin-bottom: 2px; }
-@media (min-width: 900px) { .lhome .trustlist { grid-template-columns: repeat(3, 1fr); column-gap: 32px; } }
+@media (min-width: 900px) { .lhome .trustlist { grid-template-columns: repeat(2, 1fr); column-gap: 48px; } }
 body[data-theme="light"] #trust .method { background: transparent; border: 0; padding: 0; margin-top: 18px; }
 
 /* ---- 10. FAQ, get started, closing band, footer ---- */
@@ -505,15 +505,6 @@ body[data-theme="light"] .lhome .bhero .sfield:focus-within { border-color: var(
 .lhome .hledger figcaption { color: #9CA0B4; }
 .lhome .hledger code { color: #fff; }
 
-/* The strip: a dark band under the hero, the counts set large. */
-.lhome .bproof { background: var(--night); color: #E9EAF0; padding: clamp(48px, 6vw, 80px) 0 clamp(40px, 5vw, 64px); }
-.lhome .bproof .proof-lead { color: #fff; }
-.lhome .bproof .num { color: var(--yellow); }
-.lhome .bproof .proof, .lhome .bproof .pcell { border-color: rgba(255, 255, 255, .14); }
-.lhome .bproof .pk { color: #9CA0B4; }
-.lhome .bproof .pv { color: #fff; }
-.lhome .bproof a { color: #A9B7FF; }
-
 /* The story on a cream band; white panels on it. */
 .lhome .storysec { background: var(--cream); padding-bottom: clamp(56px, 7vw, 96px); }
 .lhome .storysec .secno { border-top-color: rgba(11, 12, 18, .16); }
@@ -573,13 +564,13 @@ body[data-theme="light"] #pricing .plan.popular .plan-price :is(span, small, em)
    Static, always: soft brand-colour shapes in CSS. With motion and WebGL,
    home-bg.js draws the same shapes drifting on the canvas above them; if
    WebGL or the script fails, this is what shows. */
-.lhome .bhero, .lhome .bproof, .lhome #use, .lhome .closing { position: relative; isolation: isolate; overflow: clip; }
+.lhome .bhero, .lhome #use, .lhome .closing { position: relative; isolation: isolate; overflow: clip; }
 .lhome .bg { position: absolute; inset: -10% 0; z-index: -1; pointer-events: none;
   background:
     radial-gradient(42% 55% at 16% 32%, rgba(35, 64, 190, .12), transparent 70%),
     radial-gradient(36% 48% at 84% 68%, rgba(234, 81, 72, .10), transparent 70%),
     radial-gradient(30% 40% at 62% 10%, rgba(247, 216, 72, .18), transparent 70%); }
-.lhome .bproof .bg, .lhome .band.dark .bg {
+.lhome .band.dark .bg {
   background:
     radial-gradient(42% 55% at 18% 30%, rgba(35, 64, 190, .34), transparent 70%),
     radial-gradient(36% 48% at 82% 72%, rgba(234, 81, 72, .20), transparent 70%),
@@ -781,7 +772,7 @@ body[data-theme="light"] .lhome .sfield button::after, .lhome .btn-key::after { 
    cards sideways; the card in front is marked; a line shows how far. */
 @media (min-width: 900px) and (min-height: 700px) {
   .motion.rail-on #use { padding: 0; }
-  .motion.rail-on #use .rail-pin { height: 320vh; position: relative; }
+  .motion.rail-on #use .rail-pin { height: 170vh; position: relative; }
   .motion.rail-on #use .rail-stage { position: sticky; top: 64px; height: calc(100vh - 64px);
     display: flex; align-items: center; overflow: hidden; }
   .motion.rail-on #use .rail-stage > .wrap { width: 100%; }
@@ -803,7 +794,7 @@ body[data-theme="light"] .lhome .sfield button::after, .lhome .btn-key::after { 
      their top edges showing above it. Each step is a full screen of scroll.
      home-story.js sets the transforms and --shade; this is the layout. */
   .motion.how-on .hstory { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); column-gap: 64px; border-top: 0; }
-  .motion.how-on .hstep { grid-column: 1; min-height: 140vh; padding-top: 24vh; border-top: 1px solid var(--rule); }
+  .motion.how-on .hstep { grid-column: 1; min-height: 85vh; padding-top: 10vh; border-top: 1px solid var(--rule); }
   .motion.how-on .hlayer { grid-column: 2; grid-row: 1 / span 4; position: sticky; top: calc(64px + 12vh);
     align-self: start; margin: 24vh 0 0; max-width: none;
     /* One height for every card, so a card behind never shows below the one
@@ -933,36 +924,66 @@ body[data-theme="light"] .lhome .lfoot footer { color: #B9BCCB !important; }
 .lhome .climb-bubble p { margin: 0; }
 .lhome .climb-bubble .b1 { font-family: var(--serif); font-weight: 400; font-size: 14.5px; line-height: 1.32; }
 .lhome .climb-bubble .b2 { font-size: 13px; font-weight: 500; color: var(--blue); margin-top: 7px; letter-spacing: .01em; }
-.lhome .climb-copy { position: relative; padding: 28px clamp(16px, 4vw, 48px) 44px; max-width: 1240px; margin: 0 auto; }
-.lhome .climb-line { font-family: var(--serif); font-weight: 300; font-size: clamp(34px, 9vw, 72px);
-  line-height: 1.04; letter-spacing: -.02em; margin: 0 0 16px; max-width: 12ch; color: #fff; }
-.lhome .climb-side { font-size: 16px; line-height: 1.55; color: rgba(255, 255, 255, .8); margin: 0; max-width: 34ch; }
-.lhome .climb-next { position: relative; color: #fff; padding: clamp(56px, 8vw, 96px) 0 clamp(64px, 9vw, 112px);
-  background: linear-gradient(180deg, rgba(20, 26, 56, 1) 0, rgba(35, 64, 190, .0) 34%),
-    linear-gradient(180deg, #1F44C6 0, #3E66E4 46%, #CAD8FD 82%, var(--off) 100%); }
-.lhome .climb-next p { font-family: var(--serif); font-weight: 300; font-size: clamp(26px, 3.2vw, 44px);
-  line-height: 1.15; letter-spacing: -.01em; margin: 0 auto; max-width: 1240px; }
-.lhome .climb-next p { text-shadow: 0 1px 18px rgba(11, 12, 18, .25); }
-.lhome .climb-next a { color: #fff; text-decoration-thickness: 1px; text-underline-offset: .16em; }
+.lhome .climb-copy { position: relative; isolation: isolate; padding: 28px clamp(16px, 4vw, 48px) 44px;
+  max-width: 1240px; margin: 0 auto; }
+/* A scrim behind the words, so white holds on the pale sky: dark at the copy's
+   edge, none where the scene should show. */
+.lhome .climb-copy::before { content: ""; position: absolute; z-index: -1; pointer-events: none; display: none;
+  inset: -28px 0 0; background: linear-gradient(180deg, rgba(5, 6, 12, .55), rgba(5, 6, 12, 0)); }
+.lhome .climb-eyebrow { font-weight: 500; font-size: 13px; line-height: 1.3; letter-spacing: .14em; text-transform: uppercase;
+  color: rgba(255, 255, 255, .86); margin: 0 0 14px; }
+.lhome .climb-line { font-family: var(--serif); font-weight: 300; font-size: clamp(28px, 8vw, 38px);
+  line-height: 1.06; letter-spacing: -.02em; margin: 0 0 14px; max-width: 16ch; color: #fff;
+  text-shadow: 0 2px 24px rgba(5, 6, 12, .6); }
+.lhome .climb-sub { font-size: 15.5px; line-height: 1.5; color: rgba(255, 255, 255, .9); margin: 0 0 20px;
+  max-width: 38ch; text-shadow: 0 1px 14px rgba(5, 6, 12, .75); }
+.lhome .climb-cta { display: flex; align-items: center; justify-content: center; box-sizing: border-box;
+  min-height: 48px; width: 100%; padding: 0 28px; border-radius: 999px; background: #fff; color: var(--ink);
+  font-weight: 600; font-size: 16px; text-decoration: none; }
+.lhome .climb-cta:hover { background: var(--yellow); }
+.lhome .climb-cta:focus-visible { outline: 3px solid var(--yellow); outline-offset: 3px; }
+/* The study band: ink on cream, under the climb in every mode (the sky ends on
+   this cream, so the page carries straight on from it). */
+.lhome .climb-proof { position: relative; color: var(--ink); padding: clamp(56px, 8vw, 96px) 0 clamp(40px, 5vw, 64px);
+  background: linear-gradient(180deg, var(--cream) 0, var(--off) 100%); }
+.lhome .cp-head { display: grid; gap: 14px 48px; align-items: end; }
+.lhome .cp-fig { font: 300 clamp(52px, 7.2vw, 108px)/.95 var(--serif); letter-spacing: -.03em; margin: 0;
+  color: var(--ink); font-variant-numeric: tabular-nums; }
+.lhome .cp-text { font: 300 clamp(20px, 2.2vw, 28px)/1.3 var(--serif); letter-spacing: -.01em; margin: 0; max-width: 40ch; }
+.lhome .cp-link { color: var(--blue); white-space: nowrap; }
+.lhome .climb-proof .dotfield { margin-top: 36px; }
+.lhome .climb-proof .bproof { margin-top: 40px; padding: 0; }
 @media (min-width: 900px) {
+  .lhome .cp-head { grid-template-columns: auto minmax(0, 1fr); }
   .lhome .climb-view { height: clamp(640px, calc(100svh - 64px), 980px); }
   .lhome .climb-art { position: absolute; inset: 0; height: auto; }
-  .lhome .climb-copy { position: absolute; inset: 0; padding: 0; max-width: none; pointer-events: none; z-index: 2; }
+  .lhome .climb-copy { position: absolute; top: 0; bottom: 0; left: 0; box-sizing: border-box;
+    width: clamp(330px, 39vw, 640px); padding: 0 0 0 clamp(24px, 5vw, 80px); max-width: none; margin: 0;
+    pointer-events: none; z-index: 2; }
   .lhome .climb-copy > * { pointer-events: auto; }
-  .lhome .climb-line { position: absolute; left: clamp(24px, 5vw, 80px); top: 13%; max-width: 9.5ch;
-    font-size: clamp(44px, 4.6vw, 74px); text-shadow: 0 2px 28px rgba(5, 6, 12, .55); }
-  .lhome .climb-side { position: absolute; right: clamp(24px, 5vw, 80px); top: 15%; max-width: 30ch;
-    text-shadow: 0 1px 16px rgba(5, 6, 12, .7); }
+  .lhome .climb-copy::before { display: block; inset: 0 -14vw 0 0;
+    background: linear-gradient(90deg, rgba(5, 6, 12, .55) 0, rgba(5, 6, 12, .4) 60%, rgba(5, 6, 12, 0) 100%); }
+  .lhome .climb-eyebrow { margin-top: 11%; }
+  .lhome .climb-line { font-size: clamp(36px, 3.8vw, 60px); max-width: 18ch; }
+  .lhome .climb-sub { font-size: 16px; max-width: 40ch; }
+  .lhome .climb-cta { display: inline-flex; width: auto; }
   .lhome .climb-art { --bymin: 196px; }
   .lhome .climb-bubble { --stem: 34px; width: 300px; padding: 13px 16px 14px; }
   .lhome .climb-bubble .b1 { font-size: 18px; }
+}
+/* The still (motion off, or no script) at 900-1199px: the copy and a bubble
+   centred on the beam would touch, so the bubble stands on the beam's right
+   half instead (the hairline still lands on the beam). With motion on the copy
+   has faded out before the bubble appears, so nothing changes there. */
+@media (min-width: 900px) and (max-width: 1199px) {
+  html:not(.motion) .lhome .climb-bubble { left: 60%; }
 }
 /* Motion, wide screens only: the layered scene instead of the still, a tall
    track, the stage held while it scrubs, and the states the timeline starts
    from. The heights come from CSS, set before first paint, so nothing shifts
    when the script arrives. */
 @media (min-width: 900px) and (min-height: 700px) {
-  .motion .climb-stage { height: 420vh; }
+  .motion .climb-stage { height: 330vh; }
   .motion .climb-view { position: sticky; top: 64px; height: calc(100vh - 64px); }
   .motion .climb-still { display: none; }
   .motion .climb-scene { display: block; position: absolute; inset: 0; }
@@ -979,10 +1000,6 @@ body[data-theme="light"] .lhome .lfoot footer { color: #B9BCCB !important; }
      like the towers plate (it also holds the glow) and the sky (it also has
      its gradient) already are. */
   .motion .climb-ridges, .motion .climb-fg, .motion .climb-cloud { background: rgba(0, 0, 0, .004); }
-  /* The sky ends on cream, so the page below carries straight on from it. */
-  .motion .climb-next { background: linear-gradient(180deg, var(--cream) 0, var(--off) 100%); color: var(--ink); }
-  .motion .climb-next p { text-shadow: none; }
-  .motion .climb-next a { color: var(--blue); }
 }
 /* Motion, portrait phones and tablets (2026-10-21): the same layered climb.
    The 16:9 frame is sized to the width instead of the height (217cqw puts the
@@ -991,7 +1008,7 @@ body[data-theme="light"] .lhome .lfoot footer { color: #B9BCCB !important; }
    sits over the top of the sky. Landscape phones (under 560px tall) keep the
    still. */
 @media (max-width: 899px) and (min-height: 560px) {
-  .motion .climb-stage { height: 340vh; }
+  .motion .climb-stage { height: 280vh; }
   .motion .climb-view { position: sticky; top: 64px; height: calc(100svh - 64px); }
   .motion .climb-art { position: absolute; inset: 0; height: auto; --fw: 217cqw; --bymin: 210px; }
   .motion .climb-still { display: none; }
@@ -1008,11 +1025,23 @@ body[data-theme="light"] .lhome .lfoot footer { color: #B9BCCB !important; }
      nearest layer is still there to split away. */
   .motion .climb-fg-l { left: calc(var(--fw) * -.07); }
   .motion .climb-fg-r { left: calc(100% + var(--fw) * .07 - var(--fw) * .1998); }
-  .motion .climb-copy { position: absolute; left: 0; right: 0; top: 0; z-index: 2; padding: 28px 20px 0; }
-  .motion .climb-line { font-size: clamp(34px, 10vw, 48px); max-width: 10ch; margin-bottom: 12px;
-    text-shadow: 0 2px 24px rgba(5, 6, 12, .6); }
-  .motion .climb-side { font-size: 15px; max-width: 32ch; text-shadow: 0 1px 14px rgba(5, 6, 12, .75); }
-  .motion .climb-next { background: linear-gradient(180deg, var(--cream) 0, var(--off) 100%); color: var(--ink); }
-  .motion .climb-next p { text-shadow: none; }
-  .motion .climb-next a { color: var(--blue); }
+  .motion .climb-copy { position: absolute; left: 0; right: 0; top: 0; z-index: 2; padding: 24px 20px 0; max-width: none; margin: 0; }
+  .motion .climb-copy::before { display: block; inset: 0 0 -60px; }
+}
+
+/* The "Get free key" links (the climb's, the bar's, the mid band's) jump to the
+   email field: scroll-margin keeps it clear of the sticky bar and shows the
+   lines above it instead of landing it flush under the nav. */
+.lhome #hero-email, .lhome #cta-email { scroll-margin-top: 42vh; }
+
+/* The shared stylesheet pads every <main> with 6px above and 72px below; the home
+   page is made of full-bleed bands, so that showed as a cream strip under the
+   nav and another under the footer. */
+main.lhome { padding: 0; }
+
+/* The phone menu is a dark panel (glass.css) but the light theme inks its links
+   dark, which left them unreadable; give the panel the page's own light surface. */
+@media (max-width: 720px) {
+  .nav-js body[data-theme="light"] .navlinks { background: var(--off); border: 1px solid var(--edge-soft);
+    box-shadow: 0 18px 40px -18px rgba(11, 12, 18, .35); }
 }
