@@ -224,22 +224,11 @@
     tl.to($(".climb-cloud-a"), { yPercent: -168, duration: 3.2 }, 6.8);
   }
 
-  /* Depth: gradient layers and the hero's ledger move at different rates. */
-  function parallax() {
-    var gsap = window.gsap;
-    var hero = $(".bhero");
-    if (hero) {
-      gsap.to($(".bhero .bg"), { yPercent: 18, ease: "none",
-        scrollTrigger: { trigger: hero, start: "top top", end: "bottom top", scrub: true } });
-      var led = $(".hledger");
-      if (led) gsap.to(led, { y: -48, ease: "none",
-        scrollTrigger: { trigger: hero, start: "top top", end: "bottom top", scrub: true } });
-    }
-    $$(".bproof .bg, #use .bg, .closing .bg").forEach(function (bg) {
-      gsap.fromTo(bg, { yPercent: -8 }, { yPercent: 8, ease: "none",
-        scrollTrigger: { trigger: bg.parentNode, start: "top bottom", end: "bottom top", scrub: true } });
-    });
-  }
+  /* Depth: gradient layers and the hero's ledger used to move at different
+     rates here. Removed 2026-10-23: scrolling a layer that holds a live WebGL
+     canvas smeared the hero's text on the owner's two-GPU laptop (copies of the
+     headline repeated down the page). The backgrounds now stay put. */
+  function parallax() { /* intentionally empty */ }
 
   function up() {
     if (state || !root.classList.contains("motion") || !ready()) return;

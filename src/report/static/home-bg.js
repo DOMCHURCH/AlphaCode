@@ -99,8 +99,14 @@
   }
   function kick() { if (!raf && items.length) raf = window.requestAnimationFrame(frame); }
 
+  // OFF (2026-10-23). Four low-power WebGL contexts sitting under the hero and
+  // the bands, one of them scrolled by a transform, smeared the hero on the
+  // owner's two-GPU laptop. The static gradient in home-light.css (`.bg`) is the
+  // background now. Set true to bring the drifting version back.
+  var ENABLED = false;
+
   function up() {
-    if (items.length || !root.classList.contains("motion")) return;
+    if (!ENABLED || items.length || !root.classList.contains("motion")) return;
     try {
       document.querySelectorAll("canvas.bg-gl").forEach(function (c) {
         var it = make(c);

@@ -1837,7 +1837,7 @@ def _bold_hero(free_calls: int, ticker: str) -> str:
     <div class="bg" aria-hidden="true"><canvas class="bg-gl" data-tone="light"></canvas></div>
     <div class="bhero-in wrap">
       <header class="hero">
-        <p class="hero-eyebrow"><span class="edot" aria-hidden="true"></span>SEC EDGAR &middot; every sheet checked against A = L + E</p>
+        <p class="hero-eyebrow"><span class="edot" aria-hidden="true"></span>SEC EDGAR &middot; checked against A = L + E where the filing allows</p>
         <h1 class="htitle">Balance-checked SEC financials for <em>production</em> data pipelines.</h1>
         <p class="hlede">Each statement is checked against assets = liabilities +
           equity where the filing reports the lines needed, and returned with the
